@@ -7,9 +7,9 @@
 // bloqueada para clientes hasta que alguien la clasifique aquí.
 
 export type Modulo =
-  | 'radar' | 'negocios' | 'viabilidad' | 'ia_chat' | 'auditor' | 'costeo' | 'anexos' | 'compras' | 'entregas' | 'competencia';
+  | 'radar' | 'negocios' | 'viabilidad' | 'resultado' | 'ia_chat' | 'auditor' | 'costeo' | 'anexos' | 'compras' | 'entregas' | 'competencia';
 
-export const TODOS_LOS_MODULOS: Modulo[] = ['radar', 'negocios', 'viabilidad', 'ia_chat', 'auditor', 'costeo', 'anexos', 'compras', 'entregas', 'competencia'];
+export const TODOS_LOS_MODULOS: Modulo[] = ['radar', 'negocios', 'viabilidad', 'resultado', 'ia_chat', 'auditor', 'costeo', 'anexos', 'compras', 'entregas', 'competencia'];
 export const MODULOS_BASE: Modulo[] = ['radar', 'negocios'];
 /** Módulos que se pueden activar a una empresa-cliente HOY. Los demás todavía leen tablas sin separar por empresa (Compras, Auditor, Anexos…):
  *  activarlos le mostraría datos de Grupo ICA. Se agregan aquí uno por uno, DESPUÉS de separar sus tablas por empresa y probarlo
@@ -18,10 +18,37 @@ export const MODULOS_BASE: Modulo[] = ['radar', 'negocios'];
  *  (Dashboard, uno por menú y el de cada licitación), todos separados por empresa (chat-global.ts / chat-licitacion.ts); el de cada menú además
  *  exige el módulo de ese menú. Las otras rutas de IA que colgaban de él siguen solo para ICA (ver REGLAS).
  *  Costeo (2026-11-10): rutas con dueño (guardia en proxy.ts), lee la viabilidad de la empresa (`informe-viabilidad.ts`), sin datos de ICA. Requiere Viabilidad. */
-export const MODULOS_ACTIVABLES: Modulo[] = ['radar', 'negocios', 'viabilidad', 'costeo', 'ia_chat'];
+export const MODULOS_ACTIVABLES: Modulo[] = ['radar', 'negocios', 'viabilidad', 'resultado', 'costeo', 'ia_chat'];
+
+// ── Planes (2026-11-18, regla del dueño) ──────────────────────────────────────────────────────────────────────────────
+// Todas las empresas ven el MISMO LICITANK; el plan solo decide qué aparece en los menús. Módulos efectivos = los del plan + los
+// adicionales marcados a mano en /admin/clientes (`clientes.modulos`), y nunca más que MODULOS_ACTIVABLES.
+// Básico: Buscador, Radar, Puente, Dashboard (módulo radar) y Negocios; dentro del negocio sin Viabilidad, Resultado, Auditor ni Postulación.
+// Pro: Básico + Viabilidad, Resultado, Costeo, Auditor, Postulación (anexos) y Competencia. Auditor, Anexos y Competencia entran solos
+// al Pro el día que se sumen a MODULOS_ACTIVABLES. Consulta a la IA (ia_chat), Compras y Entregas van aparte, como adicionales.
+// «Resultado» (pestaña Resultado del negocio) es solo de la pantalla: su API (/api/licitacion-adjudicacion) es de Negocios porque
+// también la usa /adjudicadas, y son datos públicos de Mercado Público.
+export type Plan = 'BASICO' | 'PRO';
+export const PLANES: Plan[] = ['BASICO', 'PRO'];
+export const NOMBRE_PLAN: Record<Plan, string> = { BASICO: 'Básico', PRO: 'Pro' };
+export const MODULOS_DEL_PLAN: Record<Plan, Modulo[]> = {
+  BASICO: ['radar', 'negocios'],
+  PRO:    ['radar', 'negocios', 'viabilidad', 'resultado', 'costeo', 'auditor', 'anexos', 'competencia'],
+};
+
+/** `clientes.plan` → plan vigente. Lo viejo ('BASE', 'EQUIPO', vacío) cuenta como Básico. */
+export function normalizarPlan(plan: unknown): Plan {
+  return String(plan ?? '').trim().toUpperCase() === 'PRO' ? 'PRO' : 'BASICO';
+}
+
+/** Módulos que de verdad usa una empresa-cliente: los de su plan + sus adicionales, solo los ya separados por empresa. */
+export function modulosDeCliente(plan: unknown, adicionalesJson: unknown): Modulo[] {
+  const set = new Set<Modulo>([...MODULOS_DEL_PLAN[normalizarPlan(plan)], ...(adicionalesJson == null ? [] : modulosEfectivos(adicionalesJson))]);
+  return TODOS_LOS_MODULOS.filter(m => set.has(m) && MODULOS_ACTIVABLES.includes(m));
+}
 
 export const NOMBRE_MODULO: Record<Modulo, string> = {
-  radar: 'Radar', negocios: 'Negocios', viabilidad: 'Viabilidad IA', ia_chat: 'Consulta a la IA', auditor: 'Auditor',
+  radar: 'Radar', negocios: 'Negocios', viabilidad: 'Viabilidad IA', resultado: 'Resultado', ia_chat: 'Consulta a la IA', auditor: 'Auditor',
   costeo: 'Costeo', anexos: 'Anexos', compras: 'Compras', entregas: 'Entregas', competencia: 'Ofertas de la competencia',
 };
 
@@ -31,6 +58,7 @@ export const PERMISOS_DEL_MODULO: Record<Modulo, string[]> = {
   radar:      ['acceso_radar', 'repartir_puente', 'alertas_anexos'],
   negocios:   ['ver_otros_negocios', 'exportar'],
   viabilidad: ['comentar_viabilidad', 'viabilidad_automatica'],
+  resultado:  [],
   ia_chat:    ['chat_licitacion', 'chat_global'],
   auditor:    ['auditor_tecnico', 'auditor_compra', 'auditor_aprobar', 'aprobar_comercial'],
   costeo:     ['costeo_editor', 'costeo_ver','costeo_exportar', 'costeo_agregar_fila', 'costeo_agregar_gasto', 'costeo_agregar_adicional', 'costeo_editar_postulado'],

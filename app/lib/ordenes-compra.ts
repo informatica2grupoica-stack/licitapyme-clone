@@ -23,7 +23,7 @@
 // cambia de estado. Por eso se guarda el estado anterior — es lo que permite avisar "la OC pasó a
 // Aceptada" en vez de repetir la misma notificación todos los días.
 import pool from '@/app/lib/db';
-import { CLIENTE_ICA } from '@/app/lib/tenant';
+import { CLIENTE_ICA, codigoAlmacenDocs } from '@/app/lib/tenant';
 import { getMercadoPublicoClient } from '@/app/lib/mercado-publico';
 import { publicar } from '@/app/lib/sse-bus';
 import { enviarAvisoOrdenesCompra } from '@/app/lib/email';
@@ -95,15 +95,28 @@ export function rutNormalizado(v: unknown): string {
   return String(v || '').replace(/[^0-9kK]/g, '').toUpperCase();
 }
 
-interface EmpresaNuestra { id: number; razon_social: string | null; rut: string | null }
+interface EmpresaNuestra { id: number; razon_social: string | null; rut: string | null; cliente_id: number }
 
+/** Razones sociales de TODAS las empresas-cliente (multiempresa, 2026-11-18). Cada OC «nuestra» queda a nombre de la empresa dueña del RUT. */
 async function empresasNuestras(): Promise<EmpresaNuestra[]> {
   const [rows] = await pool.query(
-    // Solo las razones sociales de Grupo ICA: este cruce vincula OC de Mercado Público a negocios de ICA. Con el RUT único por cliente (migration-189),
-    // la razón social de otro cliente con el mismo RUT no puede ser candidata.
-    `SELECT id, razon_social, rut FROM empresas WHERE activo = TRUE AND cliente_id = ?`, [CLIENTE_ICA],
+    `SELECT id, razon_social, rut, COALESCE(cliente_id, ${CLIENTE_ICA}) AS cliente_id FROM empresas WHERE activo = TRUE ORDER BY cliente_id, id`,
   ) as any[];
-  return rows as EmpresaNuestra[];
+  return (rows as any[]).map(r => ({ ...r, cliente_id: Number(r.cliente_id) }));
+}
+
+/** ¿De qué razón social es una OC? Candidatas = las que tienen el RUT del proveedor de la OC. Si el mismo RUT lo registraron
+ *  varias empresas-cliente (p. ej. una empresa de prueba con el RUT de una razón social de ICA): manda la que ofertó esa licitación;
+ *  si ninguna o varias, Grupo ICA si es candidata (lo de ICA no cambia nunca); si hay una sola candidata, esa. Si no se puede decidir, ninguna. */
+export function elegirEmpresaDeOc(candidatas: EmpresaNuestra[], negociosDeLaLicitacion: NegocioOfertado[]): EmpresaNuestra | null {
+  if (!candidatas.length) return null;
+  const clientesQueOfertaron = new Set(negociosDeLaLicitacion.map(n => Number(n.cliente_id) || CLIENTE_ICA));
+  const queOfertaron = candidatas.filter(e => clientesQueOfertaron.has(e.cliente_id));
+  const delMismoCliente = (l: EmpresaNuestra[]) => new Set(l.map(e => e.cliente_id)).size === 1;
+  if (queOfertaron.length && delMismoCliente(queOfertaron)) return queOfertaron[0];
+  const deIca = candidatas.find(e => e.cliente_id === CLIENTE_ICA);
+  if (deIca) return deIca;
+  return delMismoCliente(candidatas) ? candidatas[0] : null;
 }
 
 export interface NegocioOfertado {
@@ -114,19 +127,32 @@ export interface NegocioOfertado {
   cliente_id?: number | null;
 }
 
-// Exportada: la reusa app/lib/obuma-compras.ts (mismo criterio de "qué licitaciones son nuestras"
-// para el cruce por texto libre contra las compras de Obuma — una sola definición de la verdad).
-export async function licitacionesOfertadas(): Promise<Map<string, NegocioOfertado>> {
+/** Negocios con oferta de TODAS las empresas-cliente, por código. Varias empresas pueden ofertar la misma licitación: lista. */
+async function negociosOfertadosPorCodigo(): Promise<Map<string, NegocioOfertado[]>> {
   const ph = ETAPAS_CON_OFERTA.map(() => '?').join(',');
   const [rows] = await pool.query(
-    `SELECT licitacion_codigo, licitacion_nombre, empresa_id, asignado_a, cliente_id
+    `SELECT licitacion_codigo, licitacion_nombre, empresa_id, asignado_a, COALESCE(cliente_id, ${CLIENTE_ICA}) AS cliente_id
        FROM negocios
       WHERE activo = TRUE AND estado_pipeline IN (${ph})`,
     ETAPAS_CON_OFERTA,
   ) as any[];
-  const mapa = new Map<string, NegocioOfertado>();
+  const mapa = new Map<string, NegocioOfertado[]>();
   for (const r of rows as NegocioOfertado[]) {
-    if (r.licitacion_codigo) mapa.set(String(r.licitacion_codigo).toUpperCase(), r);
+    if (!r.licitacion_codigo) continue;
+    const k = String(r.licitacion_codigo).toUpperCase();
+    mapa.set(k, [...(mapa.get(k) ?? []), { ...r, cliente_id: Number(r.cliente_id) }]);
+  }
+  return mapa;
+}
+
+// Exportada: la reusa app/lib/obuma-compras.ts (mismo criterio de "qué licitaciones son nuestras"
+// para el cruce por texto libre contra las compras de Obuma — una sola definición de la verdad).
+/** Negocios con oferta de UNA empresa-cliente, por código (Obuma = solo Grupo ICA). */
+export async function licitacionesOfertadas(clienteId: number): Promise<Map<string, NegocioOfertado>> {
+  const mapa = new Map<string, NegocioOfertado>();
+  for (const [k, lista] of await negociosOfertadosPorCodigo()) {
+    const n = lista.find(x => Number(x.cliente_id) === clienteId);
+    if (n) mapa.set(k, n);
   }
   return mapa;
 }
@@ -185,14 +211,14 @@ export interface ResumenSync {
  * Pensado para el cron diario. Es idempotente: correrlo dos veces no duplica avisos.
  */
 export async function sincronizarOrdenesCompra(
-  { dias = DIAS_BARRIDO_POR_DEFECTO, avisar = true, soloProveedor = false }:
-  { dias?: number; avisar?: boolean; soloProveedor?: boolean } = {},
+  { dias = DIAS_BARRIDO_POR_DEFECTO, avisar = true, soloProveedor = false, descargarPdf = true }:
+  { dias?: number; avisar?: boolean; soloProveedor?: boolean; descargarPdf?: boolean } = {},
 ): Promise<ResumenSync> {
   const resumen: ResumenSync = {
     diasBarridos: 0, candidatas: 0, nuevas: 0, cambiosEstado: 0, deTerceros: 0,
     eventos: 0, correos: 0, codigosProveedorDescubiertos: 0,
   };
-  const nuestras = await licitacionesOfertadas();
+  const nuestras = await negociosOfertadosPorCodigo();
   if (nuestras.size === 0) {
     console.log('[ordenes-compra] no hay licitaciones ofertadas — nada que buscar');
     return resumen;
@@ -202,10 +228,11 @@ export async function sincronizarOrdenesCompra(
   // Nuestros RUT, para saber si una orden encontrada es NUESTRA o del competidor que ganó esa misma
   // licitación (ver el comentario de es_nuestra en la migración 64). Sin esta comprobación, una
   // licitación perdida nos "regalaba" la orden del ganador como si fuera una venta propia.
-  const empresasPorRut = new Map<string, EmpresaNuestra>();
+  // Multiempresa: un RUT puede estar en varias empresas-cliente → lista de candidatas (ver elegirEmpresaDeOc).
+  const empresasPorRut = new Map<string, EmpresaNuestra[]>();
   for (const e of await empresasNuestras()) {
     const r = rutNormalizado(e.rut);
-    if (r) empresasPorRut.set(r, e);
+    if (r) empresasPorRut.set(r, [...(empresasPorRut.get(r) ?? []), e]);
   }
 
   // ── 1. Candidatas ────────────────────────────────────────────────────────────────────────
@@ -288,16 +315,20 @@ export async function sincronizarOrdenesCompra(
     const desdeCampo = String(oc.CodigoLicitacion || '').trim().toUpperCase();
     const desdeNombre = codigos.find(c => mencionaCodigo(oc.Nombre || '', c)) || null;
     const licitacionCodigo = (desdeCampo && nuestras.has(desdeCampo) ? desdeCampo : desdeNombre) || desdeCampo || null;
-    const negocio = licitacionCodigo ? nuestras.get(licitacionCodigo) : undefined;
+    const negociosDeLic = licitacionCodigo ? (nuestras.get(licitacionCodigo) ?? []) : [];
 
     // ¿ES NUESTRA? Lo decide el RUT del proveedor de la orden, NUNCA la licitación: encontramos
     // esta orden porque menciona una licitación que ofertamos, pero si la perdimos, la orden es del
     // competidor que ganó. `empresa_id` sale de acá y no del negocio, para que jamás se cuelgue una
     // venta ajena de una empresa nuestra.
-    const empresa = empresasPorRut.get(rutNormalizado(oc.Proveedor?.RutSucursal));
+    // Multiempresa: la OC es de la empresa-cliente dueña de ese RUT, y se cuelga SOLO del negocio de esa misma empresa
+    // (varias empresas pueden haber ofertado la misma licitación; la OC de una nunca aparece como «nuestra» de otra).
+    const empresa = elegirEmpresaDeOc(empresasPorRut.get(rutNormalizado(oc.Proveedor?.RutSucursal)) ?? [], negociosDeLic);
     const esNuestra = !!empresa;
+    const clienteOc = empresa?.cliente_id ?? null;
+    const negocio = esNuestra ? negociosDeLic.find(n => Number(n.cliente_id) === clienteOc) : undefined;
 
-    await guardarOrdenCompra(oc, licitacionCodigo, empresa?.id ?? null, esNuestra);
+    await guardarOrdenCompra(oc, licitacionCodigo, empresa?.id ?? null, esNuestra, clienteOc);
     if (esNueva) resumen.nuevas++; else resumen.cambiosEstado++;
     if (!esNuestra) { resumen.deTerceros++; continue; }   // se guarda como contexto, pero no avisa
 
@@ -337,7 +368,7 @@ export async function sincronizarOrdenesCompra(
         fechaAceptacion: soloFecha(oc.Fechas?.FechaAceptacion),
         total: num(oc.Total),
         totalNeto: num(oc.TotalNeto),
-      });
+      }, clienteOc!);   // solo a la ficha de Compras de la misma empresa dueña de la OC
     }
   }
 
@@ -377,7 +408,7 @@ export async function sincronizarOrdenesCompra(
   // ── 5. PDF ───────────────────────────────────────────────────────────────────────────────
   // Best-effort: si falla (WAF, portal caído) no revienta la sincronización — se reintenta el
   // día siguiente, igual que el resto de lo que toca el portal público de MP.
-  try {
+  if (descargarPdf) try {
     await descargarPdfsPendientes(10);
   } catch (e) {
     console.warn('[ordenes-compra] descarga de PDFs pendientes falló:', String(e).slice(0, 150));
@@ -394,7 +425,7 @@ function soloFecha(v: unknown): string | null {
 }
 
 async function guardarOrdenCompra(
-  oc: OrdenCompraAPI, licitacionCodigo: string | null, empresaId: number | null, esNuestra: boolean,
+  oc: OrdenCompraAPI, licitacionCodigo: string | null, empresaId: number | null, esNuestra: boolean, clienteId: number | null,
 ): Promise<void> {
   const estadoTexto = (oc as any).Estado || ESTADOS_OC[Number(oc.CodigoEstado)] || null;
   await pool.query(
@@ -403,14 +434,16 @@ async function guardarOrdenCompra(
         fecha_creacion, fecha_envio, fecha_aceptacion, fecha_cancelacion,
         moneda, total_neto, impuestos, total,
         comprador_organismo, comprador_unidad, comprador_rut, comprador_contacto, comprador_mail,
-        proveedor_codigo, proveedor_nombre, proveedor_rut, items_json, raw_json, es_nuestra)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        proveedor_codigo, proveedor_nombre, proveedor_rut, items_json, raw_json, es_nuestra, cliente_id)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
      ON DUPLICATE KEY UPDATE
        nombre = VALUES(nombre),
        -- licitacion_codigo/empresa_id solo se rellenan si venían vacíos: un valor ya resuelto no se
        -- pisa con un null de una respuesta incompleta.
        licitacion_codigo = COALESCE(licitacion_codigo, VALUES(licitacion_codigo)),
        empresa_id = COALESCE(empresa_id, VALUES(empresa_id)),
+       -- dueño (empresa-cliente, migration-197): igual que empresa_id, se fija una vez y no se pisa
+       cliente_id = COALESCE(cliente_id, VALUES(cliente_id)),
        codigo_estado = VALUES(codigo_estado), estado = VALUES(estado),
        codigo_tipo = VALUES(codigo_tipo), tipo = VALUES(tipo),
        fecha_creacion = VALUES(fecha_creacion), fecha_envio = VALUES(fecha_envio),
@@ -434,7 +467,7 @@ async function guardarOrdenCompra(
       oc.Comprador?.RutUnidad || null, oc.Comprador?.NombreContacto || null, oc.Comprador?.MailContacto || null,
       oc.Proveedor?.Codigo || null, oc.Proveedor?.Nombre || null, oc.Proveedor?.RutSucursal || null,
       oc.Items?.Listado ? JSON.stringify(oc.Items.Listado) : null,
-      JSON.stringify(oc), esNuestra ? 1 : 0,
+      JSON.stringify(oc), esNuestra ? 1 : 0, esNuestra ? clienteId : null,
     ],
   );
 }
@@ -458,6 +491,11 @@ export const AVISO_COPIA_FICHA = 'Copia de la ficha pública de MP (no es el PDF
 export async function guardarPdfOrdenCompra(
   codigoOC: string, licitacionCodigo: string | null, buffer: Buffer, esCopiaFicha = false,
 ): Promise<string> {
+  // Multiempresa: el PDF de la OC de otra empresa-cliente se guarda en SU espacio (c<N>:<código>), no bajo el código a secas
+  // (eso es de Grupo ICA). Para ICA queda exactamente igual que antes.
+  const [[dueno]] = await pool.query('SELECT COALESCE(cliente_id, ?) AS c FROM ordenes_compra WHERE codigo = ? LIMIT 1', [CLIENTE_ICA, codigoOC]) as any;
+  const clienteOc = Number(dueno?.c) || CLIENTE_ICA;
+  if (licitacionCodigo) licitacionCodigo = codigoAlmacenDocs(clienteOc, licitacionCodigo);
   const url = await subirDocumentoR2(licitacionCodigo || codigoOC, `OC_${codigoOC}.pdf`, buffer, 'application/pdf');
   // pdf_error marca la copia; cuando el cron baja el oficial (esCopiaFicha=false) queda NULL y la reemplaza.
   await pool.query(
@@ -467,10 +505,10 @@ export async function guardarPdfOrdenCompra(
   if (licitacionCodigo) {
     try {
       await pool.query(
-        `INSERT INTO documentos_cache (licitacion_codigo, documento_nombre, documento_url_local, size_bytes, categoria, subcategoria, categoria_manual, created_at)
-         VALUES (?, ?, ?, ?, 'DOCUMENTOS_PROPIOS', 'Orden de compra', 1, ?)
+        `INSERT INTO documentos_cache (licitacion_codigo, documento_nombre, documento_url_local, size_bytes, categoria, subcategoria, categoria_manual, created_at, cliente_id)
+         VALUES (?, ?, ?, ?, 'DOCUMENTOS_PROPIOS', 'Orden de compra', 1, ?, ?)
          ON DUPLICATE KEY UPDATE documento_url_local = VALUES(documento_url_local), size_bytes = VALUES(size_bytes)`,
-        [licitacionCodigo, `OC_${codigoOC}.pdf`, url, buffer.length, ahoraChileSQL()],
+        [licitacionCodigo, `OC_${codigoOC}.pdf`, url, buffer.length, ahoraChileSQL(), clienteOc],
       );
     } catch (e) {
       console.warn('[ordenes-compra] no se pudo enlazar el PDF a Documentos:', String(e).slice(0, 150));
@@ -746,6 +784,8 @@ export interface OrdenCompraListaFila extends OrdenCompraFila {
 }
 
 export interface ListadoOrdenesFiltro {
+  /** Empresa-cliente que mira (de la sesión): solo SUS OC; las de terceros sin dueño cuentan como de Grupo ICA, igual que antes. */
+  clienteId: number;
   desde?: string;             // 'YYYY-MM-DD'
   hasta?: string;              // 'YYYY-MM-DD'
   empresaId?: number;
@@ -763,10 +803,10 @@ export interface ListadoOrdenesFiltro {
  * trae el nombre de la licitación / empresa por JOIN, para no repetir esa resolución en el cliente.
  */
 export async function listarOrdenesCompra(
-  filtro: ListadoOrdenesFiltro = {},
+  filtro: ListadoOrdenesFiltro,
 ): Promise<{ ordenes: OrdenCompraListaFila[]; total: number; sumaTotal: number }> {
-  const cond: string[] = [];
-  const params: unknown[] = [];
+  const cond: string[] = ['COALESCE(oc.cliente_id, ' + CLIENTE_ICA + ') = ?'];
+  const params: unknown[] = [filtro.clienteId];
 
   if (!filtro.incluirTerceros) cond.push('oc.es_nuestra = 1');
   if (filtro.codigos) {
@@ -803,12 +843,12 @@ export async function listarOrdenesCompra(
             oc.licitacion_codigo, oc.empresa_id,
             n.licitacion_nombre, emp.razon_social AS empresa_nombre
        FROM ordenes_compra oc
-       LEFT JOIN negocios n ON n.licitacion_codigo = oc.licitacion_codigo AND n.activo = TRUE
+       LEFT JOIN negocios n ON n.licitacion_codigo = oc.licitacion_codigo AND n.activo = TRUE AND COALESCE(n.cliente_id, 1) = ?
        LEFT JOIN empresas emp ON emp.id = oc.empresa_id
        ${where}
       ORDER BY COALESCE(oc.fecha_envio, oc.fecha_creacion) DESC, oc.codigo DESC
       LIMIT ? OFFSET ?`,
-    [...params, limit, offset],
+    [filtro.clienteId, ...params, limit, offset],
   ) as any[];
 
   const ordenes: OrdenCompraListaFila[] = (rows as any[]).map(r => {
@@ -852,16 +892,18 @@ export async function listarOrdenesCompra(
 
 /** Las órdenes de compra de UNA licitación, listas para la sección "Resultado". */
 /** `codigoOC` opcional: una orden ya enganchada a mano/por tipo distinto (LE26 → R126) cuyo código de licitación no calza exacto. */
-export async function ordenesDeLicitacion(codigo: string, codigoOC?: string | null): Promise<OrdenCompraFila[]> {
+/** Multiempresa: «nuestra» = de ESTA empresa-cliente (`clienteId`, de la sesión o del negocio). Las OC de otra empresa de la misma
+ *  licitación se muestran como de terceros (son públicas en MP), nunca como propias. */
+export async function ordenesDeLicitacion(codigo: string, codigoOC: string | null | undefined, clienteId: number): Promise<OrdenCompraFila[]> {
   const [rows] = await pool.query(
     `SELECT codigo, nombre, estado, codigo_estado, tipo, fecha_creacion, fecha_envio, fecha_aceptacion,
             moneda, total_neto, total, comprador_organismo, comprador_unidad, comprador_contacto,
-            comprador_mail, comprador_rut, raw_json, items_json, es_nuestra, proveedor_nombre, pdf_url
+            comprador_mail, comprador_rut, raw_json, items_json, (es_nuestra = 1 AND COALESCE(cliente_id, 1) = ?) AS es_nuestra, proveedor_nombre, pdf_url
        FROM ordenes_compra
       WHERE licitacion_codigo = ? OR codigo = ?
          OR licitacion_codigo = (SELECT readjudicada_en FROM adjudicacion_cache WHERE licitacion_codigo = ? LIMIT 1)
       ORDER BY es_nuestra DESC, COALESCE(fecha_envio, fecha_creacion) DESC, codigo DESC`,
-    [codigo, codigoOC || codigo, codigo],
+    [clienteId, codigo, codigoOC || codigo, codigo],
   ) as any[];
 
   return (rows as any[]).map(r => {

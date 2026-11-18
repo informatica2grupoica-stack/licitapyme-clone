@@ -6,6 +6,7 @@
 // único que falta es engancharla con este negocio, que es barato y no necesita nada de Mercado
 // Público. Solo si de verdad no está guardada todavía se intenta una búsqueda en vivo.
 import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
+import { clienteDeNegocio } from '@/app/lib/tenant';
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { obtenerAsignacion, vincularOrdenCompraDeMP } from '@/app/lib/compras';
@@ -24,13 +25,13 @@ function getUser(req: NextRequest) {
   return { id: id ? parseInt(id) : null, rol };
 }
 
-async function ocGuardadaLocalmente(licitacionCodigo: string) {
+async function ocGuardadaLocalmente(licitacionCodigo: string, clienteId: number) {
   const [rows] = await pool.query(
     `SELECT codigo, estado, total, total_neto,
             DATE_FORMAT(COALESCE(fecha_envio, fecha_creacion), '%Y-%m-%d') AS emitida,
             DATE_FORMAT(fecha_aceptacion, '%Y-%m-%d') AS aceptada
-       FROM ordenes_compra WHERE licitacion_codigo = ? AND es_nuestra = 1 LIMIT 1`,
-    [licitacionCodigo],
+       FROM ordenes_compra WHERE licitacion_codigo = ? AND es_nuestra = 1 AND COALESCE(cliente_id, 1) = ? LIMIT 1`,
+    [licitacionCodigo, clienteId],
   ) as any;
   return (rows as any[])[0] || null;
 }
@@ -51,7 +52,8 @@ async function __POST(request: NextRequest, { params }: Params) {
 
     // 1. ¿Ya está guardada de antes? (típico en licitaciones ganadas antes de que existiera
     //    Compras — el sync general ya la trajo, solo faltaba engancharla con este negocio).
-    let oc = await ocGuardadaLocalmente(asignacion.licitacionCodigo);
+    const clienteNeg = await clienteDeNegocio(id);   // la OC tiene que ser de la empresa dueña de este negocio
+    let oc = await ocGuardadaLocalmente(asignacion.licitacionCodigo, clienteNeg);
     let viaVivo = false;
 
     // 2. Si no, se intenta en vivo contra Mercado Público (requiere IP chilena — en un entorno sin
@@ -59,7 +61,7 @@ async function __POST(request: NextRequest, { params }: Params) {
     if (!oc) {
       try {
         await sincronizarOrdenesCompra({ soloProveedor: true, dias: 5, avisar: false });
-        oc = await ocGuardadaLocalmente(asignacion.licitacionCodigo);
+        oc = await ocGuardadaLocalmente(asignacion.licitacionCodigo, clienteNeg);
         viaVivo = true;
       } catch (e: any) {
         console.warn('[compras/orden-compra/buscar] búsqueda en vivo falló:', String(e).slice(0, 200));
@@ -75,7 +77,7 @@ async function __POST(request: NextRequest, { params }: Params) {
       fechaEmision: oc.emitida ?? null, fechaAceptacion: oc.aceptada ?? null,
       total: oc.total == null ? null : Number(oc.total),
       totalNeto: oc.total_neto == null ? null : Number(oc.total_neto),
-    });
+    }, clienteNeg);
 
     return NextResponse.json({
       success: true, encontrada: true, vinculada, viaVivo,

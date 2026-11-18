@@ -7,7 +7,7 @@ import pool from '@/app/lib/db';
 import { getAuthedUser } from '@/app/lib/api-auth';
 import { CLIENTE_ICA } from '@/app/lib/tenant';
 import { leerPerfil, guardarPerfil } from '@/app/lib/cliente-viabilidad';
-import { evaluarEmpresaPorRut, leerEvaluacion } from '@/app/lib/evaluar-empresa-rut';
+import { encolarEvaluacion, leerEvaluacion } from '@/app/lib/evaluar-empresa-rut';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -16,10 +16,7 @@ export async function GET(req: NextRequest) {
   const u = await getAuthedUser(req);
   if (!u?.clienteId || u.clienteId === CLIENTE_ICA) return NextResponse.json({ success: true, aplica: false });
   let ev = await leerEvaluacion(u.clienteId);
-  if (!ev && u.rol === 'admin') {
-    const [[c]] = await pool.query('SELECT rut FROM clientes WHERE id = ?', [u.clienteId]) as any;
-    if (c?.rut) { void evaluarEmpresaPorRut(u.clienteId, c.rut); ev = { estado: 'EN_CURSO', progreso: 'Buscando la empresa en Mercado Público…', resultado: null }; }
-  }
+  if (!ev && u.rol === 'admin' && (await encolarEvaluacion(u.clienteId)).ok) ev = await leerEvaluacion(u.clienteId); // a la cola (sobrevive a un deploy)
   const [kw] = await pool.query('SELECT keyword, es_negativa FROM palabras_clave WHERE cliente_id = ? ORDER BY id', [u.clienteId]);
   return NextResponse.json({
     success: true, aplica: true, pendiente: !ev?.aplicado_at,

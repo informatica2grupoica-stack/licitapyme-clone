@@ -1742,16 +1742,19 @@ export function claveLicitacionSinTipo(codigo: string | null | undefined): strin
   return m ? `${m[1]}-${m[2]}` : null;
 }
 
+/** `clienteId` (multiempresa): empresa-cliente dueña de la OC. Solo se engancha a una ficha de Compras de un negocio de ESA empresa
+ *  (dos empresas pueden haber ofertado la misma licitación). Sin él, se asume Grupo ICA (los llamadores viejos eran solo de ICA). */
 export async function vincularOrdenCompraDeMP(
-  licitacionCodigo: string, oc: OrdenCompraMP,
+  licitacionCodigo: string, oc: OrdenCompraMP, clienteId: number = 1,
 ): Promise<{ vinculada: boolean; difiere: boolean; negocioId: number | null }> {
   const nada = { vinculada: false, difiere: false, negocioId: null };
   try {
+    const DE_LA_EMPRESA = `negocio_id IN (SELECT id FROM negocios WHERE COALESCE(cliente_id, 1) = ?)`;
     const COLS = `negocio_id, licitacion_codigo, asignado_a, oc_codigo_mp, oc_estado_mp, oc_numero, oc_origen,
               oc_difiere, oc_observacion, resumen_json`;
     const [rows] = await pool.query(
-      `SELECT ${COLS} FROM compras_asignacion WHERE licitacion_codigo = ? LIMIT 1`,
-      [licitacionCodigo],
+      `SELECT ${COLS} FROM compras_asignacion WHERE licitacion_codigo = ? AND ${DE_LA_EMPRESA} LIMIT 1`,
+      [licitacionCodigo, clienteId],
     ) as any;
     let ficha = (rows as any[])[0];
     if (!ficha) {
@@ -1759,8 +1762,8 @@ export async function vincularOrdenCompraDeMP(
       const clave = claveLicitacionSinTipo(licitacionCodigo);
       if (clave) {
         const [cand] = await pool.query(
-          `SELECT ${COLS} FROM compras_asignacion WHERE licitacion_codigo LIKE ?`,
-          [`${clave.split('-').slice(0, 2).join('-')}-%`],
+          `SELECT ${COLS} FROM compras_asignacion WHERE licitacion_codigo LIKE ? AND ${DE_LA_EMPRESA}`,
+          [`${clave.split('-').slice(0, 2).join('-')}-%`, clienteId],
         ) as any;
         const iguales = (cand as any[]).filter(c => claveLicitacionSinTipo(c.licitacion_codigo) === clave);
         if (iguales.length === 1) ficha = iguales[0];
@@ -1971,7 +1974,7 @@ export interface AceptacionOc {
  * del Gantt) y las ya aceptadas. Las sin aceptar salen de la más próxima a vencer a la más lejana; las
  * que no tienen negocio enganchado (sin límite calculable) van al final. Las canceladas no entran.
  */
-export async function estadoAceptacionOcs(): Promise<{ porAceptar: AceptacionOc[]; aceptadas: AceptacionOc[] }> {
+export async function estadoAceptacionOcs(clienteId: number): Promise<{ porAceptar: AceptacionOc[]; aceptadas: AceptacionOc[] }> {
   const [rows] = await pool.query(
     `SELECT oc.codigo, oc.codigo_estado, oc.fecha_aceptacion, ca.negocio_id,
             DATE_FORMAT(ca.oc_aceptada_at, '%Y-%m-%d %H:%i:%s') AS ca_aceptada_at,
@@ -1983,8 +1986,9 @@ export async function estadoAceptacionOcs(): Promise<{ porAceptar: AceptacionOc[
               ON ca.oc_codigo_mp = oc.codigo
               OR (ca.oc_codigo_mp IS NULL AND ca.licitacion_codigo = oc.licitacion_codigo)
        LEFT JOIN compras_reloj rl ON rl.negocio_id = ca.negocio_id
-      WHERE oc.es_nuestra = 1 AND (oc.codigo_estado IS NULL OR oc.codigo_estado <> 9)
+      WHERE oc.es_nuestra = 1 AND COALESCE(oc.cliente_id, 1) = ? AND (oc.codigo_estado IS NULL OR oc.codigo_estado <> 9)
         AND COALESCE(oc.fecha_envio, oc.fecha_creacion) >= DATE_SUB(NOW(), INTERVAL 120 DAY)`,
+    [clienteId],
   ) as any;
 
   const ahoraSQL = ahoraChileSQL();
@@ -2029,7 +2033,7 @@ export async function engancharOrdenesCompraPendientes(limite = 25): Promise<{ r
   const res = { revisadas: 0, enganchadas: 0 };
   try {
     const [rows] = await pool.query(
-      `SELECT oc.codigo, oc.licitacion_codigo, oc.estado, oc.total, oc.total_neto,
+      `SELECT oc.codigo, oc.licitacion_codigo, oc.estado, oc.total, oc.total_neto, COALESCE(oc.cliente_id, 1) AS cliente_id,
               DATE_FORMAT(COALESCE(oc.fecha_envio, oc.fecha_creacion), '%Y-%m-%d') AS emitida,
               DATE_FORMAT(oc.fecha_aceptacion, '%Y-%m-%d') AS aceptada
          FROM ordenes_compra oc
@@ -2038,6 +2042,8 @@ export async function engancharOrdenesCompraPendientes(limite = 25): Promise<{ r
            OR (SUBSTRING_INDEX(ca.licitacion_codigo, '-', 2) = SUBSTRING_INDEX(oc.licitacion_codigo, '-', 2)
                AND RIGHT(ca.licitacion_codigo, 2) = RIGHT(oc.licitacion_codigo, 2))
         WHERE oc.es_nuestra = 1
+          -- solo la ficha de Compras de la MISMA empresa dueña de la OC
+          AND ca.negocio_id IN (SELECT id FROM negocios WHERE COALESCE(cliente_id, 1) = COALESCE(oc.cliente_id, 1))
           AND (ca.oc_codigo_mp IS NULL OR ca.oc_codigo_mp <> oc.codigo
                OR COALESCE(ca.oc_estado_mp, '') <> COALESCE(oc.estado, ''))
         GROUP BY oc.codigo
@@ -2052,7 +2058,7 @@ export async function engancharOrdenesCompraPendientes(limite = 25): Promise<{ r
         fechaEmision: r.emitida ?? null, fechaAceptacion: r.aceptada ?? null,
         total: r.total == null ? null : Number(r.total),
         totalNeto: r.total_neto == null ? null : Number(r.total_neto),
-      });
+      }, Number(r.cliente_id) || 1);
       if (vinculada) res.enganchadas++;
     }
   } catch (e) {

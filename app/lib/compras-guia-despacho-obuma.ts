@@ -4,6 +4,7 @@
 // Obuma pone el folio, la timbra y la manda al SII → es un documento tributario REAL. Siempre se ve un borrador antes,
 // y la creación la confirma una persona en pantalla. Con OBUMA_SIMULAR=1 no se envía nada.
 import pool from '@/app/lib/db';
+import { clienteDeNegocio } from '@/app/lib/tenant';
 import { ahoraChileSQL } from '@/app/lib/tz';
 import { generarPdfGuia, leerXmlGuia } from '@/app/lib/compras-guia-pdf';
 import {
@@ -102,7 +103,7 @@ export async function datosSugeridosGuia(negocioId: number): Promise<{ datos: Da
   const avisos: string[] = [];
   const codigo = await licitacionDelNegocio(negocioId);
   const { ordenesDeLicitacion } = await import('@/app/lib/ordenes-compra');   // dinámico: evita ciclos de importación
-  const ocMp = codigo ? (await ordenesDeLicitacion(codigo).catch(() => [])).find(o => o.esNuestra && o.facturacion) : undefined;
+  const ocMp = codigo ? (await ordenesDeLicitacion(codigo, null, await clienteDeNegocio(negocioId)).catch(() => [])).find(o => o.esNuestra && o.facturacion) : undefined;
   const f = ocMp?.facturacion;
   if (!f) avisos.push('No encontré la OC de Mercado Público de este negocio: escribe los datos del cliente.');
 
@@ -289,7 +290,7 @@ async function guiasPropiasDelNegocio(negocioId: number) {
     centrosDeCostoCompleto().catch(() => []),
     guiasRecientesObuma(),
     referenciasGuiasObuma().catch(() => []),
-    ordenesDeLicitacion(codigo).catch(() => []),
+    clienteDeNegocio(negocioId).then(c => ordenesDeLicitacion(codigo, null, c)).catch(() => []),
     pool.query(`SELECT obuma_folio FROM compras_orden_compra_obuma WHERE negocio_id = ? AND obuma_folio IS NOT NULL`, [negocioId]) as any,
   ]);
   const ccFull = cc ? centros.find(c => c.id === cc.id) : undefined;

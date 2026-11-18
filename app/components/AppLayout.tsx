@@ -413,14 +413,15 @@ function Sidebar({ mobileOpen, onCloseMobile }: { mobileOpen: boolean; onCloseMo
     }),
   })).map(group => ({
     ...group,
-    // Multi-cliente: una empresa-cliente ve lo suyo y lo que contrató. Lo que no contrató sigue visible pero en gris (con candado y aviso);
+    // Multi-cliente: una empresa-cliente ve lo suyo y lo que contrató (su plan + adicionales). Lo que no contrató no aparece;
     // lo interno de Grupo ICA (administración, gasto de IA…) no se muestra. Grupo ICA queda tal cual. El servidor lo hace cumplir igual (proxy.ts).
     items: usuario && usuario.clienteId != null && usuario.clienteId !== 1
       ? group.items.flatMap((i): NavItem[] => {
           const mod = moduloDeRuta(i.href);
           if (mod === 'comun') return [i];
           if (mod === null || mod === 'interno') return [];
-          return tieneModulo(usuario, mod) ? [i] : [{ ...i, bloqueado: mod }];
+          // Planes (2026-11-18, regla del dueño): lo que el plan no trae NO aparece (antes se veía en gris con candado).
+          return tieneModulo(usuario, mod) ? [i] : [];
         })
       : group.items,
   })).map(group => ({

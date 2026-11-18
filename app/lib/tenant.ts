@@ -4,11 +4,11 @@
 // Regla de oro: el cliente NUNCA se lee de un parámetro, body o header que mande el navegador. Sale de la sesión
 // verificada (usuarios.cliente_id vía estadoVigente): ver `getClienteId` en api-auth.ts. Aquí solo vive la ficha comercial.
 import pool from '@/app/lib/db';
-import { modulosEfectivos, MODULOS_ACTIVABLES, type Modulo } from '@/app/lib/modulos';
+import { modulosEfectivos, modulosDeCliente, normalizarPlan, type Modulo, type Plan } from '@/app/lib/modulos';
 
 export const CLIENTE_ICA = 1;
 
-export interface FichaCliente { id: number; nombre: string; estado: string; venceAt: string | null; modulos: Modulo[]; vigente: boolean; maxUsuarios: number | null }
+export interface FichaCliente { id: number; nombre: string; plan: Plan | 'INTERNO'; estado: string; venceAt: string | null; modulos: Modulo[]; vigente: boolean; maxUsuarios: number | null }
 
 const TTL_MS = 5_000; // corto a propósito: proxy.ts y las rutas tienen cada una su copia de esta caché, y activar/suspender debe regir en segundos
 const cache = new Map<number, { ficha: FichaCliente; hasta: number }>();
@@ -19,28 +19,28 @@ export async function fichaCliente(clienteId: number): Promise<FichaCliente> {
   if (c && c.hasta > Date.now()) return c.ficha;
   let ficha: FichaCliente;
   if (clienteId === CLIENTE_ICA) {
-    ficha = { id: 1, nombre: 'LICITANK', estado: 'ACTIVO', venceAt: null, modulos: modulosEfectivos(null), vigente: true, maxUsuarios: null };
+    ficha = { id: 1, nombre: 'LICITANK', plan: 'INTERNO', estado: 'ACTIVO', venceAt: null, modulos: modulosEfectivos(null), vigente: true, maxUsuarios: null };
   } else {
     try {
       const [rows] = await pool.query(
-        `SELECT id, nombre, estado, DATE_FORMAT(vence_at, '%Y-%m-%d') AS vence_at, modulos, max_usuarios, activo FROM clientes WHERE id = ? LIMIT 1`, [clienteId]);
+        `SELECT id, nombre, plan, estado, DATE_FORMAT(vence_at, '%Y-%m-%d') AS vence_at, modulos, max_usuarios, activo FROM clientes WHERE id = ? LIMIT 1`, [clienteId]);
       const f = (rows as any[])[0];
       if (!f) {
-        ficha = { id: clienteId, nombre: '', estado: 'BAJA', venceAt: null, modulos: [], vigente: false, maxUsuarios: 0 };
+        ficha = { id: clienteId, nombre: '', plan: 'BASICO', estado: 'BAJA', venceAt: null, modulos: [], vigente: false, maxUsuarios: 0 };
       } else {
         const hoy = new Date().toISOString().slice(0, 10);
         const vencido = !!f.vence_at && f.vence_at < hoy;
         ficha = {
-          id: f.id, nombre: f.nombre, estado: f.estado, venceAt: f.vence_at ?? null,
-          // aunque la base diga otra cosa, un cliente solo usa módulos ya separados por empresa (ver MODULOS_ACTIVABLES)
-          modulos: modulosEfectivos(f.modulos).filter(m => MODULOS_ACTIVABLES.includes(m)),
+          id: f.id, nombre: f.nombre, plan: normalizarPlan(f.plan), estado: f.estado, venceAt: f.vence_at ?? null,
+          // plan + adicionales; aunque la base diga otra cosa, un cliente solo usa módulos ya separados por empresa (ver MODULOS_ACTIVABLES)
+          modulos: modulosDeCliente(f.plan, f.modulos),
           vigente: !!f.activo && f.estado === 'ACTIVO' && !vencido,
           maxUsuarios: f.max_usuarios ?? null,
         };
       }
     } catch {
       // Falla cerrado para clientes: sin saber qué contrataron, no se les abre nada.
-      ficha = { id: clienteId, nombre: '', estado: 'ERROR', venceAt: null, modulos: [], vigente: false, maxUsuarios: 0 };
+      ficha = { id: clienteId, nombre: '', plan: 'BASICO', estado: 'ERROR', venceAt: null, modulos: [], vigente: false, maxUsuarios: 0 };
     }
   }
   cache.set(clienteId, { ficha, hasta: Date.now() + TTL_MS });

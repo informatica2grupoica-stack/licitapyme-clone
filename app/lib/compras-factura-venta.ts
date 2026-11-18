@@ -48,7 +48,8 @@ export interface FacturaObumaDeNegocio extends ObumaFacturaEmitida { yaCargada: 
 export async function facturasObumaDeNegocio(negocioId: number): Promise<{ ocs: string[]; facturas: FacturaObumaDeNegocio[] }> {
   const [oc] = await pool.query(
     `SELECT o.codigo FROM ordenes_compra o JOIN compras_asignacion ca ON ca.licitacion_codigo = o.licitacion_codigo
-      WHERE ca.negocio_id = ? AND o.es_nuestra = 1`, [negocioId]) as any;
+       JOIN negocios n ON n.id = ca.negocio_id
+      WHERE ca.negocio_id = ? AND o.es_nuestra = 1 AND COALESCE(o.cliente_id, 1) = COALESCE(n.cliente_id, 1)`, [negocioId]) as any;
   const ocs = (oc as any[]).map(r => String(r.codigo).trim().toUpperCase()).filter(Boolean);
   if (ocs.length === 0) return { ocs, facturas: [] };
   // Igual que la ruta de facturas: tolera que la migration-193 aún no esté aplicada en esa base.

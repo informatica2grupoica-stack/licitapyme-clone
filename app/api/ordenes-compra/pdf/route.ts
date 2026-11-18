@@ -3,6 +3,7 @@
 // devuelve la URL de R2. GET normalmente no hace falta: la lectura de /api/ordenes-compra ya
 // trae pdfUrl cuando el cron diario lo dejó descargado. Este endpoint es para el botón
 // "Descargar PDF" cuando el usuario lo pide antes de que corra el cron.
+import { clienteDeHeader } from '@/app/lib/tenant';
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { puedeVerLicitacion } from '@/app/lib/api-auth';
@@ -18,8 +19,9 @@ export async function POST(request: NextRequest) {
   if (!codigoOC) return NextResponse.json({ success: false, error: 'Falta codigoOC' }, { status: 400 });
 
   const [rows] = await pool.query(
-    `SELECT licitacion_codigo, es_nuestra, pdf_url FROM ordenes_compra WHERE codigo = ? LIMIT 1`,
-    [codigoOC],
+    // multiempresa: solo la OC de la empresa de quien pide (otra empresa = «no encontrada», igual que una que no existe)
+    `SELECT licitacion_codigo, es_nuestra, pdf_url FROM ordenes_compra WHERE codigo = ? AND COALESCE(cliente_id, 1) = ? LIMIT 1`,
+    [codigoOC, clienteDeHeader(request) ?? 0],
   ) as any[];
   const oc = (rows as any[])[0];
   if (!oc) return NextResponse.json({ success: false, error: 'Orden de compra no encontrada' }, { status: 404 });

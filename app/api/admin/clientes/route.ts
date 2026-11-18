@@ -1,30 +1,35 @@
 // app/api/admin/clientes/route.ts
-// Panel del SUPERUSUARIO: empresas-cliente de LICITANK, sus módulos, vencimiento y estado.
+// Panel de LICITANK para las empresas-cliente: plan (Básico/Pro), módulos adicionales, vencimiento y estado.
 //   GET   → lista de empresas con módulos, usuarios y últimos movimientos.
 //   POST  → crea una empresa y su perfil admin (clave temporal).
-//   PATCH → activa/quita módulos, suspende/reactiva, vencimiento, tope de usuarios, notas. Todo queda en la bitácora.
-// Solo `es_superadmin` de Grupo ICA. Un admin de una empresa-cliente jamás llega aquí (proxy.ts bloquea /api/admin a los clientes).
+//   PATCH → cambia el plan, activa/quita adicionales, suspende/reactiva, vencimiento, tope de usuarios, notas. Todo queda en la bitácora.
+// Entran el superusuario y los admin de Grupo ICA (cliente 1; regla del dueño 2026-11-18). BORRAR una empresa sigue siendo solo del
+// superusuario (no se puede deshacer). Un admin de una empresa-cliente jamás llega aquí (proxy.ts bloquea /api/admin a los clientes).
 import { NextRequest, NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
 import pool from '@/app/lib/db';
 import { getAuthedUser } from '@/app/lib/api-auth';
 import { olvidarFichaCliente, CLIENTE_ICA } from '@/app/lib/tenant';
-import { evaluarEmpresaPorRut, leerEvaluacion } from '@/app/lib/evaluar-empresa-rut';
+import { encolarEvaluacion, leerEvaluacion, rutsDeCliente, rutValido, formatearRut } from '@/app/lib/evaluar-empresa-rut';
 import { gastoIaMesPorCliente, consultasMpHoyPorCliente } from '@/app/lib/medidor-cliente';
 import { planBorrado, exportarCliente, borrarCliente, archivosDelCliente } from '@/app/lib/borrar-cliente';
-import { TODOS_LOS_MODULOS, MODULOS_BASE, MODULOS_ACTIVABLES, modulosEfectivos } from '@/app/lib/modulos';
+import { TODOS_LOS_MODULOS, MODULOS_ACTIVABLES, MODULOS_DEL_PLAN, PLANES, modulosEfectivos, modulosDeCliente, normalizarPlan, type Plan } from '@/app/lib/modulos';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-async function exigirSuperadmin(req: NextRequest) {
+/** Superusuario o admin de Grupo ICA (cliente 1). Rol y cliente salen de la BD, nunca del navegador. */
+async function exigirAdminLicitank(req: NextRequest) {
   const u = await getAuthedUser(req);
   if (!u) return { error: NextResponse.json({ error: 'No autenticado' }, { status: 401 }) };
-  const [rows] = await pool.query('SELECT es_superadmin FROM usuarios WHERE id = ? AND cliente_id = ? LIMIT 1', [u.id, CLIENTE_ICA]);
-  if (!(rows as Array<{ es_superadmin: number }>)[0]?.es_superadmin)
-    return { error: NextResponse.json({ error: 'Solo el superusuario' }, { status: 403 }) };
-  return { u };
+  const [rows] = await pool.query('SELECT es_superadmin, rol FROM usuarios WHERE id = ? AND cliente_id = ? AND activo = TRUE LIMIT 1', [u.id, CLIENTE_ICA]);
+  const f = (rows as Array<{ es_superadmin: number; rol: string }>)[0];
+  if (!f || !(f.es_superadmin || f.rol === 'admin'))
+    return { error: NextResponse.json({ error: 'Solo los administradores de LICITANK' }, { status: 403 }) };
+  return { u, superadmin: !!f.es_superadmin };
 }
+
+const planValido = (v: unknown): v is Plan => (PLANES as string[]).includes(String(v));
 
 async function bitacora(clienteId: number, usuarioId: number, accion: string, detalle: unknown) {
   await pool.query('INSERT INTO clientes_bitacora (cliente_id, usuario_id, accion, detalle) VALUES (?, ?, ?, ?)',
@@ -32,19 +37,21 @@ async function bitacora(clienteId: number, usuarioId: number, accion: string, de
 }
 
 export async function GET(req: NextRequest) {
-  const g = await exigirSuperadmin(req);
+  const g = await exigirAdminLicitank(req);
   if (g.error) return g.error;
   const evId = Number(req.nextUrl.searchParams.get('evaluacion'));
   if (evId) return NextResponse.json({ success: true, evaluacion: await leerEvaluacion(evId) });
   // Baja de una empresa (Ley 21.719): vista previa de lo que se borraría, o exportación de todos sus datos (JSON descargable).
   const borradoId = Number(req.nextUrl.searchParams.get('borrado'));
+  const exportarId = Number(req.nextUrl.searchParams.get('exportar'));
+  // Exportar (todos los datos de la empresa) y borrar quedan solo para el superusuario.
+  if ((borradoId || exportarId) && !g.superadmin) return NextResponse.json({ error: 'Solo el superusuario' }, { status: 403 });
   if (borradoId) {
     if (borradoId === CLIENTE_ICA) return NextResponse.json({ error: 'Grupo ICA no se puede borrar' }, { status: 400 });
     const plan = await planBorrado(borradoId);
     const archivos = (await archivosDelCliente(plan.pasos)).length;
     return NextResponse.json({ success: true, ...plan, archivos, pasos: plan.pasos.filter(p => p.filas > 0).map(({ tabla, accion, filas }) => ({ tabla, accion, filas })) });
   }
-  const exportarId = Number(req.nextUrl.searchParams.get('exportar'));
   if (exportarId) {
     if (exportarId === CLIENTE_ICA) return NextResponse.json({ error: 'No aplica a Grupo ICA' }, { status: 400 });
     const datos = await exportarCliente(exportarId);
@@ -65,32 +72,34 @@ export async function GET(req: NextRequest) {
   // Medidor (migration-185): gasto de IA del mes y consultas a MP de hoy, por empresa.
   const [iaMes, mpHoy] = await Promise.all([gastoIaMesPorCliente(), consultasMpHoyPorCliente()]).catch(() => [new Map<number, number>(), new Map<number, number>()]);
   const lista = (clientes as Array<Record<string, unknown>>).map(c => ({
-    ...c, modulos: modulosEfectivos(c.modulos).filter(m => MODULOS_ACTIVABLES.includes(m)),
+    ...c, plan: normalizarPlan(c.plan),
+    // adicionales = lo marcado a mano que el plan no trae; modulos = lo que de verdad usa (plan + adicionales)
+    adicionales: (c.modulos == null ? [] : modulosEfectivos(c.modulos)).filter(m => MODULOS_ACTIVABLES.includes(m) && !MODULOS_DEL_PLAN[normalizarPlan(c.plan)].includes(m)),
+    modulos: modulosDeCliente(c.plan, c.modulos),
     ia_usd_mes: Math.round((iaMes.get(Number(c.id)) ?? 0) * 100) / 100, mp_hoy: mpHoy.get(Number(c.id)) ?? 0,
   }));
-  return NextResponse.json({ success: true, clientes: lista, catalogo: TODOS_LOS_MODULOS, activables: MODULOS_ACTIVABLES, bitacora: bit });
+  return NextResponse.json({ success: true, clientes: lista, catalogo: TODOS_LOS_MODULOS, activables: MODULOS_ACTIVABLES, planes: MODULOS_DEL_PLAN, bitacora: bit, puedeBorrar: g.superadmin });
 }
 
 export async function POST(req: NextRequest) {
-  const g = await exigirSuperadmin(req);
+  const g = await exigirAdminLicitank(req);
   if (g.error) return g.error;
   const b = await req.json().catch(() => ({}));
 
-  // (Re)evaluar la empresa por su RUT: corre en segundo plano; el avance se lee con GET ?evaluacion=<id>.
+  // (Re)evaluar la empresa por TODOS sus RUT: va a la cola (sobrevive a un deploy); el avance se lee con GET ?evaluacion=<id>.
   if (b.accion === 'evaluar') {
     const cid = Number(b.clienteId);
-    const [[c]] = await pool.query('SELECT rut FROM clientes WHERE id = ? AND activo = TRUE', [cid]) as any;
-    if (!cid || cid === CLIENTE_ICA || !c?.rut) return NextResponse.json({ error: 'La empresa no tiene RUT' }, { status: 400 });
-    const ev = await leerEvaluacion(cid);
-    if (ev?.estado === 'EN_CURSO' && Date.now() - new Date(ev.updated_at).getTime() < 5 * 60_000)
-      return NextResponse.json({ error: 'Ya hay una evaluación en curso' }, { status: 409 });
-    void evaluarEmpresaPorRut(cid, c.rut);
-    await bitacora(cid, g.u!.id, 'evaluar', { rut: c.rut });
+    const [[c]] = await pool.query('SELECT id FROM clientes WHERE id = ? AND activo = TRUE', [cid]) as any;
+    if (!cid || cid === CLIENTE_ICA || !c) return NextResponse.json({ error: 'Empresa no válida' }, { status: 400 });
+    const r = await encolarEvaluacion(cid, { forzar: true });
+    if (!r.ok) return NextResponse.json({ error: r.motivo }, { status: r.motivo?.includes('en curso') ? 409 : 400 });
+    await bitacora(cid, g.u!.id, 'evaluar', { ruts: (await rutsDeCliente(cid)).map(x => x.rut) });
     return NextResponse.json({ success: true });
   }
 
   // Borrar TODOS los datos de una empresa (tiene que estar suspendida; se confirma escribiendo su nombre exacto).
   if (b.accion === 'borrar') {
+    if (!g.superadmin) return NextResponse.json({ error: 'Borrar una empresa lo hace solo el superusuario' }, { status: 403 });
     const cid = Number(b.clienteId);
     const [[c]] = await pool.query('SELECT nombre FROM clientes WHERE id = ?', [cid]) as any;
     if (!cid || cid === CLIENTE_ICA || !c) return NextResponse.json({ error: 'Empresa no válida' }, { status: 400 });
@@ -123,40 +132,54 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: true });
   }
 
-  const nombre = String(b.nombre || '').trim(), rut = String(b.rut || '').trim();
+  const nombre = String(b.nombre || '').trim(), rutCrudo = String(b.rut || '').trim();
+  if (rutCrudo && !rutValido(rutCrudo)) return NextResponse.json({ error: 'El RUT no es válido (revisa el dígito verificador)' }, { status: 400 });
+  const rut = rutCrudo ? formatearRut(rutCrudo) : '';
   const email = String(b.adminEmail || '').toLowerCase().trim(), adminNombre = String(b.adminNombre || '').trim();
   const clave = String(b.clave || '');
   if (!nombre || !email || clave.length < 8) return NextResponse.json({ error: 'Faltan nombre, correo del admin o clave (mínimo 8 caracteres)' }, { status: 400 });
-  const modulos = (Array.isArray(b.modulos) ? b.modulos : MODULOS_BASE).filter((m: string) => (MODULOS_ACTIVABLES as string[]).includes(m));
+  const plan: Plan = planValido(b.plan) ? b.plan : 'BASICO';
+  // `clientes.modulos` guarda solo los ADICIONALES: lo del plan ya viene con el plan
+  const modulos = (Array.isArray(b.modulos) ? b.modulos : []).filter((m: string) => (MODULOS_ACTIVABLES as string[]).includes(m) && !(MODULOS_DEL_PLAN[plan] as string[]).includes(m));
   const [dup] = await pool.query('SELECT 1 FROM usuarios WHERE email = ? LIMIT 1', [email]);
   if ((dup as unknown[]).length) return NextResponse.json({ error: 'Ese correo ya existe' }, { status: 409 });
 
   const [r] = await pool.query(
     `INSERT INTO clientes (nombre, rut, plan, max_usuarios, estado, modulos, vence_at, contacto_nombre, contacto_email, activo)
-     VALUES (?, ?, 'BASE', ?, 'ACTIVO', ?, ?, ?, ?, 1)`,
-    [nombre, rut || null, Number(b.maxUsuarios) || 1, JSON.stringify(modulos), b.venceAt || null, adminNombre || null, email]);
+     VALUES (?, ?, ?, ?, 'ACTIVO', ?, ?, ?, ?, 1)`,
+    [nombre, rut || null, plan, Number(b.maxUsuarios) || 1, JSON.stringify(modulos), b.venceAt || null, adminNombre || null, email]);
   const clienteId = (r as { insertId: number }).insertId;
   // Perfil admin de la empresa: admin DENTRO de su empresa (proxy.ts le impide salir de ella). Permisos solo de los módulos contratados.
   const permisos = { acceso_radar: true, ver_otros_negocios: true, exportar: true, repartir_puente: true };
   await pool.query(
     `INSERT INTO usuarios (email, password_hash, nombre, empresa, rol, activo, cliente_id, permisos) VALUES (?, ?, ?, ?, 'admin', 1, ?, ?)`,
     [email, await bcrypt.hash(clave, 10), adminNombre || nombre, nombre, clienteId, JSON.stringify(permisos)]);
-  await bitacora(clienteId, g.u!.id, 'crear', { nombre, modulos, admin: email });
-  // Con RUT: se evalúa sola en segundo plano (minutos) y le carga palabras clave y perfil.
-  if (rut) void evaluarEmpresaPorRut(clienteId, rut);
+  await bitacora(clienteId, g.u!.id, 'crear', { nombre, plan, adicionales: modulos, admin: email });
+  // Con RUT: su razón social queda creada (la usan postular, anexos y el cruce de OC; el código de proveedor de MP se le guarda
+  // al evaluar) y la evaluación entra a la cola (minutos; sobrevive a un deploy) para sugerirle palabras clave y perfil.
+  if (rut) {
+    await pool.query('INSERT INTO empresas (razon_social, rut, cliente_id, activo) VALUES (?, ?, ?, TRUE)', [nombre, rut, clienteId])
+      // sin migration-189 el RUT es único en TODA la plataforma: si ya lo usa otra empresa no se crea (la evaluación usa igual clientes.rut)
+      .catch(e => console.warn('[clientes] razón social no creada:', String(e).slice(0, 160)));
+    await encolarEvaluacion(clienteId);
+  }
   return NextResponse.json({ success: true, id: clienteId });
 }
 
 export async function PATCH(req: NextRequest) {
-  const g = await exigirSuperadmin(req);
+  const g = await exigirAdminLicitank(req);
   if (g.error) return g.error;
   const b = await req.json().catch(() => ({}));
   const id = Number(b.id);
   if (!id || id === CLIENTE_ICA) return NextResponse.json({ error: 'Empresa no válida' }, { status: 400 });
   const sets: string[] = [], vals: unknown[] = [], det: Record<string, unknown> = {};
-  if (Array.isArray(b.modulos)) {
+  if ('plan' in b) {
+    if (!planValido(b.plan)) return NextResponse.json({ error: 'Plan no válido' }, { status: 400 });
+    sets.push('plan = ?'); vals.push(b.plan); det.plan = b.plan;
+  }
+  if (Array.isArray(b.modulos)) { // adicionales (lo que el plan no trae)
     const m = b.modulos.filter((x: string) => (MODULOS_ACTIVABLES as string[]).includes(x));
-    sets.push('modulos = ?'); vals.push(JSON.stringify(m)); det.modulos = m;
+    sets.push('modulos = ?'); vals.push(JSON.stringify(m)); det.adicionales = m;
   }
   if (b.estado === 'ACTIVO' || b.estado === 'SUSPENDIDO' || b.estado === 'BAJA') { sets.push('estado = ?'); vals.push(b.estado); det.estado = b.estado; }
   if ('venceAt' in b) { sets.push('vence_at = ?'); vals.push(b.venceAt || null); det.venceAt = b.venceAt || null; }

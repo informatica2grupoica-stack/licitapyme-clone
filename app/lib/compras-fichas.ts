@@ -28,6 +28,7 @@ import type { RequisitoHeredado } from '@/app/lib/auditor-tecnico-v2-core';
 import { listarCotizaciones, type CotizacionFila } from '@/app/lib/compras-auditor';
 import { listarProductosCompra, type ProductoCompra } from '@/app/lib/compras';
 import type { LineaCosteo } from '@/app/lib/auditor-compras-core';
+import { productoTraeEspecificaciones, destinoDeProducto } from '@/app/lib/compras-cotizacion-specs-core';
 
 const norm = (s: string | null | undefined) => (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '');
 
@@ -189,6 +190,8 @@ export async function asignarProductoDeFicha(params: {
   negocioId: number; extraccionId: number; productoIdx: number; filaId: string; proveedor?: string | null; actor: Actor;
   /** La persona confirma que es una ficha aunque no traiga marca ni modelo (muebles a medida, normados…): el nombre del producto hace de identidad. */
   sinMarca?: boolean;
+  /** El documento es una cotización cuyo proveedor no se pudo leer: la ficha queda SIN proveedor (no se adivina el único cotizado). */
+  proveedorDesconocido?: boolean;
 }): Promise<ResultadoAsignacion> {
   const { negocioId, extraccionId, productoIdx, filaId, actor } = params;
   const ex = await extraccionPorId(extraccionId);
@@ -215,7 +218,8 @@ export async function asignarProductoDeFicha(params: {
   if (params.proveedor?.trim()) {
     const c = cubren.find(x => x.proveedorNombre === params.proveedor!.trim()) ?? cotizaciones.find(x => x.proveedorNombre === params.proveedor!.trim());
     prov = { proveedor: params.proveedor.trim(), rut: c?.proveedorRut ?? null, confianza: 'alta', motivo: 'Elegido a mano.', candidatos: [...new Set(cubren.map(x => x.proveedorNombre))] };
-  } else prov = proveedorDeFicha(p, cubren);
+  } else if (params.proveedorDesconocido) prov = { proveedor: null, rut: null, confianza: null, motivo: "El proveedor de la cotización no se pudo leer: elige el proveedor de esta ficha.", candidatos: [...new Set(cubren.map(x => x.proveedorNombre))] };
+  else prov = proveedorDeFicha(p, cubren);
 
   try {
     const opcionId = await opcionParaFicha(negocioId, filaId, p, prov.proveedor, prov.rut, actor);
@@ -246,8 +250,11 @@ function ganaPorCategoria(prod: ProductoNormalizado, a: { filaId: string; puntaj
 
 const corto = (s: string) => s.replace(/\s+/g, ' ').trim().split(' - ')[0].slice(0, 80);
 
-export async function procesarFicha(params: { negocioId: number; url: string; nombre: string; actor: Actor }): Promise<ResultadoRuteo> {
-  const { negocioId, url, nombre, actor } = params;
+/** `desdeCotizacion`: el documento ES una cotización ya registrada que además trae especificaciones técnicas. Sus productos con specs se
+ *  tratan como ficha (con el proveedor de la cotización); los que solo traen descripción y precio quedan `no_es_ficha` (sirven para el precio). */
+export interface OrigenCotizacionFicha { proveedor: string | null; rut: string | null }
+export async function procesarFicha(params: { negocioId: number; url: string; nombre: string; actor: Actor; desdeCotizacion?: OrigenCotizacionFicha }): Promise<ResultadoRuteo> {
+  const { negocioId, url, nombre, actor, desdeCotizacion } = params;
   const vacio = (error: string, extraccionId: number | null = null): ResultadoRuteo => ({ documento: nombre, extraccionId, error, productos: [] });
 
   // 1) Leer UNA sola vez.
@@ -256,19 +263,29 @@ export async function procesarFicha(params: { negocioId: number; url: string; no
   if ((previas as any[]).length) extraccionId = (previas as any[])[0].id;
   else {
     const lectura = await leerYGuardarDocumento({ negocioId, url, nombre, modo: 'completo' });
-    await marcarFichaCompras(negocioId, lectura.id);
+    if (!desdeCotizacion) await marcarFichaCompras(negocioId, lectura.id);   // una cotización solo se marca como ficha si algún producto trae specs (más abajo)
     if (lectura.error) return vacio(`No se pudo leer: ${lectura.error}`, lectura.id);
     extraccionId = lectura.id;
   }
-  await marcarFichaCompras(negocioId, extraccionId);
+  if (!desdeCotizacion) await marcarFichaCompras(negocioId, extraccionId);
   const ex = await extraccionPorId(extraccionId);
   if (!ex?.data) return vacio('La ficha se leyó pero quedó vacía.', extraccionId);
-  const productos = normalizarExtraccion(ex.data).filter(p => !p.esCargo);
+  let productos = normalizarExtraccion(ex.data).filter(p => !p.esCargo);
   if (productos.length === 0) return vacio('No encontré ningún producto en el documento (¿es una ficha legible?).', extraccionId);
 
-  // Un documento comercial (cotización, factura…) no es una ficha: sirve para el precio. Se informa y no se asigna.
   const tipoDoc = ex.data.salida.documento?.tipo || '';
-  if (esSoloComercial(tipoDoc, productos)) {
+  // Cotización con especificaciones: solo pasan los productos que traen características técnicas; el resto sirve para el precio y se informa.
+  const sinSpecs: ProductoRuteado[] = [];
+  if (desdeCotizacion) {
+    const crudos = ex.data.salida.productos || [];
+    const pasan = productos.filter(p => productoTraeEspecificaciones(crudos[p.idx]));
+    for (const p of productos) if (!pasan.includes(p)) sinSpecs.push({ idx: p.idx, nombre: p.nombre, marca: p.marca, modelo: p.modelo, resultado: 'no_es_ficha', motivo: destinoDeProducto(crudos[p.idx]).motivo });
+    if (pasan.length === 0) return { documento: nombre, extraccionId, error: null, productos: sinSpecs };
+    productos = pasan;
+    await marcarFichaCompras(negocioId, extraccionId);
+  }
+  // Un documento comercial (cotización, factura…) no es una ficha: sirve para el precio. Se informa y no se asigna.
+  if (!desdeCotizacion && esSoloComercial(tipoDoc, productos)) {
     const quien = ex.data.salida.documento?.emisor ? ` de ${ex.data.salida.documento.emisor}` : '';
     return { documento: nombre, extraccionId, error: null, productos: productos.map(p => ({ idx: p.idx, nombre: p.nombre, marca: p.marca, modelo: p.modelo, resultado: 'no_es_ficha' as const, motivo: `Es ${tipoDoc.replace(/_/g, ' ').toLowerCase()}${quien}: sirve para el precio (paso 2), no para juzgar si el producto cumple. Sube la ficha técnica del producto.` })) };
   }
@@ -277,7 +294,7 @@ export async function procesarFicha(params: { negocioId: number; url: string; no
   if (lineas.length === 0) return vacio('Este negocio no tiene un costeo con líneas: no hay a qué producto asignar la ficha.', extraccionId);
   const productosCompra = await listarProductosCompra(negocioId);
   const yaAsignados = await productosYaAsignados(negocioId, extraccionId);
-  const sinIdentidad = new Set(productos.filter(p => !identificable(p)).map(p => p.idx));
+  const sinIdentidad = new Set(desdeCotizacion ? [] : productos.filter(p => !identificable(p)).map(p => p.idx));   // cotización de un proveedor conocido: el nombre del producto hace de identidad
 
   const salida: ProductoRuteado[] = productos.map(p => ({ idx: p.idx, nombre: p.nombre, marca: p.marca, modelo: p.modelo, resultado: 'sin_producto' as const }));
   const de = (idx: number) => salida.find(s => s.idx === idx)!;
@@ -323,12 +340,12 @@ export async function procesarFicha(params: { negocioId: number; url: string; no
     const linea = lineas.find(l => l.id === d.filaId)!;
     const prod = productoDeLinea(linea, productosCompra, lineas);
     s.productoCompraId = prod?.id ?? null; s.productoNombre = prod ? corto(prod.descripcion) : corto(linea.detalle); s.confianza = d.confianza;
-    const r = await asignarProductoDeFicha({ negocioId, extraccionId, productoIdx: idx, filaId: d.filaId, actor });
+    const r = await asignarProductoDeFicha({ negocioId, extraccionId, productoIdx: idx, filaId: d.filaId, actor, proveedor: desdeCotizacion?.proveedor ?? undefined, sinMarca: !!desdeCotizacion, proveedorDesconocido: !!desdeCotizacion && !desdeCotizacion.proveedor });
     s.candidatosProveedor = r.candidatosProveedor;
     if (!r.ok) { s.resultado = 'error'; s.motivo = r.error; continue; }
     s.resultado = 'asignada'; s.opcionId = r.opcionId; s.proveedor = r.proveedor; s.motivo = `${d.motivo} ${r.motivoProveedor}`.trim();
   }
-  return { documento: nombre, extraccionId, error: null, productos: salida };
+  return { documento: nombre, extraccionId, error: null, productos: [...salida, ...sinSpecs] };
 }
 
 // ── Cambiar el proveedor de una opción ─────────────────────────────────────────────────────────────
@@ -497,6 +514,8 @@ export async function panelFichas(negocioId: number, licitacionCodigo: string): 
 
   // Un catálogo con varias variantes (p. ej. «Activa» y «Pasiva») donde ya se asignó un producto: las otras variantes no son pendientes.
   const docsConAsignado = new Set([...asignado].map(k => k.split(':')[0]));
+  // Un documento que es una COTIZACIÓN registrada solo aporta como ficha los productos que traen especificaciones: el resto sirve para el precio y no es «pendiente».
+  const urlsDeCotizacion = new Set(cotizaciones.map(c => c.archivoUrl).filter((u): u is string => !!u));
   const pendientes: FichaPendienteDTO[] = []; const conError: PanelFichasDTO['conError'] = []; const noSonFichas: PanelFichasDTO['noSonFichas'] = [];
   for (const ex of lecturas.values()) {
     if (!ex) continue;
@@ -504,9 +523,11 @@ export async function panelFichas(negocioId: number, licitacionCodigo: string): 
     if (!ex.data) continue;
     const prods = normalizarExtraccion(ex.data).filter(x => !x.esCargo);
     const tipoDoc = ex.data.salida.documento?.tipo || '';
-    if (esSoloComercial(tipoDoc, prods)) { noSonFichas.push({ extraccionId: ex.id, documento: ex.documentoNombre || 'documento', url: ex.documentoUrl, motivo: `Es ${tipoDoc.replace(/_/g, ' ').toLowerCase()}: sirve para el precio, no como ficha técnica.` }); continue; }
+    const esCotizacion = !!ex.documentoUrl && urlsDeCotizacion.has(ex.documentoUrl);
+    if (!esCotizacion && esSoloComercial(tipoDoc, prods)) { noSonFichas.push({ extraccionId: ex.id, documento: ex.documentoNombre || 'documento', url: ex.documentoUrl, motivo: `Es ${tipoDoc.replace(/_/g, ' ').toLowerCase()}: sirve para el precio, no como ficha técnica.` }); continue; }
     for (const p of prods) {
       if (asignado.has(`${ex.id}:${p.idx}`) || docsConAsignado.has(String(ex.id))) continue;
+      if (esCotizacion && !productoTraeEspecificaciones(ex.data.salida.productos?.[p.idx])) continue;
       // Sin sugerencia guardada (las fichas sin marca ni modelo no pasan por la IA): se sugiere por el nombre, solo si una línea gana con claridad.
       let s = sugerencias.get(`${ex.id}:${p.idx}`);
       if (!s) {

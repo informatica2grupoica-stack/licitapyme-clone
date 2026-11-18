@@ -127,6 +127,26 @@ export function ListaCotizaciones({ negocioId, cotizaciones, productos, avisosPo
   const [quitando, setQuitando] = useState<string | null>(null);
   const [quitandoFlete, setQuitandoFlete] = useState<number | null>(null);
   const [filtro, setFiltro] = useState('');
+  const [leyendoSpecs, setLeyendoSpecs] = useState<number | null>(null);
+  /** «Leer specs»: si la cotización trae especificaciones técnicas, esos productos pasan también a Fichas técnicas. */
+  const leerSpecs = async (id: number) => {
+    if (!negocioId) return;
+    setLeyendoSpecs(id);
+    try {
+      const res = await fetch(`/api/compras/${negocioId}/cotizaciones/${id}/fichas`, { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo leer');
+      if (data.asignadas > 0) toast.success('Fichas agregadas', `${data.asignadas} producto(s) pasaron a Fichas técnicas${data.porAsignar ? `; ${data.porAsignar} quedaron por asignar` : ''}.`);
+      else if (data.porAsignar > 0) toast.success('Fichas por asignar', `${data.porAsignar} ficha(s) leídas: asígnalas a su producto en Fichas técnicas.`);
+      else if (data.yaEstaban > 0) toast.info('Ya estaban en Fichas técnicas', 'Esta cotización ya se había leído como ficha.');
+      else toast.info('Sin especificaciones', data.motivo || 'La cotización no trae especificaciones técnicas de sus productos.');
+      await onCambio?.();
+    } catch (e: any) {
+      toast.error('No se pudo leer la cotización', e.message);
+    } finally {
+      setLeyendoSpecs(null);
+    }
+  };
 
   const agregar = async (c: CotizacionFilaUI, l: LineaCotizacion, productoId: number) => {
     if (negocioId == null || l.precioUnitario == null || l.cantidad == null) return;
@@ -273,6 +293,7 @@ export function ListaCotizaciones({ negocioId, cotizaciones, productos, avisosPo
                     <button type="button" onClick={() => onAsignar(c.id)} title="Asignar a productos" aria-label="Asignar a productos" className="p-1.5 rounded-md text-teal-700 hover:text-teal-900 hover:bg-teal-50"><ListChecks size={15} /></button>
                     <MenuAcciones texto="Más" acciones={[
                       { label: homologandoId === c.id ? 'Leyendo con IA…' : c.homologadaAt ? 'Volver a leer con IA' : 'Leer con IA', onClick: () => onHomologar(c.id), disabled: homologandoId === c.id },
+                      ...(c.archivoUrl && negocioId ? [{ label: leyendoSpecs === c.id ? 'Leyendo specs…' : 'Leer specs como ficha', onClick: () => leerSpecs(c.id), disabled: leyendoSpecs === c.id }] : []),
                       { label: 'Editar datos', onClick: () => onEditar(c.id) },
                       { label: 'Eliminar cotización', onClick: () => onEliminar(c.id), peligro: true },
                     ]} />

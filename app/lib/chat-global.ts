@@ -78,6 +78,11 @@ async function filtrosDeAcceso(tablas: string[], a: Alcance): Promise<{ filtros:
       const rn = (x: string) => `REPLACE(REPLACE(LOWER(CONVERT(${x} USING utf8mb4)), '.', ''), ' ', '') COLLATE utf8mb4_unicode_ci`;
       const resto = (cols.get(t) || []).map(x => x.nombre).filter(n => n !== 'es_nuestra').join(', ');
       filtros[t] = `SELECT ${resto}, (${rn('proveedor_rut')} IN (SELECT ${rn('rut')} FROM empresas WHERE cliente_id = ${c} AND rut IS NOT NULL AND rut <> '')) AS es_nuestra FROM oferta_competencia`;
+    } else if (t === 'ordenes_compra') {
+      // OC que los organismos envían (migration-197): las «nuestras» llevan la empresa dueña; las de terceros quedan sin dueño y se
+      // leen como de Grupo ICA (igual que antes). Un perfil restringido de ICA sigue sin verlas; el de otra empresa, solo las de sus negocios.
+      if (c === 1 && u) continue;
+      filtros[t] = `SELECT * FROM ordenes_compra WHERE COALESCE(cliente_id, 1) = ${c}${u ? ` AND licitacion_codigo IN (SELECT licitacion_codigo FROM negocios WHERE COALESCE(cliente_id, 1) = ${c} AND asignado_a = ${u})` : ''}`;
     } else if (TABLAS_COMPARTIDAS.has(t)) {
       // sin filtro
     } else if (nombres.has('cliente_id')) {

@@ -85,9 +85,9 @@ export async function procesarOcCancelada(negocioId: number): Promise<boolean> {
 
   // Otra OC nuestra vigente para la misma licitación = no se cayó el negocio, solo se reemplazó la orden.
   const [[viva]] = await pool.query(
-    `SELECT COUNT(*) n FROM ordenes_compra WHERE licitacion_codigo = ? AND es_nuestra = 1 AND codigo <> ?
+    `SELECT COUNT(*) n FROM ordenes_compra WHERE licitacion_codigo = ? AND es_nuestra = 1 AND COALESCE(cliente_id, 1) = ? AND codigo <> ?
         AND COALESCE(estado, '') NOT LIKE 'Cancel%'`,
-    [f.licitacion_codigo, f.oc_codigo_mp],
+    [f.licitacion_codigo, Number(f.cliente_id) || 1, f.oc_codigo_mp],
   ) as any;
   if (Number(viva?.n) > 0) return false;
 
@@ -314,7 +314,7 @@ export async function listarComprasCerradas(clienteId: number): Promise<CompraCe
     const [ocs] = await pool.query(
       `SELECT licitacion_codigo, codigo, estado, total_neto, total, moneda,
               DATE_FORMAT(fecha_envio, '%Y-%m-%d') AS envio, DATE_FORMAT(fecha_aceptacion, '%Y-%m-%d') AS acepto, DATE_FORMAT(fecha_cancelacion, '%Y-%m-%d') AS cancelo
-         FROM ordenes_compra WHERE licitacion_codigo IN (?) AND es_nuestra = 1 ORDER BY fecha_creacion, id`, [lics]) as any;
+         FROM ordenes_compra WHERE licitacion_codigo IN (?) AND es_nuestra = 1 AND COALESCE(cliente_id, 1) = ? ORDER BY fecha_creacion, id`, [lics, clienteId]) as any;
     for (const o of ocs as any[]) {
       const l = ocsPorLic.get(o.licitacion_codigo) ?? [];
       l.push({

@@ -13,6 +13,7 @@
 // Solo se guardan las compras que SÍ mencionan una licitación nuestra: esto no es un espejo del
 // ERP completo (~16.700 compras en la cuenta), es la vista cruzada que pidió el usuario.
 import pool from '@/app/lib/db';
+import { CLIENTE_ICA } from '@/app/lib/tenant';
 import { listarComprasOc, listarComprasOcItems, listarComprasDte, proveedorPorId, centrosDeCostoCompleto, proyectosExtCompleto, type ObumaCompraOc } from '@/app/lib/obuma';
 import { mencionaCodigo, licitacionesOfertadas } from '@/app/lib/ordenes-compra';
 import { ajustesDeLicitacion, claveLineaOc, type AjusteLineaOc } from '@/app/lib/compras-oc-lineas-negocio';
@@ -65,7 +66,7 @@ export async function sincronizarComprasObuma(
   { paginas = 5, soloCodigo }: { paginas?: number; soloCodigo?: string | string[] } = {},
 ): Promise<ResumenSyncObuma> {
   const resumen: ResumenSyncObuma = { paginasBarridas: 0, vistas: 0, candidatas: 0, nuevasOActualizadas: 0, codigos: [] };
-  const nuestras = await licitacionesOfertadas();
+  const nuestras = await licitacionesOfertadas(CLIENTE_ICA);   // Obuma es solo de Grupo ICA (Inversiones Claro)
   if (nuestras.size === 0) return resumen;
   const codigos = [...nuestras.keys()];
 

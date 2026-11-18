@@ -109,6 +109,7 @@ export default function LicitacionDetallePage() {
     itemsCount: licitacion?.items?.length,
     viabilidadBloqueada: !conViabilidad,
     preguntasBloqueadas: !conIA,
+    resultadoBloqueado: !tieneModulo(usuario, 'resultado'),
   });
   // El sidebar solo tiene "resumen"/"resultado" como ítems clickeables; Fechas/Criterios/Comentarios
   // y Competencia son pestañas internas de esos grupos, pero el ítem del grupo debe seguir
@@ -708,12 +709,13 @@ export default function LicitacionDetallePage() {
                 </>
               )}
               {/* Resultado agrupa Resultado/Competencia; solo existe una vez que hay resultado. */}
-              {hayResultado && (activeSection === 'resultado' || activeSection === 'competencia') && (
+              {hayResultado && tieneModulo(usuario, 'resultado') && (activeSection === 'resultado' || activeSection === 'competencia') && (
                 <>
                   <SeccionTabs
                     items={[
                       { key: 'resultado', label: 'Resultado' },
-                      { key: 'competencia', label: 'Competencia' },
+                      // Competencia solo si está contratada (planes: lo no contratado no aparece).
+                      ...(conCompetencia ? [{ key: 'competencia', label: 'Competencia' }] : []),
                     ]}
                     activo={activeSection}
                     onSelect={k => setActiveSection(k as SeccionLicitacion)}

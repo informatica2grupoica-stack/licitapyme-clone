@@ -15,6 +15,8 @@ interface Estado { pendiente: boolean; evaluacion: { estado: string; progreso: s
 
 const campo = 'w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500';
 const clp = (n: number | null | undefined) => (n == null ? '—' : `$${Math.round(n).toLocaleString('es-CL')}`);
+// La evaluación por RUT está en cola (PENDIENTE) o trabajándose (EN_CURSO): en ambos casos se espera y se vuelve a preguntar.
+const corriendo = (estado?: string | null) => estado === 'EN_CURSO' || estado === 'PENDIENTE';
 
 function Casillas({ palabras, marcadas, alternar }: { palabras: string[]; marcadas: Set<string>; alternar: (k: string) => void }) {
   return (
@@ -46,7 +48,7 @@ export function ConfigurarEmpresa({ alGuardar }: { alGuardar?: () => void }) {
   useEffect(() => { cargar(); }, [cargar]);
   // Mientras la evaluación corre (minutos), se vuelve a preguntar.
   useEffect(() => {
-    if (d?.evaluacion?.estado !== 'EN_CURSO') return;
+    if (!corriendo(d?.evaluacion?.estado)) return;
     const t = setTimeout(cargar, 5000);
     return () => clearTimeout(t);
   }, [d, cargar]);
@@ -54,7 +56,7 @@ export function ConfigurarEmpresa({ alGuardar }: { alGuardar?: () => void }) {
   const res = d?.evaluacion?.estado === 'LISTO' ? d.evaluacion.resultado : null;
   // Al llegar las sugerencias: se precargan una sola vez (el perfil actual manda si ya tiene algo escrito).
   useEffect(() => {
-    if (!d || listo || (d.evaluacion?.estado === 'EN_CURSO')) return;
+    if (!d || listo || corriendo(d.evaluacion?.estado)) return;
     const actual = d.perfil;
     const tieneActual = !!(actual && (actual.descripcion.trim() || actual.productos_si.trim()));
     setP({ ...PERFIL_VACIO, ...(tieneActual ? actual : { ...actual, ...res?.perfil }) } as Perfil);
@@ -85,7 +87,7 @@ export function ConfigurarEmpresa({ alGuardar }: { alGuardar?: () => void }) {
       <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
         <h2 className="font-medium text-slate-900">Lo que vendiste en Mercado Público</h2>
         {!ev && <p className="mt-1 text-sm text-slate-500">Tu empresa no tiene RUT registrado, así que no hay historial para sugerirte. Completa el perfil a mano.</p>}
-        {ev?.estado === 'EN_CURSO' && <p className="mt-1 text-sm text-slate-600">Estamos revisando tus órdenes de compra y actas de adjudicación por tu RUT. Toma unos minutos; puedes dejar esta página abierta. <span className="text-slate-500">{ev.progreso}</span></p>}
+        {corriendo(ev?.estado) && <p className="mt-1 text-sm text-slate-600">Estamos revisando tus órdenes de compra y actas de adjudicación por tu RUT. Toma unos minutos; puedes cerrar esta página y volver después. <span className="text-slate-500">{ev.progreso}</span></p>}
         {ev?.estado === 'ERROR' && <p className="mt-1 text-sm text-red-600">No pudimos leer tu historial: {ev.progreso}. Puedes completar el perfil a mano.</p>}
         {res && (
           <>
@@ -102,7 +104,7 @@ export function ConfigurarEmpresa({ alGuardar }: { alGuardar?: () => void }) {
         )}
       </section>
 
-      {ev?.estado !== 'EN_CURSO' && (
+      {!corriendo(ev?.estado) && (
         <>
           <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
             <h2 className="font-medium text-slate-900">Palabras clave de tu radar</h2>

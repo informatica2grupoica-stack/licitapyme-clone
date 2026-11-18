@@ -48,9 +48,10 @@ export interface NavSeccionesNegocioInput {
   puedeVerAuditorCompra?: boolean;
   // Postulación (PDFs a subir + resumen del Auditor): sub-ítem bajo Auditor.
   hayPostulacion?: boolean;
-  // Módulos no contratados (empresa-cliente): sus ítems siguen en el menú, en gris.
+  // Módulos no contratados por la empresa-cliente (su plan no los trae): sus ítems NO aparecen (planes, 2026-11-18).
   viabilidadBloqueada?: boolean;
   preguntasBloqueadas?: boolean;
+  resultadoBloqueado?: boolean;
 }
 
 // Arma la lista de ítems del menú lateral: MISMO orden, MISMAS etiquetas y MISMO criterio de
@@ -64,14 +65,14 @@ export interface NavSeccionesNegocioInput {
 // Resultado/Preguntas (solo con Ganada o Perdida) → Costeo → Auditor Técnico → Auditor de Compra
 // (disponibles desde que se asigna, ver tieneInformacionComercial en checklist-comercial.ts).
 export function construirNavSeccionesNegocio(input: NavSeccionesNegocioInput): ItemMenuNegocio[] {
-  const { documentosCount, hayResultado, itemsCount, hayCosteo, hayAuditorTecnico, auditorCount, auditorAlerta, puedeVerAuditorCompra, hayPostulacion, viabilidadBloqueada, preguntasBloqueadas } = input;
+  const { documentosCount, hayResultado, itemsCount, hayCosteo, hayAuditorTecnico, auditorCount, auditorAlerta, puedeVerAuditorCompra, hayPostulacion, viabilidadBloqueada, preguntasBloqueadas, resultadoBloqueado } = input;
   return [
     { key: 'resumen',    label: 'Resumen',    count: null },
     { key: 'documentos', label: 'Documentos', count: documentosCount || null },
     { key: 'items',      label: 'Líneas',     count: itemsCount || null },
-    { key: 'viabilidad', label: 'Viabilidad', count: null, ...(viabilidadBloqueada ? { bloqueado: true } : {}) },
-    ...(hayResultado ? [{ key: 'resultado', label: 'Resultado', count: null }] : []),
-    ...(hayResultado ? [{ key: 'preguntas', label: 'Preguntas', count: null, ...(preguntasBloqueadas ? { bloqueado: true } : {}) }] : []),
+    ...(!viabilidadBloqueada ? [{ key: 'viabilidad', label: 'Viabilidad', count: null }] : []),
+    ...(hayResultado && !resultadoBloqueado ? [{ key: 'resultado', label: 'Resultado', count: null }] : []),
+    ...(hayResultado && !preguntasBloqueadas ? [{ key: 'preguntas', label: 'Preguntas', count: null }] : []),
     // Un solo ítem "Auditor" (módulo AUDITOR unificado, 29-sep-2026) que también contiene el Costeo: ya no es
     // un ítem propio del menú. Se mantiene la key 'comercial' para no romper los deep-links de /aprobaciones.
     ...(hayAuditorTecnico || puedeVerAuditorCompra || hayCosteo

@@ -1,15 +1,15 @@
 'use client';
 
-// Panel del superusuario: empresas-cliente, módulos contratados, vencimiento y estado.
-// Activar un módulo = marcar la casilla; rige al instante (el cliente lo ve desbloqueado en su próxima carga).
+// Panel de LICITANK (superusuario y admin de Grupo ICA): empresas-cliente, su plan (Básico/Pro), adicionales, vencimiento y estado.
+// Cambiar el plan o marcar un adicional rige al instante (el cliente lo ve en su próxima carga). Exportar y borrar: solo el superusuario.
 import { useCallback, useEffect, useState } from 'react';
 import { AppLayout } from '@/app/components/AppLayout';
 import { useToast } from '@/app/components/ui/toast';
-import { NOMBRE_MODULO, type Modulo } from '@/app/lib/modulos';
+import { NOMBRE_MODULO, NOMBRE_PLAN, PLANES, type Modulo, type Plan } from '@/app/lib/modulos';
 
 interface Cliente {
-  id: number; nombre: string; rut: string | null; plan: string; estado: string; max_usuarios: number | null;
-  modulos: Modulo[]; cupo_ia_mensual: number; tope_ia_usd_mes: string | number | null; tope_mp_diario: number | null; ia_usd_mes: number; mp_hoy: number; vence_at: string | null; usuarios: number; contacto_email: string | null; notas: string | null;
+  id: number; nombre: string; rut: string | null; plan: Plan; estado: string; max_usuarios: number | null;
+  modulos: Modulo[]; adicionales: Modulo[]; cupo_ia_mensual: number; tope_ia_usd_mes: string | number | null; tope_mp_diario: number | null; ia_usd_mes: number; mp_hoy: number; vence_at: string | null; usuarios: number; contacto_email: string | null; notas: string | null;
 }
 interface Mov { cliente_id: number; accion: string; detalle: unknown; created_at: string; por: string | null }
 
@@ -71,11 +71,12 @@ function EvaluacionRut({ clienteId }: { clienteId: number }) {
     setEv(d.evaluacion || null);
   }, [clienteId]);
   useEffect(() => { leer(); }, [leer]);
+  const corriendo = ev?.estado === 'EN_CURSO' || ev?.estado === 'PENDIENTE'; // en cola o trabajándose (la mueve el scheduler)
   useEffect(() => {
-    if (ev?.estado !== 'EN_CURSO') return;
+    if (!corriendo) return;
     const t = setTimeout(leer, 5000);
     return () => clearTimeout(t);
-  }, [ev, leer]);
+  }, [ev, leer, corriendo]);
   const evaluar = async () => {
     const r = await fetch('/api/admin/clientes', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ accion: 'evaluar', clienteId }) });
     const d = await r.json().catch(() => ({}));
@@ -85,17 +86,20 @@ function EvaluacionRut({ clienteId }: { clienteId: number }) {
   return (
     <div className="mt-3 border-t border-slate-100 pt-3 text-sm">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-[11px] text-slate-500">Evaluación por RUT en Mercado Público{ev ? ` · ${ev.progreso}` : ' · sin evaluar'}</p>
-        <button disabled={ev?.estado === 'EN_CURSO'} onClick={evaluar}
+        <p className="text-[11px] text-slate-500">Evaluación por RUT en Mercado Público (todas sus razones sociales){ev ? ` · ${ev.progreso}` : ' · sin evaluar'}</p>
+        <button disabled={corriendo} onClick={evaluar}
           className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50">
-          {ev?.estado === 'EN_CURSO' ? 'Evaluando…' : ev ? 'Volver a evaluar' : 'Evaluar'}
+          {ev?.estado === 'PENDIENTE' ? 'En cola…' : ev?.estado === 'EN_CURSO' ? 'Evaluando…' : ev ? 'Volver a evaluar' : 'Evaluar'}
         </button>
       </div>
       {ev?.estado === 'ERROR' && <p className="mt-1 text-xs text-red-600">{ev.progreso}</p>}
       {res && ev?.estado === 'LISTO' && (
         <div className="mt-2 space-y-1.5 text-xs text-slate-600">
           <p>{res.ordenes} órdenes de compra · {res.licitaciones} licitaciones · {res.actasConLineasGanadas} actas con líneas ganadas · monto típico {res.montoTipico?.p10?.toLocaleString('es-CL') ?? '—'} a {res.montoTipico?.p90?.toLocaleString('es-CL') ?? '—'} CLP</p>
-          <p><span className="text-slate-500">Palabras clave:</span> {res.palabras?.join(', ')}</p>
+          {Array.isArray(res.ruts) && res.ruts.length > 0 && (
+            <p><span className="text-slate-500">RUT revisados:</span> {res.ruts.map((r: any) => `${r.rut} (${r.codigoProveedor ? `${r.ordenes} OC` : 'no es proveedor en MP'})`).join(' · ')}</p>
+          )}
+          <p><span className="text-slate-500">Palabras clave:</span> {(res.sugeridas ?? res.palabras)?.join(', ')}</p>
           <p><span className="text-slate-500">Negativas:</span> {res.negativas?.join(', ') || '—'}</p>
           <p><span className="text-slate-500">Qué vende:</span> {res.perfil?.descripcion}</p>
           <p><span className="text-slate-500">Compradores frecuentes:</span> {res.compradores?.slice(0, 5).join('; ')}</p>
@@ -110,17 +114,21 @@ export default function ClientesPage() {
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [catalogo, setCatalogo] = useState<Modulo[]>([]);
   const [activables, setActivables] = useState<Modulo[]>([]);
+  const [planes, setPlanes] = useState<Record<Plan, Modulo[]>>({ BASICO: [], PRO: [] });
+  const [puedeBorrar, setPuedeBorrar] = useState(false);
   const [otro, setOtro] = useState<{ id: number; nombre: string; email: string; clave: string; rol: string } | null>(null);
   const [bitacora, setBitacora] = useState<Mov[]>([]);
   const [cargando, setCargando] = useState(true);
-  const [nuevo, setNuevo] = useState({ nombre: '', rut: '', adminNombre: '', adminEmail: '', clave: '', venceAt: '' });
+  const [nuevo, setNuevo] = useState({ nombre: '', rut: '', adminNombre: '', adminEmail: '', clave: '', venceAt: '', plan: 'BASICO' as Plan });
   const [creando, setCreando] = useState(false);
 
   const cargar = useCallback(async () => {
     const r = await fetch('/api/admin/clientes');
     const d = await r.json().catch(() => ({}));
     if (!r.ok) { toast.error('No se pudo cargar', d.error || `HTTP ${r.status}`); setCargando(false); return; }
-    setClientes(d.clientes); setCatalogo(d.catalogo); setActivables(d.activables || []); setBitacora(d.bitacora || []); setCargando(false);
+    setClientes(d.clientes); setCatalogo(d.catalogo); setActivables(d.activables || []); setBitacora(d.bitacora || []);
+    if (d.planes) setPlanes(d.planes);
+    setPuedeBorrar(!!d.puedeBorrar); setCargando(false);
   }, [toast]);
   useEffect(() => { cargar(); }, [cargar]);
 
@@ -129,8 +137,12 @@ export default function ClientesPage() {
     const d = await r.json().catch(() => ({}));
     if (!r.ok) toast.error('No se guardó', d.error || `HTTP ${r.status}`); else cargar();
   };
-  const alternarModulo = (c: Cliente, m: Modulo) =>
-    cambiar(c.id, { modulos: c.modulos.includes(m) ? c.modulos.filter(x => x !== m) : [...c.modulos, m] });
+  // Solo se guardan los adicionales (lo que el plan no trae).
+  const alternarAdicional = (c: Cliente, m: Modulo) =>
+    cambiar(c.id, { modulos: c.adicionales.includes(m) ? c.adicionales.filter(x => x !== m) : [...c.adicionales, m] });
+  // Al cambiar de plan se limpian los adicionales que el plan nuevo ya trae.
+  const cambiarPlan = (c: Cliente, plan: Plan) =>
+    cambiar(c.id, { plan, modulos: c.adicionales.filter(m => !planes[plan].includes(m)) });
 
   const crear = async () => {
     setCreando(true);
@@ -139,7 +151,7 @@ export default function ClientesPage() {
     setCreando(false);
     if (!r.ok) { toast.error('No se creó', d.error || `HTTP ${r.status}`); return; }
     toast.success('Empresa creada', 'Entra con el mismo login. Entrega la clave temporal por un canal seguro.');
-    setNuevo({ nombre: '', rut: '', adminNombre: '', adminEmail: '', clave: '', venceAt: '' });
+    setNuevo({ nombre: '', rut: '', adminNombre: '', adminEmail: '', clave: '', venceAt: '', plan: 'BASICO' });
     cargar();
   };
 
@@ -148,7 +160,7 @@ export default function ClientesPage() {
       <div className="mx-auto max-w-5xl px-4 py-6 space-y-6">
         <header>
           <h1 className="text-lg font-medium text-slate-900">Empresas-cliente</h1>
-          <p className="text-sm text-slate-500">Cada empresa usa el mismo LICITANK. Aquí decides qué módulos tiene activos.</p>
+          <p className="text-sm text-slate-500">Cada empresa usa el mismo LICITANK. Su plan decide qué ve en los menús; lo que el plan no trae se puede sumar como adicional.</p>
         </header>
 
         {cargando && <p className="text-sm text-slate-500">Cargando…</p>}
@@ -172,15 +184,32 @@ export default function ClientesPage() {
             {c.id !== 1 && (
               <>
                 <dl className="mt-3 border-t border-slate-100 pt-3">
-                  <dt className="text-[11px] text-slate-500">Módulos activos</dt>
-                  <dd className="mt-1.5 grid grid-cols-2 gap-x-4 gap-y-1.5 sm:grid-cols-3">
-                    {catalogo.map(m => (
-                      <label key={m} className={`flex items-center gap-2 text-sm ${activables.includes(m) ? 'text-slate-700' : 'text-slate-400'}`}
-                        title={activables.includes(m) ? undefined : 'Todavía no disponible para clientes: sus datos aún no están separados por empresa'}>
-                        <input type="checkbox" className="accent-teal-700" disabled={!activables.includes(m)} checked={c.modulos.includes(m)} onChange={() => alternarModulo(c, m)} />
-                        {NOMBRE_MODULO[m]}{!activables.includes(m) && <span className="text-[11px]">(próximamente)</span>}
-                      </label>
+                  <dt className="text-[11px] text-slate-500">Plan</dt>
+                  <dd className="mt-1.5 flex flex-wrap gap-2">
+                    {PLANES.map(p => (
+                      <button key={p} onClick={() => p !== c.plan && cambiarPlan(c, p)} aria-pressed={c.plan === p}
+                        className={`rounded-lg px-3 py-1.5 text-sm font-medium ${c.plan === p ? 'bg-teal-700 text-white' : 'border border-slate-300 text-slate-700 hover:bg-slate-50'}`}>
+                        {NOMBRE_PLAN[p]}
+                      </button>
                     ))}
+                  </dd>
+                  <dt className="mt-3 text-[11px] text-slate-500">Módulos (los del plan vienen marcados; el resto se suma como adicional)</dt>
+                  <dd className="mt-1.5 grid grid-cols-2 gap-x-4 gap-y-1.5 sm:grid-cols-3">
+                    {catalogo.map(m => {
+                      const delPlan = planes[c.plan]?.includes(m);
+                      const disponible = activables.includes(m);
+                      return (
+                        <label key={m} className={`flex items-center gap-2 text-sm ${disponible ? 'text-slate-700' : 'text-slate-400'}`}
+                          title={!disponible ? 'Todavía no disponible para clientes: sus datos aún no están separados por empresa' : delPlan ? `Viene con el plan ${NOMBRE_PLAN[c.plan]}` : undefined}>
+                          <input type="checkbox" className="accent-teal-700" disabled={!disponible || delPlan}
+                            checked={disponible && (delPlan || c.adicionales.includes(m))} onChange={() => alternarAdicional(c, m)} />
+                          {NOMBRE_MODULO[m]}
+                          {!disponible ? <span className="text-[11px]">(próximamente{delPlan ? `, ${NOMBRE_PLAN[c.plan]}` : ''})</span>
+                            : delPlan ? <span className="text-[11px] text-slate-400">plan</span>
+                            : c.adicionales.includes(m) ? <span className="text-[11px] text-teal-700">adicional</span> : null}
+                        </label>
+                      );
+                    })}
                   </dd>
                 </dl>
                 <div className="mt-3 flex flex-wrap items-end gap-3 border-t border-slate-100 pt-3">
@@ -209,7 +238,7 @@ export default function ClientesPage() {
                   </button>
                 </div>
                 {c.rut && <EvaluacionRut clienteId={c.id} />}
-                {c.estado !== 'ACTIVO' && <BajaEmpresa c={c} alTerminar={cargar} />}
+                {c.estado !== 'ACTIVO' && puedeBorrar && <BajaEmpresa c={c} alTerminar={cargar} />}
                 {otro?.id === c.id && (
                   <div className="mt-3 grid gap-3 border-t border-slate-100 pt-3 sm:grid-cols-2">
                     <label className="text-[11px] text-slate-500">Nombre<input className={`${input} mt-0.5`} value={otro.nombre} onChange={e => setOtro({ ...otro, nombre: e.target.value })} /></label>
@@ -239,7 +268,7 @@ export default function ClientesPage() {
 
         <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
           <h2 className="font-medium text-slate-900">Nueva empresa</h2>
-          <p className="text-xs text-slate-500">Parte con Radar y Negocios y un perfil admin. Los demás módulos se activan arriba cuando los pague.</p>
+          <p className="text-xs text-slate-500">Parte con el plan elegido y un perfil admin. El plan y los adicionales se cambian después aquí mismo.</p>
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
             <label className="text-[11px] text-slate-500">Razón social<input className={`${input} mt-0.5`} value={nuevo.nombre} onChange={e => setNuevo({ ...nuevo, nombre: e.target.value })} /></label>
             <label className="text-[11px] text-slate-500">RUT<input className={`${input} mt-0.5`} value={nuevo.rut} onChange={e => setNuevo({ ...nuevo, rut: e.target.value })} /></label>
@@ -247,6 +276,11 @@ export default function ClientesPage() {
             <label className="text-[11px] text-slate-500">Correo del admin (su usuario)<input type="email" className={`${input} mt-0.5`} value={nuevo.adminEmail} onChange={e => setNuevo({ ...nuevo, adminEmail: e.target.value })} /></label>
             <label className="text-[11px] text-slate-500">Clave temporal (mín. 8)<input type="text" className={`${input} mt-0.5`} value={nuevo.clave} onChange={e => setNuevo({ ...nuevo, clave: e.target.value })} /></label>
             <label className="text-[11px] text-slate-500">Vence (opcional)<input type="date" className={`${input} mt-0.5`} value={nuevo.venceAt} onChange={e => setNuevo({ ...nuevo, venceAt: e.target.value })} /></label>
+            <label className="text-[11px] text-slate-500">Plan
+              <select className={`${input} mt-0.5`} value={nuevo.plan} onChange={e => setNuevo({ ...nuevo, plan: e.target.value as Plan })}>
+                {PLANES.map(p => <option key={p} value={p}>{NOMBRE_PLAN[p]}</option>)}
+              </select>
+            </label>
           </div>
           <button disabled={creando || !nuevo.nombre || !nuevo.adminEmail || nuevo.clave.length < 8} onClick={crear}
             className="mt-3 rounded-lg bg-teal-700 px-3.5 py-1.5 text-sm font-medium text-white hover:bg-teal-800 disabled:opacity-50">

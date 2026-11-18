@@ -17,6 +17,7 @@ import { errorDeArchivoSubido } from '@/app/lib/subidas';
 import { extraerDatosCotizacionDeDocumento } from '@/app/lib/compras-cotizacion-ocr';
 import { parsearMontoCL } from '@/app/lib/numeros';
 import { fusionarDirectasDelNegocio } from '@/app/lib/compras-directas';
+import { fichasDesdeCotizacionEnSegundoPlano } from '@/app/lib/compras-cotizacion-specs';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -205,6 +206,8 @@ async function __POST(request: NextRequest, { params }: Params) {
         }, userId, nombre);
       }
     }
+    // Cotización con especificaciones técnicas: sus productos también quedan como ficha (en segundo plano; nunca rompe la carga).
+    if (datos.origen !== 'directa' && datos.archivoUrl) fichasDesdeCotizacionEnSegundoPlano({ negocioId: id, cotizacionId, actor: { id: userId, nombre: nombre || 'Compras' } });
     return NextResponse.json({ success: true, id: cotizacionId });
   } catch (error: any) {
     console.error('[compras/cotizaciones][POST]', String(error));

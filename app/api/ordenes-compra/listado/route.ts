@@ -3,6 +3,7 @@
 // (las dos empresas), con filtros. A diferencia de /api/ordenes-compra (una licitación puntual),
 // esto pagina sobre toda la tabla — pensado para /ordenes-compra en el sidebar (GESTIÓN).
 import { NextRequest, NextResponse } from 'next/server';
+import { clienteDeHeader } from '@/app/lib/tenant';
 import { listarOrdenesCompra } from '@/app/lib/ordenes-compra';
 import { permisosDeUsuario } from '@/app/lib/api-auth';
 
@@ -25,7 +26,10 @@ export async function GET(request: NextRequest) {
 
   const sp = request.nextUrl.searchParams;
   try {
+    const clienteId = clienteDeHeader(request);
+    if (!clienteId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
     const { ordenes, total, sumaTotal } = await listarOrdenesCompra({
+      clienteId,
       desde: sp.get('desde') || undefined,
       hasta: sp.get('hasta') || undefined,
       empresaId: sp.get('empresaId') ? Number(sp.get('empresaId')) : undefined,

@@ -3,6 +3,7 @@
 // tareas. Visible para admin, jefe de ventas, cualquier Encargado de Compras, y el propio asignado
 // (aunque no tenga el permiso general — es su trabajo).
 import { NextRequest, NextResponse } from 'next/server';
+import { clienteDeNegocio } from '@/app/lib/tenant';
 import pool from '@/app/lib/db';
 import { permisosCrudosDeUsuario } from '@/app/lib/api-auth';
 import { armarRelojAutomatico, obtenerAsignacion, listarTareas, candidatosEncargado, crearTareasCatalogoSiCorresponde, obtenerResumenFases, obtenerHitosGantt, negociosConCompraAprobada, esAuditorAcotado, sincronizarTareaOcProveedores } from '@/app/lib/compras';
@@ -107,7 +108,7 @@ export async function GET(request: NextRequest, { params }: Params) {
       pool.query(`SELECT licitacion_nombre, licitacion_organismo, licitacion_codigo FROM negocios WHERE id = ? LIMIT 1`, [id]) as any,
       // La orden de compra ya vive en `ordenes_compra` con su link al portal y su PDF descargado.
       // Se manda lo justo para pintarla: el resto de la ficha ya viene en `asignacion.ordenCompra`.
-      ordenesDeLicitacion(asignacion.licitacionCodigo, asignacion.ordenCompra?.codigoMp).catch(() => []),
+      clienteDeNegocio(id).then(c => ordenesDeLicitacion(asignacion.licitacionCodigo, asignacion.ordenCompra?.codigoMp, c)).catch(() => []),
       // Datos para facturar desde el acta: existen desde la adjudicación, antes de que llegue la OC.
       facturacionActaGuardada(asignacion.licitacionCodigo),
     ]);

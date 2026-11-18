@@ -25,6 +25,8 @@ export const CLASE_TABLA: Record<string, ClaseTabla> = Object.fromEntries([
     'oferta_competencia_garantia',
     'acta_documento',               // actas publicadas en MP
     'preguntas_respuestas_cache',   // foro público de la licitación
+    'mp_oc_publica',                // detalle oficial de órdenes de compra de MP (caché de la evaluación por RUT, migration-197)
+    'mp_oc_proveedor_dia',          // listado oficial de OC de un proveedor en un día cerrado (misma caché)
   ]),
   ...lista('PRIVADA_ICA', [
     // Viabilidad de ICA (motor v4, reglas aprendidas, su perfil). Las empresas-cliente usan cliente_viabilidad*.

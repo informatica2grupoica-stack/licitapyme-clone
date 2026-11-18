@@ -4,6 +4,7 @@
 // app/lib/ordenes-compra.ts). No llama a Mercado Público: la API no permite consultar por
 // licitación, así que preguntar en vivo desde una pantalla no es una opción.
 import { NextRequest, NextResponse } from 'next/server';
+import { clienteDeHeader } from '@/app/lib/tenant';
 import { puedeVerLicitacion } from '@/app/lib/api-auth';
 import { ordenesDeLicitacion } from '@/app/lib/ordenes-compra';
 
@@ -17,7 +18,9 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Sin acceso a esta licitación' }, { status: 403 });
   }
   try {
-    return NextResponse.json({ success: true, ordenes: await ordenesDeLicitacion(codigo) });
+    const clienteId = clienteDeHeader(request);
+    if (!clienteId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
+    return NextResponse.json({ success: true, ordenes: await ordenesDeLicitacion(codigo, null, clienteId) });
   } catch (error: any) {
     // La tabla puede no existir todavía (migración 64 sin aplicar): se responde vacío en vez de
     // reventar la sección Resultado entera, que es información que sí está disponible.

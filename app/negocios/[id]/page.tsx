@@ -480,6 +480,7 @@ function DetalleContent() {
   const conCosteo      = tieneModulo(usuario, 'costeo');
   const conCompetencia = tieneModulo(usuario, 'competencia');
   const conIA          = tieneModulo(usuario, 'ia_chat');
+  const conResultado   = tieneModulo(usuario, 'resultado'); // pestaña Resultado: plan Pro (planes, 2026-11-18)
 
   const [negocio, setNegocio]       = useState<Negocio | null>(null);
   const [licitacion, setLicitacion] = useState<LicitacionRaw | null>(null);
@@ -517,7 +518,9 @@ function DetalleContent() {
     if (!negocio) return;
     const gated = seccion === 'resultado' || seccion === 'competencia' || seccion === 'documentos_competencia' || seccion === 'preguntas';
     if (gated && !tieneResultado(negocio.estado_pipeline)) setSeccion('resumen');
-  }, [negocio, seccion]);
+    // Plan sin Resultado: un link directo a esas pestañas vuelve a Resumen.
+    if ((seccion === 'resultado' || seccion === 'competencia' || seccion === 'documentos_competencia') && !conResultado) setSeccion('resumen');
+  }, [negocio, seccion, conResultado]);
 
   // Documentos
   const [documentos, setDocumentos]           = useState<DocumentoLocal[]>([]);
@@ -781,6 +784,7 @@ function DetalleContent() {
     hayPostulacion: isAdmin && hayPrePostulacion, // Postulación: solo admin (05-oct-2026, pedido explícito)
     viabilidadBloqueada: !conViabilidad,
     preguntasBloqueadas: !conIA,
+    resultadoBloqueado: !conResultado,
   });
   // El sidebar solo tiene "resumen"/"resultado" como ítems clickeables cuyo grupo incluye otras
   // pestañas: Fechas/Criterios/Comentarios y Competencia son pestañas internas de Resumen/Resultado.
@@ -1034,14 +1038,15 @@ function DetalleContent() {
             )}
             {/* Resultado agrupa Resultado/Competencia; solo existe una vez que el negocio ya
                 Ganó o Perdió (hayResultado, ver arriba). */}
-            {hayResultado && (seccion === 'resultado' || seccion === 'competencia' || seccion === 'documentos_competencia') && (
+            {hayResultado && conResultado && (seccion === 'resultado' || seccion === 'competencia' || seccion === 'documentos_competencia') && (
               <>
                 <SeccionTabs
                   items={[
                     { key: 'resultado', label: 'Resultado' },
-                    { key: 'competencia', label: 'Competencia' },
+                    // Competencia solo si está contratada (planes: lo no contratado no aparece).
+                    ...(conCompetencia ? [{ key: 'competencia', label: 'Competencia' }] : []),
                     // Solo cuando la licitación ya está Aperturada (licitacion_apertura.aperturada).
-                    ...(negocio.aperturada ? [{ key: 'documentos_competencia', label: 'Documentos de Competencia' }] : []),
+                    ...(conCompetencia && negocio.aperturada ? [{ key: 'documentos_competencia', label: 'Documentos de Competencia' }] : []),
                   ]}
                   activo={seccion}
                   onSelect={k => setSeccion(k as Seccion)}
