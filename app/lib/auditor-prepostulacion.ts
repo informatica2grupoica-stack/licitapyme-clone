@@ -25,7 +25,7 @@ import {
 export interface ActorPP { id: number; nombre: string }
 
 const s = (v: unknown, max = 600) => (v == null ? '' : String(v)).trim().slice(0, max);
-const fechaS = (v: unknown) => (v ? (v instanceof Date ? v.toISOString() : String(v)) : null);
+const fechaS = (v: unknown) => (v ? (v instanceof Date ? (isNaN(v.getTime()) ? null : v.toISOString()) : String(v)) : null);
 const sha = (t: string) => createHash('sha1').update(t).digest('hex');
 
 // ── ¿Está aplicada la migración? ────────────────────────────────────────────────────────────────

@@ -60,7 +60,13 @@ function Desplegable({ boton, ancho = 'w-64', alinear = 'left', children }: {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!abierto) return;
-    const fn = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setAbierto(false); };
+    // Un <Select> dentro del menú pinta su lista en un portal (fuera de `ref`): sin esta excepción el menú
+    // se cerraba al pulsar una opción y el cambio (p. ej. Reasignar responsable) nunca se aplicaba.
+    const fn = (e: MouseEvent) => {
+      const t = e.target as Element;
+      if (t.closest?.('[role="listbox"]')) return;
+      if (ref.current && !ref.current.contains(t)) setAbierto(false);
+    };
     const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setAbierto(false); };
     document.addEventListener('mousedown', fn);
     window.addEventListener('keydown', esc);

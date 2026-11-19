@@ -139,7 +139,7 @@ export interface PanelAuditorDTO {
 // ── Utilidades ───────────────────────────────────────────────────────────────────────────────────
 const s = (v: unknown) => (v == null ? null : String(v));
 const num = (v: unknown) => (v == null ? null : Number(v));
-const fechaS = (v: unknown) => (v ? (v instanceof Date ? v.toISOString() : String(v)) : null);
+const fechaS = (v: unknown) => (v ? (v instanceof Date ? (isNaN(v.getTime()) ? null : v.toISOString()) : String(v)) : null);
 
 /** Complementos de cada opción (eventos `complemento`, plegados en orden: poner / quitar). */
 async function complementosPorOpcion(negocioId: number): Promise<Map<number, ComplementoGuardado[]>> {

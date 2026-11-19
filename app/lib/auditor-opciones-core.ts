@@ -52,8 +52,8 @@ export function fechaISO(t: string | null | undefined): string | null {
   if (m) return `20${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
   return null;
 }
-function sumarDias(iso: string, dias: number): string {
-  const d = new Date(iso + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + dias); return d.toISOString().slice(0, 10);
+function sumarDias(iso: string, dias: number): string | null {
+  const d = new Date(iso + 'T00:00:00Z'); if (isNaN(d.getTime())) return null; d.setUTCDate(d.getUTCDate() + dias); return isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
 }
 function diasDelTexto(t: string | null | undefined): number | null {
   if (!t) return null;

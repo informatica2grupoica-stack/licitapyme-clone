@@ -55,3 +55,6 @@ es válida (ver viabilidad.md, «Completar cada línea»).
 - Bug: el Puente listaba TODOS los usuarios activos (compras, bodega, etc.). Decisión del dueño: criterio **automático por exclusión**.
 - Regla: `recibeLicitaciones()` en `app/lib/puente.ts` deja fuera a rol `externo` y a quien tenga `solo_compras` o `compras_auditor`. Se aplica en `GET /api/puente` (chips) y en `contextoReparto` (simular/repartir), así un id colado no recibe nada.
 - Actualización (mismo día): una admin SÍ hace licitaciones → se agregó el permiso explícito `recibe_licitaciones` (selector en /admin/usuarios, también para admins). Si está fijado manda (sí/no); si nunca se tocó vale la exclusión de arriba. Sin verificar en navegador.
+
+## 2026-11-19 — Reasignar responsable no se aplicaba (GestionAside.tsx; tsc sin errores propios, sin ver en navegador)
+Causa: el menú `Desplegable` se cerraba con el mousedown sobre una opción del `<Select>` (su lista va en un portal fuera del menú), así que el clic nunca llegaba y no salía ni error. Arreglo: `Desplegable` ignora mousedown dentro de `[role="listbox"]`. Los permisos (solo admin) no cambiaron. Pendiente: probar con un negocio real y desplegar.
