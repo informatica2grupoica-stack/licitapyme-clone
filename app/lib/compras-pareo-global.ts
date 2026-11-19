@@ -14,6 +14,8 @@ import { auditarCotizacionEnSegundoPlano } from '@/app/lib/compras-auditoria-cot
 import { marcarCotizandoSiHayCotizacion } from '@/app/lib/compras-avance-estados';
 import { ahoraChileSQL } from '@/app/lib/tz';
 import { registrarEvento } from '@/app/lib/historial';
+import { listarEquivalencias } from '@/app/lib/compras-equivalencias';
+import { clienteDeNegocio } from '@/app/lib/tenant';
 import { parearNegocio, planificarEscrituraPareo, type CotizacionPareo, type ItemGuardado } from '@/app/lib/compras-pareo-global-core';
 
 const crearChatIA = conModuloIA('compras', crearChatIABase);
@@ -34,7 +36,10 @@ async function ejecutar(negocioId: number, actor?: { id: number; nombre: string 
   const productos = (await listarProductosCompra(negocioId)).filter(p => !esSubestadoFuera(p.subestado) && !p.esServicio);
   if (productos.length === 0) return vacio('el negocio no tiene productos');
 
+  // Equivalencias que fijó la empresa dueña del negocio (modelo → familia); sin tabla o sin filas = lista vacía.
+  const equivalencias = await clienteDeNegocio(negocioId).then(c => listarEquivalencias(c)).catch(() => []);
   const R = await parearNegocio({
+    equivalencias: equivalencias.map(e => ({ patron: e.patron, familia: e.familia })),
     productos: productos.map(p => ({ id: p.id, descripcion: p.descripcion, cantidad: p.cantidad, unidad: p.unidad, montoUnitario: p.montoUnitario })),
     cotizaciones,
     llamarIA: async (system, user) => {

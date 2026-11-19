@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parearNegocio, validarPareoGlobal, lineasDelNegocio, conEquivalenciaNominal, choqueDeFamilia, type CotizacionPareo, type ProductoPareo } from '../compras-pareo-global-core';
+import { parearNegocio, validarPareoGlobal, lineasDelNegocio, conEquivalenciaNominal, choqueDeFamilia, declaradasEquivalentes, type CotizacionPareo, type ProductoPareo } from '../compras-pareo-global-core';
 
 // Casos reales del negocio 727202-72-LP26 (docs/diseno-pareo-global-cotizaciones.md §7 y el comparativo del equipo). La IA se simula con una
 // respuesta fija: lo que se prueba son las comprobaciones del código.
@@ -216,3 +216,12 @@ test('plan B por grupos: las líneas conservan su código global (antes se cruza
   assert.ok(!r.asignaciones.some(a => a.linea === 'L3'), 'L3 no se nombró: no se cruza con L2');
 });
 
+
+test('equivalencias de la empresa: «Easy Weld» declarada termofusión acepta la INGAP aunque el texto casi no se parezca; sin la equivalencia no', () => {
+  const eq = [{ patron: 'Easy Weld', familia: 'termofusión a tope' }];
+  const prod = 'Máquina de soldar HDPE Hürner Easy Weld 180.', lin = 'Termofusionadora Manual INGAP Modelo SHDS 160';
+  assert.equal(declaradasEquivalentes(prod, lin, eq), true);
+  assert.equal(declaradasEquivalentes(prod, lin, []), false);
+  assert.equal(declaradasEquivalentes(prod, 'Bomba sumergible Pedrollo 1,5 HP', eq), false, 'una bomba no es termofusión');
+  assert.equal(declaradasEquivalentes('Máquina HST 300 Smart', 'Electrofusora Elektra Light 160', [{ patron: 'HST 300', familia: 'electrofusión' }]), true);
+});

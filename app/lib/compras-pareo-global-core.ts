@@ -148,6 +148,20 @@ export function familiasDe(texto: string, equivalencias: EquivalenciaFamilia[] =
   });
   return out;
 }
+/** ¿La empresa declaró equivalentes a estos dos textos? Comparten una familia que SOLO existe por una equivalencia suya (ej. «Easy Weld» y «Termofusionadora INGAP» = termofusión). */
+export function declaradasEquivalentes(descProducto: string, descLinea: string, equivalencias: EquivalenciaFamilia[] = []): boolean {
+  const p = String(descProducto).toLowerCase(), l = String(descLinea).toLowerCase();
+  for (const e of equivalencias) {
+    const pat = e.patron?.trim().toLowerCase(); if (!pat) continue;
+    const enP = p.includes(pat), enL = l.includes(pat);
+    if (enP && enL) return true;
+    if (!enP && !enL) continue;
+    // La empresa dijo «<patrón> = <familia>»: el otro texto tiene que decir esa familia.
+    const familiaDeclarada = familiasDe(e.familia), delOtro = familiasDe(enP ? descLinea : descProducto);
+    for (const [g, nombres] of familiaDeclarada) for (const n of nombres) if (delOtro.get(g)?.has(n)) return true;
+  }
+  return false;
+}
 /** Choque de familia: el producto y la línea dicen familias distintas del mismo grupo (y ninguno dice las dos). */
 export function choqueDeFamilia(descProducto: string, descLinea: string, equivalencias: EquivalenciaFamilia[] = []): string | null {
   const fp = familiasDe(descProducto, equivalencias), fl = familiasDe(descLinea, equivalencias);
@@ -246,7 +260,7 @@ export function validarPareoGlobal(ctx: Ctx, respuesta: any): ResultadoPareo {
     // Coherencia de texto: con 141 productos en una llamada la IA a veces se corre de código (HST 300 → una copla de $3.436, una motobomba → una brida).
     // Si el producto y la línea no comparten casi nada y la línea no trae el modelo que nombra el producto, no es una equivalencia: es un código mal puesto.
     const parecido = puntajeLineaProducto(l.linea, { id: p.id, descripcion: p.descripcion, cantidad: p.cantidad }, undefined, { penalizar: false }).puntaje;
-    if (parecido < UMBRAL_PARECIDO && !mismoModelo) { descartar({ producto: p.id, linea: l.codigo, motivo: `no se parecen (código mal puesto): «${corto(l.descripcion, 40)}»` }); return; }
+    if (parecido < UMBRAL_PARECIDO && !mismoModelo && !declaradasEquivalentes(p.descripcion, l.descripcion, equivalencias)) { descartar({ producto: p.id, linea: l.codigo, motivo: `no se parecen (código mal puesto): «${corto(l.descripcion, 40)}»` }); return; }
     // Cantidad en unidades del producto (por defecto, lo que pide el producto).
     const qIA = Number(a?.cantidad);
     const cantidad = Number.isFinite(qIA) && qIA > 0 ? qIA : (p.cantidad ?? 1);
