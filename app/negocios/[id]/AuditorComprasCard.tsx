@@ -1393,6 +1393,13 @@ export function AuditorComprasCard({ negocioId, puedeOperar, soloLectura = false
           toast.success('Cantidad a comprar guardada', 'El costeo no se tocó. Si la compra estaba aprobada, hay que volver a mandarla.');
           await cargar(); recargarCompartido();
         } : undefined}
+        onEmparejar={puedeOperar ? async (a) => {
+          const r = await fetch(`/api/compras/${negocioId}/emparejar`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(a) });
+          const d = await r.json().catch(() => ({}));
+          if (!r.ok || !d.success) throw new Error(d.error || 'No se pudo emparejar.');
+          toast.success('Línea asignada a mano', 'Quedó guardado quién y cuándo. El auditor la vuelve a revisar y el pareo automático ya no rehace esa cotización.');
+          await cargar(); recargarCompartido();
+        } : undefined}
         onEditarAdicionales={puedeOperar ? async (cotizacionId, productoId, adicionales, precioBase) => {
           try {
             const r = await fetch(`/api/compras/${negocioId}/cotizaciones/${cotizacionId}/adicionales`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ productoId, adicionales, ...(precioBase != null ? { precioBase } : {}) }) });

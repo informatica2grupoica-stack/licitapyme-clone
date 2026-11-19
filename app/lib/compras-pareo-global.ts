@@ -170,3 +170,32 @@ export async function corregirPareo(negocioId: number, actor: { id: number; nomb
 
 /** Una corrida directa (sin espera ni cola): para pruebas y scripts. */
 export { ejecutar as ejecutarPareoGlobal };
+
+/** «Emparejar a mano»: una persona dice que ESTA línea de ESTA cotización es el precio de ESTE producto. Agrega o cambia solo ese producto en esa cotización
+ *  (no toca los demás ítems ni sus adicionales) y deja el evento de asignación manual: desde entonces el pareo automático ya no rehace esa cotización. */
+export async function emparejarAMano(negocioId: number, a: { cotizacionId: number; productoId: number; precio: number; linea: string; cumple: 'CUMPLE' | 'INFERIOR_NEGOCIABLE'; aviso?: string | null }, actor: { id: number; nombre: string | null }): Promise<void> {
+  if (!(Number.isFinite(a.precio) && a.precio > 0)) throw new Error('El precio tiene que ser mayor que cero.');
+  const [cot]: any = await pool.query('SELECT id FROM compras_cotizacion WHERE id = ? AND negocio_id = ? LIMIT 1', [a.cotizacionId, negocioId]);
+  if (!cot?.length) throw new Error('Esa cotización no es de este negocio.');
+  const producto = (await listarProductosCompra(negocioId)).find(p => p.id === a.productoId);
+  if (!producto) throw new Error('Ese producto no es de este negocio.');
+  if (esSubestadoFuera(producto.subestado) || !(producto.subestado === 'PENDIENTE' || producto.subestado === 'COTIZANDO'))
+    throw new Error('Ese producto ya avanzó (aprobado, comprado o fuera): no se puede cambiar su cotización.');
+  const linea = String(a.linea || '').trim().slice(0, 200);
+  const detalle = `Emparejado a mano${actor.nombre ? ` por ${actor.nombre}` : ''}: línea «${linea}»${a.aviso ? ` · ${String(a.aviso).slice(0, 160)}` : ''}`.slice(0, 480);
+  await pool.query(
+    `INSERT INTO compras_cotizacion_item (cotizacion_id, producto_id, precio_unitario, precio_base, cumple, detalle_desviacion) VALUES (?,?,?,?,?,?)
+     ON DUPLICATE KEY UPDATE precio_unitario = VALUES(precio_unitario), precio_base = VALUES(precio_base), cumple = VALUES(cumple), detalle_desviacion = VALUES(detalle_desviacion)`,
+    [a.cotizacionId, a.productoId, a.precio, a.precio, a.cumple, detalle]);
+  await recalcularPreciosDeCotizacion(a.cotizacionId);   // los adicionales ya cargados se vuelven a sumar al base nuevo
+  await cargarFleteAProductos(a.cotizacionId).catch(() => {});
+  await registrarEvento({
+    tipo: 'COMPRAS_COTIZACION_ITEMS_ASIGNADOS',
+    licitacionCodigo: (await pool.query('SELECT licitacion_codigo FROM negocios WHERE id = ? LIMIT 1', [negocioId]).then(([r]: any) => r?.[0]?.licitacion_codigo).catch(() => null)) ?? undefined,
+    actorId: actor.id, actorNombre: actor.nombre ?? undefined,
+    mensaje: `Se emparejó a mano «${producto.descripcion.slice(0, 80)}» con la línea «${linea.slice(0, 80)}» de la cotización #${a.cotizacionId}.`,
+    metadata: { negocio_id: negocioId, cotizacion_id: a.cotizacionId, productos: [a.productoId], manual: true },
+  } as any).catch(() => {});
+  auditarCotizacionEnSegundoPlano(negocioId, a.cotizacionId, actor);
+  await marcarCotizandoSiHayCotizacion(negocioId);
+}

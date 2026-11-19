@@ -16,6 +16,7 @@ import { MargenCosteoVsCotizaciones } from './MargenCosteoVsCotizaciones';
 import { ESTILO_VEREDICTO, ESTILO_TECNICO, cotizacionesReemplazadas } from './MatrizPrecios';
 import type { MatrizProps } from './MatrizPrecios';
 import { lineasPendientes } from './ListaCotizaciones';
+import { EmparejarAMano, type AsignacionMano, type CotizacionDeLista } from './EmparejarAMano';
 import type { LineaCotizacion } from '@/app/lib/compras-cotizacion-lineas';
 
 const clp = (n: number) => `$${Math.round(n).toLocaleString('es-CL')}`;
@@ -96,7 +97,9 @@ function CantidadAComprar({ p, base, onGuardar }: { p: ProductoCmp; base: number
   );
 }
 
-export function ComparadorPrecios({ productos, cotizaciones, costeado, venta, linksCosteo = {}, lecturaLink: lecLink, onCompraPorLink, seleccion, onSeleccionar, alertas, tecnico, onAgregar, compra, onElegirCelda, onComprarTodoAqui, acciones, onVerMatriz, costeoCompras = {}, onAgregarLinea, onCambiarCantidad, onEditarAdicionales }: MatrizProps & {
+export function ComparadorPrecios({ productos, cotizaciones, costeado, venta, linksCosteo = {}, lecturaLink: lecLink, onCompraPorLink, seleccion, onSeleccionar, alertas, tecnico, onAgregar, compra, onElegirCelda, onComprarTodoAqui, acciones, onVerMatriz, costeoCompras = {}, onAgregarLinea, onCambiarCantidad, onEditarAdicionales, onEmparejar }: MatrizProps & {
+  /** Guarda «esta línea de esta cotización es el precio de este producto» (panel «Emparejar a mano»). Sin esta función no sale el botón. */
+  onEmparejar?: (a: AsignacionMano) => Promise<void>;
   /** Guarda la lista completa de componentes/adicionales de un producto en una cotización (editar un precio en el cuadro «Qué trae el kit»). */
   onEditarAdicionales?: (cotizacionId: number, productoId: number, adicionales: AdicionalCotizacion[], precioBase?: number) => Promise<void>;
   onVerMatriz?: () => void; costeoCompras?: Record<number, { costo: number | null; link: string }>;
@@ -126,6 +129,7 @@ export function ComparadorPrecios({ productos, cotizaciones, costeado, venta, li
   };
   // Líneas del documento sin usar, por cotización (las cotizaciones llegan completas, con el texto del documento).
   const pendientesPorCot = useMemo(() => new Map(cotizaciones.map(c => [c.id, lineasPendientes(c as unknown as Parameters<typeof lineasPendientes>[0], productos)] as const)), [cotizaciones, productos]);
+  const [emparejando, setEmparejando] = useState<number | null>(null);   // producto abierto en «Emparejar a mano»
   const [buscaProducto, setBuscaProducto] = useState('');
   const [buscaProveedor, setBuscaProveedor] = useState('');
   // Productos con las cotizaciones reemplazadas desplegadas (por defecto van plegadas en una línea).
@@ -468,6 +472,13 @@ export function ComparadorPrecios({ productos, cotizaciones, costeado, venta, li
               {abierto && (
                 <div className="px-5 pb-4 pl-12 space-y-2">
                   {!p.esServicio && <CantidadAComprar p={p} base={base} onGuardar={onCambiarCantidad} />}
+                  {onEmparejar && !p.esServicio && (
+                    <div className="flex items-center gap-2 flex-wrap text-xs text-tinta-2 dark:text-slate-400">
+                      <button type="button" onClick={() => setEmparejando(p.id)} data-testid={`emparejar-${p.id}`}
+                        className="font-medium text-marca dark:text-teal-400 hover:underline underline-offset-2">Emparejar a mano con una línea de las cotizaciones</button>
+                      <span>{ofertas.length === 0 ? 'Este producto no tiene oferta todavía.' : 'Para cuando una oferta no es la que corresponde o falta una.'}</span>
+                    </div>
+                  )}
                   {linksCosteo[p.id] && <div className="text-[11.5px] text-zinc-500 flex items-center gap-1.5">Link del costeo: <span className="[&_a]:max-w-[220px]"><LinksProducto links={linksCosteo[p.id].links} /></span></div>}
 
                   {lecturas.map(l => {
@@ -596,6 +607,13 @@ export function ComparadorPrecios({ productos, cotizaciones, costeado, venta, li
           </div>
         </details>
       )}
+      {emparejando != null && onEmparejar && (() => {
+        const p = productos.find(x => x.id === emparejando);
+        return p ? (
+          <EmparejarAMano producto={{ id: p.id, descripcion: p.descripcion, cantidad: p.cantidad, unidad: p.unidad }} productos={productos.map(x => ({ id: x.id, descripcion: x.descripcion, cantidad: x.cantidad, unidad: x.unidad }))}
+            cotizaciones={cotizaciones as unknown as CotizacionDeLista[]} costeado={costeado[p.id] ?? null} onCerrar={() => setEmparejando(null)} onConfirmar={onEmparejar} />
+        ) : null;
+      })()}
       {(margen.lineas.length > 0 || margen.sinVenta > 0 || margen.sinCosteo < productos.length) && <MargenCosteoVsCotizaciones resumen={margen} fletesCotizados={fletesCotizados} adicionales={adicionalesCotizados} />}
       <p className="px-4 py-2 text-[11.5px] text-zinc-400 border-t border-zinc-100">Verde: más barata que lo costeado · Rojo: más cara · Azul: igual (±1 %) · Gris: no se puede comparar. ⚠ rojo = un problema del proveedor (plazo, RUT, mínimo de venta, falta un componente).</p>
     </div>

@@ -57,7 +57,7 @@ function dice(a: Set<string>, b: Set<string>): number {
 // ─── Medidas con unidad ───────────────────────────────────────────────────────────────────────────────────────────────────────────
 /** Clases de medida que se comparan. «m», «kg» y «L» NO están: son unidades de venta (rollo de 50 m ↔ línea por metro) y ya tienen su propia conversión. */
 export type ClaseMedida = 'mm' | 'pulg' | 'pn' | 'dn' | 'w' | 'hp' | 'kva' | 'v' | 'ah' | 'btu' | 'bar';
-/** Las medidas físicas (tamaño, potencia, tensión…) son distintas cosas si no coinciden; PN (presión) y modelo se avisan pero son negociables. */
+/** Las medidas físicas (tamaño, potencia, presión PN…) son distintas cosas si no coinciden; el modelo se avisa pero es negociable. PN: una presión MAYOR a la pedida sirve (PN16 por PN10: «superior», se asigna y se avisa); una MENOR se AVISA pero no se descarta: el equipo compró válvulas PN10 por PN16 en el 1356 y hacerla grave bajó la coincidencia con su Excel de 82 a 78 %. */
 const CLASES_GRAVES = new Set<ClaseMedida>(['mm', 'pulg', 'dn', 'w', 'hp', 'kva', 'v', 'ah', 'btu']);
 const NOMBRE_CLASE: Record<ClaseMedida, string> = { mm: 'mm', pulg: 'pulgadas', pn: 'PN', dn: 'DN', w: 'W', hp: 'HP', kva: 'kVA', v: 'V', ah: 'Ah', btu: 'BTU', bar: 'bar' };
 
@@ -152,8 +152,8 @@ function rangosSeCruzan(a: Rango[], b: Rango[], clase: ClaseMedida): boolean {
 
 /** `grave` = te ofrecen MENOS de lo pedido (otro producto: no se asigna). `superior` = te ofrecen MÁS (posible equivalente: se asigna y se avisa). */
 export interface ConflictoMedible { clase: ClaseMedida | 'modelo'; grave: boolean; superior?: boolean; texto: string }
-/** Clases donde «más» es un equivalente razonable de «menos» (capacidad o tamaño): la tensión y la presión no se ordenan así. */
-const CLASES_ORDENADAS = new Set<ClaseMedida>(['mm', 'pulg', 'dn', 'w', 'hp', 'kva', 'ah', 'btu']);
+/** Clases donde «más» es un equivalente razonable de «menos» (capacidad, tamaño o presión nominal PN): la tensión no se ordena así. */
+const CLASES_ORDENADAS = new Set<ClaseMedida>(['mm', 'pulg', 'dn', 'pn', 'w', 'hp', 'kva', 'ah', 'btu']);
 const fmtR = (r: Rango[]) => [...new Set(r.map(x => x.lo === x.hi ? String(x.lo) : `${x.lo}-${x.hi}`))].join('/');
 
 /**

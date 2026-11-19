@@ -1,7 +1,7 @@
 'use client';
 // Equivalencias de la empresa para el pareo de cotizaciones: «HST 300» = «electrofusión (equivale a Elektra Light 160)».
 // Se guardan por empresa (API /api/compras/[negocioId]/equivalencias) y el pareo las usa al repartir las líneas entre los productos.
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { IconChevronDown as ChevronDown, IconTrash as Trash2, IconPlus as Plus } from '@tabler/icons-react';
 import { useToast } from '@/app/components/ui/toast';
 
@@ -21,7 +21,11 @@ export function EquivalenciasPareo({ negocioId }: { negocioId: number }) {
     if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo completar');
     setLista(data.equivalencias);
   };
-  useEffect(() => { if (abierto && lista === null) llamar().catch(e => toast.error('No se pudieron cargar las equivalencias', e.message)); }, [abierto]); // eslint-disable-line react-hooks/exhaustive-deps
+  const alternar = () => {
+    const abrir = !abierto;
+    setAbierto(abrir);
+    if (abrir && lista === null) llamar().catch(e => toast.error('No se pudieron cargar las equivalencias', e.message));
+  };
 
   const agregar = async () => {
     setGuardando(true);
@@ -36,7 +40,7 @@ export function EquivalenciasPareo({ negocioId }: { negocioId: number }) {
 
   return (
     <div className="px-4 py-2 border-b border-zinc-100">
-      <button onClick={() => setAbierto(o => !o)} aria-expanded={abierto} className="inline-flex items-center gap-1.5 text-[13px] font-medium text-tinta-2 hover:text-tinta">
+      <button onClick={alternar} aria-expanded={abierto} className="inline-flex items-center gap-1.5 text-[13px] font-medium text-tinta-2 hover:text-tinta">
         <ChevronDown size={14} className={`transition-transform ${abierto ? '' : '-rotate-90'}`} />
         Equivalencias de tu empresa{lista ? ` (${lista.length})` : ''}
       </button>

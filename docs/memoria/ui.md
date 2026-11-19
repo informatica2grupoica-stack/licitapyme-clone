@@ -241,3 +241,5 @@ Traspasado desde la memoria personal el 2026-10-27; las fechas son de cuando se 
 - (2026-11-03) Cotizaciones: proveedores sugeridos por compras anteriores abren un modal con ficha de contacto, productos comprados y órdenes (ProveedorFichaModal + /api/compras/proveedores/ficha). Stepper del flujo más claro (estado ≠ ubicación, sin números repetidos, «Siguiente»). Detalle en la skill rediseno-compras. Sin ver en navegador (login).
 
 - **Compras → «Compara y elige» con licitank-ui (2026-11-19, pedido del dueño):** filas por columnas, ofertas de los 3 proveedores más baratos visibles con el producto plegado, estados con punto (sin pastillas). Detalle en `compras.md` (11). Sin ver en navegador; falta que el dueño lo apruebe.
+
+- **Compras → «Emparejar a mano» (2026-11-19, pedido del dueño, maqueta aprobada):** panel lateral licitank-ui con candidatas ordenadas, qué revisar con puntos de color, «Ver cotización» y vista previa de cómo quedaría. Detalle en `compras.md` (12). Sin ver en navegador.

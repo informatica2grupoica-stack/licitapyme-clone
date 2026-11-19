@@ -32,3 +32,13 @@ test('reparación de unidad: una línea que no se parece al producto no sirve de
   const R = await parearNegocio({ productos: [TUBO], cotizaciones: [c], llamarIA: ia({}) });
   assert.equal(reparacionesDeUnidad({ itemsGuardados: [{ cotizacionId: 366, productoId: 728, precioBase: 189800 }], lineas: R.lineas, productos: [TUBO] }).length, 0);
 });
+
+test('regla de presión: PN16 por PN10 sirve (se avisa); PN10 por PN16 solo se avisa, no se descarta (el equipo compró válvulas así)', async () => {
+  const { conflictosMedibles } = await import('../compras-cotizacion-emparejar');
+  const mas = conflictosMedibles('Copla HDPE de 110 mm,PN10.', 'Copla HDPE EF 110 PN16');
+  const pn = mas.find(c => c.clase === 'pn');
+  assert.ok(pn && pn.superior === true && pn.grave === false, 'PN16 pedido PN10: superior, no grave');
+  const menos = conflictosMedibles('Copla HDPE de 110 mm, PN16.', 'Copla electrofusión 110 mm PN10').find(c => c.clase === 'pn');
+  assert.ok(menos && menos.grave === false && !menos.superior, 'PN10 cuando piden PN16: aviso, no grave');
+  assert.equal(conflictosMedibles('Copla HDPE de 110 mm,PN10.', 'Copla electrofusión 110 mm PN10').some(c => c.clase === 'pn'), false);
+});
