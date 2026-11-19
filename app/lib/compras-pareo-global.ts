@@ -3,7 +3,7 @@
 // Corre SOLO después de leer una cotización (programarPareoGlobal, con espera para juntar varias subidas seguidas) y a mano con el botón
 // «Corregir pareo» (corregirPareo). Lo que una persona ya tocó, o un producto que ya avanzó (aprobado, comprado…), NO se mueve.
 import pool from '@/app/lib/db';
-import { crearChatIA as crearChatIABase } from '@/app/lib/gemini';
+import { crearChatIA as crearChatIABase, geminiTextoHabilitado } from '@/app/lib/gemini';
 import { conModuloIA } from '@/app/lib/ia-uso';
 import { conCupo } from '@/app/lib/cupo-ia';
 import { listarProductosCompra } from '@/app/lib/compras';
@@ -20,7 +20,7 @@ const crearChatIA = conModuloIA('compras', crearChatIABase);
 
 /** Modelo del pareo. En el banco (negocio 1356) glm-4.7 dio 75,8 % y Kimi rápido 78,8 % contra el comparativo del equipo, con ~1 min contra ~5 min:
  *  se usa glm-4.7 (el mismo de la lectura de cotizaciones). Cambiar aquí si el banco dice otra cosa. */
-const MODELO_PAREO = 'glm-4.7';
+const MODELO_PAREO = 'glm-4.7'; // respaldo: el principal es Gemini (ver llamarIA)
 
 export interface ResumenPareo { ejecutado: boolean; motivo?: string; asignados: number; quitados: number; sinRespaldo: number; saltados: number; llamadas: number; sinCuadrar: string[] }
 
@@ -38,11 +38,26 @@ async function ejecutar(negocioId: number, actor?: { id: number; nombre: string 
     productos: productos.map(p => ({ id: p.id, descripcion: p.descripcion, cantidad: p.cantidad, unidad: p.unidad, montoUnitario: p.montoUnitario })),
     cotizaciones,
     llamarIA: async (system, user) => {
+      const messages = [{ role: 'system', content: system }, { role: 'user', content: user }];
+      const salida = (c: any) => ({ content: String(c.choices?.[0]?.message?.content ?? ''), finishReason: c.choices?.[0]?.finish_reason ?? null });
+      // Prueba del 19-nov (pedido del dueño): primero Gemini (GEMINI_MODEL, hoy gemini-3.6-flash: 80 % en el banco del 1356, ~20 s)
+      // y, si falla o devuelve vacío, glm-4.7 como antes.
+      if (geminiTextoHabilitado()) {
+        try {
+          const c: any = await conCupo('compras-lectura', 3, () => crearChatIA({
+            messages, temperature: 0, stream: false, max_tokens: 30_000, response_format: { type: 'json_object' },
+          }, { timeoutMs: 240_000, proveedorPreferido: 'gemini', sinRespaldo: true }));
+          const r = salida(c);
+          if (r.content.trim()) return r;
+          console.warn('[pareo] Gemini devolvió vacío → glm-4.7');
+        } catch (e: any) {
+          console.warn(`[pareo] Gemini falló (${String(e?.status ?? e?.message ?? e).slice(0, 100)}) → glm-4.7`);
+        }
+      }
       const completion: any = await conCupo('compras-lectura', 3, () => crearChatIA({
-        messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
-        temperature: 0, stream: false, max_tokens: 12_000, response_format: { type: 'json_object' },
+        messages, temperature: 0, stream: false, max_tokens: 12_000, response_format: { type: 'json_object' },
       }, { timeoutMs: 300_000, modeloPreferido: MODELO_PAREO, soloGlm: true }));
-      return { content: String(completion.choices?.[0]?.message?.content ?? ''), finishReason: completion.choices?.[0]?.finish_reason ?? null };
+      return salida(completion);
     },
   });
 
