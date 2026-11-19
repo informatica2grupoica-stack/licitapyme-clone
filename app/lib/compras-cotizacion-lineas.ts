@@ -10,7 +10,7 @@
 // Regla de este módulo: lo que lee la IA se VERIFICA contra el texto del documento y contra su propia aritmética
 // (cantidad × unitario = total de línea; suma de líneas = neto del documento). Lo que no cuadra no se da por bueno.
 
-import { conflictosMedibles, medidasEnComun } from '@/app/lib/compras-cotizacion-emparejar';
+import { conflictosMedibles, medidasEnComun, puntajeLineaProducto } from '@/app/lib/compras-cotizacion-emparejar';
 
 export interface LineaCotizacion {
   descripcion: string;
@@ -494,12 +494,15 @@ export function productoQueCubreLaLinea(l: LineaCotizacion, productos: Array<{ i
  * ¿La asignación que ya tiene un producto sigue respaldada por el documento? Hay una línea cuyo precio es el del producto (igual, con IVA, en
  * otra moneda o × metros del rollo) y esa línea no choca con él en medida ni en modelo. Sirve para no borrar una asignación buena solo porque la IA
  * se saltó esa línea en una lectura nueva (Pedrollo 4SR12M-9, 363): se borra lo que el documento ya no sostiene, no lo que la IA no repitió.
+ * Además del precio, el NOMBRE tiene que parecerse algo (puntaje ≥ 0,3: Pedrollo abreviada 0,39; HST 300 vs Connect160 0,23): el precio de la máquina de electrofusión Connect160 asignado a tres
+ * máquinas de termofusión HST 300 (1356) coincidía con una línea y no había choque medible, y se quedaba para siempre.
  */
 export function asignacionRespaldadaPorDocumento(descProducto: string, precioBase: number | null, lineas: LineaCotizacion[], opts?: { factoresPrecio?: number[] }): boolean {
   if (precioBase == null || !(precioBase > 0)) return false;
   return lineas.some(l => {
     const c = productoQueCubreLaLinea(l, [{ id: 0, descripcion: descProducto, precioBase }], opts);
-    return !!c && c.como !== 'nombre' && !conflictosMedibles(descProducto, l.descripcion).some(x => x.grave || x.superior || x.clase === 'modelo');
+    return !!c && c.como !== 'nombre' && !conflictosMedibles(descProducto, l.descripcion).some(x => x.grave || x.superior || x.clase === 'modelo')
+      && puntajeLineaProducto(l, { id: 0, descripcion: descProducto }).puntaje >= 0.3;
   });
 }
 

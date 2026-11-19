@@ -29,11 +29,22 @@ export function palabrasClave(s: string): Set<string> {
       .map(raiz),
   );
 }
-/** Dos palabras son «la misma» si son iguales o una larga contiene a la otra («paraelectrofusion» ⊃ «electrofusion», «termofusion» ⊃ «fusion»). */
+/**
+ * Dos palabras son «la misma» si son iguales o si una es la otra con una palabra de relleno PEGADA («paraelectrofusion» = «para» + «electrofusion»,
+ * de nombres copiados sin espacios). NO si lo que sobra cambia el sentido: «electrofusion» y «termofusion» no son «fusion» (1356: una máquina de
+ * electrofusión quedó con el precio de tres de termofusión porque «fusión» calzaba dentro de las dos).
+ */
+const PEGADAS = ['para', 'de', 'con', 'sin', 'del', 'la', 'el', 'en', 'y', 'tipo', 'marca'];
 function mismaPalabra(t: string, b: Set<string>): boolean {
   if (b.has(t)) return true;
   if (t.length < 6) return false;
-  for (const u of b) if (u.length >= 6 && (u.includes(t) || t.includes(u))) return true;
+  for (const u of b) {
+    if (u.length < 6 || u === t) continue;
+    const [largo, corto] = u.length > t.length ? [u, t] : [t, u];
+    if (!largo.includes(corto)) continue;
+    const resto = largo.replace(corto, '');
+    if (PEGADAS.includes(resto)) return true;
+  }
   return false;
 }
 /** Mezcla de cobertura del más corto (no perder un producto de nombre breve) y de Dice (no premiar a un nombre de una sola palabra por sobre uno completo). */
