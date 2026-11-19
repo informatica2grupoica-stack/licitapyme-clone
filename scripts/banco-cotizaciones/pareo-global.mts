@@ -30,7 +30,20 @@ const llamarIA = async (system: string, user: string) => {
   const { crearChatIA } = await import('../../app/lib/gemini');
   const t0 = Date.now();
   const messages = [{ role: 'system', content: system }, { role: 'user', content: user }];
-  const completion: any = modelo === 'glm'
+  // --modelo=gemini:<id> (ej. gemini:gemini-2.5-pro): llamada directa al endpoint OpenAI-compatible de Google, solo para pruebas del banco
+  // (en producción gemini.ts bloquea los Pro a propósito).
+  const completion: any = modelo.startsWith('gemini:')
+    ? await (async () => {
+        const res = await fetch('https://generativelanguage.googleapis.com/v1beta/openai/chat/completions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.GEMINI_API_KEY}` },
+          body: JSON.stringify({ model: modelo.slice(7), messages, temperature: 0, max_tokens: 30000, response_format: { type: 'json_object' } }),
+          signal: AbortSignal.timeout(480000),
+        });
+        if (!res.ok) throw new Error(`Gemini ${res.status}: ${(await res.text()).slice(0, 300)}`);
+        return res.json();
+      })()
+    : modelo === 'glm'
     ? await crearChatIA({ messages, temperature: 0, stream: false, max_tokens: 12000, response_format: { type: 'json_object' } } as any, { timeoutMs: 300000, modeloPreferido: 'glm-4.7', soloGlm: true } as any)
     : await crearChatIA({ messages, stream: false, max_tokens: 16000 } as any, { timeoutMs: 420000, proveedorPreferido: modelo, sinRespaldo: true } as any);   // Kimi: sin json_object (rompe claves)
   segundos += (Date.now() - t0) / 1000;
