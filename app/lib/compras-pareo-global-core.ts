@@ -10,7 +10,7 @@
 import {
   lineasDesdeTabla, numeroApareceEnTexto, precioPorUnidadDeProducto, conversionDesdeTexto, conversionCoherenteConLinea, type LineaCotizacion,
 } from '@/app/lib/compras-cotizacion-lineas';
-import { conflictosMedibles, lineaConElMismoModelo, productosCandidatos, type ConflictoMedible } from '@/app/lib/compras-cotizacion-emparejar';
+import { conflictosMedibles, lineaConElMismoModelo, productosCandidatos, puntajeLineaProducto, type ConflictoMedible } from '@/app/lib/compras-cotizacion-emparejar';
 import { netoDesdeBruto, conDescuento } from '@/app/lib/compras-cotizacion-lectura';
 import { parseJsonIA } from '@/app/lib/json-ia';
 import type { LlamarIA } from '@/app/lib/compras-cotizacion-resolver';
@@ -160,6 +160,8 @@ export function choqueDeFamilia(descProducto: string, descLinea: string, equival
   return null;
 }
 
+/** Debajo de este puntaje de texto (0 a 1) una asignación se considera un código mal puesto de la IA. HST 300 contra Connect160 saca 0,23; una copla contra una máquina, ~0. */
+export const UMBRAL_PARECIDO = 0.15;
 export interface AsignacionPareo {
   productoId: number; linea: string; cotizacionId: number; cantidad: number;
   /** unidades de la línea que trae cada unidad del producto (rollo de 100 m por línea en metros = 100) */
@@ -210,15 +212,18 @@ export function validarPareoGlobal(ctx: Ctx, respuesta: any): ResultadoPareo {
   const alternativas: AlternativaPareo[] = [];
 
   // 1) EXISTEN · 4) PRECIO REAL · 5) MEDIDAS/MODELO · 6) FAMILIA — por cada asignación propuesta
-  type Cand = AsignacionPareo & { orden: number };
+  type Cand = AsignacionPareo & { orden: number; esAlt?: boolean; modeloExacto?: boolean };
   const cands: Cand[] = [];
-  (Array.isArray(respuesta?.asignaciones) ? respuesta.asignaciones : []).forEach((a: any, orden: number) => {
+  // Una alternativa que propone la IA se valida con las MISMAS reglas y compite por ser la principal (gana la más barata que cumple, regla 2 del prompt):
+  // el 1356 mostró que la IA deja de alternativa a Dicran ($13.040) y pone de principal a INGAP ($19.078). Los rechazos de una alternativa no se anotan.
+  const evaluar = (a: any, orden: number, esAlt = false) => {
+    const descartar = (d: ResultadoPareo['descartes'][number]) => { if (!esAlt) descartes.push(d); };
     const p = prodPorCod(a?.producto), l = lin(a?.linea);
-    if (!p || !l) { descartes.push({ linea: a?.linea, motivo: `producto o línea que no existe (${a?.producto} / ${a?.linea})` }); return; }
-    if (l.esFlete && !RE_FLETE.test(p.descripcion)) { descartes.push({ producto: p.id, linea: l.codigo, motivo: 'una línea de flete no es el precio de un producto' }); return; }
+    if (!p || !l) { descartar({ linea: a?.linea, motivo: `producto o línea que no existe (${a?.producto} / ${a?.linea})` }); return; }
+    if (l.esFlete && !RE_FLETE.test(p.descripcion)) { descartar({ producto: p.id, linea: l.codigo, motivo: 'una línea de flete no es el precio de un producto' }); return; }
     const c = cot.get(l.cotizacionId)!;
     const pr = precioDeLinea(p, l, c, a?.conversion);
-    if (!pr) { descartes.push({ producto: p.id, linea: l.codigo, motivo: 'la línea no tiene precio' }); return; }
+    if (!pr) { descartar({ producto: p.id, linea: l.codigo, motivo: 'la línea no tiene precio' }); return; }
     const avisos: string[] = [];
     let confianza = confianzaDe(a?.confianza);
     if (pr.nota) avisos.push(pr.nota);
@@ -229,28 +234,35 @@ export function validarPareoGlobal(ctx: Ctx, respuesta: any): ResultadoPareo {
     const conf: ConflictoMedible[] = conflictosMedibles(conEquivalenciaNominal(p.descripcion), conEquivalenciaNominal(l.descripcion));
     const mismoModelo = lineaConElMismoModelo(p.descripcion, [l.linea]) === l.linea;
     const graves = conf.filter(x => x.grave);
-    if (graves.length && !mismoModelo) { descartes.push({ producto: p.id, linea: l.codigo, motivo: `otra medida: ${graves.map(g => g.texto).join('; ')}` }); return; }
+    if (graves.length && !mismoModelo) { descartar({ producto: p.id, linea: l.codigo, motivo: `otra medida: ${graves.map(g => g.texto).join('; ')}` }); return; }
     if (graves.length) { confianza = 'revisar'; avisos.push(`mismo modelo pero ${graves.map(g => g.texto).join('; ')}`); }
     // Regla 7 del prompt, en código: si la IA misma duda («revisar») y el producto nombra OTRO modelo, no se asigna
     // (Kimi en el 1356 llenaba con la línea más cara un martillo, un clorador y un pozómetro marcándolos «revisar»).
     const otroModelo = conf.find(x => x.clase === 'modelo');
-    if (otroModelo && !mismoModelo && confianzaDe(a?.confianza) === 'revisar') { descartes.push({ producto: p.id, linea: l.codigo, motivo: `la IA dudó y es otro modelo: ${otroModelo.texto}` }); return; }
+    if (otroModelo && !mismoModelo && confianzaDe(a?.confianza) === 'revisar') { descartar({ producto: p.id, linea: l.codigo, motivo: `la IA dudó y es otro modelo: ${otroModelo.texto}` }); return; }
     for (const x of conf.filter(x => !x.grave)) { avisos.push(x.texto); if (x.clase === 'modelo') confianza = peor(confianza, 'media'); }
     const fam = choqueDeFamilia(p.descripcion, l.descripcion, equivalencias);
-    if (fam) { descartes.push({ producto: p.id, linea: l.codigo, motivo: `otra familia: ${fam}` }); return; }
+    if (fam) { descartar({ producto: p.id, linea: l.codigo, motivo: `otra familia: ${fam}` }); return; }
+    // Coherencia de texto: con 141 productos en una llamada la IA a veces se corre de código (HST 300 → una copla de $3.436, una motobomba → una brida).
+    // Si el producto y la línea no comparten casi nada y la línea no trae el modelo que nombra el producto, no es una equivalencia: es un código mal puesto.
+    const parecido = puntajeLineaProducto(l.linea, { id: p.id, descripcion: p.descripcion, cantidad: p.cantidad }, undefined, { penalizar: false }).puntaje;
+    if (parecido < UMBRAL_PARECIDO && !mismoModelo) { descartar({ producto: p.id, linea: l.codigo, motivo: `no se parecen (código mal puesto): «${corto(l.descripcion, 40)}»` }); return; }
     // Cantidad en unidades del producto (por defecto, lo que pide el producto).
     const qIA = Number(a?.cantidad);
     const cantidad = Number.isFinite(qIA) && qIA > 0 ? qIA : (p.cantidad ?? 1);
-    cands.push({ productoId: p.id, linea: l.codigo, cotizacionId: l.cotizacionId, cantidad, factor: pr.factor, precioUnitarioClp: pr.precio, confianza, motivo: String(a?.motivo || ''), avisos, orden });
-  });
+    cands.push({ productoId: p.id, linea: l.codigo, cotizacionId: l.cotizacionId, cantidad, factor: pr.factor, precioUnitarioClp: pr.precio, confianza, motivo: String(a?.motivo || ''), avisos, orden, esAlt, modeloExacto: mismoModelo });
+  };
+  (Array.isArray(respuesta?.asignaciones) ? respuesta.asignaciones : []).forEach((a: any, orden: number) => evaluar(a, orden));
+  (Array.isArray(respuesta?.alternativas) ? respuesta.alternativas : []).forEach((a: any, orden: number) => evaluar({ ...a, confianza: 'media', cantidad: undefined }, 1000 + orden, true));
 
-  // 3) UN PRINCIPAL POR PRODUCTO: la más barata que cumple (a igual precio, la de mejor confianza); las otras pasan a alternativa.
+  // 3) UN PRINCIPAL POR PRODUCTO: si una línea trae EL MODELO que nombra el producto, esa va primero (regla 5); si no, la más barata que cumple
+  // (a igual precio, la de mejor confianza). Las asignaciones y las alternativas de la IA compiten juntas; las otras pasan a alternativa.
   const porProducto = new Map<number, Cand[]>();
   for (const x of cands) porProducto.set(x.productoId, [...(porProducto.get(x.productoId) ?? []), x]);
   let principales: Cand[] = [];
   for (const [, lista] of porProducto) {
     // Varias líneas IGUALES que juntas cubren la cantidad (no pasa con la IA, pero se respeta): se quedan; si no, una sola.
-    const orden = [...lista].sort((a, b) => a.precioUnitarioClp - b.precioUnitarioClp || RANGO[b.confianza] - RANGO[a.confianza] || a.orden - b.orden);
+    const orden = [...lista].sort((a, b) => Number(!!b.modeloExacto) - Number(!!a.modeloExacto) || a.precioUnitarioClp - b.precioUnitarioClp || RANGO[b.confianza] - RANGO[a.confianza] || Number(!!a.esAlt) - Number(!!b.esAlt) || a.orden - b.orden);
     principales.push(orden[0]);
     for (const o of orden.slice(1)) alternativas.push({ productoId: o.productoId, linea: o.linea, cotizacionId: o.cotizacionId, precioUnitarioClp: o.precioUnitarioClp, motivo: 'otra línea que también lo cubre (más cara)' });
   }
@@ -293,6 +305,15 @@ export function validarPareoGlobal(ctx: Ctx, respuesta: any): ResultadoPareo {
       principales = principales.filter(y => y.productoId !== x.productoId || y.linea !== x.linea);
       alternativas.push({ productoId: x.productoId, linea: x.linea, cotizacionId: x.cotizacionId, precioUnitarioClp: x.precioUnitarioClp, motivo: `la línea no alcanza: cotiza ${l.cantidad} y ya se repartieron` });
       descartes.push({ producto: x.productoId, linea: x.linea, motivo: `cantidad: la línea ${l.codigo} cotiza ${l.cantidad} y se repartía más` });
+    }
+  }
+  // Un producto cuya principal salió por cantidad toma la siguiente candidata que sí cabe en su línea.
+  for (const [id, lista] of porProducto) {
+    if (principales.some(x => x.productoId === id)) continue;
+    for (const o of [...lista].sort((a, b) => a.precioUnitarioClp - b.precioUnitarioClp || a.orden - b.orden)) {
+      const tope = lineas.find(l => l.codigo === o.linea)?.cantidad ?? Infinity;
+      const usado = principales.filter(x => x.linea === o.linea).reduce((s, x) => s + consumo(x), 0);
+      if (usado + consumo(o) <= tope + 1e-6) { principales.push(o); break; }
     }
   }
   // Un producto que recibe menos de lo que pide: se avisa.
@@ -393,7 +414,9 @@ export async function parearNegocio(e: EntradaPareo): Promise<ResultadoPareo & {
     const r = await e.llamarIA(SYS_PAREO_GLOBAL, user);
     const j: any = parseJsonIA(String(r.content ?? '')) || {};
     const pMap = (v: unknown) => { const p = prods[Number(String(v ?? '').replace(/\D/g, '')) - 1]; return p ? `P${e.productos.indexOf(p) + 1}` : v; };
-    const lMap = (v: unknown) => { const l = lins[Number(String(v ?? '').replace(/\D/g, '')) - 1]; return l ? l.codigo : v; };
+    // Las líneas se numeran con su código GLOBAL en armarEntrada: no se traducen. (Antes se leían como posición dentro del grupo y se cruzaban:
+    // el plan B por grupos asignaba la HST 300 a una línea cualquiera; no se había probado hasta el 1356.)
+    const lMap = (v: unknown) => v;
     const tr = (arr: any) => (Array.isArray(arr) ? arr.map((x: any) => ({ ...x, producto: x?.producto != null ? pMap(x.producto) : undefined, linea: x?.linea != null ? lMap(x.linea) : undefined })) : []);
     return { asignaciones: tr(j.asignaciones), alternativas: tr(j.alternativas), sobrantes: tr(j.sobrantes), cargosAparte: tr(j.cargosAparte), cortada: r.finishReason === 'length' || !Array.isArray(j.asignaciones) };
   };

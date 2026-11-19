@@ -174,3 +174,45 @@ test('plan de escritura: no toca productos aprobados ni cotizaciones de una pers
   const vacio = planificarEscrituraPareo({ ...base, resultado: { ...r, asignaciones: [] }, productos: [], itemsGuardados: [{ cotizacionId: 1, productoId: 13, precioBase: 1 }], cotizacionesDeUnaPersona: new Set() });
   assert.equal(vacio.quitar.length + vacio.escribir.length, 0);
 });
+
+test('una alternativa válida más barata pasa a principal aunque la IA la haya dejado de alternativa (1356: Dicran $13.040 vs INGAP $19.078)', async () => {
+  const c1 = cot(359, 'INGAP', [['Codo 90° EF PE100 PN16 d= 90 mm', 20, 19078]]);
+  const c2 = cot(371, 'Dicran', [['CODO HDPE E.F. 090X90º', 20, 13040]]);
+  const r = await parearNegocio({ productos: [P(2, 'Codo HDPE de 90 mm.', 20)], cotizaciones: [c1, c2], llamarIA: ia({
+    asignaciones: [{ producto: 'P1', linea: 'L1', cantidad: 20, confianza: 'alta' }], alternativas: [{ producto: 'P1', linea: 'L2', motivo: 'otra opción' }] }) });
+  assert.equal(r.asignaciones.length, 1);
+  assert.equal(r.asignaciones[0].precioUnitarioClp, 13040);
+  assert.deepEqual(r.alternativas.map(a => a.precioUnitarioClp), [19078]);
+});
+
+test('regla 5: la línea que trae EL MODELO que nombra el producto gana aunque otra equivalente sea más barata (DPS-22 $1.380.000 vs Elektra $1.375.000)', async () => {
+  const c1 = cot(360, 'INGAP', [['Máquina electrofusión marca INGAP Modelo DPS-22 (3,5Kw)', 7, 1380000]]);
+  const c2 = cot(371, 'Dicran', [['MAQUINA ELECTROFUSION RITMO ELEKTRA LIGHT 160 mm. (20-125/160)', 7, 1375000]]);
+  const r = await parearNegocio({ productos: [P(16, 'Máquina de electrofusión INGAP DPS-22.', 1)], cotizaciones: [c1, c2], llamarIA: ia({
+    asignaciones: [{ producto: 'P1', linea: 'L1', cantidad: 1, confianza: 'alta' }], alternativas: [{ producto: 'P1', linea: 'L2', motivo: 'equivalente' }] }) });
+  assert.equal(r.asignaciones[0].precioUnitarioClp, 1380000);
+});
+
+test('plan B por grupos: las líneas conservan su código global (antes se cruzaban al traducirlas por posición dentro del grupo)', async () => {
+  // 20 bombas y 20 tubos: la línea de la bomba y las 2 líneas del tubo no comparten candidatos, así que salen dos grupos. El del tubo tiene L2 y L3:
+  // «L2» NO es la posición 2 de su grupo (antes se leía así y se cruzaba con L3).
+  const c1 = cot(1, 'A', [['Bomba sumergible Pedrollo 1 HP 220V', 1, 466948]]);
+  const c2 = cot(2, 'B', [['Tubería HDPE PE100 PN10 d= 63 mm rollo 100 metros', 100, 3222], ['Tubería HDPE PE100 PN10 d= 63 mm rollo 100 metros alterna', 100, 3900]]);
+  const productos = [
+    ...Array.from({ length: 20 }, (_, i) => P(100 + i, `Bomba sumergible Pedrollo ${i + 1} HP, 220 V.`, 1)),
+    ...Array.from({ length: 20 }, (_, i) => P(200 + i, `Tubería HDPE de 63 mm, PE100, PN10, modelo ${String.fromCharCode(65 + i)}.`, 100, 'm')),
+  ];
+  const llamadas: string[][] = [];
+  const llamarIA = async (_s: string, user: string) => {
+    const lins = [...user.matchAll(/^(L\d+) \|/gm)].map(m => m[1]);
+    llamadas.push(lins);
+    return { content: JSON.stringify({ asignaciones: [{ producto: 'P1', linea: lins[0], cantidad: 1, confianza: 'alta' }] }), finishReason: 'stop' };
+  };
+  const r = await parearNegocio({ productos, cotizaciones: [c1, c2], llamarIA, topeEntrada: 1 });
+  assert.ok(llamadas.length >= 2, 'tenía que partir en grupos');
+  const delTubo = llamadas.find(l => l.includes('L2'))!;
+  assert.equal(delTubo[0], 'L2');
+  assert.ok(r.asignaciones.some(a => a.linea === 'L2'), 'la línea L2 que nombró la IA tiene que quedar asignada como L2');
+  assert.ok(!r.asignaciones.some(a => a.linea === 'L3'), 'L3 no se nombró: no se cruza con L2');
+});
+
