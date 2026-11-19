@@ -3,6 +3,17 @@
 Costeo digital del negocio (editor + burbuja flotante) y Excel de costeo (plantilla V3).
 Traspasado desde la memoria personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-11-19 — «Importar Excel» solo llenaba 6 de 32 filas (759-30-LE26, negocio 891)
+**Pedido del dueño:** «cuando importo el costeo no ingresa completo».
+**Causa:** el parser leía bien las 32 filas; la fusión (`fusionarDesdeExcel`) emparejaba por nombre y el costeo digital tiene
+nombres cortos («BAÑO MARÍA») mientras el Excel trae la descripción larga. Solo calzaban 6, y una MAL: «Dispensador de agua
+caliente» (ítem 21) se iba al «DISPENSADOR DE AGUA» del ítem 32.
+**Arreglo:** si el Excel tiene el mismo número de ítems útiles que el costeo (≥3) y la cantidad coincide en ≥80 % de las posiciones,
+se empareja por posición. Si no, sigue la regla de antes (nombre → palabras → posición+cantidad). Probado con el costeo real: 32/32.
+Prueba en `app/lib/__tests__/costeo-editor-importar-excel.test.mts`.
+**Ojo:** la importación nunca pisa la cantidad ya cargada: en 759-30-LE26 el costeo dice 15 en los ítems 25 (visi-cooler 290) y 28
+(horno 38 L) y el Excel dice 16 y 14 — hay que corregirlas a mano si manda el Excel.
+
 ## 2026-11-11 — Re-analizar no ponía al día el costeo y «Actualizar» dejaba la fila sucia (2410-21-LE26)
 **Pedido del dueño:** «cuando re-analizo no se actualiza el costeo igual y tengo que dar a Actualizar, que lo hace mal».
 **Causas (reproducidas con el costeo real del negocio 1658 y el manifiesto bueno de 7 líneas):**

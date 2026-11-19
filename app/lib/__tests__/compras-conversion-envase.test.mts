@@ -96,7 +96,8 @@ test('conversión × N solo si la línea se cobra por la medida: rollos sí, bas
   assert.equal(conversionCoherenteConLinea(ln(1), 2500), false);    // 1 transpaleta de 2.500 kg
 });
 
-test('limpieza: el precio de una electrofusión Connect160 asignado a una termofusión HST 300 NO se conserva (nombre no se parece)', () => {
+// (La HST 300 de Hürner también es de electrofusión; el Connect160 puede ser su equivalente, pero eso lo decide la IA al releer, no el precio.)
+test('limpieza: el precio de la Connect160 asignado a una HST 300 NO se conserva solo por precio (nombre no se parece)', () => {
   const l: any = { descripcion: 'Máquina de Electrofusión Connect160 20-160 mm Marca Foxfitting Procedencia Polaca', cantidad: 1, precioUnitario: 1187.5, total: 1187.5 };
   assert.equal(asignacionRespaldadaPorDocumento('Máquina de fusión HDPE Hürner HST 300 Smart, 20-160 mm.', 1185790, [l], { factoresPrecio: [998.56] }), false);
 });

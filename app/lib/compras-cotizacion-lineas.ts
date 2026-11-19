@@ -494,8 +494,8 @@ export function productoQueCubreLaLinea(l: LineaCotizacion, productos: Array<{ i
  * ¿La asignación que ya tiene un producto sigue respaldada por el documento? Hay una línea cuyo precio es el del producto (igual, con IVA, en
  * otra moneda o × metros del rollo) y esa línea no choca con él en medida ni en modelo. Sirve para no borrar una asignación buena solo porque la IA
  * se saltó esa línea en una lectura nueva (Pedrollo 4SR12M-9, 363): se borra lo que el documento ya no sostiene, no lo que la IA no repitió.
- * Además del precio, el NOMBRE tiene que parecerse algo (puntaje ≥ 0,3: Pedrollo abreviada 0,39; HST 300 vs Connect160 0,23): el precio de la máquina de electrofusión Connect160 asignado a tres
- * máquinas de termofusión HST 300 (1356) coincidía con una línea y no había choque medible, y se quedaba para siempre.
+ * Además del precio, el NOMBRE tiene que parecerse algo (puntaje ≥ 0,3: Pedrollo abreviada 0,39; HST 300 vs Connect160 0,23): el precio de la Connect160 asignado a tres
+ * HST 300 (1356) coincidía con una línea y no había choque medible, y se quedaba para siempre. (Ambas son de electrofusión: si es equivalente lo decide la IA al releer, no el precio.)
  */
 export function asignacionRespaldadaPorDocumento(descProducto: string, precioBase: number | null, lineas: LineaCotizacion[], opts?: { factoresPrecio?: number[] }): boolean {
   if (precioBase == null || !(precioBase > 0)) return false;
@@ -513,7 +513,8 @@ export function asignacionRespaldadaPorDocumento(descProducto: string, precioBas
  */
 export function lineasAlternativas(lineas: LineaCotizacion[], productos: Array<{ id: number; descripcion: string; precioBase: number | null }>, opts?: { factoresPrecio?: number[] }): LineaCotizacion[] {
   const cob = lineas.map(l => ({ l, c: productoQueCubreLaLinea(l, productos, opts) }));
-  const conPrecioDeLinea = new Set(cob.filter(x => x.c && x.c.como !== 'nombre').map(x => (x.c as CoberturaLinea).productoId));
+  // Con dos productos al mismo precio (Easy Weld 180 y «soldar HDPE», ambos a $1.500.000 de la misma línea) la línea «elige» uno solo: se mira producto por producto.
+  const conPrecioDeLinea = new Set(productos.filter(p => lineas.some(l => { const c = productoQueCubreLaLinea(l, [p], opts); return !!c && c.como !== 'nombre'; })).map(p => p.id));
   return cob.filter(x => x.c && x.c.como === 'nombre' && conPrecioDeLinea.has(x.c.productoId)).map(x => x.l);
 }
 

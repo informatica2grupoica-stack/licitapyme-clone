@@ -14,6 +14,7 @@
 import { fetchConTimeout } from '@/app/lib/fetch-timeout';
 import { precioClpDeItemIA } from '@/app/lib/compras-precio-homologacion';
 import { marcarCotizandoSiHayCotizacion } from '@/app/lib/compras-avance-estados';
+import { programarPareoGlobal } from '@/app/lib/compras-pareo-global';
 import pool from '@/app/lib/db';
 import { precioPorUnidadDeProducto, conversionDesdeTexto, productoQueCubreLaLinea, numeroApareceEnTexto, lineasDesdeTabla, corregirAdicionalesConLineas, lineasSinAsignar, lineaDelProducto, desajustesProductoLinea, sinComponentesDeLaLineaPropia, factoresPrecioDeCotizacion, lineasAlternativas, asignacionRespaldadaPorDocumento, type LineaCotizacion } from '@/app/lib/compras-cotizacion-lineas';
 import { resolverCotizacion } from '@/app/lib/compras-cotizacion-resolver';
@@ -257,8 +258,9 @@ export async function registrarCotizacion(
     // Agente activo (§19.1): homologa sola, sin que nadie la dispare. Fire-and-forget — si la IA
     // falla o tarda, la cotización ya quedó registrada y el botón "Homologar con IA" sigue
     // disponible para reintentar a mano.
-    homologarCotizacionIA(id).catch(e =>
-      console.error(`[compras-auditor] homologación automática falló para cotización ${id}:`, String(e).slice(0, 200)));
+    homologarCotizacionIA(id)
+      .then(() => programarPareoGlobal(negocioId))   // con todas las cotizaciones a la vista (cantidad repartida, comparación entre proveedores)
+      .catch(e => console.error(`[compras-auditor] homologación automática falló para cotización ${id}:`, String(e).slice(0, 200)));
   }
 
   return id;

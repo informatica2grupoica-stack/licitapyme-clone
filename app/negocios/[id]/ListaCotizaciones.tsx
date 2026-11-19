@@ -29,9 +29,12 @@ export interface CotizacionFilaUI {
 interface AdicionalFila { concepto: string; cantidad: number; precioUnitario: number }
 
 /** Líneas del documento que no calzan con ningún producto asignado ni adicional. Con flete aparte ya cargado, su línea de flete no se ofrece (se suma sola). */
-export function lineasPendientes(c: Pick<CotizacionFilaUI, 'moneda' | 'descripcionLibre' | 'fleteMonto' | 'items' | 'notas' | 'tipoCambioUsado'>, productos: Array<{ id: number; descripcion: string }>): LineaCotizacion[] {
-  if (c.moneda !== 'CLP') return [];
-  const lineas = lineasDesdeTabla(String(c.descripcionLibre || ''));
+export function lineasPendientes(c: Pick<CotizacionFilaUI, 'moneda' | 'descripcionLibre' | 'fleteMonto' | 'items' | 'notas' | 'tipoCambioUsado'>, productos: Array<{ id: number; descripcion: string }>, opts?: { todasLasMonedas?: boolean; lineas?: LineaCotizacion[] }): LineaCotizacion[] {
+  // El panel «Agregar» guarda precios en CLP: con otra moneda no se ofrece. La explicación línea por línea sí la calcula (con el tipo de cambio),
+  // si no, una cotización en USD (Vorwerk) mostraba sus opciones sin usar como «→ EURO-JUNIOR».
+  if (c.moneda !== 'CLP' && !opts?.todasLasMonedas) return [];
+  // Quien ya leyó las líneas las pasa: se comparan por objeto (Set), y leerlas dos veces daba objetos distintos que nunca coincidían.
+  const lineas = opts?.lineas ?? lineasDesdeTabla(String(c.descripcionLibre || ''));
   if (!lineas.length) return [];
   const asignados = [
     // Descripción COMPLETA del producto: cortar en « - » dejaba fuera «vertical extra reforzado 15.000L» y la línea del propio estanque
@@ -43,7 +46,8 @@ export function lineasPendientes(c: Pick<CotizacionFilaUI, 'moneda' | 'descripci
   const tapadas = new Set<LineaCotizacion>();
   for (const a of c.items.flatMap(i => i.adicionales as AdicionalFila[])) {
     const parecidas = lineas.filter(l => !tapadas.has(l) && lineasSinAsignar([l], [String(a.concepto)]).length === 0);
-    const l = parecidas.find(x => x.precioUnitario != null && Math.abs(x.precioUnitario - Number(a.precioUnitario)) <= 1) ?? parecidas[0];
+    const fs = factoresPrecioDeCotizacion(c);
+    const l = parecidas.find(x => x.precioUnitario != null && fs.some(f => Math.abs((x.precioUnitario as number) * f - Number(a.precioUnitario)) <= Math.max(1, Number(a.precioUnitario) * 0.0005))) ?? parecidas[0];
     if (l) tapadas.add(l);
   }
   const fleteAparte = c.fleteMonto != null && c.fleteMonto > 0;
@@ -63,16 +67,20 @@ function productosDeItems(c: Pick<CotizacionFilaUI, 'items'>, productos: Array<{
   return c.items.map(i => ({ id: i.productoId, descripcion: String(productos.find(p => p.id === i.productoId)?.descripcion ?? ''), precioBase: i.precioBase ?? null }));
 }
 
-export interface LineaExplicada { linea: LineaCotizacion; destino: string | null; tipo: 'producto' | 'adicional' | 'doble' | 'sin'; nota: string | null; pedido?: number | null; cotizado?: number | null; productoId?: number | null }
+export interface LineaExplicada { linea: LineaCotizacion; destino: string | null; tipo: 'producto' | 'adicional' | 'doble' | 'sin'; nota: string | null; pedido?: number | null; cotizado?: number | null; productoId?: number | null; /** el flete que se suma aparte (no va en ningún producto) */ esFlete?: boolean }
 
 /** Cómo se leyó el documento, línea por línea: a qué producto fue (y por qué), si es adicional de alguno, o si quedó sin asignar. */
 export function explicarLineas(c: Pick<CotizacionFilaUI, 'moneda' | 'descripcionLibre' | 'fleteMonto' | 'items' | 'notas' | 'tipoCambioUsado'>, productos: Array<{ id: number; descripcion: string; cantidad?: number | string | null }>): LineaExplicada[] {
   const lineas = lineasDesdeTabla(String(c.descripcionLibre || ''));
   if (!lineas.length) return [];
-  const pend = new Set(lineasPendientes(c, productos));
+  // Mismas líneas (mismos objetos) que se recorren abajo: antes se leían dos veces y `pend.has(l)` nunca era cierto (las opciones sin usar salían «→ producto»).
+  const pend = new Set(lineasPendientes(c, productos, { todasLasMonedas: true, lineas }));
   const prods = productosDeItems(c, productos);
+  const fleteAparte = c.fleteMonto != null && c.fleteMonto > 0;
   const adics = c.items.flatMap(i => (i.adicionales as AdicionalFila[]).map(a => ({ a, productoId: i.productoId })));
   return lineas.map(l => {
+    // El flete que la cotización cobra aparte se suma una vez al total: no es «sin asignar».
+    if (fleteAparte && /flete|transport|despacho|env[ií]o|shipping|freight/i.test(l.descripcion)) return { linea: l, destino: 'Flete del proveedor', tipo: 'producto' as const, nota: 'se suma aparte, una vez, al total', esFlete: true };
     if (pend.has(l)) return { linea: l, destino: null, tipo: 'sin' as const, nota: null };
     const cob = productoQueCubreLaLinea(l, prods, { factoresPrecio: factoresPrecioDeCotizacion(c) });
     if (cob) {
@@ -443,7 +451,11 @@ export function ListaCotizaciones({ negocioId, cotizaciones, productos, avisosPo
                           // Las líneas del documento vienen en su moneda y, si el documento trae IVA incluido, con IVA; los productos están en CLP neto. Sin pasarlas
                           // a la misma base, una cotización en USD o con IVA incluido mostraba una «diferencia» que era solo moneda o IVA (Makita +IVA, Vorwerk en USD).
                           const fNeto = factoresPrecioDeCotizacion(c).slice(-1)[0] ?? 1;
-                          const sumaNeta = sumaLineas * fNeto;
+                          // Solo las líneas que quedaron en algún producto: sumar también las sin asignar (Vorwerk: 6 de 8) daba una «diferencia» de $136 millones
+                          // que no era de cantidades. Las sin asignar y el flete aparte se informan por separado.
+                          const sumaDe = (f: (x: LineaExplicada) => boolean) => expl.filter(f).reduce((a, x) => a + (x.linea.total ?? 0), 0) * fNeto;
+                          const sumaNeta = sumaDe(x => x.tipo !== 'sin' && !x.esFlete);
+                          const sumaSin = sumaDe(x => x.tipo === 'sin');
                           const dif = totalFila - sumaNeta;
                           return (
                             <div className="mt-2 border-t border-zinc-200 pt-1.5 text-[11.5px]" data-testid={`cotizacion-total-explicado-${c.id}`}>
@@ -457,7 +469,8 @@ export function ListaCotizaciones({ negocioId, cotizaciones, productos, avisosPo
                                 ))}
                               </ul>
                               <p className="mt-1 grid grid-cols-[1fr_auto] gap-x-3 font-semibold text-zinc-800"><span>Total de la fila</span><span className="tabular-nums">{clp(totalFila)}</span></p>
-                              <p className="grid grid-cols-[1fr_auto] gap-x-3 text-zinc-500"><span>Suma de las líneas del documento (cantidades que cotizó el proveedor){fNeto !== 1 ? ' · en pesos y sin IVA' : ''}</span><span className="tabular-nums">{clp(sumaNeta)}</span></p>
+                              <p className="grid grid-cols-[1fr_auto] gap-x-3 text-zinc-500"><span>Suma de las líneas que quedaron en algún producto (cantidades que cotizó el proveedor){fNeto !== 1 ? ' · en pesos y sin IVA' : ''}</span><span className="tabular-nums">{clp(sumaNeta)}</span></p>
+                              {sumaSin > 0 && <p className="grid grid-cols-[1fr_auto] gap-x-3 text-zinc-400"><span>Líneas sin asignar (no cuentan en la fila; revísalas arriba)</span><span className="tabular-nums">{clp(sumaSin)}</span></p>}
                               {Math.abs(dif) >= Math.max(2, totalFila * 0.002) && <p className="mt-0.5 text-amber-700">Diferencia {dif > 0 ? '+' : '−'}{clp(Math.abs(dif))}: el proveedor cotizó cantidades distintas a las que pide la licitación (marcadas con ⚠ arriba) o hay precios por metro/kilo convertidos a rollo/caja. Se compara con lo que pide la licitación.</p>}
                             </div>
                           );

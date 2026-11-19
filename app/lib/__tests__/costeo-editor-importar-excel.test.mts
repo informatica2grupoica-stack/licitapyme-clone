@@ -99,6 +99,25 @@ test('1288505-5-LE26: empareja nombres con «Especificación: …» pegada e ign
   assert.equal(r.estado.grupos[0].filas[1].valorConIva, 4545706);
 });
 
+// Caso real 759-30-LE26: el costeo trae nombres cortos y el Excel la descripción larga; mismo orden y casi las mismas cantidades.
+test('759-30-LE26: mismo listado en el mismo orden → empareja por posición aunque los nombres no se parezcan', () => {
+  const e = estado([fila(1, 'BAÑO MARÍA', 2), fila(2, 'MARMITA', 1), fila(3, 'CALENTADOR DE AGUA 20 LITROS', 2), fila(4, 'VISI-COOLER 290 lt', 15), fila(5, 'DISPENSADOR DE AGUA', 13)]);
+  const r = fusionarDesdeExcel(e, [
+    ex(1, 'Baño maria eléctrico 3 depósitos GN 1/1, acero inoxidable', 2, 554403.36, 742900),
+    ex(2, 'Marmita eléctrica trifásica, capacidad 100 litros', 1, 3229979.83, 4328172),
+    ex(3, 'Dispensador de agua caliente construcción de acero de doble piel, 20 litros', 2, 94873.95, 127131),
+    ex(4, 'Visi-cooler 290 litros luz led', 16, 284865.55, 381719),
+    ex(5, 'Dispensador de agua pedestal fría caliente, bidón oculto.', 13, 75210.08, 100781),
+  ]);
+  assert.equal(r.rellenadas, 5);
+  assert.deepEqual(r.sinPareja, []);
+  const f = r.estado.grupos[0].filas;
+  assert.equal(f[0].valorConIva, 659740);
+  assert.equal(f[2].valorConIva, 112900); // el «dispensador de agua caliente» va al calentador, no al dispensador del ítem 5
+  assert.equal(f[4].valorConIva, 89500);
+  assert.equal(f[3].cantidad, 15);        // la cantidad ya cargada no se pisa
+});
+
 test('dos productos parecidos: no se adivina cuando la mejor candidata no se destaca', () => {
   const e = estado([fila(1, 'Silla de oficina ergonómica negra', 5), fila(2, 'Silla de oficina ergonómica gris', 5)]);
   const r = fusionarDesdeExcel(e, [ex(1, 'Silla de oficina ergonómica', 5, 40000, 50000)]);

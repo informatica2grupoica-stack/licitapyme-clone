@@ -62,3 +62,5 @@ scripts/scratch/
 /scripts/banco-cotizaciones/cache-ia/
 /scripts/banco-cotizaciones/cache-ia-corrida1/
 /scripts/banco-cotizaciones/ultimo-reporte.json
+/scripts/banco-cotizaciones/cache-pareo/
+/scripts/banco-cotizaciones/ultimo-pareo-*.json

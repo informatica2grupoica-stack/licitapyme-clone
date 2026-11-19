@@ -6,6 +6,7 @@ import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
 import { homologarCotizacionIA } from '@/app/lib/compras-auditor';
+import { programarPareoGlobal } from '@/app/lib/compras-pareo-global';
 import { puedeOperarPreAprobacion } from '@/app/api/compras/[negocioId]/route';
 
 export const runtime = 'nodejs';
@@ -32,6 +33,7 @@ async function __POST(request: NextRequest, { params }: Params) {
       return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
 
     const resultado = await homologarCotizacionIA(parseInt(cotizacionId));
+    programarPareoGlobal(negId);   // el pareo global rehace el reparto con todas las cotizaciones (sin bloquear la respuesta)
     return NextResponse.json({ success: true, ...resultado });
   } catch (error: any) {
     console.error('[compras/cotizaciones/homologar][POST]', String(error));

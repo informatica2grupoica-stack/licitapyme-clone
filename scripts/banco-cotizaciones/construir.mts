@@ -53,6 +53,7 @@ for (const negocio of negocios) {
     });
     const registro = {
       id: Number(cot.id), negocio_id: Number(negocio), licitacion: cot.licitacion_codigo, origen: cot.origen,
+      archivo_nombre: cot.archivo_nombre ?? null, creada: cot.created_at ?? null,
       cotiz: {
         proveedor_nombre: cot.proveedor_nombre, precio_unitario: cot.precio_unitario, precio_total: cot.precio_total, moneda: cot.moneda, descripcion_libre: cot.descripcion_libre,
         tipo_cambio_usado: cot.tipo_cambio_usado, notas: cot.notas, descuento_pct: cot.descuento_pct, precio_unitario_clp: cot.precio_unitario_clp,

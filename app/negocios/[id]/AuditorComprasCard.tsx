@@ -730,6 +730,26 @@ export function AuditorComprasCard({ negocioId, puedeOperar, soloLectura = false
     }
   };
 
+  // «Corregir pareo»: el reparto automático de las líneas de TODAS las cotizaciones entre los productos (pareo global) corre solo después
+  // de leer cada cotización; este botón lo repite si quedó mal (no toca lo que una persona asignó ni lo ya aprobado o comprado).
+  const [pareando, setPareando] = useState(false);
+  const corregirPareo = async () => {
+    setPareando(true);
+    try {
+      const res = await fetch(`/api/compras/${negocioId}/parear`, { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo corregir el pareo');
+      if (!data.ejecutado) toast.info('Sin cambios', data.motivo || 'No se cambió nada.');
+      else toast.success('Pareo corregido', `${data.asignados} asignación(es) nuevas o cambiadas, ${data.quitados} reemplazadas, ${data.sinRespaldo || 0} sin respaldo del documento (se dejaron, revísalas), ${data.saltados} sin tocar (de una persona o ya avanzadas).${data.sinCuadrar?.length ? ` Ojo: ${data.sinCuadrar.join(' · ')}.` : ''}`);
+      await cargar();
+      recargarCompartido();
+    } catch (e: any) {
+      toast.error('No se pudo corregir el pareo', e.message);
+    } finally {
+      setPareando(false);
+    }
+  };
+
   // Asignación MANUAL de productos a una cotización (§8.7) — corrige o reemplaza lo que decidió la
   // IA, o evita depender de ella cuando el comprador ya sabe con certeza a qué productos corresponde.
   const [asignandoId, setAsignandoId] = useState<number | null>(null);
@@ -1210,6 +1230,15 @@ export function AuditorComprasCard({ negocioId, puedeOperar, soloLectura = false
           </div>
         </Modal>
 
+        {puedeOperar && cotizaciones.length > 0 && (
+          <div className="flex items-center gap-3 px-4 py-2 border-b border-zinc-100">
+            <button onClick={corregirPareo} disabled={pareando}
+              className="inline-flex items-center gap-1.5 h-8 text-[13px] font-medium text-tinta-2 hover:text-tinta border border-zinc-200 hover:bg-zinc-50 disabled:opacity-50 px-3 rounded-lg">
+              {pareando ? <Loader2 size={13} className="animate-spin" /> : <Bot size={13} />}{pareando ? 'Corrigiendo el pareo…' : 'Corregir pareo'}
+            </button>
+            <p className="text-xs text-tinta-3">Después de leer cada cotización, el sistema reparte sus líneas entre los productos mirando todas juntas. Si quedó mal, vuelve a repartir. No toca lo que asignaste a mano ni lo ya aprobado o comprado.</p>
+          </div>
+        )}
         <ListaCotizaciones negocioId={negocioId} onCambio={async () => { await cargar(); recargarCompartido(); }} cotizaciones={cotizaciones} productos={productos} origenLabel={ORIGEN_LABEL} puedeOperar={puedeOperar} homologandoId={homologando}
           avisosPorCotizacion={Object.fromEntries(cotizaciones.map(c => [c.id, auditorias.filter(a => a.cotizacionId === c.id).reduce((n, a) => n + a.revisiones.filter(r => r.resultado === 'NO_CUMPLE' && r.criterio !== 'Precio vs. lo costeado').length, 0)]))}
           onAsignar={(id) => { const c = cotizaciones.find(x => x.id === id); if (c) { abrirAsignacion(c); setTimeout(() => document.getElementById(`cotizacion-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 150); } }}

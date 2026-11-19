@@ -404,8 +404,14 @@ export function fusionarDesdeExcel(actual: EstadoCosteoEditor, excel: FilaExcelI
     if (filas.length) estado.grupos = [{ nombre: 'Costeo', linea: null, ofertamos: true, filas }];
     creadas = filas.length;
   } else {
+    // Mismo listado en el mismo orden (misma cantidad de ítems y la cantidad coincide en ≥80 % de las posiciones): se empareja
+    // por posición. Pasa cuando el costeo trae el nombre corto («BAÑO MARÍA») y el Excel la descripción larga (759-30-LE26).
+    const n = util.length;
+    const alineado = n >= 3 && n === filasEditor.length
+      && util.filter((e, i) => e.cantidad != null && e.cantidad === filasEditor[i].cantidad).length >= 0.8 * n;
     util.forEach((e, idxExcel) => {
       const nombre = e.detalle?.trim() || '';
+      if (alineado) { const f = filasEditor[idxExcel]; usadas.add(f.id); if (rellenar(f, e)) rellenadas++; return; }
       // 1) por nombre (uno es el comienzo del otro); 2) por palabras en común, solo si hay UNA candidata claramente mejor
       //    (las planillas antiguas pegan "Especificación: …" al nombre); 3) por posición + misma cantidad, cuando el nombre no sirve.
       // Si más de una fila del costeo calza por nombre, solo vale la que es IGUAL; si no, no se adivina cuál.
