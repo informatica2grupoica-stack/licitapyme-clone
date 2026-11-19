@@ -484,11 +484,29 @@ export async function buscarProductosObumaPorNombre(query: string, limite = 20):
     }));
 }
 
+/** Obuma no escapa el apóstrofo en nombres ni descripciones (error de SQL): la pulgada pasa a ", cualquier otro apóstrofo/barra se quita. */
+export function textoSeguroObuma(s: string): string {
+  return s.replace(/(\d)\s*['’´`]{1,2}/g, '$1"').replace(/['’´`\\]/g, '');
+}
+
+/** Descripción (`producto_descripcion`) que cada producto de Obuma tiene hoy, por id. Lectura; si falla un producto, ese queda sin descripción. */
+export async function descripcionesProductosObuma(ids: string[]): Promise<Map<string, string>> {
+  const mapa = new Map<string, string>();
+  await Promise.all([...new Set(ids.filter(Boolean))].map(async id => {
+    const r = await listarProductosObuma({ id }).catch(() => null);
+    const d = String((r?.data?.[0] as any)?.producto_descripcion ?? '').trim();
+    if (d) mapa.set(id, d);
+  }));
+  return mapa;
+}
+
 export interface DatosCrearProductoObuma {
   nombre: string; codigoComercial: string; subcategoriaId: string;
   /** Categoría de Obuma; si no viene, «Mercado Publico». */
   categoriaId?: string;
   costoClpNeto: number;
+  /** Descripción del producto (la escribe el encargado de compras en el formulario del SKU): va como `producto_descripcion`. */
+  descripcion?: string | null;
   // Precio de venta neto (14-oct-2026): viene del costeo/acta; 0 = sin precio de venta.
   precioVentaClpNeto?: number;
   // Solo interno por defecto (decisión del usuario, 10-sep-2026): un producto comprado para UNA
@@ -522,11 +540,12 @@ export async function crearProductoObuma(datos: DatosCrearProductoObuma): Promis
   // Obuma no escapa el apóstrofo (') del nombre: la API responde con error de SQL y el producto no se crea
   // (2736-44-LE26, «1.5/8' X 13»). La comilla doble sí se acepta (hay cientos así en el catálogo), así que
   // la pulgada pasa a ", y cualquier otro apóstrofo/acento suelto se quita.
-  const nombreSeguro = datos.nombre
-    .replace(/(\d)\s*['’´`]{1,2}/g, '$1"')
-    .replace(/['’´`\\]/g, '');
+  const nombreSeguro = textoSeguroObuma(datos.nombre);
+  const descripcionSegura = datos.descripcion ? textoSeguroObuma(datos.descripcion).trim().slice(0, 1000) : '';
   const payload = {
     producto_nombre: nombreSeguro.toUpperCase().trim().slice(0, 200),
+    // Solo se manda si el encargado la escribió: nunca se inventa una descripción.
+    ...(descripcionSegura ? { producto_descripcion: descripcionSegura } : {}),
     producto_tipo: '0', // Producto (no Servicio)
     producto_activo: '1',
     producto_mostrar: '0', // nunca visible en el catálogo/tienda
@@ -736,6 +755,8 @@ export interface DatosItemOrdenCompra {
   // producto_id — no bloquea la OC, pero pierde la trazabilidad del catálogo para ese ítem.
   productoIdObuma: string | null; codigoComercial: string | null;
   nombre: string; cantidad: number; precioUnitarioNeto: number;
+  /** Descripción de la línea (`producto_descripcion`); viene de la que el encargado escribió en el producto de Obuma. */
+  descripcion?: string | null;
 }
 export interface DatosCrearOrdenCompra {
   proveedorRut: string | null; proveedorRazonSocial: string;
@@ -800,6 +821,7 @@ export async function crearOrdenCompraObuma(
     ...(it.productoIdObuma ? { producto_id: it.productoIdObuma } : {}),
     ...(it.codigoComercial ? { codigo_comercial: it.codigoComercial } : {}),
     producto_nombre: it.nombre.toUpperCase().trim().slice(0, 200),
+    ...(it.descripcion?.trim() ? { producto_descripcion: textoSeguroObuma(it.descripcion).trim().slice(0, 1000) } : {}),
     unidad_medida: 'UN',
     cantidad: String(it.cantidad),
     // Prueba 3988 (16-oct-2026): con `precio` como texto Obuma guardó 0 (y solo respetó el subtotal). Se manda numérico, con el descuento en 0
@@ -896,6 +918,164 @@ export async function crearOrdenCompraObuma(
     folio: verificada.compra_oc_folio ? String(verificada.compra_oc_folio) : null,
     subtotalNeto, iva, total,
   };
+}
+
+// ── Modificar una OC ya creada: /comprasOc.update.json (doc oficial obuma.cl/ayuda/articulo/331) ───────────
+// Obuma BORRA todas las líneas de la OC y las vuelve a ingresar con lo que se mande, así que siempre se reenvía la orden completa
+// (cabecera + todas las líneas) leída de Obuma con los cambios aplicados. `findById` devuelve UNA FILA POR LÍNEA, con la cabecera repetida.
+export interface LineaOcObuma {
+  codId: string; productoId: string; codigoComercial: string; nombre: string; descripcion: string;
+  cantidad: number; precio: number; subtotal: number; exento: boolean; descuento: number;
+  cantidadFacturada: number; cantidadDespachada: number;
+}
+export interface OcObumaActual {
+  id: string; folio: string | null; estado: string; fecha: string; referencia: string; observacion: string;
+  /** Tal como la guarda Obuma: dd-mm-aaaa. */
+  fechaEntrega: string; metodoDespacho: string; formaPago: string; proveedorId: string;
+  internacional: boolean; tipoCambio: number; centroCosto: string;
+  neto: number; iva: number; total: number; lineas: LineaOcObuma[];
+  /** Filas crudas de Obuma, para rearmar la cabecera completa al actualizar. */
+  filas: Record<string, any>[];
+}
+
+export async function leerOcObuma(compraOcId: string | number): Promise<OcObumaActual | null> {
+  const r = await llamar<ObumaListado<any>>(BASE_V1, `/comprasOc.findById.json/${compraOcId}`);
+  const filas = (r.data || []).filter(f => f && f.compra_oc_id);
+  if (filas.length === 0) return null;
+  const c = filas[0];
+  const n = (v: unknown) => Number(v) || 0;
+  return {
+    id: String(c.compra_oc_id), folio: c.compra_oc_folio ? String(c.compra_oc_folio) : null, estado: String(c.compra_oc_estado || ''),
+    fecha: String(c.compra_oc_fecha_ingreso || '').slice(0, 10), referencia: String(c.compra_oc_referencia || ''),
+    observacion: String(c.compra_oc_observacion || ''), fechaEntrega: String(c.compra_oc_fecha_entrega_productos || ''),
+    metodoDespacho: String(c.compra_oc_metodo_despacho || ''), formaPago: String(c.compra_oc_forma_pago || ''),
+    proveedorId: String(c.rel_proveedor_id || ''), internacional: String(c.compra_oc_internacional) === '1',
+    tipoCambio: n(c.compra_oc_internacional_tipocambio), centroCosto: String(c.compra_oc_centro_costo || ''),
+    neto: n(c.compra_oc_neto), iva: n(c.compra_oc_iva), total: n(c.compra_oc_total),
+    lineas: filas.filter(f => f.cod_id).map(f => ({
+      codId: String(f.cod_id), productoId: String(f.producto_id || ''), codigoComercial: String(f.codigo_comercial || ''),
+      nombre: String(f.producto_nombre || ''), descripcion: String(f.producto_descripcion || ''),
+      cantidad: n(f.cantidad), precio: n(f.precio), subtotal: n(f.subtotal), exento: String(f.producto_exento) === '1', descuento: n(f.descuento),
+      cantidadFacturada: n(f.cantidad_facturada), cantidadDespachada: n(f.cantidad_despachada),
+    })),
+    filas,
+  };
+}
+
+export interface CambiosOcObuma {
+  observacion?: string | null;
+  /** yyyy-mm-dd */
+  fechaEntrega?: string | null;
+  metodoDespacho?: string | null;
+  /** Por `codId` de Obuma. Lo que no viene se deja como está. `precio` es neto (en la moneda de la OC). */
+  lineas?: { codId: string; cantidad?: number; precio?: number; descripcion?: string }[];
+}
+
+/** Arma el documento de `comprasOc.update.json` (puro, sin tocar Obuma): la OC actual con los cambios aplicados y los montos recalculados. */
+export function armarDocActualizacionOc(
+  actual: OcObumaActual, cambios: CambiosOcObuma, ctx: { proveedorRut: string | null; proveedorRazonSocial: string; centroCostoCodigo: string | null },
+): { doc: Record<string, unknown>; subtotal: number; neto: number; iva: number; total: number; lineas: { codId: string; cantidad: number; precio: number }[] } {
+  if (/anulad/i.test(actual.estado)) throw new Error(`La OC ${actual.folio ?? actual.id} está anulada: no se puede modificar.`);
+  if (actual.lineas.some(l => l.cantidadFacturada > 0 || l.cantidadDespachada > 0)) throw new Error(`La OC ${actual.folio ?? actual.id} ya tiene productos facturados o despachados: no se modifica desde Licitank.`);
+  if (actual.lineas.some(l => l.descuento !== 0) || Number(actual.filas[0]?.compra_oc_descuento_pesos) > 0 || Number(actual.filas[0]?.compra_oc_descuento_porciento) > 0)
+    throw new Error(`La OC ${actual.folio ?? actual.id} tiene descuentos: modifícala directo en Obuma.`);
+  const porCod = new Map((cambios.lineas ?? []).map(l => [l.codId, l]));
+  for (const cod of porCod.keys()) if (!actual.lineas.some(l => l.codId === cod)) throw new Error('Una de las líneas a modificar no existe en la OC de Obuma.');
+  const redondear = (n: number) => actual.internacional ? Math.round(n * 100) / 100 : Math.round(n);
+
+  const lineas = actual.lineas.map(l => {
+    const c = porCod.get(l.codId);
+    const cantidad = c?.cantidad ?? l.cantidad;
+    const precio = redondear(c?.precio ?? l.precio);
+    if (!(cantidad > 0) || !Number.isFinite(cantidad)) throw new Error(`La cantidad de «${l.nombre.slice(0, 40)}» no es válida.`);
+    if (!(precio >= 0) || !Number.isFinite(precio)) throw new Error(`El precio de «${l.nombre.slice(0, 40)}» no es válido.`);
+    const desc = c?.descripcion != null ? textoSeguroObuma(c.descripcion).trim().slice(0, 1000) : l.descripcion;
+    return { l, cantidad, precio, subtotal: redondear(cantidad * precio), desc };
+  });
+  const exento = redondear(lineas.filter(x => x.l.exento || actual.internacional).reduce((s, x) => s + x.subtotal, 0));
+  const neto = redondear(lineas.filter(x => !x.l.exento && !actual.internacional).reduce((s, x) => s + x.subtotal, 0));
+  const iva = actual.internacional ? 0 : Math.round(neto * 0.19);
+  const subtotal = redondear(neto + exento);
+  const total = redondear(subtotal + iva);
+
+  const c0 = actual.filas[0] || {};
+  const lleno = (v: unknown) => { const s = String(v ?? '').trim(); return s !== '' && s !== '0' ? s : null; };
+  const fechaEntrega = cambios.fechaEntrega ? cambios.fechaEntrega.split('-').reverse().join('-') : actual.fechaEntrega;
+  const observacion = cambios.observacion != null ? cambios.observacion.trim() : actual.observacion;
+  const metodo = cambios.metodoDespacho?.trim() || actual.metodoDespacho;
+
+  const doc: Record<string, unknown> = {
+    oc_id: actual.id,
+    proveedor_razon_social: ctx.proveedorRazonSocial,
+    oc_fecha: actual.fecha,
+    oc_sucursal: lleno(c0.rel_sucursal_id) ?? SUCURSAL_TALAGANTE,
+    oc_moneda: lleno(c0.rel_moneda_id) ?? MONEDA_CLP_ID,
+    oc_forma_pago: actual.formaPago,
+    oc_subtotal: String(subtotal), oc_neto: String(neto), oc_iva: String(iva), oc_total: String(total),
+    ...(actual.internacional ? { oc_exento: String(exento) } : exento > 0 ? { oc_exento: String(exento) } : {}),
+    oc_referencia: actual.referencia,
+    oc_internacional: actual.internacional ? '1' : '0',
+    ...(actual.internacional ? { oc_internacional_tipocambio: String(actual.tipoCambio) } : {}),
+    oc_cantidad_items: String(lineas.reduce((s, x) => s + x.cantidad, 0)),
+    oc_detalle: lineas.map(x => ({
+      ...(lleno(x.l.productoId) ? { producto_id: x.l.productoId } : {}),
+      ...(x.l.codigoComercial ? { codigo_comercial: x.l.codigoComercial } : {}),
+      producto_nombre: x.l.nombre, ...(x.desc ? { producto_descripcion: x.desc } : {}),
+      unidad_medida: 'UN', cantidad: String(x.cantidad),
+      // La doc de update llama `precio` al precio de línea; en la creación Obuma solo respetó `producto_precio`. Se mandan los dos.
+      precio: x.precio, producto_precio: x.precio, descuento: 0, subtotal: x.subtotal,
+      ...(x.l.exento || actual.internacional ? { producto_exento: '1' } : {}),
+    })),
+  };
+  if (ctx.proveedorRut) doc.proveedor_rut = ctx.proveedorRut;
+  if (observacion) doc.oc_observacion = observacion;
+  if (lleno(c0.compra_oc_concepto)) doc.oc_concepto = c0.compra_oc_concepto;
+  if (lleno(c0.compra_oc_concepto_gasto)) doc.oc_concepto_gasto = c0.compra_oc_concepto_gasto;
+  if (lleno(c0.compra_oc_validez)) doc.oc_validez = c0.compra_oc_validez;
+  if (lleno(c0.compra_oc_condiciones)) doc.oc_condiciones = c0.compra_oc_condiciones;
+  if (lleno(c0.compra_oc_direccion_despacho)) doc.oc_direccion_despacho = c0.compra_oc_direccion_despacho;
+  if (lleno(c0.compra_oc_direccion_envio_factura)) doc.oc_direccion_envio_factura = c0.compra_oc_direccion_envio_factura;
+  if (lleno(c0.compra_oc_fecha_arribo_productos)) doc.oc_fecha_arribo_productos = c0.compra_oc_fecha_arribo_productos;
+  if (fechaEntrega) doc.oc_fecha_entrega_productos = fechaEntrega;
+  if (metodo) doc.oc_metodo_despacho = metodo;
+  if (ctx.centroCostoCodigo) doc.oc_centro_costo = ctx.centroCostoCodigo;
+  return { doc, subtotal, neto, iva, total, lineas: lineas.map(x => ({ codId: x.l.codId, cantidad: x.cantidad, precio: x.precio })) };
+}
+
+/** Modifica una OC YA creada en Obuma (escritura real; con OBUMA_SIMULAR=1 solo lee y muestra lo que mandaría). Relee y verifica
+ *  que Obuma guardó cantidades, precios y total: si no coinciden lanza un error con el detalle, no lo da por bueno. */
+export async function modificarOrdenCompraObuma(
+  compraOcId: string, cambios: CambiosOcObuma, proveedorConocido?: { rut: string | null; razonSocial: string } | null,
+): Promise<{ antes: OcObumaActual; despues: OcObumaActual | null; simulado: boolean; subtotal: number; neto: number; iva: number; total: number }> {
+  const antes = await leerOcObuma(compraOcId);
+  if (!antes) throw new Error('No se encontró esa orden de compra en Obuma.');
+  // Con el proveedor que ya guardó Licitank no se consulta `proveedores.findById` (tiene cuota diaria y se agota).
+  const prov = proveedorConocido?.razonSocial ? { proveedor_rut: proveedorConocido.rut, proveedor_razon_social: proveedorConocido.razonSocial }
+    : antes.proveedorId ? await proveedorPorId(antes.proveedorId).catch(() => null) : null;
+  if (!prov) throw new Error('No se pudo leer el proveedor de la orden en Obuma.');
+  const centro = antes.centroCosto && antes.centroCosto !== '0'
+    ? (await centrosDeCostoCompleto().catch(() => [])).find(c => c.id === antes.centroCosto || c.codigo === antes.centroCosto) ?? null : null;
+  const armado = armarDocActualizacionOc(antes, cambios, { proveedorRut: prov.proveedor_rut || null, proveedorRazonSocial: prov.proveedor_razon_social, centroCostoCodigo: centro?.codigo ?? null });
+
+  if (process.env.OBUMA_SIMULAR === '1') {
+    console.warn('[obuma][SIMULADO] comprasOc.update', JSON.stringify(armado.doc).slice(0, 1500));
+    return { antes, despues: null, simulado: true, subtotal: armado.subtotal, neto: armado.neto, iva: armado.iva, total: armado.total };
+  }
+  await llamarPost<any>(BASE_V1, '/comprasOc.update.json', { docs: [armado.doc] });
+
+  const despues = await leerOcObuma(compraOcId);
+  if (!despues) throw new Error(`Obuma respondió a la modificación pero no se pudo releer la OC ${antes.folio ?? compraOcId} para confirmarla.`);
+  const dif: string[] = [];
+  if (despues.lineas.length !== armado.lineas.length) dif.push(`líneas: ${despues.lineas.length} en vez de ${armado.lineas.length}`);
+  armado.lineas.forEach((esp, i) => {
+    const real = despues.lineas[i];
+    if (!real) return;
+    if (Math.abs(real.cantidad - esp.cantidad) > 0.001) dif.push(`cantidad de «${real.nombre.slice(0, 30)}»: ${real.cantidad} en vez de ${esp.cantidad}`);
+    if (Math.abs(real.precio - esp.precio) > 0.01) dif.push(`precio de «${real.nombre.slice(0, 30)}»: ${real.precio} en vez de ${esp.precio}`);
+  });
+  if (Math.abs(despues.total - armado.total) > 1) dif.push(`total: ${despues.total} en vez de ${armado.total}`);
+  if (dif.length) throw new Error(`Obuma respondió OK pero la OC ${antes.folio ?? compraOcId} no quedó como se pidió (${dif.join('; ')}). Revísala en Obuma.`);
+  return { antes, despues, simulado: false, subtotal: armado.subtotal, neto: armado.neto, iva: armado.iva, total: armado.total };
 }
 
 /** Crea el proveedor DE VERDAD en Obuma — escritura real, y a propósito NUNCA automática: pedido

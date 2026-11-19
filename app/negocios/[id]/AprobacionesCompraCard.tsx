@@ -247,7 +247,7 @@ export function AprobacionesCompraCard({ negocioId, puedeOperar, parte = 'todo' 
   const formSkuVacio = {
     skuPropio: '', skuProveedor: '', proveedorNombre: '', marca: '', modelo: '', obumaProductoId: '',
     crearEnObuma: true, obumaCategoriaId: OBUMA_CATEGORIA_MERCADO_PUBLICO_UI, obumaSubcategoriaId: '', obTipo: '', obAtributo: '', medidas: '',
-    precioVenta: '', costoManual: '', paraVenta: true, paraCompra: true, inventariable: true, venderEnWeb: false,
+    descripcionObuma: '', precioVenta: '', costoManual: '', paraVenta: true, paraCompra: true, inventariable: true, venderEnWeb: false,
   };
   const [formSku, setFormSku] = useState(formSkuVacio);
   const [guardandoSku, setGuardandoSku] = useState(false);
@@ -1056,6 +1056,13 @@ export function AprobacionesCompraCard({ negocioId, puedeOperar, parte = 'todo' 
                             <section className="rounded-lg border border-teal-200 bg-teal-50/50 px-3.5 py-3 space-y-1.5">
                               <p className="text-[13px] font-semibold text-teal-900"><span className="inline-flex w-5 h-5 mr-1.5 rounded-md bg-slate-100 text-zinc-600 text-[11px] tabular-nums items-center justify-center">6</span>Revisa lo que se va a crear en Obuma</p>
                               <p className="text-[13px] text-zinc-800"><span className="text-zinc-500">Nombre: </span><b>{nombreObumaPreview || <span className="font-normal text-zinc-400 italic">completa el paso 1…</span>}</b></p>
+                              <div className="space-y-1 pb-0.5">
+                                <label htmlFor="sku-descripcion-obuma" className="text-[12px] text-zinc-500">Descripción del producto (opcional, la escribes tú): va al producto de Obuma y a las líneas de sus órdenes de compra</label>
+                                <textarea id="sku-descripcion-obuma" value={formSku.descripcionObuma} maxLength={1000} rows={2}
+                                  onChange={e => setFormSku(f => ({ ...f, descripcionObuma: e.target.value }))}
+                                  placeholder="Ej. Horno convector 6 bandejas, acero inox, 220 V, incluye soporte"
+                                  className="w-full text-[13px] border border-zinc-300 rounded-lg px-2.5 py-1.5 bg-white outline-none focus:ring-1 focus:ring-teal-500 resize-y" />
+                              </div>
                               <p className="text-[13px] text-zinc-800"><span className="text-zinc-500">Código: </span>{skuPreview.estado === 'listo' ? <b>{skuPreview.codigo}</b> : <span className="text-zinc-400">elige la subcategoría (paso 4)</span>}</p>
                               <p className="text-[13px] text-zinc-800">
                                 <span className="text-zinc-500">Costo neto (compra): </span>

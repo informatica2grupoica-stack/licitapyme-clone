@@ -19,6 +19,7 @@ import { Modal } from '@/app/components/ui/Modal';
 import { Boton } from '@/app/components/ui/kit/Boton';
 import { FacturaVisor } from './FacturaVisor';
 import { OrdenCompraVisor } from './OrdenCompraVisor';
+import { ModificarOcObumaModal } from './ModificarOcObumaModal';
 import { CrearProveedorObumaModal, type FormProveedor } from './CrearProveedorObumaModal';
 import { IconClipboardList as ClipboardList, IconLoader2 as Loader2, IconCircleCheck as CheckCircle2, IconFileText as FileText, IconBolt as Zap, IconTruck as Truck, IconPaperclip as Paperclip, IconX as X } from '@tabler/icons-react';
 
@@ -163,6 +164,7 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
   const [buscandoRut, setBuscandoRut] = useState<string | null>(null);
   const [modalProveedorAbierto, setModalProveedorAbierto] = useState(false);
   const [provInicial, setProvInicial] = useState<Partial<FormProveedor>>({});
+  const [ocModificando, setOcModificando] = useState<{ obumaCompraOcId: string; folio: string | null; proveedor: string } | null>(null);
 
   const cargar = useCallback(async () => {
     try {
@@ -551,6 +553,14 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
                       </div>
                     </dl>
                     <div className="sm:min-w-[10rem] flex justify-end self-center">
+                    {p.yaCreada && puedeOperar && (
+                      <button onClick={() => setOcModificando({ obumaCompraOcId: p.yaCreada!.obumaCompraOcId, folio: p.yaCreada!.folio, proveedor: p.proveedorNombre })}
+                        data-testid={`oc-modificar-${p.yaCreada.folio ?? p.yaCreada.obumaCompraOcId}`}
+                        title="Cambiar cantidades, precios, descripciones, entrega o despacho de esta orden en Obuma"
+                        className="self-center text-[12.5px] font-semibold text-teal-700 hover:text-teal-800 border border-teal-200 hover:bg-teal-50 px-3 py-1.5 rounded-lg whitespace-nowrap">
+                        Modificar OC
+                      </button>
+                    )}
                     {p.ocRealObuma && !p.yaCreada && puedeOperar && ocAbierta !== p.proveedorNombre ? (
                       <button onClick={() => abrirOC(p)} disabled={!puedeEmitirOC(p)} data-testid={`oc-crear-otra-${p.proveedorNombre}`}
                         title="Ya hay una OC de este proveedor en Obuma. Esto crea OTRA orden aparte (compra adicional o de prueba)."
@@ -1077,6 +1087,11 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
           </div>
         );
       })()}
+
+      {ocModificando && (
+        <ModificarOcObumaModal negocioId={negocioId} obumaCompraOcId={ocModificando.obumaCompraOcId} folio={ocModificando.folio} proveedor={ocModificando.proveedor}
+          onCerrar={() => setOcModificando(null)} onGuardado={() => { void cargar(); }} />
+      )}
 
       {modalProveedorAbierto && (
         <CrearProveedorObumaModal negocioId={negocioId} inicial={provInicial} onCerrar={() => setModalProveedorAbierto(false)}

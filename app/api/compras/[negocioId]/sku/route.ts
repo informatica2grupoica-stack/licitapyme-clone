@@ -71,6 +71,7 @@ async function __POST(request: NextRequest, { params }: Params) {
       obumaProductoId: body.obumaProductoId || null,
       crearEnObuma: !!body.crearEnObuma, obumaSubcategoriaId: body.obumaSubcategoriaId || null, obumaCategoriaId: body.obumaCategoriaId || null,
       nombreObuma: body.nombreObuma || null,
+      descripcionObuma: typeof body.descripcionObuma === 'string' ? body.descripcionObuma.slice(0, 1000) : null,
       costoEsperado: body.costoEsperado != null ? Number(body.costoEsperado) : null,
       costoManual: body.costoManual != null ? Number(body.costoManual) : null,
       precioVentaNeto: body.precioVentaNeto != null ? Number(body.precioVentaNeto) : null,

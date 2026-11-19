@@ -517,6 +517,9 @@ export interface DatosSku {
   // licitación (regla dura §7.3: "el SKU se nombra por lo que compramos, nunca por lo que el
   // cliente nos pidió"). Obligatorio cuando `crearEnObuma` es true.
   nombreObuma?: string | null;
+  // Descripción del producto que escribe el encargado de compras (opcional): va como `producto_descripcion` en Obuma
+  // y de ahí pasa a las líneas de las órdenes de compra. Nunca se rellena sola con la descripción de la licitación.
+  descripcionObuma?: string | null;
   // El costo que el usuario vio en pantalla al confirmar (viene del mismo endpoint de preview que
   // usa la UI). Si al momento de crear el costo real del escenario ya cambió, crearSku rechaza en
   // vez de mandar a Obuma un número que el usuario nunca llegó a confirmar.
@@ -724,7 +727,7 @@ export async function crearSku(negocioId: number, productoId: number, datos: Dat
     const nombreObuma = datos.nombreObuma.trim();
     const codigoSugerido = await siguienteSkuMercadoPublico(datos.obumaSubcategoriaId.trim());
     const { productoId: idCreado, codigoComercial } = await crearProductoObuma({
-      nombre: nombreObuma, codigoComercial: codigoSugerido, subcategoriaId: datos.obumaSubcategoriaId.trim(), categoriaId,
+      nombre: nombreObuma, descripcion: datos.descripcionObuma?.trim() || null, codigoComercial: codigoSugerido, subcategoriaId: datos.obumaSubcategoriaId.trim(), categoriaId,
       costoClpNeto: costo ? costo.costoUnitario : costoManual!,
       precioVentaClpNeto: datos.precioVentaNeto != null && Number.isFinite(Number(datos.precioVentaNeto)) && Number(datos.precioVentaNeto) > 0 ? Number(datos.precioVentaNeto) : 0,
       paraVenta: datos.paraVenta, paraCompra: datos.paraCompra, inventariable: datos.inventariable, venderEnWeb: datos.venderEnWeb,

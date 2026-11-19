@@ -16,7 +16,7 @@ import { listarAprobacionesLinea } from '@/app/lib/compras-aprobacion-lineas';
 import { listarProductosCompra, sincronizarTareaOcProveedores } from '@/app/lib/compras';
 import { productosConCompraRapidaAprobada, listarComprasRapidas, type CompraRapida } from '@/app/lib/compras-compra-rapida';
 import {
-  crearOrdenCompraObuma, proveedorPorId, listarFormasPago, centrosDeCostoCompleto, proveedorPorRut, crearProveedorObuma, buscarCentroCostoPorLicitacion,
+  crearOrdenCompraObuma, descripcionesProductosObuma, modificarOrdenCompraObuma, leerOcObuma, type CambiosOcObuma, proveedorPorId, listarFormasPago, centrosDeCostoCompleto, proveedorPorRut, crearProveedorObuma, buscarCentroCostoPorLicitacion,
   listarComprasOc, listarComprasOcItems, mapaFormasPagoCompleto, listarMonedasExtranjerasObuma, type ObumaFormaPago, type DatosCrearProveedorObuma,
 } from '@/app/lib/obuma';
 import { METODOS_DESPACHO_OBUMA } from '@/app/lib/obuma-despacho';
@@ -626,6 +626,7 @@ export async function crearOrdenCompraParaProveedor(
   // El nombre de la forma de pago (Obuma lo guarda como texto; con el ID la OC queda mostrando solo un número).
   const formaPagoNombre = (await listarFormasPago().catch(() => [])).find(f => f.id === opciones.formaPagoId)?.nombre ?? null;
 
+  const descripcionesObuma = await descripcionesProductosObuma(itemsOrden.map(it => it.obumaProductoId).filter((x): x is string => !!x));
   const creada = await crearOrdenCompraObuma({
     proveedorRut: ficha.rut || null, proveedorRazonSocial: ficha.razonSocial,
     proveedorDireccion: ficha.direccion, proveedorComuna: ficha.comuna,
@@ -640,6 +641,8 @@ export async function crearOrdenCompraParaProveedor(
     items: itemsOrden.map(it => ({
       productoIdObuma: it.obumaProductoId, codigoComercial: it.obumaCodigoComercial,
       nombre: it.descripcion, cantidad: it.cantidad, precioUnitarioNeto: aMonedaOc(it.precioUnitario),
+      // La descripción que el encargado escribió en el producto de Obuma al crear el SKU (si no hay, la línea va sin descripción).
+      descripcion: (it.obumaProductoId && descripcionesObuma.get(it.obumaProductoId)) || null,
     })),
     fleteMonto: opciones.incluirFlete && opciones.fleteMonto != null ? aMonedaOc(opciones.fleteMonto) : null,
     fechaEntrega: opciones.fechaEntrega, metodoDespacho: opciones.metodoDespacho,
@@ -693,6 +696,82 @@ export async function crearOrdenCompraParaProveedor(
   await sincronizarTrasCambioDeOc(negocioId);
 
   return { obumaCompraOcId: creada.compraOcId, folio: creada.folio, total: totalClp, monedaCodigo: moneda?.codigo ?? 'CLP', totalMoneda: creada.total };
+}
+
+/** Lo que hoy tiene una OC (emitida desde Licitank en este negocio) en Obuma, para armar el formulario de «Modificar OC». */
+export async function leerOcParaModificar(negocioId: number, obumaCompraOcId: string) {
+  const [rows] = await pool.query(`SELECT id FROM compras_orden_compra_obuma WHERE negocio_id = ? AND obuma_compra_oc_id = ? LIMIT 1`, [negocioId, obumaCompraOcId]) as any;
+  if (!(rows as any[])[0]) throw new Error('Esa orden de compra no pertenece a este negocio.');
+  const oc = await leerOcObuma(obumaCompraOcId);
+  if (!oc) throw new Error('No se encontró la orden de compra en Obuma.');
+  const bloqueo = /anulad/i.test(oc.estado) ? 'La orden está anulada.'
+    : oc.lineas.some(l => l.cantidadFacturada > 0 || l.cantidadDespachada > 0) ? 'La orden ya tiene productos facturados o despachados.'
+    : oc.lineas.some(l => l.descuento !== 0) ? 'La orden tiene descuentos: modifícala directo en Obuma.' : null;
+  return {
+    id: oc.id, folio: oc.folio, estado: oc.estado, internacional: oc.internacional, tipoCambio: oc.tipoCambio, bloqueo,
+    observacion: oc.observacion, fechaEntrega: oc.fechaEntrega.split('-').reverse().join('-'), metodoDespacho: oc.metodoDespacho,
+    neto: oc.neto, iva: oc.iva, total: oc.total,
+    lineas: oc.lineas.map(l => ({ codId: l.codId, nombre: l.nombre, descripcion: l.descripcion, cantidad: l.cantidad, precio: l.precio, subtotal: l.subtotal })),
+  };
+}
+
+/** Modifica una OC ya creada: la cambia en Obuma (releída y verificada) y deja Licitank al día (líneas, totales, margen, bitácora). */
+export async function modificarOrdenCompraNegocio(
+  negocioId: number, obumaCompraOcId: string, cambios: CambiosOcObuma, actorId: number, actorNombre: string | null,
+): Promise<{ folio: string | null; total: number; simulado: boolean }> {
+  const [rows] = await pool.query(
+    `SELECT id, items_json, flete_monto, proveedor_nombre, proveedor_rut FROM compras_orden_compra_obuma WHERE negocio_id = ? AND obuma_compra_oc_id = ? LIMIT 1`,
+    [negocioId, obumaCompraOcId]) as any;
+  const fila = (rows as any[])[0];
+  if (!fila) throw new Error('Esa orden de compra no pertenece a este negocio.');
+  if (cambios.fechaEntrega && !/^\d{4}-\d{2}-\d{2}$/.test(cambios.fechaEntrega)) throw new Error('La fecha de entrega no es válida.');
+  if (cambios.metodoDespacho && !(METODOS_DESPACHO_OBUMA as readonly string[]).includes(cambios.metodoDespacho)) throw new Error('El método de despacho no es válido.');
+
+  const r = await modificarOrdenCompraObuma(obumaCompraOcId, cambios, { rut: fila.proveedor_rut || null, razonSocial: String(fila.proveedor_nombre || '') });
+  if (r.simulado) return { folio: r.antes.folio, total: r.total, simulado: true };
+  const oc = r.despues!;
+  const factor = oc.internacional && oc.tipoCambio > 0 ? oc.tipoCambio : 1;   // Licitank guarda todo en pesos
+
+  // Items guardados en Licitank: se actualiza cantidad y precio de los que calzan con una línea de la OC (por producto de Obuma, código o nombre).
+  let items: any[] = [];
+  try { items = JSON.parse(fila.items_json || '[]'); } catch { /* items_json corrupto: no se toca */ }
+  const norm = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/[^A-Z0-9]+/g, '');
+  const usadas = new Set<number>();
+  for (const l of oc.lineas) {
+    const i = items.findIndex((it, k) => !usadas.has(k) && ((it.obumaProductoId && it.obumaProductoId === l.productoId && l.productoId !== '0')
+      || (it.obumaCodigoComercial && it.obumaCodigoComercial === l.codigoComercial) || norm(String(it.descripcion ?? '')).slice(0, 60) === norm(l.nombre).slice(0, 60)));
+    if (i < 0) continue;
+    usadas.add(i);
+    items[i] = { ...items[i], cantidad: l.cantidad, precioUnitario: Math.round(l.precio * factor * 100) / 100, subtotal: Math.round(l.cantidad * l.precio * factor) };
+  }
+  const flete = oc.lineas.find(l => /^FLETE/i.test(l.nombre));
+  const subtotalClp = Math.round(r.subtotal * factor), totalClp = Math.round(oc.total * factor);
+  await pool.query(
+    `UPDATE compras_orden_compra_obuma SET items_json = ?, subtotal_neto = ?, total_neto = ?, flete_monto = ? WHERE id = ?`,
+    [JSON.stringify(items), subtotalClp, totalClp, fila.flete_monto != null && flete ? Math.round(flete.subtotal * factor) : fila.flete_monto, fila.id]);
+
+  const licitacionCodigo = await licitacionDeNegocio(negocioId);
+  const cambiosTexto = [
+    ...r.antes.lineas.flatMap(a => {
+      const d = oc.lineas.find(l => l.codId === a.codId) ?? oc.lineas[r.antes.lineas.indexOf(a)];
+      if (!d) return [];
+      const c: string[] = [];
+      if (d.cantidad !== a.cantidad) c.push(`cantidad ${a.cantidad}→${d.cantidad}`);
+      if (d.precio !== a.precio) c.push(`precio ${a.precio}→${d.precio}`);
+      if (d.descripcion !== a.descripcion) c.push('descripción');
+      return c.length ? [`«${a.nombre.slice(0, 40)}»: ${c.join(', ')}`] : [];
+    }),
+    ...(oc.observacion !== r.antes.observacion ? ['observación'] : []),
+    ...(oc.fechaEntrega !== r.antes.fechaEntrega ? ['fecha de entrega'] : []),
+    ...(oc.metodoDespacho !== r.antes.metodoDespacho ? ['método de despacho'] : []),
+  ];
+  await registrarEvento({
+    tipo: 'COMPRAS_OC_OBUMA_MODIFICADA', licitacionCodigo, actorId, actorNombre,
+    mensaje: `Se modificó la orden de compra ${oc.folio ?? oc.id} en Obuma (${fila.proveedor_nombre}): ${cambiosTexto.join('; ') || 'sin cambios de datos'}. Total ahora ${new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(totalClp)}${oc.internacional ? ' (equivalente en pesos)' : ''}.`,
+    metadata: { negocio_id: negocioId, obuma_compra_oc_id: obumaCompraOcId, antes_total: r.antes.total, despues_total: oc.total },
+  }).catch(() => {});
+  await sincronizarTrasCambioDeOc(negocioId);
+  return { folio: oc.folio, total: totalClp, simulado: false };
 }
 
 export interface ItemOrdenCompraVista {
