@@ -355,7 +355,7 @@ export function lineasSinAsignar(lineas: LineaCotizacion[], asignados: string[])
   if (!lineas.length) return [];
   // Sin precio no hay nada que perder («ACCESORIOS», resto de una celda «INSTALACIÓN ACCESORIOS» partida en dos renglones).
   // Un nombre parecido NO tapa la línea si la medida es otra (la de 20 mm no queda «asignada» por la tubería de 63 mm: parecido() ignora los números cortos).
-  return lineas.filter(l => (l.total ?? l.precioUnitario ?? 0) !== 0 && !asignados.some(a => parecido(l.descripcion, a) >= 0.5 && !conflictosMedibles(a, l.descripcion).some(c => c.grave)));
+  return lineas.filter(l => (l.total ?? l.precioUnitario ?? 0) !== 0 && !asignados.some(a => parecido(l.descripcion, a) >= 0.5 && !conflictosMedibles(a, l.descripcion).some(c => c.grave || c.superior || c.clase === 'modelo')));
 }
 
 // ─── Unidad de venta ≠ unidad del producto: línea por METRO/KILO, producto por ROLLO/CAJA ────────────────────────────────────────
@@ -383,6 +383,19 @@ export function precioPorUnidadDeProducto(conv: ConversionUnidadIA | null | unde
   if (!numeroApareceEnTexto(factor, descProducto)) return null;
   if (!numeroApareceEnTexto(precioLinea, textoDoc) && !numeroApareceEnTexto(precioLinea * 1.19, textoDoc) && !numeroApareceEnTexto(precioLinea / 1.19, textoDoc)) return null;
   return { precioLinea, factor, unidadLinea: unidad.toUpperCase(), precio: Math.round(precioLinea * factor * 100) / 100 };
+}
+
+/**
+ * ¿La línea se cobra de verdad POR la medida (metro, kilo, litro) para poder multiplicar por N? Sí, si su unidad impresa es esa medida, o si su
+ * cantidad es un múltiplo exacto de N (300 m = 3 rollos de 100 m). No, si la medida es solo un ATRIBUTO del producto: «Basurero de 1.100 litros»
+ * (10 unidades), «Transpaleta 2.500 kg» (1 unidad), «Termo 20 LT» (250 unidades) salían × 1.100, × 2.500 y × 20 (banco de cotizaciones reales).
+ */
+export function conversionCoherenteConLinea(l: LineaCotizacion, factor: number): boolean {
+  if (l.unidad && RE_MEDIDA.test(String(l.unidad).trim())) return true;
+  const q = l.cantidad != null ? Number(l.cantidad) : NaN;
+  if (!(factor > 1) || !Number.isFinite(q) || q < factor) return false;
+  const k = q / factor;
+  return Math.abs(k - Math.round(k)) < 0.02;
 }
 
 const FAMILIA_MEDIDA = (u: string): string | null => {
@@ -459,7 +472,8 @@ export function productoQueCubreLaLinea(l: LineaCotizacion, productos: Array<{ i
       if (p.precioBase == null || !(p.precioBase > pu)) continue;
       const r = p.precioBase / pu;
       const n = Math.round(r);
-      if (n >= 2 && Math.abs(r - n) < 0.01 && numeroApareceEnTexto(n, p.descripcion)) return { productoId: p.id, como: 'conversion', factor: n, nota: `${f(pu)} el ${l.unidad ?? 'metro/kilo'} × ${n} ${l.unidad ?? ''} que trae cada unidad del producto = ${f(p.precioBase)} por unidad del producto` };
+      // Cociente casi exacto (0,1 %): 1,991 no es «× 2» (el precio de una batería con IVA contra el esmeril sin IVA parecía una conversión por rollo).
+      if (n >= 2 && Math.abs(r - n) / n < 0.001 && numeroApareceEnTexto(n, p.descripcion)) return { productoId: p.id, como: 'conversion', factor: n, nota: `${f(pu)} el ${l.unidad ?? 'metro/kilo'} × ${n} ${l.unidad ?? ''} que trae cada unidad del producto = ${f(p.precioBase)} por unidad del producto` };
     }
   }
   // Por nombre. Las palabras de menos de 3 letras («63», «mm») no cuentan en parecido(): una línea de 20 mm se daba por cubierta por la tubería de 63 mm.
@@ -467,12 +481,37 @@ export function productoQueCubreLaLinea(l: LineaCotizacion, productos: Array<{ i
   let mejor: { id: number; p: number } | null = null;
   for (const p of productos) {
     const s = parecido(l.descripcion, p.descripcion);
-    const graves = conflictosMedibles(p.descripcion, l.descripcion).filter(c => c.grave).length;
-    if (graves > 0) continue;
+    // Medida física distinta O modelo distinto («AD21P» no es el «PQ128C»): esa línea no cubre a este producto.
+    const choques = conflictosMedibles(p.descripcion, l.descripcion).filter(c => c.grave || c.superior || c.clase === 'modelo').length;
+    if (choques > 0) continue;
     const ok = s >= 0.5 || (s >= 0.2 && medidasEnComun(p.descripcion, l.descripcion) >= 2);
     if (ok && (!mejor || s > mejor.p)) mejor = { id: p.id, p: s };
   }
   return mejor ? { productoId: mejor.id, como: 'nombre', nota: null } : null;
+}
+
+/**
+ * ¿La asignación que ya tiene un producto sigue respaldada por el documento? Hay una línea cuyo precio es el del producto (igual, con IVA, en
+ * otra moneda o × metros del rollo) y esa línea no choca con él en medida ni en modelo. Sirve para no borrar una asignación buena solo porque la IA
+ * se saltó esa línea en una lectura nueva (Pedrollo 4SR12M-9, 363): se borra lo que el documento ya no sostiene, no lo que la IA no repitió.
+ */
+export function asignacionRespaldadaPorDocumento(descProducto: string, precioBase: number | null, lineas: LineaCotizacion[], opts?: { factoresPrecio?: number[] }): boolean {
+  if (precioBase == null || !(precioBase > 0)) return false;
+  return lineas.some(l => {
+    const c = productoQueCubreLaLinea(l, [{ id: 0, descripcion: descProducto, precioBase }], opts);
+    return !!c && c.como !== 'nombre' && !conflictosMedibles(descProducto, l.descripcion).some(x => x.grave || x.superior || x.clase === 'modelo');
+  });
+}
+
+/**
+ * Líneas que SE PARECEN a un producto por nombre pero cuyo precio NO es el que quedó en ese producto: el producto ya tomó el precio de OTRA línea.
+ * Son opciones del proveedor que no se usaron (Improtek cotizó 3 modelos de detector de fugas; el producto genérico tomó uno y los HIKMicro AD21P a
+ * $949.900 quedaban «cubiertos» por el nombre sin que nadie los viera). Hay que avisarlas, no taparlas. Quien llama descarta las que ya son un adicional.
+ */
+export function lineasAlternativas(lineas: LineaCotizacion[], productos: Array<{ id: number; descripcion: string; precioBase: number | null }>, opts?: { factoresPrecio?: number[] }): LineaCotizacion[] {
+  const cob = lineas.map(l => ({ l, c: productoQueCubreLaLinea(l, productos, opts) }));
+  const conPrecioDeLinea = new Set(cob.filter(x => x.c && x.c.como !== 'nombre').map(x => (x.c as CoberturaLinea).productoId));
+  return cob.filter(x => x.c && x.c.como === 'nombre' && conPrecioDeLinea.has(x.c.productoId)).map(x => x.l);
 }
 
 // ─── ¿La línea cotizada es de verdad el producto pedido? Talla y tipo de chasis (1110) ────────────────────────────────────────────

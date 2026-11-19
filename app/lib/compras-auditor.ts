@@ -15,8 +15,8 @@ import { fetchConTimeout } from '@/app/lib/fetch-timeout';
 import { precioClpDeItemIA } from '@/app/lib/compras-precio-homologacion';
 import { marcarCotizandoSiHayCotizacion } from '@/app/lib/compras-avance-estados';
 import pool from '@/app/lib/db';
-import { precioPorUnidadDeProducto, conversionDesdeTexto, productoQueCubreLaLinea, numeroApareceEnTexto, lineasDesdeTabla, corregirAdicionalesConLineas, lineasSinAsignar, lineaDelProducto, desajustesProductoLinea, sinComponentesDeLaLineaPropia, factoresPrecioDeCotizacion, type LineaCotizacion } from '@/app/lib/compras-cotizacion-lineas';
-import { productosCandidatos, tandasDeLineas, lineaDeLaAsignacion, conflictosMedibles, respaldoDelPrecio, lineaConElMismoModelo } from '@/app/lib/compras-cotizacion-emparejar';
+import { precioPorUnidadDeProducto, conversionDesdeTexto, productoQueCubreLaLinea, numeroApareceEnTexto, lineasDesdeTabla, corregirAdicionalesConLineas, lineasSinAsignar, lineaDelProducto, desajustesProductoLinea, sinComponentesDeLaLineaPropia, factoresPrecioDeCotizacion, lineasAlternativas, asignacionRespaldadaPorDocumento, type LineaCotizacion } from '@/app/lib/compras-cotizacion-lineas';
+import { resolverCotizacion } from '@/app/lib/compras-cotizacion-resolver';
 import { conCupo } from '@/app/lib/cupo-ia';
 import { esRutPropio } from '@/app/lib/auditor-compras-datos';
 import { filasDeCotizacion, programarAuditoria } from '@/app/lib/auditor-compras';
@@ -691,7 +691,7 @@ Los códigos P1, P2… son SOLO de la lista de productos ganados: NO los confund
 
 ANTES de tratar una línea como componente, revisa si ES, por significado, uno de los productos de la lista (ej.: "Micrófono inalámbrico doble" es el producto "SET MICRÓFONO" de la lista; "Sistema de sonido" con parlantes y mezclador es el "SET AMPLIFICACIÓN"). Si lo es, es un PRODUCTO: devuélvelo en "items" con su código y su propio precio, y NO lo pongas en "adicionales", aunque la descripción de OTRO producto también mencione ese elemento ("sistema inalámbrico de micrófono incluido"). Cada línea con precio del documento debe quedar en uno de estos tres lugares: producto de la lista, adicional de un producto, o ignorada por ser servicio/total; nunca perdida.
 
-ACCESORIOS Y COMPONENTES — una cotización real trae líneas que NO son un producto de la lista sino un componente o accesorio de uno (ej.: el "Quemador a gas" de un horno, las "Bandejas" de un carro). Si esa línea tiene precio, NO la conviertas en producto: agrégala en "adicionales" del producto al que pertenece, con "cantidadLinea" (la cantidad de ESA línea) y "precioUnitario" (por unidad, tal como aparece). El "precioUnitarioAsignado" del producto principal es el del producto SOLO, sin esos componentes. Los SERVICIOS con precio propio (instalación, armado, montaje, puesta en marcha, capacitación) también son adicionales: agrégalos al producto al que se refieren (si el documento no dice a cuál, al producto principal de la cotización), con su cantidad y precio de línea. IGNORA el flete/despacho/envío (se lee aparte) y los totales/"RESUMEN GLOBAL" que repiten líneas ya vistas: no son adicionales ni productos.
+ACCESORIOS Y COMPONENTES — una cotización real trae líneas que NO son un producto de la lista sino un componente o accesorio de uno (ej.: el "Quemador a gas" de un horno, las "Bandejas" de un carro). Si esa línea tiene precio, NO la conviertas en producto: agrégala en "adicionales" del producto al que pertenece, con "cantidadLinea" (la cantidad de ESA línea) y "precioUnitario" (por unidad, tal como aparece). El "precioUnitarioAsignado" del producto principal es el del producto SOLO, sin esos componentes. Los SERVICIOS con precio propio (instalación, armado, montaje, puesta en marcha, capacitación) también son adicionales: agrégalos al producto al que se refieren (si el documento no dice a cuál, al producto principal de la cotización), con su cantidad y precio de línea. IGNORA el flete/despacho/envío (se lee aparte) y los totales/"RESUMEN GLOBAL" que repiten líneas ya vistas: no son adicionales ni productos. EXCEPCIÓN: si la lista de PRODUCTOS GANADOS trae un producto de flete, transporte, traslado o despacho, la línea de flete del documento ES ese producto: devuélvela en "items" con su código y su precio.
 Si una línea dice "N unidades ... $X" sin precio unitario ni "c/u" (ej. "18 bandejas aluminio ... $152.000"), $X es el precio del CONJUNTO: cantidadLinea 1 y precioUnitario X, y pon "(18 bandejas)" en el concepto.
 Si el documento dice que un producto de la lista VA INCLUIDO en el precio de otro (ej. "Horno ... Incluye 1 carro 18x60x40"), devuelve ese producto en "items" con "incluidoEn": <número del producto que lo contiene>, sin precioUnitarioAsignado, y agrega "citaIncluido": el texto LITERAL del documento que lo dice (ej. "Incluye 1 carro 18x60x40"); sin esa cita literal no uses "incluidoEn". Sus componentes aparte (las bandejas) van en sus "adicionales".
 Si la descripción del producto EXIGE un componente ("con quemador", "con 18 bandejas") y el documento dice expresamente que NO lo incluye, que es opcional o que se vende aparte SIN dar precio, anótalo en "faltantes" ({"producto":"<código P1, P2…>","concepto":"<qué falta>","cita":"<texto LITERAL del documento, copiado tal cual, que dice que no se incluye / es opcional / se cotiza aparte / a consultar>"}). Sin esa cita literal NO lo anotes: si el documento simplemente no habla del componente, NO es un faltante. Tampoco si el componente ya va incluido o ya viene con precio en "adicionales".
@@ -749,90 +749,6 @@ export async function homologarCotizacionIA(cotizacionId: number): Promise<{ ite
   const productos = (await listarProductosCompra(cotiz.negocio_id)).filter(p => !esSubestadoFuera(p.subestado));
   if (productos.length === 0) return { items: 0 };
 
-  const sufijoMoneda = cotiz.moneda && cotiz.moneda !== 'CLP' ? ` ${cotiz.moneda}` : '';
-  const lineasDelDoc = lineasDesdeTabla(String(cotiz.descripcion_libre || ''));
-  const conPrecio = lineasDelDoc.filter(l => (l.total ?? l.precioUnitario ?? 0) !== 0);
-  // EMPAREJAR A ESCALA (18-nov-2026, 727202-72-LP26: 141 productos). Antes se mandaban TODOS los productos y toda la cotización en una sola
-  // llamada con tope de 3.000 tokens: no cabía una cotización larga y la IA confundía tamaños parecidos. Ahora, con muchos productos, a la IA
-  // solo se le ofrecen los candidatos de cada línea (palabras, medidas y modelos), y una cotización larga se parte en tandas de pocas líneas.
-  // Con pocos productos y pocas líneas todo queda como antes (una llamada, lista completa).
-  const MUCHOS_PRODUCTOS = 30;
-  const paraEmparejar = productos.map(p => ({ id: p.id, descripcion: p.descripcion, cantidad: p.cantidad != null ? Number(p.cantidad) : null }));
-  const tandas: LineaCotizacion[][] = conPrecio.length ? tandasDeLineas(conPrecio) : [[]];
-  const codigo = (v: unknown) => Number(String(v ?? '').replace(/\D/g, ''));   // "P2" → 2
-
-  const resolverTanda = async (tanda: LineaCotizacion[], profundidad: number): Promise<{ items: any[]; faltantes: any[]; puntos: string[] }> => {
-    const filtrar = productos.length > MUCHOS_PRODUCTOS && tanda.length > 0;
-    let visibles = new Set(productos.map(p => p.id));
-    if (filtrar) {
-      const cand = productosCandidatos(tanda, paraEmparejar);
-      // Un producto y la parte que se compra aparte van juntos: la IA necesita ver las dos filas para no tratar la parte como faltante.
-      for (const p of productos) if (cand.has(p.id) && p.productoPadreId != null) cand.add(p.productoPadreId);
-      for (const p of productos) if (p.productoPadreId != null && cand.has(p.productoPadreId)) cand.add(p.id);
-      visibles = cand;
-    }
-    const lista = productos.map((p, i) => ({ p, i })).filter(x => visibles.has(x.p.id));
-    const notaTanda = tandas.length > 1 || profundidad > 0
-      ? `\n\nESTA LLAMADA RESUELVE SOLO ESTAS ${tanda.length} LÍNEAS del bloque «LÍNEAS DEL DOCUMENTO» (las demás las ve otra llamada: NO las uses para ningún producto ni adicional):\n${tanda.map(l => `- ${l.descripcion.slice(0, 110)} | cantidad ${l.cantidad ?? '—'} | precio unitario ${l.precioUnitario ?? '—'}`).join('\n')}`
-      : '';
-    const user = `PRODUCTOS GANADOS (código: descripción, cantidad, unidad)${filtrar ? ' — selección de los productos candidatos a estas líneas: lo que no está en la lista no se puede asignar' : ''}:
-${lista.map(({ p, i }) => {
-      // Partes que se compran aparte (pernos de una butaca «que incluye pernos»): son un producto de la lista, y su ausencia en la
-      // cotización del producto NO es un faltante (van a otro proveedor).
-      const padre = p.productoPadreId != null ? productos.findIndex(x => x.id === p.productoPadreId) : -1;
-      const partes = productos.filter(x => x.productoPadreId === p.id).map(x => `P${productos.indexOf(x) + 1}`);
-      const nota = padre >= 0 ? ` (parte de P${padre + 1} que se compra APARTE: si el documento la cotiza, va aquí y no como adicional de P${padre + 1})`
-        : partes.length ? ` (${partes.join(', ')} se compra${partes.length > 1 ? 'n' : ''} aparte: si el documento no lo${partes.length > 1 ? 's' : ''} trae, NO es un faltante de este producto)` : '';
-      return `P${i + 1}. ${p.descripcion}${p.cantidad ? `, cantidad ${p.cantidad}` : ''}${p.unidad ? ` ${p.unidad}` : ''}${nota}`;
-    }).join('\n')}
-
-COTIZACIÓN de "${cotiz.proveedor_nombre}"${cotiz.precio_unitario ? ` — precio unitario informado: ${Number(cotiz.precio_unitario).toLocaleString('es-CL')}${sufijoMoneda}` : ''}${cotiz.precio_total ? ` — total: ${Number(cotiz.precio_total).toLocaleString('es-CL')}${sufijoMoneda}` : ''}${sufijoMoneda ? `\n(Todo precio que asignes por producto debe estar en la MISMA moneda del documento, ${cotiz.moneda} — no conviertas tú, la conversión a CLP la hace el sistema aparte.)` : ''}:
-${cotiz.descripcion_libre || '(sin descripción libre — usar solo el precio si corresponde a un único producto)'}${notaTanda}`;
-
-    // Con cupo: al subir varias cotizaciones juntas las llamadas hacen fila en vez de saturar al proveedor de IA (429).
-    const completion: any = await conCupo('compras-lectura', 3, () => crearChatIA({
-      messages: [{ role: 'system', content: SYS_HOMOLOGACION }, { role: 'user', content: user }],
-      temperature: 0, stream: false, max_tokens: 4_500,
-      response_format: { type: 'json_object' },
-    }, { timeoutMs: 90_000, modeloPreferido: 'glm-4.7', soloGlm: true }));
-    const cortada = completion.choices?.[0]?.finish_reason === 'length';
-    const parsedT: any = parseJsonIA(String(completion.choices?.[0]?.message?.content ?? '')) || {};
-    // Respuesta cortada por el tope o ilegible: se parte la tanda en dos y se reintenta, para no perder líneas en silencio.
-    if ((cortada || !Array.isArray(parsedT.items)) && tanda.length > 1 && profundidad < 3) {
-      const mitad = Math.ceil(tanda.length / 2);
-      const [a, b] = await Promise.all([resolverTanda(tanda.slice(0, mitad), profundidad + 1), resolverTanda(tanda.slice(mitad), profundidad + 1)]);
-      return { items: [...a.items, ...b.items], faltantes: [...a.faltantes, ...b.faltantes], puntos: [...a.puntos, ...b.puntos] };
-    }
-    return { items: Array.isArray(parsedT.items) ? parsedT.items : [], faltantes: Array.isArray(parsedT.faltantes) ? parsedT.faltantes : [], puntos: parsedT.puntosCriticos ? [String(parsedT.puntosCriticos)] : [] };
-  };
-
-  const resultados = await Promise.all(tandas.map(t => resolverTanda(t, 0)));
-  // Un mismo producto puede salir en dos tandas (una línea de cada una): se queda la que trae precio propio.
-  const porProducto = new Map<number, any>(), sinCodigo: any[] = [];
-  for (const it of resultados.flatMap(r => r.items)) {
-    const c = codigo(it?.producto);
-    if (!c) { sinCodigo.push(it); continue; }
-    const previo = porProducto.get(c);
-    if (!previo || (previo.precioUnitarioAsignado == null && it?.precioUnitarioAsignado != null)) porProducto.set(c, it);
-  }
-  const parsed: any = {
-    items: [...porProducto.values(), ...sinCodigo],
-    faltantes: resultados.flatMap(r => r.faltantes),
-    puntosCriticos: [...new Set(resultados.flatMap(r => r.puntos))].join(' ').slice(0, 1200) || null,
-  };
-  const items = parsed.items as any[];
-  const cumples: CumpleItem[] = ['CUMPLE', 'MEJORA', 'INFERIOR_NEGOCIABLE', 'INFERIOR_INSALVABLE', 'NO_ES_EL_PRODUCTO'];
-
-  let escritos = 0;
-  const ahora = ahoraChileSQL();
-  const tipoCambio = cotiz.tipo_cambio_usado != null ? Number(cotiz.tipo_cambio_usado) : null;
-  const itemsValidos = items.filter((x: any) => productos[codigo(x?.producto) - 1] && cumples.includes(x?.cumple) && x.cumple !== 'NO_ES_EL_PRODUCTO').length;
-  // Auditoría 07-oct-2026: la IA a veces "cubre" productos que el documento ni menciona (una cotización solo del horno quedó
-  // asignada también a sobadora y carro, "sin precio") y marca como asignable lo que es OTRO producto. Eso es ruido que
-  // ensucia la matriz: se descartan los NO_ES_EL_PRODUCTO y, si la cotización tiene precio para algún producto, los que quedan sin precio.
-  // El precio propio que la IA lee de una línea viene tal como el documento lo muestra: antes de descuento y, si el
-  // documento dice "IVA incluido", con IVA. Se lleva a NETO igual que el precio de cabecera (registrarCotizacion).
-  const ivaIncluido = /se guardaron en neto \(÷ 1,19\)/.test(String(cotiz.notas || '')) && (cotiz.moneda || 'CLP') === 'CLP';
   const dscto = cotiz.descuento_pct != null ? Number(cotiz.descuento_pct) : null;
   // DESCUENTO SOBRE EL TOTAL (migration-195, 16-nov-2026): con descuento global, la base y las piezas se guardan a PRECIO DE LISTA y el %
   // se aplica una vez al total de cada producto (recalcularPrecioItem), como la cotización y la factura. Una cotización antigua que ya tiene
@@ -846,128 +762,30 @@ ${cotiz.descripcion_libre || '(sin descripción libre — usar solo el precio si
     await pool.query(`UPDATE compras_cotizacion SET descuento_sobre_total = 1 WHERE id = ?`, [cotizacionId]);
     return true;
   })();
-  const aNeto = (v: unknown): unknown => {
-    const n = v == null || v === '' || typeof v === 'boolean' ? NaN : Number(v);
-    if (!Number.isFinite(n) || n <= 0) return v;
-    let x = ivaIncluido ? netoDesdeBruto(n) : n;
-    if (!sobreTotal && dscto != null && dscto > 0 && dscto < 100) x = conDescuento(x, dscto, 'unitario');
-    return x;
-  };
-  // Precio de cabecera en el mismo modo: a precio de lista si el descuento va sobre el total.
-  const cabeceraClp = sobreTotal && cotiz.precio_unitario_bruto != null
-    ? Number(cotiz.precio_unitario_bruto) * (cotiz.moneda && cotiz.moneda !== 'CLP' && cotiz.tipo_cambio_usado ? Number(cotiz.tipo_cambio_usado) : 1)
-    : (cotiz.precio_unitario_clp != null ? Number(cotiz.precio_unitario_clp) : null);
-  // Código de modelo exacto manda: si el producto trae un modelo y una sola línea del documento lo trae, el precio es el de esa línea.
-  for (const it of items) {
-    const prod = productos[codigo(it?.producto) - 1];
-    if (!prod || it.incluidoEn != null || it.conversionUnidad) continue;
-    const lm = lineaConElMismoModelo(prod.descripcion, lineasDelDoc);
-    const pa = Number(it.precioUnitarioAsignado);
-    if (lm && lm.precioUnitario != null && !(Number.isFinite(pa) && Math.abs(pa - lm.precioUnitario) <= 1.5)) {
-      it.precioUnitarioAsignado = lm.precioUnitario;
-      it.detalle = [it.detalle, `el precio es el de la línea «${lm.descripcion.slice(0, 60)}», que trae el mismo modelo que el producto`].filter(Boolean).join(' · ');
-    }
-  }
-  let resueltos = items.map((it: any) => {
-    const producto = productos[codigo(it?.producto) - 1];
-    if (!producto || !cumples.includes(it.cumple) || it.cumple === 'NO_ES_EL_PRODUCTO') return null;
-    // "Va incluido en otro producto" sin cita literal verificada = invento: ese producto no se asigna a esta cotización.
-    if (it.incluidoEn != null && !citaVerificada(it.citaIncluido, String(cotiz.descripcion_libre || ''))) return null;
-    // Línea por METRO/KILO y producto por ROLLO/CAJA (2736-44, MCT 621206): el código multiplica, con el factor sacado de la descripción del producto.
-    const conv = precioPorUnidadDeProducto(it.conversionUnidad, producto.descripcion, String(cotiz.descripcion_libre || ''))
-      ?? precioPorUnidadDeProducto(conversionDesdeTexto(Number(it.precioUnitarioAsignado), producto.descripcion, String(cotiz.descripcion_libre || '')), producto.descripcion, String(cotiz.descripcion_libre || ''));
-    if (conv) it.detalle = [it.detalle, `Precio por ${conv.unidadLinea} $${Math.round(conv.precioLinea).toLocaleString('es-CL')} × ${conv.factor} por unidad del producto = $${Math.round(conv.precio).toLocaleString('es-CL')} (la cotización cobra por ${conv.unidadLinea}, el producto se compra por rollo/caja).`].filter(Boolean).join(' · ');
-    const precioClp = precioClpDeItemIA({
-      // El precio que la IA lee de una línea tiene que EXISTIR en el documento: "121.000,85" se leyó como 121,00085 y quedó en $109.
-      // Si no aparece (ni como número), se ignora y se usa el precio de la cotización en vez de guardar un valor inventado.
-      precioUnitarioAsignado: aNeto(conv ? conv.precio : precioEnDocumento(it.precioUnitarioAsignado, String(cotiz.descripcion_libre || '')) ? it.precioUnitarioAsignado : null), tipoCambio,
-      precioClpCotizacion: cabeceraClp,
-      totalItemsAsignados: itemsValidos,
-    });
-    return { it, producto, precioClp, conv };
-  }).filter(Boolean) as Array<{ it: any; producto: ProductoCompra; precioClp: number | null; conv: ReturnType<typeof precioPorUnidadDeProducto> }>;
-  // Precio cruzado: el precio que la IA asignó EXISTE en el documento pero es de otra línea que no se parece nada al producto (la IA de respaldo
-  // le dio a una bomba el precio de una tubería). No se asigna: la línea queda a la vista en «Revisa la asignación».
-  const cruzados: string[] = [];
-  // Solo se descarta si OTRO producto con ese mismo precio sí tiene que ver con la línea (el dueño real del precio): sin eso no se sabe quién
-  // se equivocó (una brida contra «Flange Respaldo» es un sinónimo legítimo, no un cruce).
-  const precioDocDe = (r: { it: any; conv: ReturnType<typeof precioPorUnidadDeProducto> }) => r.conv ? r.conv.precioLinea : (Number.isFinite(Number(r.it.precioUnitarioAsignado)) && Number(r.it.precioUnitarioAsignado) > 0 ? Number(r.it.precioUnitarioAsignado) : null);
-  const respaldos = resueltos.map(r => ({ r, precioDoc: precioDocDe(r), resp: r.it.incluidoEn != null ? null : respaldoDelPrecio(r.producto.descripcion, lineasDelDoc, precioDocDe(r)) }));
-  resueltos = respaldos.filter(x => {
-    if (!x.resp || x.resp.plausible) return true;
-    const hayDueno = respaldos.some(o => o !== x && o.resp?.plausible && o.precioDoc != null && x.precioDoc != null && Math.abs(o.precioDoc - x.precioDoc) <= 1.5);
-    if (!hayDueno) return true;
-    cruzados.push(`«${x.r.producto.descripcion.slice(0, 40)}» ← «${x.resp.linea.descripcion.slice(0, 40)}»`);
-    return false;
-  }).map(x => x.r);
-  if (cruzados.length) console.warn('[homologar] asignaciones descartadas por precio de otra línea', cotizacionId, cruzados.join(' | ').slice(0, 300));
-  // OTRA MEDIDA FÍSICA (63 mm ≠ 75 mm, 30 HP ≠ 15 HP, 220 V ≠ 380 V): la línea que respalda el precio es de un producto distinto al pedido.
-  // Asignarle ese precio ensucia la comparación («la más barata» sería otra cosa), y marcarlo «inferior» no alcanza: el auditor de fondo reescribe
-  // el veredicto. No se asigna; el motivo queda en las notas de la cotización y se puede asignar a mano.
-  const porMedida: string[] = [];
-  resueltos = resueltos.filter(r => {
-    if (r.it.incluidoEn != null) return true;
-    const precioDoc = r.conv ? r.conv.precioLinea : (Number.isFinite(Number(r.it.precioUnitarioAsignado)) && Number(r.it.precioUnitarioAsignado) > 0 ? Number(r.it.precioUnitarioAsignado) : null);
-    const linea = lineaDeLaAsignacion(r.producto.descripcion, lineasDelDoc, precioDoc);
-    const graves = linea ? conflictosMedibles(r.producto.descripcion, linea.descripcion).filter(m => m.grave) : [];
-    if (!linea || !graves.length) return true;
-    porMedida.push(`«${r.producto.descripcion.slice(0, 45)}» no se asignó a «${linea.descripcion.slice(0, 45)}»: ${graves.map(g => g.texto).join('; ')}`);
-    return false;
+
+  // Qué producto es cada línea: el núcleo es PURO (compras-cotizacion-resolver.ts) y es el mismo que usa el banco de cotizaciones reales.
+  const [previosRows] = await pool.query(`SELECT producto_id, precio_base FROM compras_cotizacion_item WHERE cotizacion_id = ?`, [cotizacionId]) as any;
+  const preciosPrevios: Record<number, number | null> = Object.fromEntries((previosRows as any[]).map(x => [Number(x.producto_id), x.precio_base == null ? null : Number(x.precio_base)]));
+  const R = await resolverCotizacion({
+    productos: productos as any, cotiz, sobreTotal, systemPrompt: SYS_HOMOLOGACION, preciosPrevios,
+    // Con cupo: al subir varias cotizaciones juntas las llamadas hacen fila en vez de saturar al proveedor de IA (429).
+    llamarIA: async (system, user) => {
+      const completion: any = await conCupo('compras-lectura', 3, () => crearChatIA({
+        messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
+        temperature: 0, stream: false, max_tokens: 4_500,
+        response_format: { type: 'json_object' },
+      }, { timeoutMs: 90_000, modeloPreferido: 'glm-4.7', soloGlm: true }));
+      return { content: String(completion.choices?.[0]?.message?.content ?? ''), finishReason: completion.choices?.[0]?.finish_reason ?? null };
+    },
   });
-  // Un producto que va incluido en el precio de otro queda con base $0 (explícito): su costo está en el otro producto.
-  const textoDoc = String(cotiz.descripcion_libre || '');
-  const incluidos = new Set(incluidosDesdeIA(items, textoDoc).map(x => x.producto));
-  const hayConPrecio = resueltos.some(r => r.precioClp != null);
-  // ¿Es el MISMO producto? Freno determinista sobre lo medible (talla, chasis): la IA decide por significado y dejó pasar
-  // una silla talla 43 chasis rígido como si fuera la talla 42 chasis plegable (1110). No se excluye (§8.8.1): se rebaja y se avisa.
-  const desajustes: string[] = [];
-  for (const r of resueltos) {
-    // La línea que respalda el precio: la que trae el MISMO precio que la IA leyó (así «75 mm» no se compara con la de 63 mm que se le parece),
-    // y si no, la de nombre más parecido. Talla/chasis (1110) y ahora también MEDIDAS y MODELOS (63 mm ≠ 75 mm, 220 V ≠ 380 V, HST 300 ≠ PL160).
-    const precioDoc = r.conv ? r.conv.precioLinea : (Number.isFinite(Number(r.it.precioUnitarioAsignado)) ? Number(r.it.precioUnitarioAsignado) : null);
-    const linea = lineaDeLaAsignacion(r.producto.descripcion, lineasDelDoc, precioDoc) ?? lineaDelProducto(r.producto.descripcion, lineasDelDoc);
-    const dif = linea ? desajustesProductoLinea(r.producto.descripcion, linea.descripcion) : [];
-    const medibles = linea ? conflictosMedibles(r.producto.descripcion, linea.descripcion) : [];
-    if (!dif.length && !medibles.length) continue;
-    const txt = `no es exactamente lo pedido: ${[...dif, ...medibles.map(m => m.texto)].join('; ')}`;
-    // Una medida física distinta (tamaño, potencia, tensión) no se arregla negociando: es otro producto. Presión (PN) y modelo se avisan, son negociables.
-    if (medibles.some(m => m.grave)) { if (r.it.cumple !== 'INFERIOR_INSALVABLE') r.it.cumple = 'INFERIOR_INSALVABLE'; }
-    else if (r.it.cumple === 'CUMPLE' || r.it.cumple === 'MEJORA') r.it.cumple = 'INFERIOR_NEGOCIABLE';
-    r.it.detalle = [r.it.detalle, txt].filter(Boolean).join(' · ');
-    desajustes.push(`«${r.producto.descripcion.slice(0, 50)}» ${txt}`);
-  }
-  for (const { it, producto, precioClp: precioIA, conv } of resueltos) {
-    const esIncluido = incluidos.has(codigo(it.producto));
-    let precioClp = esIncluido ? 0 : precioIA;
-    if (hayConPrecio && precioClp == null) continue;
-    // Componentes con precio propio que el documento cotiza aparte (quemador, bandejas…): se unen al producto como adicionales.
-    // Si ya hay adicionales cargados (a mano o de una pasada anterior) no se pisan: lo hecho por una persona manda.
-    // La cantidad y el precio de cada adicional salen de la línea verificada del documento (no de lo que la IA recuerde de ella).
-    // Si la cotización ya trae su flete aparte (flete_monto), el motor de escenarios lo muestra y lo suma como "Flete / logística":
-    // dejarlo también como adicional del producto lo contaba dos veces y mezclaba equipo + transporte en un solo precio
-    // (1120: equipo €15.960 + transporte €710 = €16.670, se ven por separado y se suman).
-    const adicCorregidos = (() => {
-      const propios = sinComponentesDeLaLineaPropia(it.adicionales, lineaDelProducto(producto.descripcion, lineasDelDoc));
-      let corr = corregirAdicionalesConLineas(propios, lineasDelDoc).adicionales;
-      // La línea por metro/kilo que YA dio el precio del producto no es además un adicional (2736-44: el folio salió como rollo $136.000 + adicional 70 × $2.000 = $276.000).
-      if (conv && Array.isArray(corr)) corr = corr.filter((a: any) => !(Math.abs(Number(a?.precioUnitario) - conv.precioLinea) <= 1));
-      if (cotiz.flete_monto == null || !Array.isArray(corr)) return corr;
-      return corr.filter((a: any) => !/flete|transport|despacho|env[ií]o|spedizione|shipping|freight|\bCIF\b/i.test(String(a?.concepto ?? '')));
-    })();
-    // Cotización en moneda extranjera (1120, €710 de transporte quedó como $710): el adicional viene en la moneda del documento
-    // y se guarda en CLP, igual que el precio del producto (precioClpDeItemIA ya multiplica por el tipo de cambio).
-    const aNetoClp = (n: number) => (tipoCambio ? Number(aNeto(n)) * tipoCambio : Number(aNeto(n)));
-    const cantProducto = producto.cantidad != null ? Number(producto.cantidad) : null;
-    let adic = adicionalesDesdeIA(adicCorregidos, cantProducto, aNetoClp);
-    // TIPO «cotización de UNA unidad» (set/kit: 14 instrumentos para 1 set, el producto pide 30): cada línea ya es por unidad y la línea del
-    // precio de cabecera no cuenta dos veces. Generalizado a partir de 3789-30-LE26 (#278: $15.623 en vez de $171.671).
-    // Lo mismo con un KIT cotizado para el lote completo (Sinergia #319: 150 alicates, 90 pinzas… para 30 sets): el producto no tiene línea
-    // propia en el documento, el precio de cabecera es el de la primera pieza y esa pieza además venía como adicional (salía $113.765 = $5.181
-    // de «producto solo» + los 15 componentes). Esa pieza pasa a ser la base con su cantidad por set; si ninguna coincide, no cambia nada.
-    if (!esIncluido && (cotizacionEsPorUnidad(adicCorregidos, cantProducto) || (adic.length > 0 && !lineaDelProducto(producto.descripcion, lineasDelDoc)))) {
-      const k = baseDeCotizacionPorUnidad(adic, precioClp);
-      adic = k.adicionales; precioClp = k.base;
-    }
+  const { lineasDelDoc, items, resueltos, cruzados, porMedida, desajustes, incluidos, hayConPrecio } = R;
+  const parsed: any = { items, faltantes: R.faltantes, puntosCriticos: R.puntosCriticos };
+  const codigo = (v: unknown) => Number(String(v ?? '').replace(/\D/g, ''));   // "P2" → 2
+  if (cruzados.length) console.warn('[homologar] asignaciones descartadas por precio de otra línea', cotizacionId, cruzados.join(' | ').slice(0, 300));
+
+  let escritos = 0;
+  const ahora = ahoraChileSQL();
+  for (const { it, producto, esIncluido, precioClp, adic } of R.finales) {
     await pool.query(
       `INSERT INTO compras_cotizacion_item (cotizacion_id, producto_id, precio_unitario, precio_base, cumple, detalle_desviacion)
        VALUES (?,?,?,?,?,?)
@@ -1017,8 +835,13 @@ ${cotiz.descripcion_libre || '(sin descripción libre — usar solo el precio si
                 (SELECT COUNT(*) FROM compras_cotizacion_adicional WHERE cotizacion_id = ? AND creado_por IS NOT NULL) AS ad`, [cotizacionId, cotizacionId]);
       if (Number(man?.ev || 0) === 0 && Number(man?.ad || 0) === 0 && asignados.length) {
         const ph = asignados.map(() => '?').join(',');
-        const [viejas]: any = await pool.query(`SELECT producto_id FROM compras_cotizacion_item WHERE cotizacion_id = ? AND producto_id NOT IN (${ph})`, [cotizacionId, ...asignados]);
-        const ids = (viejas as any[]).map(v => Number(v.producto_id));
+        const [viejas]: any = await pool.query(
+          `SELECT i.producto_id, i.precio_base, p.descripcion FROM compras_cotizacion_item i JOIN compras_producto p ON p.id = i.producto_id WHERE i.cotizacion_id = ? AND i.producto_id NOT IN (${ph})`, [cotizacionId, ...asignados]);
+        const factoresVigentes = factoresPrecioDeCotizacion({ moneda: cotiz.moneda, tipoCambioUsado: cotiz.tipo_cambio_usado != null ? Number(cotiz.tipo_cambio_usado) : null, notas: cotiz.notas });
+        // Lo que el documento todavía respalda (una línea con ese precio que no choca con el producto) se conserva aunque esta lectura de la IA no lo repitiera.
+        const ids = (viejas as any[])
+          .filter(v => !asignacionRespaldadaPorDocumento(String(v.descripcion), v.precio_base == null ? null : Number(v.precio_base), lineasDelDoc, { factoresPrecio: factoresVigentes }))
+          .map(v => Number(v.producto_id));
         if (ids.length) {
           const ph2 = ids.map(() => '?').join(',');
           await pool.query(`DELETE FROM compras_cotizacion_adicional WHERE cotizacion_id = ? AND producto_id IN (${ph2}) AND creado_por IS NULL`, [cotizacionId, ...ids]);
@@ -1038,7 +861,9 @@ ${cotiz.descripcion_libre || '(sin descripción libre — usar solo el precio si
   ).catch(() => {});
   await recalcularPreciosDeCotizacion(cotizacionId);   // los adicionales ya cargados se vuelven a sumar al precio base
   // El flete/despacho que la cotización cobra aparte se carga a sus productos (adicional «Despacho del proveedor»), 12-nov-2026.
-  const fleteCargado = escritos > 0 ? (await cargarFleteAProductos(cotizacionId).catch(() => ({ repartido: 0, productos: 0 }))).repartido > 0 : false;
+  // Si el flete se asignó a un PRODUCTO de la licitación («Flete Talagante - Maniguales»), no se reparte además entre los productos: se contaría dos veces.
+  const fleteEsProducto = R.finales.some(f => /\b(flete|transporte|trasporte|traslado|despacho)\b/i.test(String(f.producto.descripcion)));
+  const fleteCargado = escritos > 0 && !fleteEsProducto ? (await cargarFleteAProductos(cotizacionId).catch(() => ({ repartido: 0, productos: 0 }))).repartido > 0 : false;
   // Ninguna línea con precio debe perderse en silencio: se avisa cuáles del documento no quedaron en ningún producto ni adicional.
   try {
     const [[a]]: any = await pool.query(`SELECT notas FROM compras_cotizacion WHERE id = ?`, [cotizacionId]);
@@ -1047,7 +872,12 @@ ${cotiz.descripcion_libre || '(sin descripción libre — usar solo el precio si
     const [adics]: any = await pool.query(`SELECT concepto FROM compras_cotizacion_adicional WHERE cotizacion_id = ?`, [cotizacionId]);
     const prodsCub = (asig as any[]).map(x => ({ id: Number(x.id), descripcion: String(x.descripcion), precioBase: x.precio_base == null ? null : Number(x.precio_base) }));
     const factoresPrecio = factoresPrecioDeCotizacion({ moneda: cotiz.moneda, tipoCambioUsado: cotiz.tipo_cambio_usado != null ? Number(cotiz.tipo_cambio_usado) : null, notas: a?.notas });
-    const sinTodas = lineasSinAsignar(lineasDelDoc.filter(l => !productoQueCubreLaLinea(l, prodsCub, { factoresPrecio })), [...(asig as any[]).flatMap(x => [String(x.descripcion), String(x.descripcion).split(' - ')[0]]), ...(adics as any[]).map(x => String(x.concepto))]);
+    const noCubiertas = lineasDelDoc.filter(l => !productoQueCubreLaLinea(l, prodsCub, { factoresPrecio }));
+    const sinNombres = lineasSinAsignar(noCubiertas, [...(asig as any[]).flatMap(x => [String(x.descripcion), String(x.descripcion).split(' - ')[0]]), ...(adics as any[]).map(x => String(x.concepto))]);
+    // Opciones del proveedor que se parecen a un producto que ya tomó el precio de otra línea: se avisan (el nombre las tapaba), salvo que ya sean un adicional.
+    const alternativas = lineasAlternativas(lineasDelDoc, prodsCub, { factoresPrecio })
+      .filter(l => !sinNombres.includes(l) && lineasSinAsignar([l], (adics as any[]).map(x => String(x.concepto))).length > 0);
+    const sinTodas = [...sinNombres, ...alternativas];
     // Si el flete ya se cargó a los productos, su línea («DESPACHO», «Flete»…) no está perdida.
     const sin = fleteCargado ? sinTodas.filter((l: any) => !/flete|transport|despacho|env[ií]o|shipping|freight/i.test(String(l.descripcion || ''))) : sinTodas;
     const marca = 'Revisa la asignación:';

@@ -56,3 +56,9 @@ scripts/_anexos-actual.json
 scripts/scratch/
 .deploy-anterior
 .deploy-migraciones-pendientes
+
+# banco de cotizaciones reales (trae proveedores, RUT y precios): se reconstruye con scripts/banco-cotizaciones/construir.mts
+/scripts/banco-cotizaciones/datos/
+/scripts/banco-cotizaciones/cache-ia/
+/scripts/banco-cotizaciones/cache-ia-corrida1/
+/scripts/banco-cotizaciones/ultimo-reporte.json

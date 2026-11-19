@@ -38,3 +38,60 @@ test('un accesorio con su propia línea sigue tomando su precio (sin «incluye»
   const { adicionales } = corregirAdicionalesConLineas([{ concepto: 'Bandejas', cantidad: 1, precioUnitario: 1 }], lineas) as any;
   assert.equal(adicionales[0].precioUnitario, 152000);
 });
+
+import { productoQueCubreLaLinea } from '../compras-cotizacion-lineas';
+test('Makita: la batería con IVA ($64.990) no se explica como «conversión × 2» del esmeril sin IVA ($129.403)', () => {
+  const l: any = { descripcion: '632G12-3 - Bateria (Bl1830B) 18V 3,0Ah Li-Ion Sin Caja Makita', cantidad: 2, precioUnitario: 64990, total: 129980 };
+  const r = productoQueCubreLaLinea(l, [{ id: 1, descripcion: 'Esmeril inalámbrico Makita de 4 1/2”, 18 V, con 2 baterías de 3,0 Ah y cargador', precioBase: 129403 }]);
+  assert.notEqual(r?.como, 'conversion');
+});
+test('AD21P no está «cubierto» por el geófono PQ128C: otro modelo; PQ128C sí', () => {
+  const prods = [{ id: 1, descripcion: 'Geófono detector de fugas por ultrasonido PQ128C-PQWT.', precioBase: null }];
+  const ad: any = { descripcion: 'AD21P - HIKMicro Detector de Fugas por Ultrasonido Visualización Gráfica de Señal para interiores', cantidad: 1, precioUnitario: 949900, total: 949900 };
+  const pq: any = { descripcion: 'PQ128C - PQWT Detector de Fugas por Ultrasonido Visualización Gráfica de Señal para interiores y exteriores', cantidad: 1, precioUnitario: 1799900, total: 1799900 };
+  assert.equal(productoQueCubreLaLinea(ad, prods), null);
+  assert.equal(productoQueCubreLaLinea(pq, prods)?.productoId, 1);
+});
+
+import { lineasSinAsignar } from '../compras-cotizacion-lineas';
+test('lineasSinAsignar: la línea AD21P no queda «tapada» por el nombre del geófono PQ128C', () => {
+  const ad: any = { descripcion: 'AD21P - HIKMicro Detector de Fugas por Ultrasonido Visualización Gráfica de Señal', cantidad: 1, precioUnitario: 949900, total: 949900 };
+  const pq: any = { descripcion: 'PQ128C - PQWT Detector de Fugas por Ultrasonido Visualización Gráfica de Señal', cantidad: 1, precioUnitario: 1799900, total: 1799900 };
+  const asignados = ['Geófono detector de fugas por ultrasonido PQ128C-PQWT.'];
+  assert.equal(lineasSinAsignar([ad], asignados).length, 1);
+  assert.equal(lineasSinAsignar([pq], asignados).length, 0);
+});
+
+import { lineasAlternativas } from '../compras-cotizacion-lineas';
+test('Improtek: el producto genérico toma el precio de una línea; las otras opciones parecidas (AD21P) son alternativas sin usar', () => {
+  const mk = (descripcion: string, precioUnitario: number): any => ({ descripcion, cantidad: 1, precioUnitario, total: precioUnitario });
+  const l2000 = mk('L2000 - PQWT Detector de Fugas por Ultrasonido para exteriores', 1699900);
+  const ad21 = mk('AD21P - HIKMicro Detector de Fugas por Ultrasonido para interiores', 949900);
+  const prods = [{ id: 1, descripcion: 'Geófono para detección de fugas.', precioBase: 1699900 }];
+  const alt = lineasAlternativas([l2000, ad21], prods);
+  assert.deepEqual(alt, [ad21]);
+  assert.deepEqual(lineasAlternativas([l2000], prods), []);
+});
+
+import { asignacionRespaldadaPorDocumento } from '../compras-cotizacion-lineas';
+test('limpieza de asignaciones viejas: se conserva la que el documento respalda y se quita la que ya no', () => {
+  const mk = (descripcion: string, precioUnitario: number): any => ({ descripcion, cantidad: 1, precioUnitario, total: precioUnitario });
+  const lineas = [mk('ELECTROB. POZO PEDROLLO 4SR12M-9 + PD 3HP 220V', 802435), mk('Tuberia (Rollo 100 metros) PE100 PN10 d= 63 mm Coextruida', 3222)];
+  const f = [1 / 1.19];
+  // Pedrollo: el precio neto de la línea con IVA, mismo modelo y misma potencia → respaldada
+  assert.equal(asignacionRespaldadaPorDocumento('Electrobomba sumergible Pedrollo 4SR 12M-9+PD,3HP,220V.', 674315, lineas, { factoresPrecio: f }), true);
+  // la tubería de 75 mm con el precio por rollo de la de 63 mm → choca en medida: NO respaldada
+  assert.equal(asignacionRespaldadaPorDocumento('Tubería HDPE de 75mm,unidad de 100m.', 322200, lineas, { factoresPrecio: f }), false);
+  // un precio que no está en ninguna línea → NO respaldada
+  assert.equal(asignacionRespaldadaPorDocumento('Bomba de pozo Franklin 30 HP', 999999, lineas, { factoresPrecio: f }), false);
+});
+
+import { conversionCoherenteConLinea } from '../compras-cotizacion-lineas';
+test('conversión × N solo si la línea se cobra por la medida: rollos sí, basurero de 1.100 litros no', () => {
+  const ln = (cantidad: number, unidad: string | null = null): any => ({ descripcion: 'x', cantidad, unidad, precioUnitario: 1, total: cantidad });
+  assert.equal(conversionCoherenteConLinea(ln(300), 100), true);    // 300 m = 3 rollos de 100 m
+  assert.equal(conversionCoherenteConLinea(ln(140, 'MT'), 68), true); // se cobra por metro
+  assert.equal(conversionCoherenteConLinea(ln(10), 1100), false);   // 10 basureros de 1.100 litros
+  assert.equal(conversionCoherenteConLinea(ln(250), 20), false);    // 250 termos de 20 L (12,5 no es exacto)
+  assert.equal(conversionCoherenteConLinea(ln(1), 2500), false);    // 1 transpaleta de 2.500 kg
+});

@@ -50,7 +50,7 @@ export type ClaseMedida = 'mm' | 'pulg' | 'pn' | 'dn' | 'w' | 'hp' | 'kva' | 'v'
 const CLASES_GRAVES = new Set<ClaseMedida>(['mm', 'pulg', 'dn', 'w', 'hp', 'kva', 'v', 'ah', 'btu']);
 const NOMBRE_CLASE: Record<ClaseMedida, string> = { mm: 'mm', pulg: 'pulgadas', pn: 'PN', dn: 'DN', w: 'W', hp: 'HP', kva: 'kVA', v: 'V', ah: 'Ah', btu: 'BTU', bar: 'bar' };
 
-interface Rango { lo: number; hi: number }
+interface Rango { lo: number; hi: number; /** viene de una medida en cm (convertida a mm) */ cm?: boolean }
 export interface Atributos { medidas: Map<ClaseMedida, Rango[]>; modelos: Set<string> }
 
 /** "6.000" → 6000 · "3,5" → 3.5 · "1.850" → 1850 · "0,75" → 0.75. */
@@ -60,9 +60,9 @@ function num(raw: string): number {
   return Number(s.replace(',', '.'));
 }
 const N = String.raw`(\d{1,3}(?:\.\d{3})+(?:,\d+)?|\d+(?:[.,]\d+)?)`;
-const sumar = (m: Map<ClaseMedida, Rango[]>, c: ClaseMedida, lo: number, hi = lo) => {
+const sumar = (m: Map<ClaseMedida, Rango[]>, c: ClaseMedida, lo: number, hi = lo, cm = false) => {
   if (!Number.isFinite(lo) || !Number.isFinite(hi)) return;
-  const a = m.get(c) ?? []; a.push({ lo: Math.min(lo, hi), hi: Math.max(lo, hi) }); m.set(c, a);
+  const a = m.get(c) ?? []; a.push({ lo: Math.min(lo, hi), hi: Math.max(lo, hi), ...(cm ? { cm: true } : {}) }); m.set(c, a);
 };
 
 const UNIDADES_NO_MODELO = /^(?:pn|dn|pe|pvc|hdpe|hz|kw|hp|kva|btu|mm|cm|rpm|bar|ah|v|w|kg|lt|lts|mts|mtr)\d*$/;
@@ -77,13 +77,13 @@ export function atributosDe(textoOriginal: string): Atributos {
       const previo = x.index > 0 ? t[x.index - 1] : '';
       if (/[\d.]/.test(previo)) continue;                                   // mitad de otro número
       const alt = x[1].includes(',') && /[-\w]/.test(previo) ? Number(x[1].split(',')[1]) : null;
-      sumar(medidas, clase, num(x[1]) * mult);
-      if (alt != null && Number.isFinite(alt) && alt > 0) sumar(medidas, clase, alt * mult);
+      sumar(medidas, clase, num(x[1]) * mult, num(x[1]) * mult, unidad === 'cm');
+      if (alt != null && Number.isFinite(alt) && alt > 0) sumar(medidas, clase, alt * mult, alt * mult, unidad === 'cm');
     }
   };
 
   // Pulgadas: 3", 1/2", 4 1/2", 4-1/2", 5/8"x3", «3 pulg».
-  const rePulg = new RegExp(String.raw`(?:(\d+)[\s-]+)?(\d+)\s*/\s*(\d+)\s*(?:"|pulg\w*|in\b)|${N}\s*(?:"|pulg\w*\b)`, 'g');
+  const rePulg = new RegExp(String.raw`(?:(\d+)[\s.-]+)?(\d+)\s*/\s*(\d+)\s*(?:"|pulg\w*|in\b)|${N}\s*(?:"|pulg\w*\b)`, 'g');
   while ((m = rePulg.exec(t))) {
     if (m[2] && m[3]) sumar(medidas, 'pulg', (m[1] ? Number(m[1]) : 0) + Number(m[2]) / Number(m[3]));
     else if (m[4]) sumar(medidas, 'pulg', num(m[4]));
@@ -115,7 +115,7 @@ export function atributosDe(textoOriginal: string): Atributos {
   // Con espacio solo si las letras van en MAYÚSCULAS en el original («SHDS 160», «PT 500»): «de 100» o «Kaiman 150» no son modelos.
   const modelos = new Set<string>();
   const original = String(textoOriginal ?? '');
-  for (const x of original.matchAll(/(?<![A-Za-z0-9])([A-Za-z]{1,6})[- ]?(\d{2,5})([A-Za-z]{0,3})(?![A-Za-z0-9])/g)) {
+  for (const x of original.matchAll(/(?<![\p{L}\p{N}])([A-Za-z]{1,6})[- ]?(\d{2,5})([A-Za-z]{0,3})(?![\p{L}\p{N}])/gu)) {
     const letras = x[1], numero = x[2], cola = x[3];
     const pegado = x[0].length === letras.length + numero.length + cola.length;
     if (!pegado && !(/^[A-Z]{2,6}$/.test(letras))) continue;      // «de 100», «Kaiman 150»: no
@@ -132,11 +132,17 @@ function rangosSeCruzan(a: Rango[], b: Rango[], clase: ClaseMedida): boolean {
     if (x.lo <= y.hi + 1e-9 && y.lo <= x.hi + 1e-9) return true;
     // «6000 KW» escrito por «6000 W» (error de unidad de ×1000 en una de las dos descripciones): se tolera.
     if (clase === 'w' && (Math.abs(x.lo * 1000 - y.lo) < 1e-6 || Math.abs(y.lo * 1000 - x.lo) < 1e-6)) return true;
+    // Bases que mezclan unidades («1,50 – 1,80 cm» que son metros; «120 cm» contra «D=120»): una diferencia exacta de ×10, ×100 o ×1000 en mm se tolera.
+    // Solo cuando una de las dos medidas viene escrita en cm (si no, 20 mm y 200 mm son tubos distintos).
+    if (clase === 'mm' && (x.cm || y.cm) && x.lo > 0 && y.lo > 0) { const r = x.lo > y.lo ? x.lo / y.lo : y.lo / x.lo; if ([10, 100, 1000].some(k => Math.abs(r - k) < 1e-6 * k)) return true; }
   }
   return false;
 }
 
-export interface ConflictoMedible { clase: ClaseMedida | 'modelo'; grave: boolean; texto: string }
+/** `grave` = te ofrecen MENOS de lo pedido (otro producto: no se asigna). `superior` = te ofrecen MÁS (posible equivalente: se asigna y se avisa). */
+export interface ConflictoMedible { clase: ClaseMedida | 'modelo'; grave: boolean; superior?: boolean; texto: string }
+/** Clases donde «más» es un equivalente razonable de «menos» (capacidad o tamaño): la tensión y la presión no se ordenan así. */
+const CLASES_ORDENADAS = new Set<ClaseMedida>(['mm', 'pulg', 'dn', 'w', 'hp', 'kva', 'ah', 'btu']);
 const fmtR = (r: Rango[]) => [...new Set(r.map(x => x.lo === x.hi ? String(x.lo) : `${x.lo}-${x.hi}`))].join('/');
 
 /**
@@ -149,7 +155,10 @@ export function conflictosMedibles(descProducto: string, descLinea: string): Con
   for (const [clase, rp] of p.medidas) {
     const rl = l.medidas.get(clase);
     if (!rl || rangosSeCruzan(rp, rl, clase)) continue;
-    out.push({ clase, grave: CLASES_GRAVES.has(clase), texto: `${NOMBRE_CLASE[clase]} ${fmtR(rp)} pedido, la cotización dice ${NOMBRE_CLASE[clase]} ${fmtR(rl)}` });
+    // Si lo cotizado es MAYOR o igual a lo pedido en todo el rango (plato de 24" por el de 22", láser de 10 W por el de 5 W, que el equipo aceptó) no es «otro producto»:
+    // se asigna y se avisa. Si es MENOR (tubería de 63 mm por la de 75 mm, 15 HP por 30 HP) sí lo es.
+    const superior = CLASES_ORDENADAS.has(clase) && Math.min(...rl.map(x => x.lo)) >= Math.max(...rp.map(x => x.hi)) - 1e-9;
+    out.push({ clase, grave: CLASES_GRAVES.has(clase) && !superior, superior, texto: `${NOMBRE_CLASE[clase]} ${fmtR(rp)} pedido, la cotización dice ${NOMBRE_CLASE[clase]} ${fmtR(rl)}${superior ? ' (más de lo pedido)' : ''}` });
   }
   if (p.modelos.size && l.modelos.size) {
     const comparte = [...p.modelos].some(a => [...l.modelos].some(b => a === b || a.startsWith(b) || b.startsWith(a)));
@@ -181,7 +190,7 @@ export function puntajeLineaProducto(linea: LineaCotizacion, producto: ProductoP
   if (linea.cantidad != null && producto.cantidad != null && Number(linea.cantidad) === Number(producto.cantidad) && Number(linea.cantidad) > 1) s += 0.08;
   // Un proveedor SÍ puede ofrecer un equivalente de otra marca o modelo: eso solo resta un poco. Una medida física distinta (63 mm ≠ 75 mm) resta mucho.
   const conflictos = conflictosMedibles(producto.descripcion, linea.descripcion);
-  if (opts?.penalizar !== false) s -= 0.6 * conflictos.filter(c => c.grave).length + 0.1 * conflictos.filter(c => !c.grave).length;
+  if (opts?.penalizar !== false) s -= 0.6 * conflictos.filter(c => c.grave).length + 0.25 * conflictos.filter(c => c.superior).length + 0.1 * conflictos.filter(c => !c.grave && !c.superior).length;
   return { puntaje: s, choca: conflictos.some(c => c.grave) };
 }
 
@@ -202,15 +211,23 @@ export function productosCandidatos(lineas: LineaCotizacion[], productos: Produc
     if (mejor <= 0) {
       // Ni una palabra ni una medida en común: o es flete/total («SHIPPING-COST»), o el proveedor nombra distinto («bombeo» ~ «bomba»):
       // se prueba con los primeros 4 caracteres de cada palabra. Si tampoco, no hay qué ofrecerle a la IA.
-      if (/flete|transport|despacho|env[ií]o|shipping|freight|descuento|\biva\b|total/i.test(l.descripcion)) continue;
+      if (/flete|transport|despacho|env[ií]o|shipping|freight|descuento|\biva\b|total/i.test(l.descripcion)) {
+        // …salvo que la licitación pida el flete como producto («Trasporte», «Flete Talagante - Maniguales»).
+        for (const p of productos) if (/\b(flete|transporte|trasporte|traslado|despacho)\b/i.test(p.descripcion)) elegidos.add(p.id);
+        continue;
+      }
       const pref = (t: Set<string>) => new Set([...t].filter(x => x.length >= 5).map(x => x.slice(0, 4)));
       const pl = pref(cache.lineaPal);
       const porPrefijo = productos.map(p => ({ id: p.id, s: dice(pref(palabrasClave(p.descripcion)), pl) })).filter(x => x.s > 0).sort((a, b) => b.s - a.s).slice(0, minimo + 2);
-      for (const x of porPrefijo) elegidos.add(x.id);
+      // Nada en común ni por prefijo: el proveedor nombra en otro idioma o con otra palabra («ROTARY TILLER» = «Rotovator», «Flange» = «Brida»).
+      // Solo la IA puede reconocerlo, así que esa línea ve TODOS los productos (válvula de seguridad; pasa poco).
+      for (const x of (porPrefijo.length ? porPrefijo : productos.slice(0, 200).map(p => ({ id: p.id })))) elegidos.add(x.id);
       continue;
     }
+    // Coincidencia débil (sinónimos: «Huincha» = «Cinta métrica», «Estación de trabajo» = «Escritorio»): se le ofrecen más opciones a la IA.
+    const minimoLinea = mejor < 0.45 ? Math.max(minimo, 10) : minimo;
     let sel = buenos.filter(x => x.puntaje > 0 && x.puntaje >= Math.max(0.1, mejor * 0.7)).slice(0, maxPorLinea);
-    if (sel.length < minimo) sel = [...sel, ...buenos.filter(x => !sel.includes(x))].slice(0, minimo);
+    if (sel.length < minimoLinea) sel = [...sel, ...buenos.filter(x => !sel.includes(x))].slice(0, minimoLinea);
     // Empates con el último elegido (varias filas iguales del mismo producto) entran también.
     if (sel.length) { const corte = sel[sel.length - 1].puntaje; for (const x of buenos) if (!sel.includes(x) && x.puntaje > 0 && x.puntaje >= corte && sel.length < maxPorLinea) sel.push(x); }
     for (const x of sel) elegidos.add(x.id);

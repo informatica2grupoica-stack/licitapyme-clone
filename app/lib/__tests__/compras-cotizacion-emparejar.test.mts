@@ -102,3 +102,8 @@ test('el conflicto de medida se ve aunque sea la línea que trae el precio (75 m
   assert.ok(l);
   assert.equal(conflictosMedibles('Tubería HDPE de 75mm, unidad de 100m.', l!.descripcion).filter(c => c.grave).length, 1);
 });
+
+test('letras con tilde no fabrican modelos: «ELÉCTRICO 20LT» no tiene código de modelo', () => {
+  assert.equal(atributosDe('TERMO HERVIDOR DE AGUA ELÉCTRICO 20LT').modelos.size, 0);
+  assert.equal(atributosDe('Hervidor De Agua 20 Lt VHA-20 Ventus').modelos.has('VHA20'), true);
+});

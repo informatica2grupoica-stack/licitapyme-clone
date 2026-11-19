@@ -6,7 +6,7 @@
 import { useState } from 'react';
 import { MenuAcciones } from '@/app/components/ui/MenuAcciones';
 import { DocumentViewerModal, type VisorDoc } from '@/app/components/DocumentViewerModal';
-import { lineasDesdeTabla, lineasSinAsignar, productoQueCubreLaLinea, factoresPrecioDeCotizacion, type LineaCotizacion } from '@/app/lib/compras-cotizacion-lineas';
+import { lineasDesdeTabla, lineasSinAsignar, productoQueCubreLaLinea, factoresPrecioDeCotizacion, lineasAlternativas, type LineaCotizacion } from '@/app/lib/compras-cotizacion-lineas';
 import { adicionalesDesdeIA } from '@/app/lib/compras-adicionales-ia';
 import { useToast } from '@/app/components/ui/toast';
 import { IconEye as Eye, IconListCheck as ListChecks, IconSparkles as Sparkles, IconPencil as Pencil, IconTrash as Trash, IconLoader2 as Loader2, IconAlertTriangle as Alerta, IconChevronRight as Flecha, IconCheck as Check, IconFileText as Doc } from '@tabler/icons-react';
@@ -47,10 +47,16 @@ export function lineasPendientes(c: Pick<CotizacionFilaUI, 'moneda' | 'descripci
     if (l) tapadas.add(l);
   }
   const fleteAparte = c.fleteMonto != null && c.fleteMonto > 0;
-  return lineasSinAsignar(lineas.filter(l => !tapadas.has(l)), asignados)
+  const prods = productosDeItems(c, productos);
+  const factoresPrecio = factoresPrecioDeCotizacion(c);
+  const pendientes = lineasSinAsignar(lineas.filter(l => !tapadas.has(l)), asignados)
     .filter(l => !(fleteAparte && /flete|transport|despacho|env[ií]o/i.test(l.descripcion)))
     // Segunda red: la línea con el mismo precio que un producto asignado, o con ese precio × N (metro × 68 = rollo), es ese producto aunque el nombre difiera.
-    .filter(l => !productoQueCubreLaLinea(l, productosDeItems(c, productos), { factoresPrecio: factoresPrecioDeCotizacion(c) }));
+    .filter(l => !productoQueCubreLaLinea(l, prods, { factoresPrecio }));
+  // Opciones del proveedor que se parecen a un producto que ya tomó el precio de OTRA línea: no están usadas, se muestran (el nombre las tapaba).
+  const alternativas = lineasAlternativas(lineas, prods, { factoresPrecio })
+    .filter(l => !tapadas.has(l) && !pendientes.includes(l) && !(fleteAparte && /flete|transport|despacho|env[ií]o/i.test(l.descripcion)));
+  return [...pendientes, ...alternativas];
 }
 
 function productosDeItems(c: Pick<CotizacionFilaUI, 'items'>, productos: Array<{ id: number; descripcion: string }>) {
@@ -434,7 +440,11 @@ export function ListaCotizaciones({ negocioId, cotizaciones, productos, avisosPo
                         {(() => {
                           const filas = c.items.map(i => { const p = productos.find(q => q.id === i.productoId); const cant = num(p?.cantidad); return { d: p?.descripcion ?? '', cant, pu: i.precioUnitario, sub: i.precioUnitario != null ? i.precioUnitario * cant : 0 }; });
                           const totalFila = filas.reduce((a, f) => a + f.sub, 0);
-                          const dif = totalFila - sumaLineas;
+                          // Las líneas del documento vienen en su moneda y, si el documento trae IVA incluido, con IVA; los productos están en CLP neto. Sin pasarlas
+                          // a la misma base, una cotización en USD o con IVA incluido mostraba una «diferencia» que era solo moneda o IVA (Makita +IVA, Vorwerk en USD).
+                          const fNeto = factoresPrecioDeCotizacion(c).slice(-1)[0] ?? 1;
+                          const sumaNeta = sumaLineas * fNeto;
+                          const dif = totalFila - sumaNeta;
                           return (
                             <div className="mt-2 border-t border-zinc-200 pt-1.5 text-[11.5px]" data-testid={`cotizacion-total-explicado-${c.id}`}>
                               <p className="font-semibold text-zinc-700">Cómo se arma el total de la fila: precio por unidad × cantidad que pide la licitación</p>
@@ -447,8 +457,8 @@ export function ListaCotizaciones({ negocioId, cotizaciones, productos, avisosPo
                                 ))}
                               </ul>
                               <p className="mt-1 grid grid-cols-[1fr_auto] gap-x-3 font-semibold text-zinc-800"><span>Total de la fila</span><span className="tabular-nums">{clp(totalFila)}</span></p>
-                              <p className="grid grid-cols-[1fr_auto] gap-x-3 text-zinc-500"><span>Suma de las líneas del documento (cantidades que cotizó el proveedor)</span><span className="tabular-nums">{clp(sumaLineas)}</span></p>
-                              {Math.abs(dif) >= 1 && <p className="mt-0.5 text-amber-700">Diferencia {dif > 0 ? '+' : '−'}{clp(Math.abs(dif))}: el proveedor cotizó cantidades distintas a las que pide la licitación (marcadas con ⚠ arriba) o hay precios por metro/kilo convertidos a rollo/caja. Se compara con lo que pide la licitación.</p>}
+                              <p className="grid grid-cols-[1fr_auto] gap-x-3 text-zinc-500"><span>Suma de las líneas del documento (cantidades que cotizó el proveedor){fNeto !== 1 ? ' · en pesos y sin IVA' : ''}</span><span className="tabular-nums">{clp(sumaNeta)}</span></p>
+                              {Math.abs(dif) >= Math.max(2, totalFila * 0.002) && <p className="mt-0.5 text-amber-700">Diferencia {dif > 0 ? '+' : '−'}{clp(Math.abs(dif))}: el proveedor cotizó cantidades distintas a las que pide la licitación (marcadas con ⚠ arriba) o hay precios por metro/kilo convertidos a rollo/caja. Se compara con lo que pide la licitación.</p>}
                             </div>
                           );
                         })()}
