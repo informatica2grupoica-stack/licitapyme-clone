@@ -57,7 +57,7 @@ const t0 = Date.now();
 // Equivalencias modelo → familia que fijaría la empresa (en producción irían guardadas por empresa): datos/equivalencias-<negocio>.json, solo con --equivalencias.
 const fe = path.join(dir, 'datos', `equivalencias-${negocio}.json`);
 const equivalencias = flag('equivalencias') && fs.existsSync(fe) ? JSON.parse(fs.readFileSync(fe, 'utf8')) : [];
-const R = await parearNegocio({ productos, cotizaciones, llamarIA, equivalencias, topeEntrada: flag('grupos') ? 1 : undefined });
+const R = await parearNegocio({ productos, cotizaciones, llamarIA, equivalencias, topeEntrada: flag("grupos") ? 1 : undefined });
 const desc = (id: number) => String(productos.find((p: any) => p.id === id)?.descripcion ?? id).slice(0, 52);
 const lin = (c: string) => R.lineas.find(l => l.codigo === c)!;
 const cotNom = (id: number) => { const c = cotizaciones.find(x => x.id === id)!; return `${String(c.proveedor_nombre).slice(0, 14)} ${String(c.archivo_nombre || id).replace(/\.[a-z]+$/i, '').slice(-12)}`; };

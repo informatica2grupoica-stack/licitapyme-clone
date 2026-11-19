@@ -7,6 +7,7 @@
 import { useMemo, useRef, useState } from 'react';
 import { IconStar as Star, IconCheck as Check, IconChevronDown as ChevronDown, IconChevronRight as ChevronRight, IconSearch as Search } from '@tabler/icons-react';
 import { MenuAcciones } from '@/app/components/ui/MenuAcciones';
+import { Estado } from '@/app/components/ui/kit/Tarjeta';
 import { LinksProducto } from './LinksProducto';
 import { compararPrecioConCosteo, totalAdicionales, descuentoDelPrecio, vaIncluidoEnOtro, DIFERENCIA_SOSPECHOSA_PCT, type AdicionalCotizacion } from '@/app/lib/compras-precio-vs-costeo';
 import { esLinkDeProducto } from '@/app/lib/costeo-comparativo';
@@ -20,6 +21,11 @@ import type { LineaCotizacion } from '@/app/lib/compras-cotizacion-lineas';
 const clp = (n: number) => `$${Math.round(n).toLocaleString('es-CL')}`;
 /** Con centavos cuando los hay ($5.181,30): el desglose tiene que cuadrar al peso con la cotización (3789-30-LE26). */
 const clpExacto = (n: number) => `$${n.toLocaleString('es-CL', Number.isInteger(Math.round(n * 100) / 100) ? { maximumFractionDigits: 0 } : { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+/** Veredicto contra lo costeado: punto + texto (licitank-ui: nada de pastillas con borde). */
+const COLOR_PUNTO = { MEJOR: '#16a34a', IGUAL: '#64748b', PEOR: '#dc2626', SIN_COMPARAR: '#94a3b8' } as const;
+const COLOR_TEXTO = { MEJOR: 'text-emerald-700 dark:text-emerald-400', IGUAL: 'text-tinta-2 dark:text-slate-300', PEOR: 'text-rose-700 dark:text-rose-400', SIN_COMPARAR: 'text-tinta-3' } as const;
+const PUNTO_FICHA: Record<string, string> = { CUMPLE: '#16a34a', NO_CUMPLE: '#dc2626', CON_PENDIENTES: '#d97706', NO_CORRIDO: '#94a3b8' };
+const corto = (s: string, n: number) => (s.length > n ? `${s.slice(0, n).trim()}…` : s);
 const num = (v: unknown) => { const n = typeof v === 'number' ? v : Number(v); return Number.isFinite(n) && n > 0 ? n : 1; };
 
 const fechaCorta = (s: string) => { const [d, h] = s.split(' '); const [y, m, dd] = d.split('-'); return `${dd}-${m}-${y}${h ? ` ${h.slice(0, 5)}` : ''}`; };
@@ -228,42 +234,52 @@ export function ComparadorPrecios({ productos, cotizaciones, costeado, venta, li
         ...(hayDecimales ? [{ label: 'Redondear precios hacia abajo', onClick: () => redondear('abajo') }] : []),
       ] : []),
     ];
+    const cant = num(p.cantidad);
+    const queIncluye = incluido ? 'Va incluido en otro producto' : esKit ? `Kit de ${ads.length} componente${ads.length === 1 ? '' : 's'}` : ads.length > 0 ? `Producto + ${ads.length} adicional${ads.length === 1 ? '' : 'es'}` : 'Solo el producto';
     return (
-      <div key={c.id} className={`rounded-lg border px-3 py-2 transition-colors ${reemplazadaPor != null ? 'opacity-60 bg-zinc-50 ' : ''}${esElegida ? 'border-teal-500 bg-teal-50/60 ring-1 ring-teal-200' : detalleActivo ? 'border-teal-300 bg-teal-50/20' : 'border-zinc-200 hover:border-zinc-300'}`}>
-        <div className="flex items-center gap-x-4 gap-y-1 flex-wrap">
-          {onElegirCelda && (
+      <div key={c.id} className={`rounded-xl border px-3.5 py-3 transition-colors ${reemplazadaPor != null ? 'opacity-60 bg-slate-50 dark:bg-slate-800/40 ' : 'bg-white dark:bg-slate-900 '}${esElegida ? 'border-marca ring-1 ring-marca/20 bg-marca-suave/60 dark:bg-teal-950/30' : detalleActivo ? 'border-teal-300' : 'border-linea dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'}`}>
+        <div className="grid items-center gap-x-4 gap-y-1.5 grid-cols-[auto_minmax(0,1fr)_auto] @3xl:grid-cols-[auto_minmax(0,1.5fr)_minmax(0,1fr)_104px_112px_150px_auto]">
+          {onElegirCelda ? (
             <button type="button" onClick={() => onElegirCelda(p.id, c.id)} aria-pressed={esElegida} aria-label={`${esElegida ? 'Quitar de mi compra' : 'Comprar este producto a'} ${c.proveedorNombre}`} disabled={bloqueada}
-              title={bloqueada ? `Reemplazada por la cotización #${reemplazadaPor} del mismo proveedor` : esElegida ? 'Quitar de mi compra' : 'Comprar este producto a este proveedor'} className={`p-1 -m-1 rounded-full focus-visible:ring-2 focus-visible:ring-teal-500 outline-none ${bloqueada ? 'cursor-not-allowed' : ''}`}>
-              <span className={`flex w-5 h-5 rounded-full border items-center justify-center ${esElegida ? 'bg-teal-600 border-teal-600 text-white' : 'border-zinc-300 bg-white hover:border-teal-500'}`}>{esElegida && <Check size={12} />}</span>
+              title={bloqueada ? `Reemplazada por la cotización #${reemplazadaPor} del mismo proveedor` : esElegida ? 'Quitar de mi compra' : 'Comprar este producto a este proveedor'} className={`p-1 -m-1 rounded-full focus-visible:ring-2 focus-visible:ring-marca outline-none ${bloqueada ? 'cursor-not-allowed' : ''}`}>
+              <span className={`flex w-5 h-5 rounded-full border items-center justify-center ${esElegida ? 'bg-marca border-marca text-white' : 'border-slate-300 bg-white dark:bg-slate-900 hover:border-marca'}`}>{esElegida && <Check size={12} />}</span>
             </button>
-          )}
-          <div className="min-w-[170px] flex-1">
-            <p className="text-[13px] font-semibold text-zinc-900 leading-tight" title={c.proveedorNombre}>{c.proveedorNombre}</p>
-            <p className="text-[11.5px] text-zinc-500">
-              Cotización #{c.id}{c.plazoEntregaTexto ? ` · ${c.plazoEntregaTexto}` : ''}
-              {' · '}{incluido ? 'va incluido en otro producto' : esKit ? <b className="font-semibold text-zinc-700">kit de {ads.length} componente{ads.length === 1 ? '' : 's'}</b> : ads.length > 0 ? <b className="font-semibold text-zinc-700">producto + {ads.length} adicional{ads.length === 1 ? '' : 'es'}</b> : 'solo el producto, sin adicionales'}
-            </p>
-            {reemplazadaPor != null && <p className="text-[11px] font-semibold text-zinc-500">Reemplazada por la #{reemplazadaPor} del mismo proveedor</p>}
+          ) : <span />}
+          <div className="min-w-0">
+            <p className="text-[13px] font-semibold text-tinta dark:text-slate-100 leading-tight truncate" title={c.proveedorNombre}>{c.proveedorNombre}</p>
+            <p className="text-xs text-tinta-2 dark:text-slate-400 truncate">Cotización #{c.id}{c.plazoEntregaTexto ? ` · ${c.plazoEntregaTexto}` : ''}</p>
+            {reemplazadaPor != null && <p className="text-xs text-tinta-2">Reemplazada por la #{reemplazadaPor} del mismo proveedor</p>}
           </div>
-          {tecnico && !incluido && (et && t
-            ? <span title={`Ficha de ${t.modelo || 'este modelo'} contra las bases`} data-testid={`tecnico-${c.id}-${p.id}`} className={`text-[11.5px] font-semibold px-1.5 py-0.5 rounded border ${et.chip}`}>Ficha: {et.texto}{t.total > 0 ? ` ${t.cumple}/${t.total}` : ''}</span>
-            : <span className="text-[11.5px] text-zinc-400">sin ficha técnica</span>)}
-          <div className="flex flex-col items-end">
-            <span className="flex items-center gap-1.5">
-              {esMejor && <span title="Mejor precio de este producto" className="inline-flex items-center gap-0.5 text-[11px] font-semibold text-amber-600"><Star size={12} className="fill-amber-400" /> Mejor precio</span>}
-              <span className="text-[14px] font-bold text-zinc-900 tabular-nums">{item.precioUnitario != null ? clpExacto(item.precioUnitario) : 'sin precio'}</span>
-            </span>
+          <div className="text-right @3xl:hidden">
+            <p className="text-[15px] font-semibold tabular-nums text-tinta dark:text-slate-100">{item.precioUnitario != null ? clpExacto(item.precioUnitario) : 'sin precio'}</p>
+          </div>
+          <div className="min-w-0 col-start-2 col-span-2 @3xl:col-span-1 @3xl:col-start-auto">
+            <p className="text-xs text-tinta dark:text-slate-200 truncate">{queIncluye}</p>
+            {tecnico && !incluido && (et && t
+              ? <p className="text-xs text-tinta-2 dark:text-slate-400" title={`Ficha de ${t.modelo || 'este modelo'} contra las bases`} data-testid={`tecnico-${c.id}-${p.id}`}><Estado color={PUNTO_FICHA[t.estado] ?? PUNTO_FICHA.NO_CORRIDO}>Ficha: {et.texto}{t.total > 0 ? ` ${t.cumple}/${t.total}` : ''}</Estado></p>
+              : <p className="text-xs text-tinta-3">Sin ficha técnica</p>)}
+          </div>
+          <div className="hidden @3xl:block text-right">
+            {esMejor && <p title="Mejor precio de este producto" className="inline-flex items-center gap-0.5 text-[11px] font-medium text-amber-600"><Star size={11} className="fill-amber-400" /> Mejor precio</p>}
+            <p className="text-[15px] font-semibold tabular-nums text-tinta dark:text-slate-100">{item.precioUnitario != null ? clpExacto(item.precioUnitario) : 'sin precio'}</p>
+            <p className="text-[11px] text-tinta-3">por unidad</p>
+          </div>
+          <div className="hidden @3xl:block text-right">
+            <p className="text-[13px] font-medium tabular-nums text-tinta dark:text-slate-200">{item.precioUnitario != null ? clp(item.precioUnitario * cant) : '—'}</p>
+            <p className="text-[11px] text-tinta-3">total · {cant} {p.unidad || 'un.'}</p>
+          </div>
+          <div className="col-start-2 col-span-2 @3xl:col-span-1 @3xl:col-start-auto text-xs">
             {incluido
-              ? <span className="text-[11.5px] font-semibold text-sky-700">Incluido en otro producto</span>
+              ? <span className="text-sky-700 dark:text-sky-400"><Estado color="#0284c7">Incluido en otro producto</Estado></span>
               : sospechosa
-                ? <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded border bg-amber-50 text-amber-800 border-amber-300" title="Una diferencia tan grande suele ser otro producto, otra unidad (¿cotizó 1 set y no el lote?) o una cotización mal leída. Revisa antes de elegirla.">⚠ {Math.abs(cmp.diffPct!).toString().replace('.', ',')} % bajo lo costeado: revisa</span>
-                : <span className={`text-[11px] font-semibold px-1.5 py-0.5 rounded border ${est.chip}`} title="Precio neto por unidad comparado con lo costeado">{est.texto(cmp.diffPct)}{cmp.veredicto === 'MEJOR' || cmp.veredicto === 'PEOR' ? ' que lo costeado' : ''}</span>}
+                ? <span className="text-amber-700 dark:text-amber-400" title="Una diferencia tan grande suele ser otro producto, otra unidad (¿cotizó 1 set y no el lote?) o una cotización mal leída. Revisa antes de elegirla."><Estado color="#d97706">{Math.abs(cmp.diffPct!).toString().replace('.', ',')} % bajo lo costeado: revisa</Estado></span>
+                : <span className={`font-medium ${COLOR_TEXTO[cmp.veredicto]}`} title="Precio neto por unidad comparado con lo costeado"><Estado color={COLOR_PUNTO[cmp.veredicto]}>{est.texto(cmp.diffPct)}{cmp.veredicto === 'MEJOR' || cmp.veredicto === 'PEOR' ? ' que lo costeado' : ''}</Estado></span>}
           </div>
           <MenuAcciones etiqueta={`Acciones de la oferta de ${c.proveedorNombre}`} acciones={acc} />
         </div>
-        {al.length > 0 && <div className="mt-1 pl-8 flex flex-wrap gap-x-3">{al.map(x => <span key={x} className="text-[11.5px] font-bold text-rose-600">⚠ {x}</span>)}</div>}
+        {al.length > 0 && <div className="mt-1.5 pl-8 flex flex-wrap gap-x-4">{al.map(x => <span key={x} className="text-xs font-medium text-rose-700 dark:text-rose-400"><Estado color="#dc2626">{x}</Estado></span>)}</div>}
         {ads.length > 0 && (
-          <div className={`mt-2 border-t border-dashed border-zinc-200 pt-1.5 ${onElegirCelda ? 'pl-8' : ''}`} data-testid={`desglose-${c.id}-${p.id}`}>
+          <div className={`mt-2.5 border-t border-linea dark:border-slate-800 pt-2 ${onElegirCelda ? 'pl-8' : ''}`} data-testid={`desglose-${c.id}-${p.id}`}>
             <p className="text-[11px] text-zinc-500 mb-0.5">{esKit ? 'Qué trae el kit, por unidad' : 'Qué incluye este precio, por unidad'}</p>
             <table className="w-full max-w-[520px] text-[12px] tabular-nums">
               <tbody>
@@ -310,7 +326,7 @@ export function ComparadorPrecios({ productos, cotizaciones, costeado, venta, li
           </div>
         )}
         {pendientes.length > 0 && (
-          <div className={`mt-1.5 flex flex-wrap items-center gap-1.5 border-t border-dashed border-zinc-200 pt-1.5 ${onElegirCelda ? 'pl-8' : ''}`} data-testid={`lineas-sin-usar-${c.id}-${p.id}`}>
+          <div className={`mt-2 flex flex-wrap items-center gap-1.5 border-t border-linea dark:border-slate-800 pt-2 ${onElegirCelda ? 'pl-8' : ''}`} data-testid={`lineas-sin-usar-${c.id}-${p.id}`}>
             <span className="text-[11px] text-zinc-500">El documento trae además, sin sumar a ningún producto:</span>
             {pendientes.map(l => {
               const clave = `${c.id}|${p.id}|${l.descripcion}`;
@@ -331,47 +347,47 @@ export function ComparadorPrecios({ productos, cotizaciones, costeado, venta, li
   };
 
   return (
-    <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden" data-testid="comparador-precios">
-      <div className="px-4 py-3 bg-zinc-50 border-b border-zinc-100 flex items-start justify-between gap-3 flex-wrap">
+    <div className="@container bg-white dark:bg-slate-900 rounded-xl border border-linea dark:border-slate-800 shadow-tarjeta overflow-hidden" data-testid="comparador-precios">
+      <div className="px-5 py-4 border-b border-linea dark:border-slate-800 flex items-start justify-between gap-3 flex-wrap">
         <div className="min-w-0">
-          <p className="text-[14px] font-bold text-zinc-900">Compara y elige a quién comprar</p>
-          <p className="text-[12.5px] text-zinc-500 mt-0.5">Cada producto con todas sus ofertas, de la más barata a la más cara (neto por unidad contra lo costeado). <b className="font-semibold text-zinc-700">Marca el círculo</b> de la oferta que quieres comprar, o usa <b className="font-semibold text-zinc-700">«Comprar todo aquí»</b> en el cuadro «Por proveedor».</p>
+          <p className="text-[15px] font-semibold tracking-tight text-tinta dark:text-slate-100">Compara y elige a quién comprar</p>
+          <p className="text-xs text-tinta-2 dark:text-slate-400 mt-1 max-w-2xl">Cada producto con todas sus ofertas, de la más barata a la más cara (neto por unidad contra lo costeado). Marca el círculo de la oferta que quieres comprar, o usa «Comprar todo aquí» en «Por proveedor».</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          {nElegidos > 0 && <span className="text-[12px] font-semibold text-teal-800 bg-teal-50 border border-teal-200 rounded-full px-2.5 py-0.5">{nElegidos} de {productos.length} elegidos</span>}
+          {nElegidos > 0 && <span className="text-xs font-medium text-marca dark:text-teal-400 tabular-nums"><Estado color="#0f766e">{nElegidos} de {productos.length} elegidos</Estado></span>}
           {lecLink?.disponible && lecLink.totalPendientes > 0 && (
             <button type="button" onClick={() => lecLink.leer()} disabled={!!lecLink.leyendo}
-              className="text-[12px] font-semibold text-indigo-700 border border-indigo-200 bg-white hover:bg-indigo-50 disabled:opacity-60 rounded-lg px-2.5 py-1">
+              className="text-xs font-medium text-marca border border-linea bg-white dark:bg-slate-900 hover:bg-marca-suave disabled:opacity-60 rounded-lg px-3 py-1.5">
               {lecLink.leyendo ? `Leyendo link ${lecLink.leyendo.actual} de ${lecLink.leyendo.total}…` : `Leer ${lecLink.totalPendientes} link${lecLink.totalPendientes === 1 ? '' : 's'} del costeo`}
             </button>
           )}
           <button type="button" onClick={() => setAbiertos(abiertos.size >= productos.length ? new Set() : new Set(productos.map(p => p.id)))}
-            className="text-[12px] font-semibold text-zinc-600 hover:text-zinc-900 border border-zinc-200 bg-white hover:bg-zinc-50 rounded-lg px-2.5 py-1">
+            className="text-xs font-medium text-tinta-2 hover:text-tinta border border-linea bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg px-3 py-1.5">
             {abiertos.size >= productos.length ? 'Plegar todos' : 'Desplegar todos'}
           </button>
-          {onVerMatriz && <button type="button" onClick={onVerMatriz} className="text-[12px] font-semibold text-zinc-500 hover:text-zinc-800 underline underline-offset-2">Ver como matriz</button>}
+          {onVerMatriz && <button type="button" onClick={onVerMatriz} className="text-xs font-medium text-tinta-2 hover:text-tinta underline underline-offset-2">Ver como matriz</button>}
         </div>
       </div>
 
       {productos.length > 6 && (
-        <div className="px-4 py-2 border-b border-zinc-100">
+        <div className="px-5 py-2.5 border-b border-linea dark:border-slate-800">
           <label className="relative block max-w-xs">
             <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-400" />
             <input value={buscaProducto} onChange={e => setBuscaProducto(e.target.value)} placeholder="Buscar producto…" aria-label="Buscar producto"
-              className="w-full text-[12.5px] border border-zinc-200 rounded-lg pl-8 pr-2.5 py-1.5 outline-none focus:ring-1 focus:ring-teal-500" />
+              className="w-full text-xs border border-linea dark:border-slate-700 dark:bg-slate-900 rounded-lg pl-8 pr-2.5 py-2 outline-none focus:ring-1 focus:ring-marca" />
           </label>
         </div>
       )}
 
       {/* Encabezado de la tabla: los tres precios de cada producto, en columnas (costeo · costeo de Compras · cotización). */}
-      <div className="hidden md:flex items-center gap-3 px-4 py-1.5 border-b border-zinc-100 text-[11px] font-bold uppercase tracking-wide text-zinc-400">
+      <div className="hidden md:flex items-center gap-3 px-5 py-2 border-b border-linea dark:border-slate-800 text-[11px] text-tinta-3">
         <span className="flex-1 pl-7">Producto</span>
         <span className="w-[104px] text-right">Costeo</span>
         <span className="w-[124px] text-right">Costo real (Compras)</span>
-        <span className="w-[230px]">Cotización (mejor)</span>
+        <span className="w-[260px]">Mejor cotización</span>
         <span className="w-[150px] text-right">Elegido</span>
       </div>
-      <div className="divide-y divide-zinc-100">
+      <div className="divide-y divide-linea dark:divide-slate-800">
         {productosVisibles.map(p => {
           const base = costeado[p.id] ?? null;
           const abierto = abiertos.has(p.id);
@@ -392,43 +408,51 @@ export function ComparadorPrecios({ productos, cotizaciones, costeado, venta, li
           return (
             <section key={p.id} aria-label={p.descripcion}>
               <button type="button" onClick={() => alternar(p.id)} aria-expanded={abierto}
-                className="w-full text-left px-4 py-3 flex items-center gap-3 hover:bg-zinc-50/70 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-teal-500 outline-none">
+                className="w-full text-left px-5 py-3.5 flex items-center gap-3 hover:bg-slate-50/70 dark:hover:bg-slate-800/40 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-marca outline-none">
                 {abierto ? <ChevronDown size={16} className="text-zinc-400 flex-shrink-0" /> : <ChevronRight size={16} className="text-zinc-400 flex-shrink-0" />}
                 <div className="min-w-0 flex-1">
-                  <p className="text-[13.5px] font-semibold text-zinc-900 truncate" title={p.descripcion}>{p.descripcion}</p>
-                  <p className="text-[11.5px] text-zinc-500">
+                  <p className="text-[13.5px] font-semibold text-tinta dark:text-slate-100 truncate" title={p.descripcion}>{p.descripcion}</p>
+                  <p className="text-xs text-tinta-2 dark:text-slate-400">
                     {p.cantidadMotivo && p.cantidadCosteo != null && <s className="text-zinc-400 mr-1" title="Cantidad del costeo">{num(p.cantidadCosteo)}</s>}
-                    {p.cantidad != null && <span className={p.cantidadMotivo ? 'font-bold text-amber-700' : ''}>{num(p.cantidad)} {p.unidad || 'un.'}</span>}
+                    {p.cantidad != null && <span className={p.cantidadMotivo ? 'font-semibold text-amber-700' : ''}>{num(p.cantidad)} {p.unidad || 'un.'}</span>}
                     {p.cantidadMotivo && <span className="ml-1 text-[10.5px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded px-1 py-px">a comprar</span>}
                     <span className="md:hidden"> · Costeado {base != null ? <b className="text-zinc-700">{clp(base)}</b> : '—'}</span>
-                    {sinOfertas && <b className="ml-2 text-amber-600">Sin cotizar todavía</b>}
+                    {sinOfertas && <b className="ml-2 font-medium text-amber-600">Sin cotizar todavía</b>}
                   </p>
+                  {!abierto && ofertas.length > 0 && (
+                    <p className="mt-0.5 text-xs text-tinta-2 dark:text-slate-400 truncate" data-testid={`ofertas-resumen-${p.id}`}>
+                      {ofertas.slice(0, 3).map((o, i) => (
+                        <span key={o.c.id}>{i > 0 && <span className="text-tinta-3"> · </span>}{corto(o.c.proveedorNombre, 22)} <span className={`tabular-nums ${o.item.precioUnitario != null && o.item.precioUnitario === menor ? 'font-semibold text-marca dark:text-teal-400' : 'text-tinta dark:text-slate-200'}`}>{o.item.precioUnitario != null ? clp(o.item.precioUnitario) : 'sin precio'}</span></span>
+                      ))}
+                      {ofertas.length > 3 && <span className="text-tinta-3"> · +{ofertas.length - 3} más</span>}
+                    </p>
+                  )}
                 </div>
                 <div className="hidden md:flex items-center gap-3 text-[12px] flex-shrink-0">
-                  <span className="w-[104px] text-right tabular-nums text-zinc-700 font-semibold" title="Costo neto por unidad que costeó licitaciones">{base != null ? clp(base) : <span className="text-zinc-300">—</span>}</span>
+                  <span className="w-[104px] text-right tabular-nums text-tinta-2 font-medium" title="Costo neto por unidad que costeó licitaciones">{base != null ? clp(base) : <span className="text-zinc-300">—</span>}</span>
                   <span className="w-[124px] text-right tabular-nums" title="«Costo unit. REAL» que Compras anotó a mano en el costeo (neto por unidad). Se reemplaza por el precio cotizado al mandar la compra a aprobación.">
                     {costeoCompras[p.id]?.costo != null ? (
                       <>
                         {costeoCompras[p.id].link && esLinkDeProducto(costeoCompras[p.id].link) && (
                           <a href={costeoCompras[p.id].link} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} className="mr-1.5 text-[11px] text-teal-700 underline underline-offset-2">link</a>
                         )}
-                        <b className="text-zinc-900">{clp(costeoCompras[p.id].costo!)}</b>
+                        <b className="font-semibold text-tinta dark:text-slate-100">{clp(costeoCompras[p.id].costo!)}</b>
                       </>
                     ) : <span className="text-zinc-300">—</span>}
                   </span>
-                  <span className="w-[230px] flex items-center gap-1.5">
+                  <span className="w-[260px] flex items-center gap-2">
                     {menor != null && cmpMenor ? (
                       <>
-                        <b className="text-zinc-900 tabular-nums">{clp(menor)}</b>
-                        <span className={`font-semibold px-1.5 py-0.5 rounded border ${ESTILO_VEREDICTO[cmpMenor.veredicto].chip}`}>{ESTILO_VEREDICTO[cmpMenor.veredicto].texto(cmpMenor.diffPct)}</span>
-                        <span className="text-zinc-400">· {ofertas.length} oferta{ofertas.length === 1 ? '' : 's'}</span>
+                        <b className="font-semibold text-tinta dark:text-slate-100 tabular-nums">{clp(menor)}</b>
+                        <span className={`font-medium ${COLOR_TEXTO[cmpMenor.veredicto]}`}><Estado color={COLOR_PUNTO[cmpMenor.veredicto]}>{ESTILO_VEREDICTO[cmpMenor.veredicto].texto(cmpMenor.diffPct)}</Estado></span>
+                        <span className="text-tinta-3">· {ofertas.length} oferta{ofertas.length === 1 ? '' : 's'}</span>
                       </>
                     ) : <span className="text-zinc-300" title="Sin cotización: se toma lo costeado">sin cotización</span>}
                   </span>
                 </div>
                 <span className="flex-shrink-0 md:w-[150px] md:text-right">
-                  <span className={`text-[11.5px] font-semibold px-2 py-0.5 rounded-full border ${elegida ? 'text-teal-800 bg-teal-50 border-teal-200' : 'text-zinc-400 bg-white border-zinc-200'}`}>
-                    {elegida ? <><Check size={11} className="inline -mt-0.5 mr-0.5" />{elegida.proveedorNombre.length > 22 ? `${elegida.proveedorNombre.slice(0, 22)}…` : elegida.proveedorNombre}</> : 'Sin elegir'}
+                  <span className={`text-xs font-medium ${elegida ? 'text-marca dark:text-teal-400' : 'text-tinta-3'}`}>
+                    {elegida ? <Estado color="#0f766e">{corto(elegida.proveedorNombre, 22)}</Estado> : 'Sin elegir'}
                   </span>
                 </span>
               </button>
@@ -442,7 +466,7 @@ export function ComparadorPrecios({ productos, cotizaciones, costeado, venta, li
               )}
 
               {abierto && (
-                <div className="px-4 pb-3 pl-11 space-y-1.5">
+                <div className="px-5 pb-4 pl-12 space-y-2">
                   {!p.esServicio && <CantidadAComprar p={p} base={base} onGuardar={onCambiarCantidad} />}
                   {linksCosteo[p.id] && <div className="text-[11.5px] text-zinc-500 flex items-center gap-1.5">Link del costeo: <span className="[&_a]:max-w-[220px]"><LinksProducto links={linksCosteo[p.id].links} /></span></div>}
 
@@ -453,21 +477,21 @@ export function ComparadorPrecios({ productos, cotizaciones, costeado, venta, li
                     const vieja = horas > 24; const dias = Math.floor(horas / 24);
                     const comprable = l.neto != null && !vieja && !l.agotado;
                     return (
-                      <div key={`l-${l.opcionId}`} className="rounded-lg border border-indigo-100 bg-indigo-50/30 px-3 py-2 flex items-center gap-x-4 gap-y-1 flex-wrap" data-testid={`link-leido-${p.id}`}>
-                        <span className="text-[11px] font-bold text-indigo-700 bg-white border border-indigo-200 rounded px-1.5 py-0.5">Por link</span>
-                        <span className="text-[14px] font-bold text-zinc-900 tabular-nums">{l.neto != null ? clp(l.neto) : 'sin precio'}</span>
+                      <div key={`l-${l.opcionId}`} className="rounded-xl border border-linea dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/30 px-3.5 py-2.5 flex items-center gap-x-4 gap-y-1 flex-wrap" data-testid={`link-leido-${p.id}`}>
+                        <span className="text-xs font-medium text-tinta-2">Por link</span>
+                        <span className="text-[14px] font-semibold text-tinta tabular-nums">{l.neto != null ? clp(l.neto) : 'sin precio'}</span>
                         {l.neto != null && !l.agotado && <span className={`text-[11.5px] font-semibold px-1.5 py-0.5 rounded border ${est.chip}`}>{est.texto(cmp.diffPct)}</span>}
                         <span className="text-[11.5px] text-zinc-500">
                           {l.url ? <a href={l.url} target="_blank" rel="noopener noreferrer" className="text-teal-700 underline underline-offset-2">{l.host}</a> : l.host}
                           {l.capturaAt && <> · captura {vieja ? `de hace ${dias} día${dias === 1 ? '' : 's'}` : 'de hoy'}</>}
                         </span>
-                        {l.agotado && <span className="text-[11.5px] font-bold text-rose-700">⛔ Producto agotado: no se puede comprar por este link</span>}
-                        {vieja && !l.agotado && <span className="text-[11.5px] font-bold text-amber-700">⚠ Captura vieja: vuelve a leer antes de comprar</span>}
+                        {l.agotado && <span className="text-xs font-medium text-rose-700">⛔ Producto agotado: no se puede comprar por este link</span>}
+                        {vieja && !l.agotado && <span className="text-xs font-medium text-amber-700">⚠ Captura vieja: vuelve a leer antes de comprar</span>}
                         {l.neto != null && l.ivaSupuesto && <span className="text-[11px] text-zinc-400">IVA no aclarado: se asumió incluido y se rebajó</span>}
                         <span className="ml-auto flex items-center gap-1.5">
                           {lecLink && (!l.neto || vieja || l.agotado) && l.url && (
                             <button type="button" onClick={() => lecLink.releer(l.opcionId)} disabled={lecLink.releyendo != null}
-                              className="text-[11.5px] font-semibold text-indigo-700 border border-indigo-200 bg-white hover:bg-indigo-50 disabled:opacity-60 rounded-md px-2 py-0.5">{lecLink.releyendo === l.opcionId ? 'Leyendo…' : 'Volver a leer'}</button>
+                              className="text-xs font-medium text-marca border border-linea bg-white hover:bg-marca-suave disabled:opacity-60 rounded-lg px-2.5 py-1">{lecLink.releyendo === l.opcionId ? 'Leyendo…' : 'Volver a leer'}</button>
                           )}
                           {comprable && onCompraPorLink && l.url && (
                             <button type="button" onClick={() => onCompraPorLink(p.id, { link: l.url!, precio: l.neto!, proveedor: l.proveedor || l.host })}
@@ -479,11 +503,16 @@ export function ComparadorPrecios({ productos, cotizaciones, costeado, venta, li
                   })}
                   {pendLink.length > 0 && lecLink && (
                     <button type="button" onClick={() => lecLink.leer(p.id)} disabled={!!lecLink.leyendo}
-                      className="text-[12px] font-semibold text-indigo-700 border border-indigo-200 bg-white hover:bg-indigo-50 disabled:opacity-60 rounded-md px-2 py-1">
+                      className="text-xs font-medium text-marca border border-linea bg-white hover:bg-marca-suave disabled:opacity-60 rounded-lg px-2.5 py-1.5">
                       {lecLink.leyendoProducto === p.id ? 'Leyendo link…' : `Leer el link del costeo${pendLink.length > 1 ? ` (${pendLink.length})` : ''}`}
                     </button>
                   )}
 
+                  {ofertas.length > 0 && (
+                    <div className="hidden @3xl:grid grid-cols-[auto_minmax(0,1.5fr)_minmax(0,1fr)_104px_112px_150px_auto] gap-x-4 px-3.5 text-[11px] text-tinta-3" aria-hidden>
+                      <span className="w-5" /><span>Proveedor</span><span>Qué incluye</span><span className="text-right">Precio unitario</span><span className="text-right">Total</span><span>Contra lo costeado</span><span className="w-7" />
+                    </div>
+                  )}
                   {(() => {
                     // Las reemplazadas por una cotización más nueva del mismo proveedor no se pueden elegir: van plegadas al final (la elegida se queda a la vista).
                     const esOculta = (cid: number) => reemp.has(`${cid}:${p.id}`) && compra?.[p.id] !== cid;
@@ -528,7 +557,7 @@ export function ComparadorPrecios({ productos, cotizaciones, costeado, venta, li
 
       {cotizaciones.length > 0 && (
         <details open={cotizaciones.length <= 8} className="border-t border-zinc-200">
-          <summary className="px-4 py-2.5 cursor-pointer bg-zinc-50 text-[12.5px] font-bold text-zinc-700 hover:bg-zinc-100">Por proveedor <span className="font-normal text-zinc-400">({cotizaciones.length} cotización{cotizaciones.length === 1 ? '' : 'es'}: qué cubre cada una y cuánto costaría comprarle todo)</span></summary>
+          <summary className="px-5 py-3 cursor-pointer text-[13px] font-semibold text-tinta dark:text-slate-100 hover:bg-slate-50 dark:hover:bg-slate-800/40">Por proveedor <span className="font-normal text-zinc-400">({cotizaciones.length} cotización{cotizaciones.length === 1 ? '' : 'es'}: qué cubre cada una y cuánto costaría comprarle todo)</span></summary>
           {cotizaciones.length > 8 && (
             <div className="px-4 py-2">
               <input value={buscaProveedor} onChange={e => setBuscaProveedor(e.target.value)} placeholder="Buscar proveedor…" aria-label="Buscar proveedor"
@@ -538,8 +567,8 @@ export function ComparadorPrecios({ productos, cotizaciones, costeado, venta, li
           <div className="overflow-x-auto">
             <table className="min-w-full text-left border-collapse">
               <thead>
-                <tr className="border-y border-zinc-200 text-[11.5px] font-bold text-zinc-500 uppercase tracking-wide">
-                  <th className="px-4 py-2">Proveedor</th><th className="px-3 py-2">Cubre</th><th className="px-3 py-2 text-right">Total si compras aquí</th><th className="px-3 py-2">Plazo</th><th className="px-3 py-2">Avisos</th><th className="px-3 py-2 text-right">Acción</th>
+                <tr className="border-y border-linea dark:border-slate-800 text-[11px] font-normal text-tinta-3">
+                  <th className="px-5 py-2 font-normal">Proveedor</th><th className="px-3 py-2 font-normal">Cubre</th><th className="px-3 py-2 text-right font-normal">Total si compras aquí</th><th className="px-3 py-2 font-normal">Plazo</th><th className="px-3 py-2 font-normal">Avisos</th><th className="px-3 py-2 text-right font-normal">Acción</th>
                 </tr>
               </thead>
               <tbody>
@@ -547,10 +576,10 @@ export function ComparadorPrecios({ productos, cotizaciones, costeado, venta, li
                   <tr key={c.id} className="border-b border-zinc-100 last:border-0 align-middle">
                     <td className="px-4 py-2"><p className="text-[13px] font-semibold text-zinc-900">{c.proveedorNombre}</p><p className="text-[11px] text-zinc-400">Cotización #{c.id}</p></td>
                     <td className="px-3 py-2 text-[12.5px] whitespace-nowrap">{faltan === 0 ? <span className="font-semibold text-emerald-700">Todos ({cubiertos} de {productos.length})</span> : <span className="font-semibold text-amber-700">{cubiertos} de {productos.length} · faltan {faltan}</span>}</td>
-                    <td className="px-3 py-2 text-right text-[13px] font-bold text-zinc-900 tabular-nums whitespace-nowrap">{total > 0 ? clp(total) : <span className="text-zinc-300">—</span>}{menorTotal != null && faltan === 0 && nAvisos === 0 && total === menorTotal && <span className="ml-1 text-[10.5px] font-bold text-amber-600">★ menor</span>}
+                    <td className="px-3 py-2 text-right text-[13px] font-semibold text-tinta tabular-nums whitespace-nowrap">{total > 0 ? clp(total) : <span className="text-zinc-300">—</span>}{menorTotal != null && faltan === 0 && nAvisos === 0 && total === menorTotal && <span className="ml-1 text-[10.5px] font-bold text-amber-600">★ menor</span>}
                       {flete > 0 && <span className="block text-[11px] font-normal text-zinc-500" data-testid={`total-desglose-${c.id}`}>Productos {clp(subtotal)} + flete {clp(flete)}</span>}</td>
                     <td className="px-3 py-2 text-[12.5px] text-zinc-700">{c.plazoEntregaTexto || <span className="text-zinc-300">no dice</span>}</td>
-                    <td className="px-3 py-2 text-[12.5px] whitespace-nowrap">{nAvisos > 0 ? <span className="font-bold text-rose-600">⚠ {nAvisos}</span> : <span className="text-emerald-600">sin avisos</span>}</td>
+                    <td className="px-3 py-2 text-[12.5px] whitespace-nowrap">{nAvisos > 0 ? <span className="font-medium text-rose-700">⚠ {nAvisos}</span> : <span className="text-emerald-600">sin avisos</span>}</td>
                     <td className="px-3 py-2 text-right whitespace-nowrap">
                       {onComprarTodoAqui && cubiertos > 0 && (
                         <button type="button" onClick={() => onComprarTodoAqui(c.id)} className="text-[11.5px] font-semibold text-teal-700 border border-teal-200 hover:border-teal-400 hover:bg-teal-50 rounded-md px-2 py-1 mr-1">
