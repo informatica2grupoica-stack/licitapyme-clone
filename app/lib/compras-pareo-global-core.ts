@@ -506,3 +506,41 @@ export function planificarEscrituraPareo(e: EntradaPlan): PlanPareo {
   }
   return plan;
 }
+
+// ── Reparación de unidad ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+// Un precio guardado que es EXACTAMENTE el de una línea × k (k entero ≥ 2), donde la línea NO alcanza para leer la cantidad del producto en «paquetes de k»
+// pero SÍ para leerla en la unidad de la línea, es una conversión de rollo/caja mal aplicada por el motor anterior (1356: «Tubería HDPE 63 mm (R/100)»,
+// cantidad 100, quedó a $239.000 = $2.390/m × 100 y la cotización trae 400 m). Se devuelve el precio de la línea.
+export interface ReparacionUnidad { cotizacionId: number; productoId: number; precioAnterior: number; precio: number; motivo: string }
+export function reparacionesDeUnidad(e: {
+  itemsGuardados: ItemGuardado[]; lineas: LineaPareo[]; productos: ProductoPareo[];
+  /** no se repara: cotizaciones de una persona o productos que ya avanzaron */
+  excluir?: (it: ItemGuardado) => boolean;
+}): ReparacionUnidad[] {
+  const out: ReparacionUnidad[] = [];
+  for (const it of e.itemsGuardados) {
+    if (it.precioBase == null || !(it.precioBase > 0) || e.excluir?.(it)) continue;
+    const p = e.productos.find(x => x.id === it.productoId);
+    if (!p || !(p.cantidad != null && p.cantidad > 0)) continue;
+    const candidatas = e.lineas.filter(l => l.cotizacionId === it.cotizacionId && !l.esFlete && l.precioNeto != null && l.precioNeto > 0 && l.cantidad != null);
+    // Solo con un envase que el PRODUCTO declara («R/100», «unidades de 100 m», «(50 m)») y una línea por metro: sin eso, un precio que casualmente es
+    // múltiplo del de otra línea (un medidor × 56) no se toca.
+    const declarados = new Set([...String(p.descripcion).matchAll(/\br\s*\/\s*(\d+)|(\d+)\s*m(?![a-z0-9²³])/gi)].map(m => Number(m[1] ?? m[2])).filter(n => n > 1));
+    if (declarados.size === 0) continue;
+    let mejor: { l: LineaPareo; k: number; puntaje: number } | null = null;
+    for (const l of candidatas) {
+      if (!/^(mts?|mtr|m|metros?|ml)\.?$/i.test(String(l.unidad || '').trim())) continue;
+      const razon = it.precioBase / l.precioNeto!;
+      const k = Math.round(razon);
+      if (!declarados.has(k) || Math.abs(razon - k) > Math.max(0.005 * k, 0.01)) continue;
+      // La línea alcanza para la cantidad en SU unidad, pero no para la cantidad × k.
+      if (l.cantidad! + 1e-6 < p.cantidad || l.cantidad! + 1e-6 >= p.cantidad * k) continue;
+      const puntaje = puntajeLineaProducto(l.linea, { id: p.id, descripcion: p.descripcion, cantidad: p.cantidad }, undefined, { penalizar: false }).puntaje;
+      if (puntaje < UMBRAL_PARECIDO) continue;
+      if (!mejor || puntaje > mejor.puntaje) mejor = { l, k, puntaje };
+    }
+    if (mejor) out.push({ cotizacionId: it.cotizacionId, productoId: it.productoId, precioAnterior: it.precioBase, precio: mejor.l.precioNeto!,
+      motivo: `Precio corregido: $${Math.round(it.precioBase).toLocaleString('es-CL')} era $${Math.round(mejor.l.precioNeto!).toLocaleString('es-CL')} por ${mejor.l.unidad || 'unidad de la línea'} × ${mejor.k}; la línea cotiza ${mejor.l.cantidad} y se pide ${p.cantidad}` });
+  }
+  return out;
+}

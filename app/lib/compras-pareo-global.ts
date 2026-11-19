@@ -16,7 +16,7 @@ import { ahoraChileSQL } from '@/app/lib/tz';
 import { registrarEvento } from '@/app/lib/historial';
 import { listarEquivalencias } from '@/app/lib/compras-equivalencias';
 import { clienteDeNegocio } from '@/app/lib/tenant';
-import { parearNegocio, planificarEscrituraPareo, type CotizacionPareo, type ItemGuardado } from '@/app/lib/compras-pareo-global-core';
+import { reparacionesDeUnidad, parearNegocio, planificarEscrituraPareo, type CotizacionPareo, type ItemGuardado } from '@/app/lib/compras-pareo-global-core';
 
 const crearChatIA = conModuloIA('compras', crearChatIABase);
 
@@ -106,6 +106,18 @@ async function ejecutar(negocioId: number, actor?: { id: number; nombre: string 
         WHERE p.id = ? AND p.subestado = 'COTIZANDO' AND NOT EXISTS (SELECT 1 FROM compras_cotizacion_item ci WHERE ci.producto_id = p.id)`, [ahora, q.productoId]);
     tocadas.add(q.cotizacionId);
   }
+  // Precios guardados por el motor anterior con el rollo/caja mal convertido ($2.390/m × 100 = $239.000 con 400 m cotizados): se vuelven al precio de la línea.
+  const yaEscritos = new Set(plan.escribir.map(w => `${w.cotizacionId}:${w.productoId}`));
+  const movibles = new Set(productos.filter(p => p.subestado === 'PENDIENTE' || p.subestado === 'COTIZANDO').map(p => p.id));
+  const reparaciones = reparacionesDeUnidad({
+    itemsGuardados, lineas: R.lineas, productos: productos.map(p => ({ id: p.id, descripcion: p.descripcion, cantidad: p.cantidad, unidad: p.unidad })),
+    excluir: it => cotizacionesDeUnaPersona.has(it.cotizacionId) || !movibles.has(it.productoId) || yaEscritos.has(`${it.cotizacionId}:${it.productoId}`),
+  });
+  for (const r of reparaciones) {
+    await pool.query(`UPDATE compras_cotizacion_item SET precio_unitario = ?, precio_base = ?, detalle_desviacion = ? WHERE cotizacion_id = ? AND producto_id = ?`,
+      [r.precio, r.precio, `Pareo global: ${r.motivo}`.slice(0, 480), r.cotizacionId, r.productoId]);
+    tocadas.add(r.cotizacionId);
+  }
   for (const id of tocadas) {
     await recalcularPreciosDeCotizacion(id);   // los adicionales ya cargados se vuelven a sumar al base nuevo
     await cargarFleteAProductos(id).catch(() => {});
@@ -117,8 +129,8 @@ async function ejecutar(negocioId: number, actor?: { id: number; nombre: string 
   await registrarEvento({
     tipo: 'COMPRAS_PAREO_GLOBAL', licitacionCodigo: (await pool.query('SELECT licitacion_codigo FROM negocios WHERE id = ? LIMIT 1', [negocioId]).then(([r]: any) => r?.[0]?.licitacion_codigo).catch(() => null)) ?? undefined,
     actorId: actor?.id, actorNombre: actor?.nombre ?? undefined,
-    mensaje: `Pareo global de ${cotizaciones.length} cotización(es): ${plan.escribir.length} asignación(es) escritas, ${plan.quitar.length} quitadas, ${plan.saltados.length} no se tocaron.`,
-    metadata: { negocio_id: negocioId, escritas: plan.escribir.length, quitadas: plan.quitar.length, saltadas: plan.saltados.length, llamadas: R.llamadas, sin_cuadrar: sinCuadrar },
+    mensaje: `Pareo global de ${cotizaciones.length} cotización(es): ${plan.escribir.length} asignación(es) escritas, ${reparaciones.length} precios de unidad corregidos, ${plan.quitar.length} quitadas, ${plan.saltados.length} no se tocaron.`,
+    metadata: { negocio_id: negocioId, escritas: plan.escribir.length, reparadas: reparaciones.length, quitadas: plan.quitar.length, saltadas: plan.saltados.length, llamadas: R.llamadas, sin_cuadrar: sinCuadrar },
   } as any).catch(() => {});
   return { ejecutado: true, asignados: plan.escribir.length, quitados: plan.quitar.length, sinRespaldo: plan.sinRespaldo.length, saltados: plan.saltados.length, llamadas: R.llamadas, sinCuadrar };
 }
