@@ -18,6 +18,7 @@ import { extraerDatosCotizacionDeDocumento } from '@/app/lib/compras-cotizacion-
 import { parsearMontoCL } from '@/app/lib/numeros';
 import { fusionarDirectasDelNegocio } from '@/app/lib/compras-directas';
 import { fichasDesdeCotizacionEnSegundoPlano } from '@/app/lib/compras-cotizacion-specs';
+import { pareceFichaTecnicaSinCotizacion } from '@/app/lib/compras-cotizacion-specs-core';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -191,6 +192,9 @@ async function __POST(request: NextRequest, { params }: Params) {
       if (items.some((it: any) => !(Number(it.precioUnitario ?? datos.precioUnitario) > 0)))
         return NextResponse.json({ error: 'Falta el precio neto de la compra (mayor que cero).' }, { status: 400 });
     }
+    // El documento no es una cotización sino una ficha técnica (specs, sin precio ni proveedor): se guarda igual (no se pierde nada) pero se avisa.
+    const esFichaTecnica = datos.origen !== 'directa' && pareceFichaTecnicaSinCotizacion(datos.descripcionLibre);
+    if (esFichaTecnica) datos.notas = [datos.notas, 'Ficha técnica: este documento parece una ficha, no una cotización (no trae precio ni proveedor); falta que el equipo confirme si lo es.'].filter(Boolean).join(' · ');
     let cotizacionId = await registrarCotizacion(id, datos, userId, nombre);
     // Compras directas del mismo proveedor (mismo RUT o nombre) van en UNA sola cotización/columna de la matriz.
     if (datos.origen === 'directa') cotizacionId = (await fusionarDirectasDelNegocio(id).catch(() => new Map<number, number>())).get(cotizacionId) ?? cotizacionId;
@@ -208,7 +212,7 @@ async function __POST(request: NextRequest, { params }: Params) {
     }
     // Cotización con especificaciones técnicas: sus productos también quedan como ficha (en segundo plano; nunca rompe la carga).
     if (datos.origen !== 'directa' && datos.archivoUrl) fichasDesdeCotizacionEnSegundoPlano({ negocioId: id, cotizacionId, actor: { id: userId, nombre: nombre || 'Compras' } });
-    return NextResponse.json({ success: true, id: cotizacionId });
+    return NextResponse.json({ success: true, id: cotizacionId, fichaTecnica: esFichaTecnica });
   } catch (error: any) {
     console.error('[compras/cotizaciones][POST]', String(error));
     return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo registrar la cotización.') }, { status: 500 });

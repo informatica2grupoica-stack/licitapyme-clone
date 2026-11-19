@@ -81,3 +81,30 @@ export function proveedorUtilizable(nombre: string | null | undefined): string |
   if (!n || /^\(/.test(n)) return null;
   return n.slice(0, 200);
 }
+
+// ── «Este documento no es una cotización: es una ficha técnica» ────────────────────────────────────
+/** Palabras de un documento de VENTA. Basta una para NO tratarlo como ficha (una cotización que además trae specs sigue siendo cotización;
+ *  decir «es una ficha» de una cotización real es peor que no avisar). */
+const PALABRAS_DE_COTIZACION = /\b(cotizaci[oó]n|presupuesto|proforma|oferta|sub ?total|neto|total|i\.?v\.?a\.?|precio|p\. ?unit|forma de pago|condiciones de pago|validez|vigencia|despacho|flete|r\.?u\.?t\.?|factura|orden de compra|quotation|invoice|price)\b/i;
+const MONTO = /(\$|US\$|USD|€|EUR|CLP)\s?\d/i;
+
+/** true si el texto leído de un documento es una FICHA TÉCNICA y no una cotización: trae especificaciones (potencia, voltaje, garantía…) y
+ *  ningún rastro de venta (ni un monto, ni «total», «IVA», «cotización», «RUT»…). Puro y barato: sirve al leer el archivo y en la fila. */
+export function pareceFichaTecnicaSinCotizacion(texto: string | null | undefined): boolean {
+  const t = String(texto ?? '');
+  if (t.trim().length < 80) return false;
+  if (MONTO.test(t) || PALABRAS_DE_COTIZACION.test(t)) return false;
+  return pareceTenerEspecificaciones(t);
+}
+
+/** Marca que queda en las notas cuando una persona ya contestó la pregunta «¿es una ficha técnica?» (sí o no): el aviso no vuelve a salir. */
+export const MARCA_FICHA_VALIDADA = 'Ficha técnica revisada:';
+/** El documento parece una ficha técnica Y nadie ha contestado todavía la pregunta: es lo que se le pregunta al equipo. */
+export function fichaPorValidar(texto: string | null | undefined, notas: string | null | undefined): boolean {
+  return !String(notas ?? '').includes(MARCA_FICHA_VALIDADA) && pareceFichaTecnicaSinCotizacion(texto);
+}
+/** Las notas de la cotización después de contestar: sin el aviso «Ficha técnica: …» y con la marca de revisada. */
+export function notasTrasValidarFicha(notas: string | null | undefined, esFicha: boolean): string {
+  const resto = String(notas ?? '').split(' · ').filter(t => t.trim() && !t.startsWith('Ficha técnica:') && !t.startsWith(MARCA_FICHA_VALIDADA));
+  return [...resto, `${MARCA_FICHA_VALIDADA} ${esFicha ? 'sí, es una ficha (pasada a Fichas técnicas).' : 'no, es otro documento.'}`].join(' · ');
+}

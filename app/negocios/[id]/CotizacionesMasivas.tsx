@@ -66,7 +66,11 @@ export function CotizacionesMasivas({ negocioId, productos, onTerminado }: {
       fd.set('origen', fila.file.type === 'application/pdf' ? 'pdf' : 'imagen');
       const res = await fetch(`/api/compras/${negocioId}/cotizaciones`, { method: 'POST', body: fd });
       const data = await res.json().catch(() => ({}));
-      if (res.ok && data.success) { actualizar(fila.key, { estado: 'registrada', cotizacionId: data.id }); return data.id as number; }
+      if (res.ok && data.success) {
+        // Un documento que es ficha técnica (specs, sin precio ni proveedor) se guarda, pero se dice claro que no es una cotización.
+        actualizar(fila.key, { estado: 'registrada', cotizacionId: data.id, mensaje: data.fichaTecnica ? 'Parece una ficha técnica, no una cotización (no trae precio ni proveedor). En la lista de cotizaciones te pregunta si lo es: Sí la pasa a Fichas técnicas; No no hace nada.' : undefined });
+        return data.id as number;
+      }
       if (res.status === 400 && /proveedor/i.test(data.error || '')) {
         actualizar(fila.key, { estado: 'sin_proveedor', mensaje: 'No se pudo identificar al proveedor en el documento. Regístrala a mano con "Registrar cotización".' });
         return null;

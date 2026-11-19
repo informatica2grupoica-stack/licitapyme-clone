@@ -8,6 +8,7 @@ import { MenuAcciones } from '@/app/components/ui/MenuAcciones';
 import { DocumentViewerModal, type VisorDoc } from '@/app/components/DocumentViewerModal';
 import { lineasDesdeTabla, lineasSinAsignar, productoQueCubreLaLinea, factoresPrecioDeCotizacion, lineasAlternativas, type LineaCotizacion } from '@/app/lib/compras-cotizacion-lineas';
 import { adicionalesDesdeIA } from '@/app/lib/compras-adicionales-ia';
+import { fichaPorValidar } from '@/app/lib/compras-cotizacion-specs-core';
 import { useToast } from '@/app/components/ui/toast';
 import { IconEye as Eye, IconListCheck as ListChecks, IconSparkles as Sparkles, IconPencil as Pencil, IconTrash as Trash, IconLoader2 as Loader2, IconAlertTriangle as Alerta, IconChevronRight as Flecha, IconCheck as Check, IconFileText as Doc } from '@tabler/icons-react';
 
@@ -165,6 +166,25 @@ export function ListaCotizaciones({ negocioId, cotizaciones, productos, avisosPo
     }
   };
 
+  /** Respuesta a «¿es una ficha técnica?». Solo deja anotado que ya se contestó (para no volver a preguntar); «no» no hace nada más. */
+  const respuestaFicha = async (id: number, esFicha: boolean) => {
+    if (!negocioId) return;
+    try {
+      const res = await fetch(`/api/compras/${negocioId}/cotizaciones/${id}/validar-ficha`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ esFicha }) });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo guardar');
+      if (!esFicha) toast.info('Listo', 'Queda como un documento más; no se hizo ningún cambio.');
+      await onCambio?.();
+    } catch (e: any) {
+      toast.error('No se pudo guardar la respuesta', e.message);
+    }
+  };
+  /** «Sí, es una ficha»: la pasa a Fichas técnicas (misma lectura de «Leer specs como ficha») y deja anotado que ya se contestó. */
+  const pasarAFichas = async (id: number) => {
+    await leerSpecs(id);
+    await respuestaFicha(id, true);
+  };
+
   const agregar = async (c: CotizacionFilaUI, l: LineaCotizacion, productoId: number) => {
     if (negocioId == null || l.precioUnitario == null || l.cantidad == null) return;
     setAgregando(`${c.id}|${l.descripcion}`);
@@ -272,8 +292,9 @@ export function ListaCotizaciones({ negocioId, cotizaciones, productos, avisosPo
           const primero = cubiertos[0];
           const itPrimero = primero ? c.items.find(i => i.productoId === primero.id) : undefined;
           const precioPrimero = itPrimero ? (itPrimero.precioBase === 0 && !itPrimero.adicionales.length ? 'incluido' : itPrimero.precioUnitario != null ? clp(itPrimero.precioUnitario) : 'sin precio') : '';
+          const esFicha = cubiertos.length === 0 && fichaPorValidar(c.descripcionLibre, c.notas);   // parece una ficha técnica y nadie ha contestado la pregunta
           const resumenCubre = cubiertos.length === 0
-            ? <span className="text-amber-600">Sin asignar a ningún producto</span>
+            ? <span className="text-amber-600">{esFicha ? 'Parece una ficha técnica, no una cotización: ¿lo es?' : 'Sin asignar a ningún producto'}</span>
             : <><span className="text-zinc-600" title={cubiertos.map(p => p.descripcion).join('\n')}>{corto(primero.descripcion, 34)}</span> <b className="font-semibold text-zinc-900 tabular-nums">{precioPrimero}</b>{cubiertos.length > 1 && <span className="text-zinc-400"> +{cubiertos.length - 1} más</span>}</>;
           return (
             <div key={c.id} className="border-b border-zinc-100 last:border-0">
@@ -362,7 +383,15 @@ export function ListaCotizaciones({ negocioId, cotizaciones, productos, avisosPo
                   <div>
                     <p className="text-[11px] text-zinc-500 mb-1">Qué cubre y a qué precio</p>
                     {cubiertos.length === 0
-                      ? <span className="text-amber-600">Sin asignar a ningún producto — no entra a la comparación</span>
+                      ? (esFicha
+                          ? <span className="text-amber-700 inline-flex flex-wrap items-center gap-x-3 gap-y-1">
+                              <span>Este documento parece una ficha técnica, no una cotización (no trae precio ni proveedor). ¿Lo es?</span>
+                              {puedeOperar && negocioId != null && <>
+                                <button type="button" disabled={leyendoSpecs === c.id} onClick={() => pasarAFichas(c.id)} className="inline-flex items-center h-7 px-2.5 text-[12px] font-semibold text-white bg-teal-700 hover:bg-teal-800 rounded-md disabled:opacity-50">{leyendoSpecs === c.id ? 'Pasando a fichas…' : 'Sí, pasar a Fichas técnicas'}</button>
+                                <button type="button" disabled={leyendoSpecs === c.id} onClick={() => respuestaFicha(c.id, false)} className="inline-flex items-center h-7 px-2.5 text-[12px] font-medium text-zinc-700 border border-zinc-300 hover:bg-zinc-50 rounded-md disabled:opacity-50">No, es otro documento</button>
+                              </>}
+                            </span>
+                          : <span className="text-amber-600">Sin asignar a ningún producto — no entra a la comparación</span>)
                       : <div className="flex flex-wrap gap-1">
                           {cubiertos.map(p => {
                             const it = c.items.find(i => i.productoId === p.id)!;

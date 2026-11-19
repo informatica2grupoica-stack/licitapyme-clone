@@ -703,7 +703,8 @@ export function AuditorComprasCard({ negocioId, puedeOperar, soloLectura = false
       }
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo registrar');
-      toast.success('Cotización registrada');
+      if (data.fichaTecnica) toast.warning('Parece una ficha técnica, no una cotización', 'No trae precio ni proveedor. Si lo es, pásala a Fichas técnicas; si es otro documento, no hagas nada.', { label: 'Sí, es una ficha', onClick: () => { fetch(`/api/compras/${negocioId}/cotizaciones/${data.id}/fichas`, { method: 'POST' }).then(r => r.json()).then(d => { if (!d.success) throw new Error(d.error || 'No se pudo leer'); window.dispatchEvent(new CustomEvent('compras:fichas-cambio')); return fetch(`/api/compras/${negocioId}/cotizaciones/${data.id}/validar-ficha`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ esFicha: true }) }); }).then(() => cargar()).catch((e: any) => toast.error('No se pudo pasar a fichas', e.message)); } });
+      else toast.success('Cotización registrada');
       cancelarFormulario();
       await cargar();
       recargarCompartido(); // mueve el badge de "Costeo y Auditoría" en el stepper
