@@ -46,9 +46,11 @@ export async function GET(request: NextRequest, { params }: Params) {
     const ultima = ultimaSyncObuma.get(id) ?? 0;
     if (Date.now() - ultima > 60_000) {
       ultimaSyncObuma.set(id, Date.now());
+      // Espera como máximo 2,5 s (antes 15 s, y la pantalla quedaba cargando): si Obuma tarda, la sincronización sigue en segundo plano
+      // y la próxima lectura ya trae lo nuevo.
       await Promise.race([
         sincronizarComprasObuma({ paginas: 5, soloCodigo: asignacion.licitacionCodigo }),
-        new Promise(r => setTimeout(r, 15_000)),
+        new Promise(r => setTimeout(r, 2_500)),
       ]).catch(e => console.warn('[compras/orden-compra-obuma] sync previo falló:', String(e).slice(0, 150)));
     }
 

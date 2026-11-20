@@ -220,3 +220,14 @@ formatearlas en SQL (`DATE_FORMAT`) para mirarlas.
 - migration-189 (índice único `empresas (cliente_id, rut)`, quita `uq_empresa_rut`): aplicada en el VPS el 2026-11-17 con OK del dueño.
 - Tablas vacías que son por diseño (`viabilidad_config` = solo guarda cambios sobre los valores del código). Sin otros datos base faltantes.
 - Sin referencia en el código: `analisis_cache`, `doc_chunks`, `doc_files`, `doc_pipeline`, `search_alerts`, `auditor_tecnico_jobs`, `compras_embarque` (vacías, probable legado; no se borró nada).
+
+## 2026-11-20 — «Failed to fetch» / página pegada: causa = reinicios de la app en despliegues
+- Diagnóstico (solo lectura, VPS): internet y servidor sanos (carga 0,35/4 CPU, sin OOM, BD estable). Los 502 de Caddy (27 en 6 h) coinciden con los reinicios de la app (11:02, 11:54, 12:18 hora Chile): Caddy no reintenta y devuelve 502 mientras `app` se recrea.
+- Hecho en el repo: `CostoRealCard` usa `fetchJsonReintento` (4 intentos) en vez de `fetch` directo.
+- PENDIENTE (config del VPS, no está en git; requiere OK del dueño): en `~/licitapyme-clone/Caddyfile` agregar al `reverse_proxy app:3000` `lb_try_duration 45s` + `lb_try_interval 500ms` (+ health_uri /api/health) y `docker exec licitapyme-caddy caddy reload`. Respaldar antes el Caddyfile.
+- PENDIENTE: cron «preguntas y respuestas» falla 22/22 con «no se encontró/abrió el ícono de Preguntas Licitación» (cambió la página de MP o la bloquea); no afecta la velocidad del sitio.
+- Disco VPS al 81 % (19 GB libres): vigilar.
+
+## 2026-11-20 (2) — Aplicado en el VPS con OK del dueño
+- `Caddyfile` del VPS: `reverse_proxy app:3000` con `lb_try_duration 45s`, `lb_try_interval 500ms`, `dial_timeout 5s` (respaldo: `Caddyfile.bak-20261120`). Recargado sin corte; web 200. Volver: copiar el .bak y `docker exec licitapyme-caddy caddy reload --config /etc/caddy/Caddyfile`.
+- `fail2ban` instalado (jail sshd: 5 fallos/10 min → ban 1 h; `ignoreip` incluye la IP del PC del dueño 45.4.1.30; si su IP cambia y se bloquea: `sudo fail2ban-client unban <ip>`). Ya baneó a la primera IP.

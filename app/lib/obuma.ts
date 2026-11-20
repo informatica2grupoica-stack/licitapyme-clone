@@ -635,11 +635,16 @@ export async function listarFormasPago(): Promise<ObumaFormaPago[]> {
 export interface ObumaMoneda { id: string; codigo: string; nombre: string }
 /** Monedas extranjeras de la cuenta (`pg_moneda_foreign=1`, leído en vivo 04-nov-2026: USD=3, EUR=4, GBP=6, AUD=7), para la OC
  *  internacional. UF/UTM/CLP no son extranjeras y no se ofrecen. */
+// Catálogo casi fijo: se guarda 1 hora para no consultar a Obuma en cada carga de «Órdenes y facturas».
+let cacheMonedasExtranjeras: { en: number; datos: ObumaMoneda[] } | null = null;
 export async function listarMonedasExtranjerasObuma(): Promise<ObumaMoneda[]> {
+  if (cacheMonedasExtranjeras && Date.now() - cacheMonedasExtranjeras.en < 3_600_000) return cacheMonedasExtranjeras.datos;
   const r = await llamar<ObumaListado<any>>(BASE_V1, '/pg-monedas.list.json');
-  return (r.data || [])
+  const datos = (r.data || [])
     .filter(m => String(m.pg_moneda_foreign) === '1')
     .map(m => ({ id: String(m.pg_moneda_id), codigo: String(m.pg_moneda_codigo || '').trim(), nombre: String(m.pg_moneda_nombre || '').trim() }));
+  cacheMonedasExtranjeras = { en: Date.now(), datos };
+  return datos;
 }
 
 // `proveedor_forma_pago` en la ficha de un proveedor es un ID numérico (ej. "2824"), no el nombre —

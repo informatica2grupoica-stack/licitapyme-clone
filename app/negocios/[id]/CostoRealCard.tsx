@@ -8,6 +8,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useToast } from '@/app/components/ui/toast';
 import { useCompras } from '@/app/compras/[negocioId]/ComprasContext';
 import { useRealtime } from '@/app/lib/use-realtime';
+import { fetchJsonReintento } from '@/app/lib/fetch-reintento';
 import { IconScale as Scale, IconLoader2 as Loader2, IconLock as Lock, IconAlertTriangle as AlertTriangle } from '@tabler/icons-react';
 
 interface Comparativo {
@@ -140,8 +141,8 @@ export function CostoRealCard({ negocioId, puedeOperar, permitirCierre = true }:
 
   const cargar = useCallback(async () => {
     try {
-      const r = await fetch(`/api/compras/${negocioId}/costo-real`);
-      const d = await r.json();
+      // Con reintentos: un corte de segundos (reinicio del servidor, red) ya no dispara «Failed to fetch».
+      const d = await fetchJsonReintento(`/api/compras/${negocioId}/costo-real`, 4);
       if (d.success) { setRes(d.resultado); setCierre(d.cierre); setFaltaCierre(d.faltantesCierre || []); }
     } catch (e: any) {
       toast.error('No se pudo calcular el costo real', e.message);
