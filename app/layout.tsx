@@ -20,7 +20,7 @@ try {
 } catch (e) {}
 `;
 
-const roboto = Roboto({ variable: '--font-roboto', subsets: ['latin'], weight: ['400', '500', '700'] });
+const roboto = Roboto({ variable: '--font-roboto', subsets: ['latin'], weight: ['400', '500', '600', '700'] });
 const geistMono = Geist_Mono({ variable: '--font-geist-mono', subsets: ['latin'] });
 
 export const metadata: Metadata = {

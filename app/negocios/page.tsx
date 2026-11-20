@@ -1282,6 +1282,29 @@ function NegociosContent() {
         if (typeof f.ordenCierreDesc === 'boolean') setOrdenCierreDesc(f.ordenCierreDesc);
       }
     } catch { /* sin persistencia */ }
+
+    // Filtros que vienen en la URL (p. ej. desde un gráfico del Dashboard: /negocios?estado=PERDIDA&analista=correo).
+    // Si la URL trae alguno, MANDA sobre lo guardado: se parte de cero para que la lista sea exactamente la pedida.
+    //   estado   → ids de etapa separados por coma (ASIGNADO, EN_PROCESO, PERDIDA…); solo se aceptan los que existen
+    //   analista → correos separados por coma
+    //   vista    → lista | semana | calendario (con `estado` y sin `vista` se abre en lista: el calendario esconde las resueltas)
+    try {
+      const p = new URLSearchParams(window.location.search);
+      const lista = (k: string) => (p.get(k) || '').split(',').map(s => s.trim()).filter(Boolean);
+      const estados = lista('estado').map(e => normalizarEstado(e)).filter(e => ESTADOS_PIPELINE.some(x => x.id === e));
+      const analistas = lista('analista');
+      const vistaUrl = p.get('vista');
+      if (estados.length || analistas.length) {
+        setSearch(''); setFiltroEtiqueta([]); setFiltroTipo([]); setFiltroRegion([]);
+        setFiltroFechaDesde(''); setFiltroFechaHasta('');
+        setFiltroEstado(estados);
+        setFiltroUsuarios(analistas);
+        setVista(vistaUrl === 'semana' || vistaUrl === 'calendario' || vistaUrl === 'lista' ? vistaUrl : 'lista');
+        setFiltrosOpen(true); // el panel abierto muestra qué filtros están puestos
+      } else if (vistaUrl === 'semana' || vistaUrl === 'calendario' || vistaUrl === 'lista') {
+        setVista(vistaUrl);
+      }
+    } catch { /* URL sin parámetros válidos */ }
     setHidratado(true);
   }, []);
 

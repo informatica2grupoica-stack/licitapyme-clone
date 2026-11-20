@@ -8,7 +8,7 @@ import { SearchBar } from '@/app/components/SearchBar';
 import { ResultsGrid } from '@/app/components/ResultsGrid';
 import { FiltersPanel } from '@/app/components/FiltersPanel';
 import { SearchRequest, Oportunidad } from '@/app/types/search.types';
-import { IconSearch as Search, IconTrendingUp as TrendingUp, IconBuilding as Building2, IconFileText as FileText, IconStar as Star, IconRefresh as RefreshCw } from '@tabler/icons-react';
+import { IconSearch as Search, IconFileText as FileText, IconStar as Star, IconRefresh as RefreshCw } from '@tabler/icons-react';
 
 interface Filters {
   estado: string[];
@@ -212,15 +212,9 @@ function HomeContent() {
       <div className="bg-[#0a0f1e] border-b border-white/5">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3">
           <div className="flex items-center justify-between flex-wrap gap-3">
+            {/* Antes había dos cifras escritas a mano («850 organismos», «118.000+ proveedores») que nadie
+                calculaba ni actualizaba: se quitaron. Aquí solo va lo que devuelve la búsqueda. */}
             <div className="flex items-center gap-6">
-              <div className="flex items-center gap-2 text-sm text-slate-400">
-                <Building2 size={14} className="text-indigo-400" />
-                <span><strong className="text-slate-200">850</strong> organismos</span>
-              </div>
-              <div className="flex items-center gap-2 text-sm text-slate-400">
-                <TrendingUp size={14} className="text-emerald-400" />
-                <span><strong className="text-slate-200">118.000+</strong> proveedores</span>
-              </div>
               {dataSource && (
                 <div className="flex items-center gap-2 text-sm text-slate-400">
                   <FileText size={14} className="text-purple-400" />

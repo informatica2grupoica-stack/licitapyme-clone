@@ -1,0 +1,14 @@
+{
+  "id": 10,
+  "categoriaClave": "flete",
+  "categoriaEtiqueta": "Flete / transporte",
+  "descripcion": "Factura 186536 Comercial y Servicios JP Ltda (cargada al proyecto PR-198 en Obuma, sin OC)",
+  "monto": 50151,
+  "moneda": "CLP",
+  "fechaGasto": "2026-10-23",
+  "comprobanteUrl": null,
+  "notas": null,
+  "ocObumaFolio": null,
+  "registradoPorNombre": "Alexis Tobar",
+  "createdAt": "2026-11-11 17:56:06"
+}

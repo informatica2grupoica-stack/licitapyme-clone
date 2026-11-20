@@ -23,7 +23,7 @@ import pool from '@/app/lib/db';
 import { permisosDeUsuario } from '@/app/lib/api-auth';
 import { estadoEfectivoNombre } from '@/app/lib/estado-mp';
 import { normalizarEstado, ESTADOS_PIPELINE } from '@/app/lib/pipeline';
-import { rutsNuestros, normRut } from '@/app/lib/adjudicacion';
+import { rutsNuestros, normRut, aplicarReadjudicacion } from '@/app/lib/adjudicacion';
 import { clienteDeHeader } from '@/app/lib/tenant';
 
 function getUser(request: NextRequest) {
@@ -78,7 +78,7 @@ export async function GET(request: NextRequest) {
               n.asignado_a, u.nombre AS analista_nombre, u.email AS analista_email,
               e.razon_social AS empresa_nombre,
               ap.aperturada AS aperturada, ap.detectada_en AS apertura_en,
-              ac.es_adjudicada AS es_adjudicada, ac.monto_adjudicado_total AS monto_adjudicado,
+              ac.licitacion_codigo AS ac_codigo, ac.estado AS adj_estado, ac.es_adjudicada AS es_adjudicada, ac.monto_adjudicado_total AS monto_adjudicado,
               ac.lineas AS adj_lineas
        FROM negocios n
        LEFT JOIN usuarios u            ON u.id = n.asignado_a
@@ -152,6 +152,14 @@ export async function GET(request: NextRequest) {
     // líneas adjudicadas), SIN depender de que el cron haya promovido estado_pipeline.
     const nuestros = await rutsNuestros(clienteId);
     const UNIVERSO_POSTULADA = ['POSTULADA', 'POSIBLE_ADJ', 'ADJUDICADA', 'PERDIDA'];
+    // Readjudicación manual (migration-149): si el negocio trae la marca, GANAMOS aunque la ficha de MP siga mostrando
+    // al otro proveedor. Postuladas ya lo respeta (enriquecer → aplicarReadjudicacion); sin esto el Dashboard contaba
+    // 71 ganadas y $1.876 MM mientras Postuladas decía 72 y $1.930 MM.
+    const readjudicadas = new Map<string, number | null>();
+    await Promise.all([...new Set(negocios.filter(n => n.es_adjudicada).map(n => String(n.licitacion_codigo)))].map(async cod => {
+      const m = await aplicarReadjudicacion(cod, [], clienteId);
+      if (m.marcada) readjudicadas.set(cod, m.monto);
+    }));
 
     const rows = negocios.map(n => {
       const estado = normalizarEstado(n.estado_pipeline);
@@ -202,7 +210,10 @@ export async function GET(request: NextRequest) {
       let resultado: 'ganada' | 'perdida' | 'evaluacion' | null = null;
       let montoNeto: number | null = null;
       if (UNIVERSO_POSTULADA.includes(estado)) {
-        if (n.es_adjudicada) {
+        if (n.es_adjudicada && readjudicadas.has(String(n.licitacion_codigo))) {
+          resultado = 'ganada';
+          montoNeto = readjudicadas.get(String(n.licitacion_codigo)) ?? (Number(n.monto_adjudicado ?? n.monto_ofertado ?? 0) || null);
+        } else if (n.es_adjudicada) {
           let lineas: any[] = [];
           try { lineas = n.adj_lineas ? JSON.parse(n.adj_lineas) : []; } catch { lineas = []; }
           let ganamos = false, montoNuestro = 0;
@@ -214,6 +225,11 @@ export async function GET(request: NextRequest) {
           }
           resultado = ganamos ? 'ganada' : 'perdida';
           montoNeto = ganamos ? (montoNuestro || Number(n.monto_adjudicado ?? n.monto_ofertado ?? 0) || null) : null;
+        } else if (n.ac_codigo) {
+          // MP ya respondió y NO adjudicó (Desierta, Revocada, Suspendida, Cerrada sin resultado): no hubo un ganador
+          // con quien competir, así que no es «perdida» ni entra a la efectividad. Misma regla que Postuladas
+          // (antes el estado_pipeline PERDIDA las contaba y el éxito salía 25 % en vez de 27 %).
+          resultado = 'evaluacion';
         } else if (estado === 'ADJUDICADA') {
           resultado = 'ganada';
           montoNeto = Number(n.monto_adjudicado ?? n.monto_ofertado ?? n.licitacion_monto ?? 0) || null;
@@ -238,6 +254,9 @@ export async function GET(request: NextRequest) {
         empresa: n.empresa_nombre ?? null,
         tipo: n.licitacion_tipo ?? null,
         mpEstado, mpCerrada,
+        // Estado que MP respondió en la última consulta de adjudicación (Adjudicada, Desierta, Revocada…). Es el mismo
+        // texto que usa Postuladas; `mpEstado` sale de la ficha de la licitación y puede ir atrasado.
+        adjEstado: n.adj_estado ?? null,
         aperturada: n.aperturada ? 1 : 0,
         triageDias, triageResueltoEn, nivelDescarte,
         descarteMotivo: n.descarte_motivo ?? null,

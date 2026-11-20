@@ -4,6 +4,86 @@ Traspasado desde la memoria personal el 2026-10-27; las fechas son de cuando se 
 
 ## Decisiones vigentes del dueño
 
+- **Filtros por URL en Negocios y Radar (2026-11-20, pedido del dueño):** `/negocios?estado=PERDIDA` (ids de etapa
+  separados por coma, solo los que existen), `&analista=correo` (coma), `&vista=lista|semana|calendario` (con `estado` y
+  sin `vista` abre en lista: el calendario esconde las resueltas); `/radar?gestion=sin_asignar|asignadas|descartadas|
+  no_leidas|excluidas_pref|todas`, `?decision=PASA|REVISION_HUMANA|EXCLUIDO` (sin `gestion` = `todas`, que cuenta
+  descartadas y asignadas como el Dashboard). Si la URL trae filtros, mandan sobre lo guardado en sessionStorage y se
+  parte de cero (en el radar sin filtro de estado ni de tipo = mismo universo que el Dashboard). Enlaces en el
+  Dashboard: «Sin asignar» → radar sin asignar; «Pasan el prefiltro» y cada fila de «Prefiltro automático» → radar
+  por decisión; «Negocios por etapa» → «Ver <etapa> en Negocios»; cada persona → «Ver sus negocios» (con la etapa si
+  hay). Cuadra con la BD local: negocios Perdida 212, Consuelo+Perdida 39, radar sin asignar 17, radar PASA 34.
+  **Hallazgo:** «Pasan el prefiltro» (34 dev; 298 prod) incluye las descartadas y asignadas después (en prod solo 67
+  de 298 siguen libres): el texto decía «sin ser descartadas», falso → corregido el texto y se avisa en la ficha.
+  «Sin asignar» puede salir unas pocas menos en el Dashboard que en el radar (el radar lista las Revocada). Visto en
+  navegador a 1366 px. Sin ver: 800 px, modo oscuro.
+- **`/dashboard` y `/postuladas` dados por realizados por el dueño (2026-11-20):** cifras revisadas contra la BD y
+  front con licitank-ui; no volver a rediseñarlos sin que lo pida. Siguiente: decidir si Negocios y Radar leen
+  filtros de la URL (para que los clics del dashboard lleven a la lista ya filtrada).
+- **Dashboards interactivos (2026-11-20, pedido del dueño)** — regla agregada a la skill `licitank-ui` («Dashboards y
+  gráficos: interactivos y exactos»). Hecho en `/dashboard`: `Dona` con hover cruzado (tajada ↔ leyenda, el centro
+  muestra el valor) y clic opcional; «Negocios por etapa» elegible (clic filtra, las demás se atenúan) y filtra
+  «Seguimiento por perfil» (quién tiene esa etapa; chip con X para quitar); cada persona se abre y muestra su
+  reparto por etapa (clic en una etapa = filtra). En `AnaliticaGestion`: clic en una persona del «Por analista»
+  filtra TODO el tablero; si el filtro inicial «en trabajo» deja 0 se explica y hay botón «Ver las N vigentes».
+  **Cifra corregida:** «Postuladas por sub-estado» metía Desierta/Revocada en «Cerrada sin apertura» / «Con apertura,
+  sin marcar» → sub-estado propio «Desierta / revocada» (19 en dev = 10 revocadas + 9 desiertas, suma 331); la API
+  manda `adjEstado` (texto de `adjudicacion_cache.estado`, el mismo de Postuladas). Visto en navegador a 1366 px.
+  No hay navegación con filtros a `/negocios` ni `/radar` desde los gráficos: esas pantallas no leen parámetros de la
+  URL (si se quiere «clic en etapa → Negocios filtrado», hay que enseñarles `?estado=`).
+
+- **licitank-ui aplicada a `/dashboard` + revisión de cifras** (2026-11-20, pedido del dueño: «datos exactos, nada errado
+  ni inventado»). OJO: el Dashboard real es `app/dashboard/page.tsx`; `app/page.tsx` es el **Buscador** (en la primera
+  lista lo rotulé mal). Front: `Encabezado`, `Indicador` (ahora con `info` = ficha «cómo se calcula» y `href`), `Dona`
+  nueva en `kit/Dona.tsx` (torta con título que dice qué mide, total al centro, leyenda con cantidad y %), barras con
+  cantidad y %, MAYÚSCULAS y `font-black` fuera de `AnaliticaGestion`, `@container`, estados con punto. Se quitaron 2
+  gráficos que repetían datos («Negocios en trabajo» torta = «Negocios por etapa» barras; torta «Asignadas por perfil» =
+  «Seguimiento por perfil»). **Cifras corregidas:** (1) «Distribución de viabilidad» solo contaba el semáforo antiguo:
+  en producción 29 de 71 analizadas eran solo v4 y no salían → ahora manda `nivel_atractivo` y cae al semáforo
+  («escala anterior»); (2) «Negocios en trabajo» incluía ganados, perdidos, desiertos y revocados → se llama «Negocios
+  por etapa» y lo dice; (3) «Próximos cierres» del usuario contaba las 6 filas del listado (máx. 6) → total real
+  (`proximosCierresTotal`; dev 13, prod 26); (4) días al cierre con `Math.ceil` («1d» cuando cierra hoy) → días de
+  calendario de Chile («Hoy», «Mañana», «Jueves 24»); (5) tendencia omitía los días sin detecciones → 14 días completos
+  con 0; (6) montos «$3.0B» → «$3.011 MM»; (7) **analítica**: «Éxito competitivo» daba 25 % (71 de 284) porque contaba
+  Desierta/Revocada como perdidas y no respetaba la readjudicación manual → ahora 27 % (72 de 264) y «Monto neto real»
+  $1.930.227.812, IGUAL que Postuladas (regla del dueño: Desierta/Revocada no entran a la efectividad). Buscador
+  (`app/page.tsx`): se quitaron «850 organismos» y «118.000+ proveedores», cifras escritas a mano que nadie calculaba.
+  Verificado contra la BD con `scripts/scratch/_dashboard_cifras.mjs` (solo lectura; 2º argumento `dev` = BD Docker :3308,
+  la que usa el servidor local; sin él = VPS por túnel 3307): radar 174, sin asignar 17, usuarios 72/84, prefiltro
+  34/116/23, negocios por etapa (suma 484) y viabilidad 13 coinciden. Visto en navegador a 1366 px, claro. Sin ver:
+  800 px, modo oscuro, vista de usuario no admin. **Pendiente:** el bloque «Pipeline y desempeño» de `AnaliticaGestion`
+  arranca con filtro «Estado 5» preseleccionado y muestra 0 / $0 (confunde); sus sub-estados ahora cuentan Desierta/
+  Revocada dentro de «Cerrada sin apertura / Con apertura sin marcar» (falta un sub-estado propio); `AnaliticaGestion`
+  sigue sin rediseño completo; colores de etapa (`pipeline.ts`) siguen con morado/índigo; el desarrollo local usa datos
+  de prueba (63 de 72 «usuarios activos» son @sim/@licitank.test) — en producción son 9 de 21.
+
+- **licitank-ui aplicada a `/postuladas`** (2026-11-20, pedido del dueño: probar la skill nueva en una pantalla de uso
+  diario). Solo lo visual en `app/postuladas/page.tsx`, misma API, filtros y lógica. Encabezado con `Encabezado`
+  (Exportar + buscador h-9); KPIs con `Indicador` dentro de `Lista` (4 + los de desierta/revocada/suspendida solo si
+  hay); resultado como `Pestanas` con contador (pierden el color por pestaña); filtros con `Boton`, rótulos sin
+  MAYÚSCULAS, filtros activos como chips neutros (punto de color donde significa algo). Tarjeta de cada postulada:
+  sin barra de color lateral, sin cajas dentro de cajas, estado/apertura/fechas como texto con punto o ícono gris,
+  «Nosotros» en verde sin MAYÚSCULAS, datos con `Dato`, formulario de edición con campos h-9 y «Guardar cambios /
+  Guardando…», documentos propios como filas, índigo/violeta → teal, `font-bold/black` → `font-semibold`, se quitó el
+  `<style>` con `pp-pulse` y degradados, carga con `TarjetaCargando`, vacío con `Vacio`, error con `Banner`, grillas
+  por `@container`. `tsc` sin errores nuevos; eslint sin avisos nuevos (quedan los `any` y `set-state-in-effect` que
+  ya existían). Falta que el dueño la apruebe. Siguiente candidata: Dashboard.
+  **Ajuste (2026-11-20, el dueño vio capturas):** las líneas de tendencia dentro de los indicadores se sacaron
+  («no sacamos nada de poner un gráfico si no se entiende a qué se refiere»). Ahora arriba va una **torta** con
+  título «Resultado de las N postuladas», efectividad al centro, leyenda con cantidad y % y nota de cómo se calcula;
+  la leyenda filtra la lista como las pestañas; a la derecha 4 indicadores (Ganadas, Perdidas, En evaluación, Monto
+  ganado). Regla: todo gráfico lleva título que diga qué mide, leyenda con números y una línea de cómo se calcula.
+  Fila de la tarjeta: resultado bajo el título, fechas a la derecha, monto con línea separadora, organismo solo si
+  existe; detalle sin datos vacíos y con barra «oferta frente al presupuesto». **Visto en navegador** (panel de
+  Claude, sesión del dueño) a 1366 y 800 px, modo claro, sin errores de consola; modo oscuro sin ver.
+
+- **Skill licitank-ui ampliada + Figma** (2026-11-20, pedido del dueño): se agregaron formularios, tablas, avisos,
+  textos y formatos chilenos, accesibilidad, escalas fijas de espacios/esquinas/íconos y un ejemplo antes/después;
+  se resolvieron contradicciones (bento con `@container`, cuándo `rounded-xl` vs `2xl`, maqueta solo para pantallas
+  nuevas). Roboto ahora carga 600 en `app/layout.tsx`; `--color-primary` (sin usos) pasó de índigo a teal.
+  Figma «LICITANK — Sistema de diseño»: https://www.figma.com/design/2cFgWOJU5Ww4j9bnvFbngd (componentes solo
+  en claro por el plan Starter). No visto en navegador.
+
 - **licitank-ui aplicada a `/aprobaciones`** (2026-11-13, pedido del dueño: «poco intuitivo para aprobar lo que mandan
   Negocios o Compras»). Solo lo visual, misma API y mismas acciones. Tarjeta de licitación
   (`TarjetaNegocioAprobacion.tsx`): arriba dice «Falta tu visto bueno en Técnico/Comercial»; los bloques son filas

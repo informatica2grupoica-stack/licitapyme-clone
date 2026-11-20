@@ -33,12 +33,23 @@ import { useConfirm } from '@/app/components/ui/confirm';
 import { useToast } from '@/app/components/ui/toast';
 import { ChipsOc } from '@/app/components/OcChips';
 import { Select } from '@/app/components/ui/Select';
-import { StatCard } from '@/app/components/ui/StatCard';
+import { motion } from 'framer-motion';
+import { Lista } from '@/app/components/ui/kit/Aparecer';
+import { item } from '@/app/components/ui/kit/movimiento';
+import { Boton } from '@/app/components/ui/kit/Boton';
+import { Dato, Estado } from '@/app/components/ui/kit/Tarjeta';
+import { Indicador } from '@/app/components/ui/kit/Indicador';
+import { Pestanas } from '@/app/components/ui/kit/Pestanas';
+import { Encabezado, TarjetaCargando, Vacio } from '@/app/components/ui/kit/Estructura';
+import { Banner } from '@/app/components/ui/Banner';
 import { MultiSelect } from '@/app/components/ui/MultiSelect';
-import { IconSend as Send, IconExternalLink as ExternalLink, IconBuilding as Building2, IconCalendar as Calendar, IconLoader2 as Loader2, IconInbox as Inbox, IconFileText as FileText, IconAward as Award, IconTrophy as Trophy, IconUsers as Users, IconFileCheck as FileCheck2, IconChevronDown as ChevronDown, IconChevronUp as ChevronUp, IconPencil as Pencil, IconTrash as Trash2, IconArrowBackUp as Undo2, IconX as X, IconDeviceFloppy as Save, IconWallet as Wallet, IconCircleCheck as CheckCircle2, IconCircleX as XCircle, IconHourglass as Hourglass, IconDoorExit as DoorOpen, IconDoorEnter as DoorClosed, IconSearch as Search, IconArrowsUpDown as ArrowUpDown, IconDownload as Download, IconBan as Ban, IconBan as CircleSlash, IconPlayerPause as PauseCircle, IconTag as Tag, IconAdjustmentsHorizontal as SlidersHorizontal, IconCurrencyDollar as DollarSign } from '@tabler/icons-react';
+import { IconSend as Send, IconExternalLink as ExternalLink, IconBuilding as Building2, IconCalendar as Calendar, IconLoader2 as Loader2, IconInbox as Inbox, IconFileText as FileText, IconAward as Award, IconTrophy as Trophy, IconUsers as Users, IconFileCheck as FileCheck2, IconChevronDown as ChevronDown, IconChevronUp as ChevronUp, IconPencil as Pencil, IconTrash as Trash2, IconArrowBackUp as Undo2, IconX as X, IconCircleX as XCircle, IconHourglass as Hourglass, IconDoorExit as DoorOpen, IconDoorEnter as DoorClosed, IconSearch as Search, IconArrowsUpDown as ArrowUpDown, IconDownload as Download, IconBan as Ban, IconBan as CircleSlash, IconPlayerPause as PauseCircle, IconTag as Tag, IconAdjustmentsHorizontal as SlidersHorizontal, IconCurrencyDollar as DollarSign } from '@tabler/icons-react';
 import dayjs from 'dayjs';
 
 const ESTADO_POSTULADA = 'POSTULADA';
+
+// Filtro activo: texto con botón de quitar, sin pastilla de color (skill licitank-ui).
+const CHIP_FILTRO = 'inline-flex items-center gap-1.5 h-7 rounded-lg border border-linea bg-white px-2 text-xs font-medium text-tinta-2 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800';
 
 // Desierta/Revocada/Suspendida son estados TERMINALES-o-pausados de Mercado Público que NO
 // implican que perdimos frente a un competidor real — separarlos de 'perdida' es el punto
@@ -171,64 +182,58 @@ const META: Record<Resultado, {
   },
 };
 
-// ── Badge de resultado (con animación) ────────────────────────────────────────
-function ResultadoBadge({ r, pulso }: { r: Resultado; pulso?: boolean }) {
-  const m = META[r];
-  const Icon = m.icon;
+// ── Resultado: texto con punto de color (skill licitank-ui, sin pastilla) ─────
+function ResultadoEstado({ r }: { r: Resultado }) {
   return (
-    <span
-      className="pp-badge inline-flex items-center gap-1 text-[10.5px] px-2 py-0.5 rounded-full font-bold border"
-      style={{ backgroundColor: m.color + '16', color: m.color, borderColor: m.color + '3d' }}
-    >
-      {pulso && <span className="pp-pulse" style={{ background: m.color }} />}
-      <Icon size={11} /> {m.label}
+    <span className="text-xs font-medium text-tinta dark:text-slate-100">
+      <Estado color={META[r].color}>{META[r].label}</Estado>
     </span>
   );
 }
 
-// ── Chip de apertura (detectado leyendo el portal de MP) ──────────────────────
-// Verde "Aperturada" cuando el poster ya vio el acto de apertura; gris "Sin apertura"
-// mientras no. El estado lo trae /api/negocios desde la tabla licitacion_apertura.
+// ── Apertura (detectada leyendo el portal de MP) ──────────────────────────────
+// "Aperturada" cuando el poller ya vio el acto de apertura; "Sin apertura" mientras no.
+// El estado lo trae /api/negocios desde la tabla licitacion_apertura.
 function AperturaChip({ aperturada }: { aperturada: boolean }) {
-  return aperturada ? (
-    <span className="inline-flex items-center gap-1 text-[10.5px] px-2 py-0.5 rounded-full font-bold border bg-sky-50 text-sky-700 border-sky-200"
-      title="Mercado Público ya realizó el acto de apertura de esta licitación">
-      <DoorOpen size={11} /> Aperturada
-    </span>
-  ) : (
-    <span className="inline-flex items-center gap-1 text-[10.5px] px-2 py-0.5 rounded-full font-medium border bg-slate-100 text-slate-400 border-slate-200"
-      title="Aún sin acto de apertura en Mercado Público">
-      <DoorClosed size={11} /> Sin apertura
+  return (
+    <span className="inline-flex items-center gap-1 text-xs text-tinta-2 dark:text-slate-400"
+      title={aperturada
+        ? 'Mercado Público ya realizó el acto de apertura de esta licitación'
+        : 'Aún sin acto de apertura en Mercado Público'}>
+      {aperturada
+        ? <DoorOpen size={14} stroke={1.75} className="text-slate-400" />
+        : <DoorClosed size={14} stroke={1.75} className="text-slate-400" />}
+      {aperturada ? 'Aperturada' : 'Sin apertura'}
     </span>
   );
 }
 
-// ── Chip de FECHA DE POSTULACIÓN ──────────────────────────────────
+// ── FECHA DE POSTULACIÓN ──────────────────────────────────────────
 // Cuándo se postuló (se sella al pasar a POSTULADA, migración 76). Las postuladas
 // anteriores a la migración no tienen el dato: se muestra "—" en vez de inventar una fecha.
 function FechaPostulacionChip({ iso }: { iso?: string | null }) {
   const d = iso ? dayjs(iso) : null;
   if (!d || !d.isValid()) {
     return (
-      <span className="inline-flex items-center gap-1 text-[11px] font-medium border rounded-full px-2 py-0.5 bg-slate-50 border-slate-200 text-slate-400"
+      <span className="inline-flex items-center gap-1 text-xs text-tinta-2 dark:text-slate-400"
         title="No hay registro de la fecha de postulación (anterior al registro automático)">
-        <Send size={11} /> Postulada —
+        <Send size={14} stroke={1.75} className="text-slate-400" /> Postulada —
       </span>
     );
   }
   return (
-    <span className="inline-flex items-center gap-1 text-[11px] font-semibold border rounded-full px-2 py-0.5 bg-indigo-50 border-indigo-200 text-indigo-700"
+    <span className="inline-flex items-center gap-1 text-xs text-tinta-2 tabular-nums dark:text-slate-400"
       title={`Se postuló el ${d.format('DD/MM/YYYY')} a las ${d.format('HH:mm')}`}>
-      <Send size={11} /> Postulada {d.format('DD/MM/YYYY')}
+      <Send size={14} stroke={1.75} className="text-slate-400" /> Postulada {d.format('DD/MM/YYYY')}
     </span>
   );
 }
 
-// ── Chip de FECHA DE ADJUDICACIÓN ─────────────────────────────────────────────
+// ── FECHA DE ADJUDICACIÓN ─────────────────────────────────────────────────────
 // La info que el usuario más pide en Postuladas: ¿cuándo se decide cada una? Si ya se
 // adjudicó, muestra la fecha real; si sigue en evaluación, la ESTIMADA de la ficha MP con
 // el "en X días" para saber de un vistazo cuál se resuelve antes. El color sube de tono a
-// medida que se acerca (o si ya se pasó la fecha estimada sin resultado).
+// medida que se acerca (o si ya se pasó la fecha estimada sin resultado); siempre con texto.
 function FechaAdjChip({ adj }: { adj: Adjudicacion | null }) {
   if (!adj) return null;
   const iso = adj.esAdjudicada ? adj.fechaAdjudicacion : adj.fechaEstimadaAdjudicacion;
@@ -238,22 +243,21 @@ function FechaAdjChip({ adj }: { adj: Adjudicacion | null }) {
 
   if (adj.esAdjudicada) {
     return (
-      <span className="inline-flex items-center gap-1 text-[11px] font-semibold border rounded-full px-2 py-0.5 bg-emerald-50 border-emerald-200 text-emerald-800"
+      <span className="inline-flex items-center gap-1 text-xs text-tinta-2 tabular-nums dark:text-slate-400"
         title={`Fecha de adjudicación: ${d.format('DD/MM/YYYY')}`}>
-        <Award size={11} /> Adjudicada {d.format('DD/MM/YYYY')}
+        <Award size={14} stroke={1.75} className="text-slate-400" /> Adjudicada {d.format('DD/MM/YYYY')}
       </span>
     );
   }
   const dias = d.startOf('day').diff(dayjs().startOf('day'), 'day');
   const rel = dias < 0 ? `atrasada ${-dias} d` : dias === 0 ? 'hoy' : dias === 1 ? 'mañana' : `en ${dias} días`;
-  const tono = dias < 0 ? 'bg-rose-50 border-rose-200 text-rose-700'
-    : dias <= 3 ? 'bg-orange-50 border-orange-200 text-orange-800'
-    : dias <= 10 ? 'bg-sky-50 border-sky-200 text-sky-800'
-    : 'bg-slate-50 border-slate-200 text-slate-600';
+  const tono = dias < 0 ? 'text-urgente font-medium'
+    : dias <= 3 ? 'text-alerta font-medium'
+    : 'text-tinta-2 dark:text-slate-400';
   return (
-    <span className={`inline-flex items-center gap-1 text-[11px] font-semibold border rounded-full px-2 py-0.5 ${tono}`}
+    <span className={`inline-flex items-center gap-1 text-xs tabular-nums ${tono}`}
       title={`Fecha estimada de adjudicación (ficha de Mercado Público): ${d.format('DD/MM/YYYY HH:mm')}`}>
-      <Hourglass size={11} /> Se decide {d.format('DD/MM/YYYY')} · {rel}
+      <Hourglass size={14} stroke={1.75} /> Se decide {d.format('DD/MM/YYYY')} · {rel}
     </span>
   );
 }
@@ -295,124 +299,103 @@ function BloqueAdjudicacion({ adj }: { adj: Adjudicacion }) {
   const [abierto, setAbierto] = useState(!ganamos);
 
   return (
-    <div className="mt-3 pt-3 border-t border-slate-100">
-      <div className="rounded-xl border p-3" style={{ borderColor: acc.color + '33', background: acc.color + '0c' }}>
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full border"
-            style={{ color: acc.color, background: acc.color + '18', borderColor: acc.color + '33' }}>
-            {ganamos ? <Trophy size={11} /> : <Award size={11} />}
+    <div className="mt-4 pt-4 border-t border-linea dark:border-slate-800">
+      <div className="flex items-center gap-x-4 gap-y-1 flex-wrap text-xs text-tinta-2 dark:text-slate-400">
+        <span className="text-[13px] font-semibold text-tinta dark:text-slate-100">
+          <Estado color={acc.color}>
             {ganamos ? `Ganamos ${nuestras} línea${nuestras !== 1 ? 's' : ''}` : 'Adjudicada a terceros'}
+          </Estado>
+        </span>
+        {adj.fechaAdjudicacion && (
+          <span className="inline-flex items-center gap-1">
+            <Calendar size={14} stroke={1.75} className="text-slate-400" /> {dayjs(adj.fechaAdjudicacion).format('DD/MM/YYYY')}
           </span>
-          {adj.fechaAdjudicacion && (
-            <span className="inline-flex items-center gap-1 text-[11px] text-slate-500">
-              <Calendar size={11} /> {dayjs(adj.fechaAdjudicacion).format('DD/MM/YYYY')}
-            </span>
-          )}
-          {meta?.numeroOferentes != null && (
-            <span className="inline-flex items-center gap-1 text-[11px] text-slate-500">
-              <Users size={11} /> {meta.numeroOferentes} oferente{meta.numeroOferentes !== 1 ? 's' : ''}
-            </span>
-          )}
-          {meta?.numeroResolucion && (
-            <span className="text-[11px] text-slate-500">Res. N° {meta.numeroResolucion}</span>
-          )}
-        </div>
+        )}
+        {meta?.numeroOferentes != null && (
+          <span className="inline-flex items-center gap-1">
+            <Users size={14} stroke={1.75} className="text-slate-400" /> {meta.numeroOferentes} oferente{meta.numeroOferentes !== 1 ? 's' : ''}
+          </span>
+        )}
+        {meta?.numeroResolucion && <span>Res. N° {meta.numeroResolucion}</span>}
+      </div>
 
-        {/* Resumen por ganador (siempre visible): quién se adjudicó, RUT, líneas y monto */}
-        {ganadores.length > 0 && (
-          <div className="mt-2.5 space-y-1.5">
-            <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
-              {ganadores.length === 1 ? 'Adjudicado a' : `Adjudicado a ${ganadores.length} proveedores`}
-            </p>
+      {/* Resumen por ganador (siempre visible): quién se adjudicó, RUT, líneas y monto */}
+      {ganadores.length > 0 && (
+        <div className="mt-3">
+          <p className="text-[11px] text-tinta-2 dark:text-slate-400">
+            {ganadores.length === 1 ? 'Adjudicado a' : `Adjudicado a ${ganadores.length} proveedores`}
+          </p>
+          <ul className="mt-1 divide-y divide-linea dark:divide-slate-800">
             {ganadores.map((g, i) => (
-              <div key={i}
-                className={`flex items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 border ${
-                  g.esNuestra ? 'bg-emerald-50 border-emerald-200' : 'bg-white border-slate-200'
-                }`}>
+              <li key={i} className="flex items-center justify-between gap-3 py-2">
                 <div className="min-w-0">
-                  <p className={`text-[12px] font-semibold truncate ${g.esNuestra ? 'text-emerald-800' : 'text-slate-700'}`}
-                    title={g.proveedor}>
-                    {g.esNuestra
-                      ? <CheckCircle2 size={11} className="inline mr-1 -mt-0.5 text-emerald-600" />
-                      : <Building2 size={10} className="inline mr-1 text-slate-400" />}
+                  <p className="text-[13px] font-medium text-tinta truncate dark:text-slate-100" title={g.proveedor}>
                     {g.proveedor}
-                    {g.esNuestra && <span className="ml-1.5 text-[8.5px] font-black tracking-wide text-emerald-600 uppercase">Nosotros</span>}
+                    {g.esNuestra && <span className="ml-2 text-xs font-medium text-exito">Nosotros</span>}
                   </p>
-                  <p className="text-[10.5px] text-slate-500">
+                  <p className="text-xs text-tinta-2 dark:text-slate-400">
                     {g.rut ? g.rut : 'RUT no informado'} · {g.lineas} línea{g.lineas !== 1 ? 's' : ''}
                   </p>
                 </div>
-                <span className="text-[12.5px] font-bold text-slate-800 whitespace-nowrap">{fmtCLP(g.monto)}</span>
-              </div>
+                <span className="text-[13px] font-semibold text-tinta tabular-nums whitespace-nowrap dark:text-slate-100">{fmtCLP(g.monto)}</span>
+              </li>
             ))}
-          </div>
-        )}
+          </ul>
+        </div>
+      )}
 
-        {lineas.length > 0 && (
-          <>
-            <button
-              onClick={() => setAbierto(o => !o)}
-              className="mt-2.5 inline-flex items-center gap-1 text-[11.5px] font-semibold text-slate-600 hover:text-slate-800 transition-colors"
-            >
-              {abierto ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
-              {abierto ? 'Ocultar' : 'Ver'} adjudicación por línea ({lineas.length})
-            </button>
-            {abierto && (
-              <div className="pp-lines mt-2 space-y-1.5">
-                {lineas.map((l, i) => {
-                  const totalLinea = (Number(l.montoUnitario) || 0) * (Number(l.cantidad) || 1);
-                  return (
-                  <div key={i}
-                    className={`flex items-start justify-between gap-2 rounded-lg px-2.5 py-1.5 border transition-colors ${
-                      l.esNuestra ? 'bg-emerald-50 border-emerald-200' : 'bg-white border-slate-200'
-                    }`}>
+      {lineas.length > 0 && (
+        <>
+          <Boton tamano="sm" variante="fantasma" className="mt-2 -ml-2" onClick={() => setAbierto(o => !o)} aria-expanded={abierto}
+            icono={abierto ? <ChevronUp size={16} stroke={1.75} /> : <ChevronDown size={16} stroke={1.75} />}>
+            {abierto ? 'Ocultar' : 'Ver'} adjudicación por línea ({lineas.length})
+          </Boton>
+          {abierto && (
+            <ul className="mt-1 divide-y divide-linea dark:divide-slate-800">
+              {lineas.map((l, i) => {
+                const totalLinea = (Number(l.montoUnitario) || 0) * (Number(l.cantidad) || 1);
+                return (
+                  <li key={i} className="flex items-start justify-between gap-3 py-2">
                     <div className="min-w-0">
-                      <p className="text-[11.5px] font-medium text-slate-700 truncate" title={l.producto || l.descripcion}>
+                      <p className="text-[13px] font-medium text-tinta truncate dark:text-slate-100" title={l.producto || l.descripcion}>
                         {l.correlativo ? `${l.correlativo}. ` : ''}{l.producto || l.descripcion || `Línea ${l.correlativo ?? i + 1}`}
                       </p>
-                      <p className={`text-[10.5px] truncate ${l.esNuestra ? 'text-emerald-700 font-semibold' : 'text-slate-500'}`}
+                      <p className="text-xs text-tinta-2 truncate dark:text-slate-400"
                         title={`${l.proveedor || ''} ${l.rutProveedor || ''}`}>
-                        {l.esNuestra
-                          ? <CheckCircle2 size={10} className="inline mr-0.5 -mt-0.5" />
-                          : <Award size={9} className="inline mr-0.5" />}
                         {l.proveedor || 'Proveedor adjudicado'}
                         {l.rutProveedor ? ` · ${l.rutProveedor}` : ''}
+                        {l.esNuestra && <span className="ml-2 font-medium text-exito">Nosotros</span>}
                       </p>
                     </div>
                     <div className="text-right whitespace-nowrap">
-                      {l.esNuestra && (
-                        <span className="block text-[8.5px] font-black tracking-wide text-emerald-600 uppercase">Nosotros</span>
-                      )}
-                      <span className="text-[11.5px] font-bold text-slate-800">{fmtCLP(totalLinea)}</span>
+                      <span className="block text-[13px] font-semibold text-tinta tabular-nums dark:text-slate-100">{fmtCLP(totalLinea)}</span>
                       {l.cantidad != null && (
-                        <span className="block text-[9.5px] text-slate-400">
+                        <span className="block text-xs text-tinta-2 tabular-nums dark:text-slate-400">
                           {l.cantidad} {l.unidad || 'u'} × {fmtCLP(l.montoUnitario)}
                         </span>
                       )}
                     </div>
-                  </div>
-                  );
-                })}
-              </div>
-            )}
-          </>
-        )}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </>
+      )}
 
-        {meta?.urlActa && (
-          <a href={meta.urlActa} target="_blank" rel="noopener noreferrer"
-            className="mt-2.5 inline-flex items-center gap-1.5 text-[11.5px] font-semibold hover:underline"
-            style={{ color: acc.color }}>
-            <FileCheck2 size={12} /> Ver acta de adjudicación <ExternalLink size={11} />
-          </a>
-        )}
-      </div>
+      {meta?.urlActa && (
+        <a href={meta.urlActa} target="_blank" rel="noopener noreferrer"
+          className="mt-3 inline-flex items-center gap-1.5 text-[13px] font-medium text-marca hover:underline">
+          <FileCheck2 size={16} stroke={1.75} /> Ver acta de adjudicación <ExternalLink size={14} stroke={1.75} />
+        </a>
+      )}
     </div>
   );
 }
 
 // ── Tarjeta de una postulada ──────────────────────────────────────────────────
-function PostuladaCard({ n, adj, cargandoAdj, docsIniciales, index, isAdmin, empresas, onRevertida, onActualizada }: {
-  n: Negocio; adj: Adjudicacion | null; cargandoAdj: boolean; docsIniciales: DocCache[]; index: number;
+function PostuladaCard({ n, adj, cargandoAdj, docsIniciales, isAdmin, empresas, onRevertida, onActualizada }: {
+  n: Negocio; adj: Adjudicacion | null; cargandoAdj: boolean; docsIniciales: DocCache[];
   isAdmin: boolean; empresas: EmpresaOpc[];
   onRevertida: (id: number) => void;
   onActualizada: (id: number, patch: { monto_ofertado?: number; estado_pipeline?: string; empresa_id?: number | null; empresa_nombre?: string | null }) => void;
@@ -429,7 +412,6 @@ function PostuladaCard({ n, adj, cargandoAdj, docsIniciales, index, isAdmin, emp
   const toast = useToast();
 
   const r = resultadoDe(adj);
-  const m = META[r];
 
   // Los documentos propios llegan ya resueltos desde el padre (una sola llamada batch).
   useEffect(() => { setDocs(docsIniciales); }, [docsIniciales]);
@@ -500,203 +482,264 @@ function PostuladaCard({ n, adj, cargandoAdj, docsIniciales, index, isAdmin, emp
     }
   };
 
-  // Métrica derecha según resultado.
+  // Métrica del resultado (solo se muestra si ya se adjudicó).
   const metricaResultado = r === 'ganada'
-    ? { label: 'Ganamos', valor: fmtCLP(adj?.montoNuestro), cls: 'bg-emerald-50 border-emerald-200 text-emerald-800', sub: 'text-emerald-700' }
-    : r === 'perdida'
-    ? { label: 'Adjudicado (total)', valor: fmtCLP(adj?.montoAdjudicadoTotal), cls: 'bg-rose-50 border-rose-200 text-rose-800', sub: 'text-rose-700' }
-    : { label: 'Postulamos con', valor: fmtCLP(n.monto_ofertado), cls: 'bg-amber-50 border-amber-200 text-amber-800', sub: 'text-amber-700' };
+    ? { label: 'Ganamos', valor: fmtCLP(adj?.montoNuestro) }
+    : { label: 'Adjudicado (total)', valor: fmtCLP(adj?.montoAdjudicadoTotal) };
+
+  const cancelarEdicion = () => {
+    setEditando(false);
+    setMontoEdit(n.monto_ofertado ? String(n.monto_ofertado) : '');
+    setEstadoEdit(n.estado_pipeline || ESTADO_POSTULADA);
+    setEmpresaEdit(n.empresa_id ? String(n.empresa_id) : '');
+  };
 
   return (
-    <div className="group relative bg-white border border-slate-200 rounded-xl overflow-hidden hover:border-slate-300 transition-colors">
-      {/* Barra de color por resultado */}
-      <span className="absolute left-0 top-0 bottom-0 w-1" style={{ background: m.color }} />
-
+    <motion.div variants={item}
+      className="group bg-white border border-linea rounded-xl shadow-tarjeta transition-shadow duration-150 ease-lk hover:shadow-tarjeta-hover dark:bg-slate-900 dark:border-slate-800">
       {/* ── FILA COMPACTA (siempre visible; clic para expandir) ─────────────── */}
-      <div className="flex items-center gap-3 py-2.5 pl-4 pr-3 cursor-pointer select-none"
-        onClick={() => setExpandido(e => !e)}>
-        <ChevronDown size={15} className={`flex-shrink-0 text-slate-300 transition-transform ${expandido ? 'rotate-180' : ''}`} />
+      <div role="button" tabIndex={0} aria-expanded={expandido}
+        className="flex items-center gap-3 px-4 py-3 cursor-pointer select-none rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marca/60"
+        onClick={() => setExpandido(e => !e)}
+        onKeyDown={e => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); setExpandido(v => !v); } }}>
+        <ChevronDown size={16} stroke={1.75} className={`flex-shrink-0 text-slate-400 transition-transform ${expandido ? 'rotate-180' : ''}`} />
 
-        {/* Identidad: código + título + organismo */}
+        {/* Identidad: código + título; debajo el resultado y quién la lleva */}
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 min-w-0">
-            <span className="text-[10.5px] font-mono font-semibold text-slate-400 flex-shrink-0">{n.licitacion_codigo}</span>
-            <h3 className="text-[13px] font-semibold text-slate-800 truncate">{n.licitacion_nombre || 'Sin nombre'}</h3>
+            <span className="text-xs font-mono text-tinta-2 flex-shrink-0 dark:text-slate-400">{n.licitacion_codigo}</span>
+            <h3 className="text-sm font-semibold text-tinta truncate dark:text-slate-100">{n.licitacion_nombre || 'Sin nombre'}</h3>
             {r === 'ganada' && <ChipsOc codigos={adj?.ocCodigos} />}
           </div>
-          <div className="flex items-center gap-2 mt-0.5 text-[11px] text-slate-400">
-            <span className="inline-flex items-center gap-1 min-w-0"><Building2 size={11} className="flex-shrink-0" /><span className="truncate max-w-[220px]">{n.licitacion_organismo || '—'}</span></span>
-            {isAdmin && (n.usuario_nombre || n.usuario_email) && (
-              <span className="inline-flex items-center gap-1 flex-shrink-0" title={n.usuario_nombre || n.usuario_email}>
-                <span style={{ background: perfilCol }} className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full text-white text-[7px] font-bold">
-                  {inicialesUsuario(n.usuario_nombre, n.usuario_email)}
-                </span>
+          <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-tinta-2 dark:text-slate-400">
+            {!cargandoAdj && <ResultadoEstado r={r} />}
+            {n.licitacion_organismo && (
+              <span className="inline-flex items-center gap-1 min-w-0">
+                <Building2 size={14} stroke={1.75} className="flex-shrink-0 text-slate-400" />
+                <span className="truncate max-w-[260px]">{n.licitacion_organismo}</span>
               </span>
             )}
-          </div>
-        </div>
-
-        {/* Estado + fecha de decisión (lo que se ordena) */}
-        <div className="hidden sm:flex flex-col items-end gap-1 flex-shrink-0">
-          <FechaPostulacionChip iso={n.postulada_en} />
-          {!cargandoAdj && <FechaAdjChip adj={adj} />}
-          <div className="flex items-center gap-1.5">
+            {isAdmin && (n.usuario_nombre || n.usuario_email) && (
+              <span className="inline-flex items-center gap-1.5 min-w-0" title={n.usuario_nombre || n.usuario_email}>
+                <span style={{ background: perfilCol }} className="inline-flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full text-[10px] font-semibold text-white">
+                  {inicialesUsuario(n.usuario_nombre, n.usuario_email)}
+                </span>
+                <span className="truncate max-w-[160px]">{n.usuario_nombre || n.usuario_email}</span>
+              </span>
+            )}
             {n.aperturada ? <AperturaChip aperturada /> : null}
-            {!cargandoAdj && <ResultadoBadge r={r} pulso={r === 'ganada'} />}
           </div>
         </div>
 
-        {/* Monto ofertado (columna fija) */}
-        <div className="hidden md:block text-right flex-shrink-0 w-[104px]">
-          <p className="text-[9.5px] uppercase tracking-wide text-slate-400">Ofertamos</p>
-          <p className="text-[12.5px] font-bold text-slate-700 truncate">{fmtCLP(n.monto_ofertado)}</p>
+        {/* Fechas (lo que se ordena): cuándo se decide y cuándo se postuló */}
+        <div className="hidden @2xl:flex flex-col items-end gap-1 flex-shrink-0">
+          {!cargandoAdj && <FechaAdjChip adj={adj} />}
+          <FechaPostulacionChip iso={n.postulada_en} />
+        </div>
+
+        {/* Monto ofertado (columna fija, separada por una línea) */}
+        <div className="hidden @4xl:block flex-shrink-0 w-[132px] border-l border-linea pl-4 text-right dark:border-slate-800">
+          <p className="text-[11px] text-tinta-2 dark:text-slate-400">Ofertamos</p>
+          <p className="text-sm font-semibold text-tinta tabular-nums truncate dark:text-slate-100">{fmtCLP(n.monto_ofertado)}</p>
         </div>
 
         {/* Acciones (no propagan el clic de expandir) */}
         <div className="flex items-center gap-0.5 flex-shrink-0" onClick={e => e.stopPropagation()}>
           {isAdmin && (
             <>
-              <button onClick={() => { setEditando(true); setExpandido(true); }} title="Editar monto y estado"
-                className="inline-flex items-center text-slate-300 hover:text-indigo-600 p-1.5 rounded-lg hover:bg-indigo-50 transition-colors opacity-0 group-hover:opacity-100">
-                <Pencil size={13} />
+              <button onClick={() => { setEditando(true); setExpandido(true); }} title="Editar monto y estado" aria-label="Editar monto y estado"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-tinta opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marca/60 dark:hover:bg-slate-800">
+                <Pencil size={16} stroke={1.75} />
               </button>
-              <button onClick={revertir} title="Quitar de Postuladas (vuelve a En proceso)"
-                className="inline-flex items-center text-slate-300 hover:text-rose-600 p-1.5 rounded-lg hover:bg-rose-50 transition-colors opacity-0 group-hover:opacity-100">
-                <Undo2 size={13} />
+              <button onClick={revertir} title="Quitar de Postuladas (vuelve a En proceso)" aria-label="Quitar de Postuladas"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-red-50 hover:text-urgente opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marca/60 dark:hover:bg-red-950/40">
+                <Undo2 size={16} stroke={1.75} />
               </button>
             </>
           )}
           <Link href={`/licitacion/${encodeURIComponent(n.licitacion_codigo)}`}
-            className="inline-flex items-center gap-1 text-[12px] font-semibold text-indigo-600 hover:text-indigo-700 px-1.5 py-1 rounded-lg hover:bg-indigo-50">
-            Ver <ExternalLink size={12} />
+            className="inline-flex h-8 items-center gap-1 rounded-lg px-2 text-[13px] font-medium text-marca transition-colors hover:bg-marca-suave focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marca/60">
+            Ver <ExternalLink size={14} stroke={1.75} />
           </Link>
         </div>
       </div>
 
-      {/* En móvil, la fecha de decisión no cabe en la fila → se muestra bajo el título */}
-      <div className="sm:hidden flex items-center gap-2 flex-wrap px-4 pb-2 -mt-1">
-        <FechaPostulacionChip iso={n.postulada_en} />
+      {/* Con poco ancho, las fechas no caben en la fila → se muestran bajo el título */}
+      <div className="@2xl:hidden flex items-center gap-x-4 gap-y-1 flex-wrap px-4 pb-3 -mt-1">
         {!cargandoAdj && <FechaAdjChip adj={adj} />}
-        {!cargandoAdj && <ResultadoBadge r={r} pulso={r === 'ganada'} />}
+        <FechaPostulacionChip iso={n.postulada_en} />
       </div>
 
       {/* ── DETALLE (acordeón) ──────────────────────────────────────────────── */}
       {expandido && (
-      <div className="px-4 pb-4 pt-1 border-t border-slate-100">
-      {n.empresa_nombre && (
-        <span className="inline-flex items-center gap-1 mb-3 mt-2 text-[11px] font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-full px-2 py-0.5">
-          <Building2 size={11} /> {n.empresa_nombre}
-        </span>
-      )}
+      <div className="px-4 pb-4 pt-3 border-t border-linea dark:border-slate-800">
+        <dl className={`grid grid-cols-2 gap-x-4 gap-y-3 ${adj?.esAdjudicada ? '@xl:grid-cols-4' : '@xl:grid-cols-3'}`}>
+          <Dato rotulo="Empresa con la que se postuló">{n.empresa_nombre || undefined}</Dato>
+          <Dato rotulo="Presupuesto real">{n.licitacion_monto ? fmtCLP(n.licitacion_monto) : undefined}</Dato>
+          <Dato rotulo="Postulamos con">{n.monto_ofertado ? fmtCLP(n.monto_ofertado) : undefined}</Dato>
+          {adj?.esAdjudicada && <Dato rotulo={metricaResultado.label}>{cargandoAdj ? '…' : metricaResultado.valor}</Dato>}
+        </dl>
 
-      {editando && (
-        <div className="mt-3 rounded-xl border border-indigo-200 bg-indigo-50/40 p-3">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <label className="block">
-              <span className="text-[11px] font-semibold text-slate-600">Monto ofertado</span>
-              <input type="text" inputMode="numeric" value={montoEdit}
-                onChange={e => setMontoEdit(e.target.value)} placeholder="$"
-                className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-[13px] outline-none focus:ring-2 focus:ring-indigo-400" />
-            </label>
-            <label className="block">
-              <span className="text-[11px] font-semibold text-slate-600">Estado</span>
-              <div className="mt-1"><Select value={estadoEdit} onChange={setEstadoEdit}
-                options={ESTADOS_PIPELINE.map(e => ({ value: e.id, label: e.label }))} /></div>
-            </label>
-            <label className="block sm:col-span-2">
-              <span className="text-[11px] font-semibold text-slate-600">Empresa con la que se postuló</span>
-              <div className="mt-1"><Select value={empresaEdit} onChange={setEmpresaEdit}
-                placeholder="— Sin especificar —"
-                options={[{ value: '', label: '— Sin especificar —' }, ...empresas.map(e => ({ value: String(e.id), label: e.razon_social }))]} /></div>
-            </label>
-          </div>
-          <p className="text-[11px] text-slate-500 mt-2">Si cambias el estado a uno distinto de <b>Postulada</b>, saldrá de este apartado.</p>
-          <div className="flex items-center justify-end gap-2 mt-3">
-            <button onClick={() => { setEditando(false); setMontoEdit(n.monto_ofertado ? String(n.monto_ofertado) : ''); setEstadoEdit(n.estado_pipeline || ESTADO_POSTULADA); setEmpresaEdit(n.empresa_id ? String(n.empresa_id) : ''); }}
-              className="inline-flex items-center gap-1 text-[12.5px] font-semibold text-slate-600 hover:bg-slate-200/60 px-3 py-1.5 rounded-lg transition-colors">
-              <X size={13} /> Cancelar
-            </button>
-            <button onClick={guardarEdicion} disabled={guardando}
-              className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 px-3.5 py-1.5 rounded-lg transition-colors">
-              {guardando ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />} Guardar
-            </button>
-          </div>
-        </div>
-      )}
+        {/* Oferta frente al presupuesto: la barra se llena; roja si nos pasamos */}
+        {(() => {
+          if (!n.licitacion_monto || !n.monto_ofertado) return null;
+          const pct = Math.round((n.monto_ofertado / n.licitacion_monto) * 100);
+          return (
+            <div className="mt-4">
+              <div className="flex items-baseline justify-between gap-3 text-xs text-tinta-2 dark:text-slate-400">
+                <span>Oferta frente al presupuesto</span>
+                <span className="font-semibold tabular-nums text-tinta dark:text-slate-100">
+                  {pct} %{pct > 100 ? ' · sobre el presupuesto' : ` · ahorra ${100 - pct} %`}
+                </span>
+              </div>
+              <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800" role="img" aria-label={`La oferta es el ${pct} % del presupuesto`}>
+                <div className="h-full rounded-full" style={{ width: `${Math.min(100, pct)}%`, backgroundColor: pct > 100 ? '#dc2626' : '#0f766e' }} />
+              </div>
+            </div>
+          );
+        })()}
 
-      {/* Presupuesto real · Postulamos con · (resultado solo si ya se adjudicó) */}
-      <div className={`grid gap-2 mt-2 ${adj?.esAdjudicada ? 'grid-cols-3' : 'grid-cols-2'}`}>
-        <div className="rounded-lg bg-slate-50 border border-slate-200 px-3 py-2">
-          <p className="text-[10.5px] text-slate-500">Presupuesto real</p>
-          <p className="text-[13.5px] font-bold text-slate-800">{fmtCLP(n.licitacion_monto)}</p>
-        </div>
-        <div className="rounded-lg bg-slate-50 border border-slate-200 px-3 py-2">
-          <p className="text-[10.5px] text-slate-500">Postulamos con</p>
-          <p className="text-[13.5px] font-bold text-slate-800">{fmtCLP(n.monto_ofertado)}</p>
-        </div>
-        {adj?.esAdjudicada && (
-          <div className={`rounded-lg border px-3 py-2 ${metricaResultado.cls}`}>
-            <p className={`text-[10.5px] ${metricaResultado.sub}`}>{metricaResultado.label}</p>
-            <p className="text-[13.5px] font-bold">{cargandoAdj ? '…' : metricaResultado.valor}</p>
+        {editando && (
+          <div className="mt-4 pt-4 border-t border-linea dark:border-slate-800">
+            <div className="grid grid-cols-1 gap-3 @xl:grid-cols-2">
+              <label className="block">
+                <span className="text-[13px] font-medium text-tinta dark:text-slate-100">Monto ofertado</span>
+                <input type="text" inputMode="numeric" value={montoEdit}
+                  onChange={e => setMontoEdit(e.target.value)} placeholder="$"
+                  className="mt-1 h-9 w-full rounded-lg border border-linea bg-white px-3 text-sm text-tinta focus:outline-none focus:ring-2 focus:ring-marca/60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" />
+              </label>
+              <label className="block">
+                <span className="text-[13px] font-medium text-tinta dark:text-slate-100">Estado</span>
+                <div className="mt-1"><Select value={estadoEdit} onChange={setEstadoEdit}
+                  options={ESTADOS_PIPELINE.map(e => ({ value: e.id, label: e.label }))} /></div>
+              </label>
+              <label className="block @xl:col-span-2">
+                <span className="text-[13px] font-medium text-tinta dark:text-slate-100">Empresa con la que se postuló <span className="font-normal text-tinta-3">(opcional)</span></span>
+                <div className="mt-1"><Select value={empresaEdit} onChange={setEmpresaEdit}
+                  placeholder="— Sin especificar —"
+                  options={[{ value: '', label: '— Sin especificar —' }, ...empresas.map(e => ({ value: String(e.id), label: e.razon_social }))]} /></div>
+              </label>
+            </div>
+            <p className="mt-2 text-xs text-tinta-2 dark:text-slate-400">Si cambias el estado a uno distinto de <b className="font-semibold">Postulada</b>, saldrá de este apartado.</p>
+            <div className="mt-3 flex items-center justify-end gap-2">
+              <Boton onClick={cancelarEdicion}>Cancelar</Boton>
+              <Boton variante="primario" onClick={guardarEdicion} disabled={guardando}
+                icono={guardando ? <Loader2 size={16} className="animate-spin" /> : undefined}>
+                {guardando ? 'Guardando…' : 'Guardar cambios'}
+              </Boton>
+            </div>
+          </div>
+        )}
+
+        {/* Detalle de adjudicación (ganada o perdida) */}
+        {adj?.esAdjudicada && <BloqueAdjudicacion adj={adj} />}
+
+        {/* En evaluación: estado según MP */}
+        {!cargandoAdj && !adj?.esAdjudicada && (
+          <p className="mt-3 text-[13px] text-tinta-2 dark:text-slate-400">
+            <Estado color={META.evaluacion.color}>Sin resultado aún{adj?.estado ? ` · MP: ${adj.estado}` : ''}</Estado>
+          </p>
+        )}
+
+        {/* F.2 — la competencia se revisa en la ficha de la licitación, no acá: esta fila es un
+            resumen del negocio y meterle la tabla de oferentes con sus anexos la volvía ilegible.
+            Acá solo queda el acceso, cuando ya hubo apertura. */}
+        {!!n.aperturada && (
+          <Link href={`/licitacion/${encodeURIComponent(n.licitacion_codigo)}?seccion=competencia`}
+            className="mt-3 inline-flex h-8 items-center gap-1.5 rounded-lg border border-linea bg-white px-3 text-[13px] font-medium text-tinta shadow-tarjeta transition-colors hover:bg-slate-50 hover:border-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marca/60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800">
+            <Users size={16} stroke={1.75} className="text-slate-400" /> Ver ofertas de la competencia
+          </Link>
+        )}
+
+        {docs.length > 0 && (
+          <div className="mt-4 pt-4 border-t border-linea dark:border-slate-800">
+            <p className="text-[13px] font-medium text-tinta dark:text-slate-100">Documentos propios <span className="text-xs font-semibold tabular-nums text-tinta-2">{docs.length}</span></p>
+            <ul className="mt-1.5 divide-y divide-linea dark:divide-slate-800">
+              {docs.map((d, i) => (
+                <li key={i} className="flex items-center justify-between gap-2 py-1.5">
+                  <a href={d.documento_url_local} target="_blank" rel="noopener noreferrer"
+                    className="inline-flex min-w-0 items-center gap-1.5 text-[13px] text-tinta hover:text-marca dark:text-slate-100">
+                    <FileText size={16} stroke={1.75} className="flex-shrink-0 text-slate-400" />
+                    <span className="truncate">{d.documento_nombre}</span>
+                  </a>
+                  <button onClick={() => borrarDoc(d)} title="Eliminar documento" aria-label={`Eliminar ${d.documento_nombre}`}
+                    className="inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-red-50 hover:text-urgente focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marca/60 dark:hover:bg-red-950/40">
+                    <Trash2 size={16} stroke={1.75} />
+                  </button>
+                </li>
+              ))}
+            </ul>
           </div>
         )}
       </div>
-
-      {/* Detalle de adjudicación (ganada o perdida) */}
-      {adj?.esAdjudicada && <BloqueAdjudicacion adj={adj} />}
-
-      {/* En evaluación: estado según MP */}
-      {!cargandoAdj && !adj?.esAdjudicada && (
-        <div className="mt-3 flex items-center gap-1.5 text-[11.5px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-1.5">
-          <Hourglass size={12} /> Sin resultado aún{adj?.estado ? ` · MP: ${adj.estado}` : ''}
-        </div>
       )}
-
-      {/* F.2 — la competencia se revisa en la ficha de la licitación, no acá: esta fila es un
-          resumen del negocio y meterle la tabla de oferentes con sus anexos la volvía ilegible.
-          Acá solo queda el acceso, cuando ya hubo apertura. */}
-      {!!n.aperturada && (
-        <Link href={`/licitacion/${encodeURIComponent(n.licitacion_codigo)}?seccion=competencia`}
-          className="mt-3 inline-flex items-center gap-1.5 text-[12px] font-semibold text-indigo-600 border border-indigo-200 hover:bg-indigo-50 px-3 py-1.5 rounded-lg transition-colors">
-          <Users size={12} /> Ver ofertas de la competencia
-        </Link>
-      )}
-
-
-      {docs.length > 0 && (
-        <div className="mt-3 pt-3 border-t border-slate-100">
-          <p className="text-[11px] font-semibold text-slate-500 mb-1.5">Documentos propios ({docs.length})</p>
-          <div className="flex flex-wrap gap-1.5">
-            {docs.map((d, i) => (
-              <span key={i}
-                className="group/doc inline-flex items-center gap-1 text-[11.5px] text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-md pl-2 pr-1 py-1 transition-colors max-w-[240px]">
-                <a href={d.documento_url_local} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 min-w-0">
-                  <FileText size={11} className="flex-shrink-0 text-slate-400" />
-                  <span className="truncate">{d.documento_nombre}</span>
-                </a>
-                <button onClick={() => borrarDoc(d)} title="Eliminar documento"
-                  className="flex-shrink-0 p-0.5 text-slate-400 hover:text-rose-600 rounded transition-colors">
-                  <Trash2 size={11} />
-                </button>
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
-      </div>
-      )}
-    </div>
+    </motion.div>
   );
 }
 
-// KPI tile — delega en la StatCard compartida (mismo estilo en todos los dashboards);
-// el wrapper pp-kpi conserva la animación de entrada propia de esta página.
-function KpiCard({ icon, label, value, sub, color }: {
-  icon: React.ReactNode; label: string; value: string | number; sub?: string; color: string;
+
+// ── Torta: cómo se reparten las postuladas según el resultado en Mercado Público ─────────────
+// Cada tajada es un resultado; el centro dice la efectividad (ganadas sobre ganadas + perdidas). La leyenda
+// dice cuántas son y qué % del total, y al hacer clic filtra la lista (igual que las pestañas).
+function DonaResultados({ conteo, total, exito, elegido, onElegir }: {
+  conteo: Record<Resultado, number>; total: number; exito: number | null;
+  elegido: Resultado | ''; onElegir: (r: Resultado | '') => void;
 }) {
+  const R = 52, C = 2 * Math.PI * R;
+  const orden: Resultado[] = ['ganada', 'evaluacion', 'perdida', 'suspendida', 'desierta', 'revocada'];
+  const visibles = orden.filter(r => conteo[r] > 0);
+  let acumulado = 0;
+  const tajadas = visibles.map(r => {
+    const largo = total ? (conteo[r] / total) * C : 0;
+    const t = { r, largo, desde: acumulado };
+    acumulado += largo;
+    return t;
+  });
   return (
-    <div className="pp-kpi h-full">
-      <StatCard icon={icon} label={label} value={value} sub={sub} color={color} />
+    <div className="rounded-xl border border-linea bg-white px-4 py-3.5 shadow-tarjeta dark:border-slate-800 dark:bg-slate-900">
+      <h2 className="text-[15px] font-semibold text-tinta dark:text-slate-100">Resultado de las {total} postuladas</h2>
+      <p className="mt-0.5 text-xs text-tinta-2 dark:text-slate-400">Cómo terminó cada oferta en Mercado Público</p>
+      <div className="mt-3 flex flex-wrap items-center gap-x-6 gap-y-3">
+        <div className="relative h-[132px] w-[132px] flex-shrink-0">
+          <svg viewBox="0 0 132 132" className="h-full w-full -rotate-90" role="img"
+            aria-label={`Reparto de ${total} postuladas por resultado`}>
+            <circle cx="66" cy="66" r={R} fill="none" strokeWidth="16" className="stroke-slate-100 dark:stroke-slate-800" />
+            {tajadas.map(t => (
+              <circle key={t.r} cx="66" cy="66" r={R} fill="none" strokeWidth="16"
+                stroke={META[t.r].color}
+                strokeDasharray={`${Math.max(t.largo - (tajadas.length > 1 ? 1.5 : 0), 0)} ${C}`}
+                strokeDashoffset={-t.desde}
+                opacity={elegido && elegido !== t.r ? 0.25 : 1}
+                className="transition-opacity duration-150">
+                <title>{`${META[t.r].short}: ${conteo[t.r]}`}</title>
+              </circle>
+            ))}
+          </svg>
+          <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
+            <span className="text-[22px] font-semibold leading-none tracking-tight tabular-nums text-tinta dark:text-slate-50">
+              {exito != null ? `${exito} %` : '—'}
+            </span>
+            <span className="mt-1 text-[11px] leading-tight text-tinta-2 dark:text-slate-400">de efectividad</span>
+          </div>
+        </div>
+        <ul className="min-w-[180px] flex-1 space-y-0.5">
+          {visibles.map(r => (
+            <li key={r}>
+              <button type="button" onClick={() => onElegir(elegido === r ? '' : r)} aria-pressed={elegido === r}
+                title={elegido === r ? 'Quitar filtro' : `Ver solo las ${META[r].short.toLowerCase()}`}
+                className={`flex w-full items-center gap-2 rounded-lg px-2 py-1 text-left text-[13px] transition-colors hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marca/60 dark:hover:bg-slate-800 ${elegido === r ? 'bg-slate-50 dark:bg-slate-800' : ''}`}>
+                <span aria-hidden style={{ backgroundColor: META[r].color }} className="h-2 w-2 flex-shrink-0 rounded-full" />
+                <span className="flex-1 text-tinta dark:text-slate-100">{META[r].short}</span>
+                <span className="font-semibold tabular-nums text-tinta dark:text-slate-100">{conteo[r]}</span>
+                <span className="w-10 text-right text-xs tabular-nums text-tinta-2 dark:text-slate-400">{Math.round((conteo[r] / total) * 100)} %</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      </div>
+      <p className="mt-3 border-t border-linea pt-2.5 text-xs text-tinta-2 dark:border-slate-800 dark:text-slate-400">
+        Efectividad = ganadas ÷ (ganadas + perdidas). Desiertas, revocadas y suspendidas no cuentan: nunca tuvieron un ganador con quien competir.
+      </p>
     </div>
   );
 }
@@ -1139,151 +1182,83 @@ export default function PostuladasPage() {
 
   return (
     <AppLayout breadcrumb={[{ label: 'Dashboard', href: '/dashboard' }, { label: 'Postuladas' }]}>
-      {/* Animaciones y estados de la vista */}
-      <style>{`
-        @keyframes ppUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
-        @keyframes ppLines { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
-        @keyframes ppPulse { 0% { box-shadow: 0 0 0 0 var(--c); } 70% { box-shadow: 0 0 0 5px transparent; } 100% { box-shadow: 0 0 0 0 transparent; } }
-        @keyframes ppShimmer { 0% { background-position: -200px 0; } 100% { background-position: 200px 0; } }
-        .pp-card { animation: ppUp .45s cubic-bezier(.22,1,.36,1) both; }
-        .pp-kpi { animation: ppUp .4s ease both; }
-        .pp-lines { animation: ppLines .25s ease both; }
-        .pp-pulse { width: 6px; height: 6px; border-radius: 9999px; --c: rgba(5,150,105,.5); animation: ppPulse 1.8s infinite; }
-        .pp-shimmer { background-image: linear-gradient(90deg, #f1f5f9 0px, #e2e8f0 80px, #f1f5f9 160px); background-size: 400px 100%; animation: ppShimmer 1.2s infinite linear; }
-        @media (prefers-reduced-motion: reduce) { .pp-card, .pp-kpi, .pp-lines, .pp-pulse, .pp-shimmer { animation: none !important; } }
-      `}</style>
-
-      <div className="p-4 sm:p-6 lg:p-8">
-        {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-              <Send size={24} className="text-amber-600" /> Postuladas
-            </h1>
-            <p className="text-sm text-gray-500 mt-0.5 flex items-center gap-2">
-              {cargando
-                ? 'Cargando…'
-                : `${base.length} oferta${base.length !== 1 ? 's' : ''} presentada${base.length !== 1 ? 's' : ''}`}
-              {!cargando && !estadoCargado && base.length > 0 && (
-                <span className="inline-flex items-center gap-1 text-[12px] text-slate-400">
-                  <Loader2 size={12} className="animate-spin" /> resolviendo resultados…
-                </span>
-              )}
-            </p>
-          </div>
-
-          <div className="flex items-center gap-2 w-full sm:w-auto">
-            <button
-              onClick={exportarExcel}
-              disabled={exportando || cargando || visibles.length === 0}
-              title="Exportar a Excel las postuladas con los filtros actuales (incluye apertura y adjudicación)"
-              className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-semibold border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
-            >
-              {exportando ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
-              Exportar
-            </button>
-
-          {/* Buscador por nombre / ID de licitación (acota tabs, KPIs y lista). */}
-          <div className="relative w-full sm:w-80">
-            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-            <input
-              type="text"
-              value={busqueda}
-              onChange={e => setBusqueda(e.target.value)}
-              placeholder="Buscar por nombre o ID de licitación…"
-              className="w-full pl-9 pr-8 py-2 text-sm rounded-xl border border-slate-200 bg-white text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-400 transition"
-            />
-            {busqueda && (
-              <button onClick={() => setBusqueda('')} title="Limpiar búsqueda"
-                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition">
-                <X size={14} />
-              </button>
-            )}
-            </div>
-          </div>
-        </div>
-
-        {/* KPIs */}
-        {!cargando && estadoCargado && !error && base.length > 0 && (
-          <div className="mb-6">
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-              <KpiCard icon={<Trophy size={22} />} label="Ganadas" value={stats.ganada}
-                sub={stats.exito != null ? `${stats.exito}% de efectividad` : 'Resultados en curso'} color={META.ganada.color} />
-              {/* "Adjudicadas a terceros" a propósito: Desierta/Revocada/Suspendida NO cuentan
-                  aquí (van aparte abajo) — mezclarlas ensuciaba el % de efectividad de arriba
-                  con procesos que nunca tuvieron un ganador real con el que competir. */}
-              <KpiCard icon={<XCircle size={22} />} label="Perdidas" value={stats.perdida} sub="Adjudicadas a terceros" color={META.perdida.color} />
-              <KpiCard icon={<Hourglass size={22} />} label="En evaluación" value={stats.evaluacion} sub="Aún sin resultado" color={META.evaluacion.color} />
-              <KpiCard icon={<Wallet size={22} />} label="Monto ganado" value={fmtCLP(stats.montoGanado || null)} sub="Lo adjudicado a nosotros" color="#7c3aed" />
-            </div>
-            {/* Estados de MP sin competencia real: aparte de las 4 de arriba, y solo si hay al
-                menos una — no tiene sentido un tile en 0 para un perfil donde nunca pasó. */}
-            {(conteo.desierta + conteo.revocada + conteo.suspendida) > 0 && (
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mt-3">
-                {conteo.desierta > 0 && (
-                  <KpiCard icon={<CircleSlash size={22} />} label="Desiertas" value={conteo.desierta} sub="MP cerró sin adjudicar a nadie" color={META.desierta.color} />
-                )}
-                {conteo.revocada > 0 && (
-                  <KpiCard icon={<Ban size={22} />} label="Revocadas" value={conteo.revocada} sub="El organismo dejó sin efecto el proceso" color={META.revocada.color} />
-                )}
-                {conteo.suspendida > 0 && (
-                  <KpiCard icon={<PauseCircle size={22} />} label="Suspendidas" value={conteo.suspendida} sub="Pausadas por el organismo" color={META.suspendida.color} />
+      <div className="@container p-4 sm:p-6 lg:p-8">
+        <Encabezado
+          titulo="Postuladas"
+          descripcion={cargando
+            ? 'Cargando…'
+            : `${base.length} oferta${base.length !== 1 ? 's' : ''} presentada${base.length !== 1 ? 's' : ''}${!estadoCargado && base.length > 0 ? ' · resolviendo resultados…' : ''}`}
+          acciones={
+            <>
+              <Boton onClick={exportarExcel} disabled={exportando || cargando || visibles.length === 0}
+                title="Exportar a Excel las postuladas con los filtros actuales (incluye apertura y adjudicación)"
+                icono={exportando ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} stroke={1.75} />}>
+                {exportando ? 'Exportando…' : 'Exportar'}
+              </Boton>
+              {/* Buscador por nombre / ID de licitación (acota pestañas, KPIs y lista). */}
+              <div className="relative w-64 @2xl:w-80">
+                <Search size={16} stroke={1.75} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                <input
+                  type="text"
+                  value={busqueda}
+                  onChange={e => setBusqueda(e.target.value)}
+                  placeholder="Buscar por nombre o ID…"
+                  aria-label="Buscar por nombre o ID de licitación"
+                  className="h-9 w-full rounded-lg border border-linea bg-white pl-9 pr-8 text-sm text-tinta placeholder:text-tinta-3 focus:outline-none focus:ring-2 focus:ring-marca/60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                />
+                {busqueda && (
+                  <button onClick={() => setBusqueda('')} aria-label="Limpiar búsqueda" title="Limpiar búsqueda"
+                    className="absolute right-1.5 top-1/2 -translate-y-1/2 inline-flex h-6 w-6 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-tinta dark:hover:bg-slate-800">
+                    <X size={14} stroke={1.75} />
+                  </button>
                 )}
               </div>
-            )}
+            </>
+          }
+        />
+
+        {/* Resumen: torta con el reparto + indicadores clave */}
+        {!cargando && estadoCargado && !error && base.length > 0 && (
+          <div className="mb-6 grid gap-3 @4xl:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
+            <DonaResultados conteo={conteo} total={base.length} exito={stats.exito}
+              elegido={resultadoSel} onElegir={setResultadoSel} />
+            <Lista className="grid grid-cols-2 gap-3">
+              <Indicador rotulo="Ganadas" valor={stats.ganada}
+                detalle={stats.exito != null ? `${stats.exito} % de efectividad` : 'Resultados en curso'} />
+              {/* "Adjudicadas a terceros" a propósito: Desierta/Revocada/Suspendida NO cuentan aquí. */}
+              <Indicador rotulo="Perdidas" valor={stats.perdida} detalle="Adjudicadas a terceros" />
+              <Indicador rotulo="En evaluación" valor={stats.evaluacion} detalle="Aún sin resultado" />
+              <Indicador rotulo="Monto ganado" valor={stats.montoGanado || 0} formato={fmtCLP} detalle="Lo adjudicado a nosotros" />
+            </Lista>
           </div>
         )}
 
         {/* Barra de control: tabs de resultado + filtros multi-select + orden (una sola tarjeta) */}
         {!cargando && !error && base.length + negocios.length > 0 && (
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-3 mb-5">
-            {/* Tabs de resultado (segmentado) */}
+          <div className="mb-5 rounded-xl border border-linea bg-white p-3 shadow-tarjeta dark:border-slate-800 dark:bg-slate-900">
+            {/* Resultado: pestañas con contador */}
             {estadoCargado && (
-              <div className="flex flex-wrap gap-2 mb-3">
-                {TABS.map(t => {
-                  const activo = resultadoSel === t.id;
-                  return (
-                    <button key={t.id || 'all'} onClick={() => setResultadoSel(t.id)}
-                      style={activo ? { backgroundColor: t.color, borderColor: t.color } : { borderColor: t.color + '40', color: t.color }}
-                      className={`inline-flex items-center gap-2 text-[12.5px] font-bold px-3.5 py-2 rounded-xl border transition-all ${
-                        activo ? 'text-white shadow-sm' : 'bg-white hover:bg-slate-50'
-                      }`}>
-                      {t.label}
-                      <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1 rounded-full text-[11px] font-black"
-                        style={activo ? { background: 'rgba(255,255,255,.25)', color: '#fff' } : { background: t.color + '18', color: t.color }}>
-                        {t.count}
-                      </span>
-                    </button>
-                  );
-                })}
+              <div className="mb-3 overflow-x-auto">
+                <Pestanas id="postuladas-resultado" valor={resultadoSel} onCambio={setResultadoSel}
+                  opciones={TABS.map(t => ({ valor: t.id, etiqueta: t.label, contador: t.count }))} />
               </div>
             )}
 
-            {/* Barra: toggle de filtros + orden (siempre visible; el panel detallado se guarda) */}
-            <div className="flex flex-wrap items-center gap-2 pt-3 border-t border-slate-100">
-              <button
-                onClick={() => setFiltrosOpen(v => !v)}
-                className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-bold rounded-lg border transition-colors ${
-                  filtrosOpen ? 'bg-indigo-50 text-indigo-600 border-indigo-200' : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
-                }`}
-              >
-                <SlidersHorizontal size={13} /> Filtros
-                {filtrosActivosCount > 0 && (
-                  <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-black bg-indigo-600 text-white">
-                    {filtrosActivosCount}
-                  </span>
-                )}
-                <ChevronDown size={12} className={`transition-transform ${filtrosOpen ? 'rotate-180' : ''}`} />
-              </button>
+            {/* Filtros y orden (el panel detallado se guarda) */}
+            <div className="flex flex-wrap items-center gap-2 pt-3 border-t border-linea dark:border-slate-800">
+              <Boton tamano="sm" onClick={() => setFiltrosOpen(v => !v)} aria-expanded={filtrosOpen}
+                className={filtrosOpen ? 'border-marca/50 text-marca' : ''}
+                icono={<SlidersHorizontal size={16} stroke={1.75} />}>
+                Filtros
+                {filtrosActivosCount > 0 && <span className="text-xs font-semibold tabular-nums text-marca">{filtrosActivosCount}</span>}
+                <ChevronDown size={14} stroke={1.75} className={`transition-transform ${filtrosOpen ? 'rotate-180' : ''}`} />
+              </Boton>
               {filtrosActivosCount > 0 && (
-                <button onClick={limpiarFiltros}
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[11.5px] font-semibold text-slate-400 hover:text-red-600 transition-colors">
-                  <X size={12} /> Limpiar
-                </button>
+                <Boton tamano="sm" variante="fantasma" onClick={limpiarFiltros} icono={<X size={16} stroke={1.75} />}>Limpiar</Boton>
               )}
-              <div className="inline-flex items-center gap-1.5 ml-auto">
-                <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-400">
-                  <ArrowUpDown size={12} /> Ordenar
+              <div className="inline-flex items-center gap-2 ml-auto">
+                <span className="inline-flex items-center gap-1 text-[11px] text-tinta-2 dark:text-slate-400">
+                  <ArrowUpDown size={14} stroke={1.75} className="text-slate-400" /> Ordenar por
                 </span>
                 <Select value={orden} onChange={v => setOrden(v as typeof orden)}
                   options={[
@@ -1300,7 +1275,7 @@ export default function PostuladasPage() {
               <div className="mt-3 pt-3 border-t border-slate-100 space-y-3">
                 {(isAdmin && perfiles.length > 1) || empresasFiltro.length > 1 ? (
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider w-full sm:w-auto">Quién</span>
+                    <span className="text-[11px] text-tinta-2 w-full @xl:w-auto dark:text-slate-400">Quién</span>
                     {isAdmin && perfiles.length > 1 && (
                       <MultiSelect label="Perfil" icon={<Users size={13} />} selected={perfilesSel} onChange={setPerfilesSel}
                         options={perfiles.map(p => ({ value: p.email, label: p.nombre, color: colorUsuario(p.email), count: p.total }))} />
@@ -1314,7 +1289,7 @@ export default function PostuladasPage() {
 
                 {(tiposFiltro.length > 1 || etiquetasFiltro.length > 1 || estadosMp.length > 1) && (
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider w-full sm:w-auto">Qué</span>
+                    <span className="text-[11px] text-tinta-2 w-full @xl:w-auto dark:text-slate-400">Qué</span>
                     {tiposFiltro.length > 1 && (
                       <MultiSelect label="Tipo" icon={<FileCheck2 size={13} />} selected={tiposSel} onChange={setTiposSel}
                         options={tiposFiltro.map(t => ({ value: t.codigo, label: `${t.codigo} · ${t.label}`, count: t.total }))} />
@@ -1334,7 +1309,7 @@ export default function PostuladasPage() {
                 )}
 
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider w-full sm:w-auto">Cuándo / cuánto</span>
+                  <span className="text-[11px] text-tinta-2 w-full @xl:w-auto dark:text-slate-400">Cuándo / cuánto</span>
                   <div className="flex items-center gap-1.5 border border-slate-200 rounded-lg px-2.5 py-1.5">
                     <Calendar size={13} className="text-slate-400 flex-shrink-0" />
                     <span className="text-[11px] font-semibold text-slate-500">Cierre</span>
@@ -1367,72 +1342,60 @@ export default function PostuladasPage() {
               </div>
             )}
 
-            {/* Chips de filtros activos */}
+            {/* Filtros activos: se quitan con un clic */}
             {filtrosActivosCount > 0 && (
-              <div className="flex flex-wrap items-center gap-1.5 mt-2.5 pt-2.5 border-t border-slate-100">
-                <span className="text-[11px] text-slate-400">Filtrando:</span>
+              <div className="flex flex-wrap items-center gap-1.5 mt-3 pt-3 border-t border-linea dark:border-slate-800">
+                <span className="text-xs text-tinta-2 dark:text-slate-400">Filtrando por</span>
                 {busqueda && (
-                  <button onClick={() => setBusqueda('')}
-                    className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full border bg-amber-50 text-amber-700 border-amber-200 hover:opacity-75">
-                    <Search size={10} /> “{busqueda}” <X size={11} />
+                  <button onClick={() => setBusqueda('')} className={CHIP_FILTRO}>
+                    <Search size={12} stroke={1.75} className="text-slate-400" /> “{busqueda}” <X size={12} stroke={1.75} className="text-slate-400" />
                   </button>
                 )}
                 {perfilesSel.map(p => {
                   const per = perfiles.find(x => x.email === p);
-                  const col = colorUsuario(p);
                   return (
-                    <button key={p} onClick={() => setPerfilesSel(a => a.filter(x => x !== p))}
-                      style={{ background: col + '18', color: col, borderColor: col + '40' }}
-                      className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full border hover:opacity-75">
-                      {per?.nombre || p} <X size={11} />
+                    <button key={p} onClick={() => setPerfilesSel(a => a.filter(x => x !== p))} className={CHIP_FILTRO}>
+                      <span aria-hidden style={{ backgroundColor: colorUsuario(p) }} className="w-1.5 h-1.5 rounded-full flex-shrink-0" />
+                      {per?.nombre || p} <X size={12} stroke={1.75} className="text-slate-400" />
                     </button>
                   );
                 })}
                 {empresasSel.map(id => (
-                  <button key={id} onClick={() => setEmpresasSel(a => a.filter(x => x !== id))}
-                    className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full border bg-indigo-50 text-indigo-700 border-indigo-200 hover:opacity-75 max-w-[220px]">
-                    <span className="truncate">{empresasFiltro.find(e => e.id === id)?.nombre || `Empresa ${id}`}</span> <X size={11} className="flex-shrink-0" />
+                  <button key={id} onClick={() => setEmpresasSel(a => a.filter(x => x !== id))} className={`${CHIP_FILTRO} max-w-[220px]`}>
+                    <span className="truncate">{empresasFiltro.find(e => e.id === id)?.nombre || `Empresa ${id}`}</span> <X size={12} stroke={1.75} className="flex-shrink-0 text-slate-400" />
                   </button>
                 ))}
                 {tiposSel.map(t => (
-                  <button key={t} onClick={() => setTiposSel(a => a.filter(x => x !== t))}
-                    className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full border bg-violet-50 text-violet-700 border-violet-200 hover:opacity-75">
-                    {t} <X size={11} />
+                  <button key={t} onClick={() => setTiposSel(a => a.filter(x => x !== t))} className={CHIP_FILTRO}>
+                    {t} <X size={12} stroke={1.75} className="text-slate-400" />
                   </button>
                 ))}
                 {etiquetasSel.map(id => {
                   const et = etiquetasFiltro.find(x => x.id === id);
                   return (
-                    <button key={id} onClick={() => setEtiquetasSel(a => a.filter(x => x !== id))}
-                      style={et ? { background: et.color + '18', color: et.color, borderColor: et.color + '40' } : undefined}
-                      className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full border hover:opacity-75 bg-teal-50 text-teal-700 border-teal-200">
-                      <Tag size={10} /> {et?.nombre || id} <X size={11} />
+                    <button key={id} onClick={() => setEtiquetasSel(a => a.filter(x => x !== id))} className={CHIP_FILTRO}>
+                      <span aria-hidden style={{ backgroundColor: et?.color || '#0f766e' }} className="w-1.5 h-1.5 rounded-full flex-shrink-0" />
+                      {et?.nombre || id} <X size={12} stroke={1.75} className="text-slate-400" />
                     </button>
                   );
                 })}
                 {estadosMpSel.map(id => (
-                  <button key={id} onClick={() => setEstadosMpSel(a => a.filter(x => x !== id))}
-                    className={`inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full border hover:opacity-75 ${
-                      id === APERTURADAS ? 'bg-sky-50 text-sky-700 border-sky-200' : 'bg-slate-50 text-slate-600 border-slate-200'
-                    }`}>
-                    {id === APERTURADAS ? <DoorOpen size={11} /> : null}
-                    {id === APERTURADAS ? 'Aperturadas' : id} <X size={11} />
+                  <button key={id} onClick={() => setEstadosMpSel(a => a.filter(x => x !== id))} className={CHIP_FILTRO}>
+                    {id === APERTURADAS ? 'Aperturadas' : id} <X size={12} stroke={1.75} className="text-slate-400" />
                   </button>
                 ))}
                 {(cierreDesde || cierreHasta) && (
-                  <button onClick={() => { setCierreDesde(''); setCierreHasta(''); }}
-                    className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full border bg-slate-50 text-slate-600 border-slate-200 hover:opacity-75">
-                    <Calendar size={10} /> {cierreDesde || '…'} – {cierreHasta || '…'} <X size={11} />
+                  <button onClick={() => { setCierreDesde(''); setCierreHasta(''); }} className={CHIP_FILTRO}>
+                    Cierre {cierreDesde || '…'} – {cierreHasta || '…'} <X size={12} stroke={1.75} className="text-slate-400" />
                   </button>
                 )}
                 {(montoMin || montoMax) && (
-                  <button onClick={() => { setMontoMin(''); setMontoMax(''); }}
-                    className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full border bg-slate-50 text-slate-600 border-slate-200 hover:opacity-75">
-                    <DollarSign size={10} /> {montoMin ? fmtCLP(Number(montoMin)) : '…'} – {montoMax ? fmtCLP(Number(montoMax)) : '…'} <X size={11} />
+                  <button onClick={() => { setMontoMin(''); setMontoMax(''); }} className={CHIP_FILTRO}>
+                    Monto {montoMin ? fmtCLP(Number(montoMin)) : '…'} – {montoMax ? fmtCLP(Number(montoMax)) : '…'} <X size={12} stroke={1.75} className="text-slate-400" />
                   </button>
                 )}
                 <button onClick={limpiarFiltros}
-                  className="text-[11px] font-semibold text-slate-400 hover:text-red-600 underline ml-1">
+                  className="ml-1 text-xs font-medium text-tinta-2 underline hover:text-urgente dark:text-slate-400">
                   Limpiar todo
                 </button>
               </div>
@@ -1441,30 +1404,25 @@ export default function PostuladasPage() {
         )}
 
         {cargando ? (
-          <div className="flex items-center gap-2 text-slate-500 text-sm py-20 justify-center"><Loader2 size={16} className="animate-spin" /> Cargando…</div>
+          <div className="space-y-2">{Array.from({ length: 5 }).map((_, i) => <TarjetaCargando key={i} />)}</div>
         ) : error ? (
-          <div className="flex items-center gap-2 bg-rose-50 border border-rose-200 text-rose-700 px-4 py-3 rounded-xl text-sm">{error}</div>
+          <Banner variante="error">{error}</Banner>
         ) : visibles.length === 0 ? (
-          <div className="text-center py-20 bg-white rounded-2xl border border-slate-100">
-            <Inbox size={36} className="text-gray-300 mx-auto mb-3" />
-            <h3 className="text-lg font-semibold text-gray-700 mb-2">
-              {negocios.length === 0 ? 'Todavía no hay licitaciones postuladas' : 'Nada en este filtro'}
-            </h3>
-            <p className="text-sm text-gray-400">
-              {negocios.length === 0
-                ? <>Marca una licitación como <b>Postulada</b> en su estado y aparecerá aquí.</>
-                : busqueda ? 'Prueba con otro nombre o ID de licitación.' : 'Prueba con otro resultado, perfil o empresa.'}
-            </p>
-          </div>
+          <Vacio icono={<Inbox size={32} stroke={1.5} />}
+            titulo={negocios.length === 0 ? 'Todavía no hay licitaciones postuladas' : 'Nada en este filtro'}
+            texto={negocios.length === 0
+              ? 'Cuando marques una licitación como Postulada en su estado, aparecerá aquí.'
+              : busqueda ? 'Prueba con otro nombre o ID de licitación.' : 'Prueba con otro resultado, perfil o empresa.'}
+            accion={filtrosActivosCount > 0 ? <Boton tamano="sm" onClick={limpiarFiltros}>Limpiar filtros</Boton> : undefined} />
         ) : (
           <>
-            <div className="flex flex-col gap-2">
-              {visibles.slice(0, maxVisibles).map((n, i) => (
+            <Lista className="flex flex-col gap-2">
+              {visibles.slice(0, maxVisibles).map(n => (
                 <PostuladaCard key={n.id} n={n}
                   adj={adjMap[n.licitacion_codigo] ?? null}
                   cargandoAdj={!estadoCargado}
                   docsIniciales={docsPropiosMap[n.licitacion_codigo] || []}
-                  index={i} isAdmin={!!isAdmin} empresas={empresasOpc}
+                  isAdmin={!!isAdmin} empresas={empresasOpc}
                   onRevertida={id => setNegocios(prev => prev.filter(x => x.id !== id))}
                   onActualizada={(id, patch) => setNegocios(prev =>
                     patch.estado_pipeline && patch.estado_pipeline !== ESTADO_POSTULADA
@@ -1473,14 +1431,12 @@ export default function PostuladasPage() {
                   )}
                 />
               ))}
-            </div>
+            </Lista>
             {visibles.length > maxVisibles && (
               <div className="flex justify-center mt-5">
-                <button onClick={() => setMaxVisibles(m => m + 24)}
-                  className="inline-flex items-center gap-2 text-[13px] font-semibold text-slate-600 bg-white border border-slate-200 hover:border-slate-400 hover:shadow-sm px-5 py-2.5 rounded-xl transition-all">
-                  <ChevronDown size={15} />
+                <Boton onClick={() => setMaxVisibles(m => m + 24)} icono={<ChevronDown size={16} stroke={1.75} />}>
                   Mostrar más ({visibles.length - maxVisibles} restantes)
-                </button>
+                </Boton>
               </div>
             )}
           </>

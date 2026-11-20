@@ -39,13 +39,13 @@
 
 /* ── Design Tokens ─────────────────────────────────────────────────────────── */
 :root {
-  --color-primary:       #4f46e5; /* indigo-600 */
-  --color-primary-dark:  #4338ca; /* indigo-700 */
-  --color-primary-light: #e0e7ff; /* indigo-100 */
+  --color-primary:       #0f766e; /* teal-700 = marca (antes índigo; sin usos al 2026-11-20) */
+  --color-primary-dark:  #115e59; /* teal-800 */
+  --color-primary-light: #f0fdfa; /* teal-50 */
 
   --color-sidebar-bg:    #0a0f1e;
   --color-sidebar-border: rgba(255,255,255,0.06);
-  --color-sidebar-active: rgba(79,70,229,0.15);
+  --color-sidebar-active: rgba(15,118,110,0.15);
   --color-sidebar-hover:  rgba(255,255,255,0.05);
 
   --color-surface:       #ffffff;

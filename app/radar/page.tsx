@@ -1131,6 +1131,23 @@ export default function RadarPage() {
       if (raw) setFiltros(prev => ({ ...prev, ...JSON.parse(raw) }));
     } catch { /* sin persistencia */ }
 
+    // Filtros que vienen en la URL (p. ej. desde el Dashboard: /radar?gestion=sin_asignar o /radar?decision=PASA).
+    // Si la URL trae alguno, MANDA sobre lo guardado y se parte de los filtros por defecto, para que la lista sea la pedida.
+    //   gestion  → sin_asignar | asignadas | descartadas | no_leidas | excluidas_pref | todas (sin filtro de gestión)
+    //   decision → PASA, REVISION_HUMANA, EXCLUIDO (separadas por coma); sin `gestion` cuenta TODAS, como el Dashboard
+    try {
+      const p = new URLSearchParams(window.location.search);
+      const gestion = p.get('gestion') || '';
+      const decisiones = (p.get('decision') || '').split(',').map(s => s.trim()).filter(d => d in PREFILTRO_CFG);
+      const gestionOk = ['sin_asignar', 'asignadas', 'descartadas', 'no_leidas', 'excluidas_pref', 'todas'].includes(gestion);
+      if (gestionOk || decisiones.length) {
+        // Sin filtro de estado ni de tipo: el Dashboard cuenta TODAS las activas del radar (ver /api/dashboard,
+        // UNIVERSO_RADAR), así que al llegar desde ahí la lista tiene que ser el mismo universo y dar el mismo número.
+        setFiltros({ ...FILTROS_DEFAULT, estados: [], tipos: [], gestion: gestionOk ? gestion : (decisiones.length ? 'todas' : ''), decisiones });
+        setFiltrosOpen(true); // el panel abierto muestra qué filtros están puestos
+      }
+    } catch { /* URL sin parámetros válidos */ }
+
     // 1b) Modo de vista y selección múltiple → sobreviven a ir al detalle y volver.
     try {
       const v = sessionStorage.getItem(SS_VISTA);
@@ -1164,6 +1181,8 @@ export default function RadarPage() {
     cargarKeywords();
     cargarEtiquetas();
     cargarAlertas(teniaCache); // si había cache, refresco silencioso (sin skeleton)
+  // FILTROS_DEFAULT es una constante del componente que solo se lee al montar: no debe re-disparar la hidratación.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cargarKeywords, cargarAlertas, cargarEtiquetas]);
 
   // Persistir filtros cada vez que cambian (después de hidratar, para no pisar lo guardado).
@@ -1566,6 +1585,7 @@ export default function RadarPage() {
     if (fil.ocultarExcluidas && a.prefiltro_decision === 'EXCLUIDO') return false;
     // Estado de gestión. Por defecto ('') se ocultan las descartadas.
     if (fil.gestion === '') { if (a.descartada) return false; }
+    else if (fil.gestion === 'todas') { /* sin filtro de gestión: incluye descartadas y asignadas (solo llega por URL, desde el Dashboard) */ }
     else if (fil.gestion === 'no_leidas') { if (a.descartada || a.leida) return false; }
     else if (fil.gestion === 'sin_asignar') { if (a.descartada || a.asignada) return false; }
     else if (fil.gestion === 'asignadas') { if (a.descartada || !a.asignada) return false; }

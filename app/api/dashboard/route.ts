@@ -116,12 +116,15 @@ export async function GET(request: NextRequest) {
              WHERE n.licitacion_codigo = al.licitacion_codigo AND n.activo = TRUE AND n.cliente_id = al.cliente_id)
            AND NOT EXISTS (SELECT 1 FROM licitaciones_descartadas d
              WHERE d.licitacion_codigo = al.licitacion_codigo AND d.cliente_id = al.cliente_id)`, pRadar);
+      // La viabilidad v4 guarda su nivel en nivel_atractivo y deja el semáforo antiguo en NULL (en producción el 41 %
+      // de las analizadas del radar eran solo v4): contar solo por semáforo las dejaba fuera. Igual que /negocios:
+      // manda el nivel v4 y, si no hay, el semáforo antiguo.
       const viabilidad = !conViabilidad ? [] : await q(
-        `SELECT v.semaforo, COUNT(DISTINCT al.licitacion_codigo) AS n
+        `SELECT v.nivel_atractivo AS nivel, v.semaforo, COUNT(DISTINCT al.licitacion_codigo) AS n
          FROM alertas_licitaciones al
          JOIN viabilidad_licitacion v ON v.licitacion_codigo = al.licitacion_codigo
-         WHERE ${UNIVERSO_RADAR} AND v.semaforo IS NOT NULL
-         GROUP BY v.semaforo`, pRadar);
+         WHERE ${UNIVERSO_RADAR} AND (v.nivel_atractivo IS NOT NULL OR v.semaforo IS NOT NULL)
+         GROUP BY v.nivel_atractivo, v.semaforo`, pRadar);
       const prefiltro  = !conViabilidad ? [] : await q(
         `SELECT p.decision, COUNT(DISTINCT al.licitacion_codigo) AS n
          FROM alertas_licitaciones al
@@ -185,12 +188,18 @@ export async function GET(request: NextRequest) {
        FROM negocios n
        WHERE n.activo = TRUE AND n.licitacion_cierre IS NOT NULL AND n.licitacion_cierre >= ? ${sinDescartadas} ${filtroNeg}
        ORDER BY n.licitacion_cierre ASC LIMIT 6`, [ahoraChileSQL(), ...pNeg]);
+    // El listado muestra solo 6: el total real va aparte (antes la tarjeta «Próximos cierres» contaba esas 6 filas).
+    const [totCierres] = await q(
+      `SELECT COUNT(*) AS n FROM negocios n
+       WHERE n.activo = TRUE AND n.licitacion_cierre IS NOT NULL AND n.licitacion_cierre >= ? ${sinDescartadas} ${filtroNeg}`,
+      [ahoraChileSQL(), ...pNeg]);
 
     const usuario = {
       asignadas: misCount?.n || 0,
       montoAsignadas: Number(misCount?.monto || 0),
       pipeline: miPipeline,
       proximosCierres,
+      proximosCierresTotal: Number(totCierres?.n || 0),
     };
 
     return NextResponse.json({ success: true, rol: sesion.rol, admin, usuario, favoritosRecientes });

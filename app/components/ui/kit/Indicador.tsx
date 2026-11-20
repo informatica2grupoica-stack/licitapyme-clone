@@ -2,6 +2,7 @@
 
 // KPI del sistema (skill licitank-ui): rótulo, número grande que sube al cargar, variación
 // con texto (nunca solo color) y, si hay serie, una línea chica de tendencia.
+import Link from 'next/link';
 import { motion } from 'framer-motion';
 import { useContador } from '@/app/lib/use-contador';
 import { item } from './movimiento';
@@ -21,8 +22,12 @@ function Tendencia({ serie }: { serie: number[] }) {
   );
 }
 
-export function Indicador({ rotulo, valor, formato, variacion, detalle, serie }: {
+export function Indicador({ rotulo, valor, formato, variacion, detalle, serie, info, href }: {
   rotulo: string;
+  /** Ficha «cómo se calcula» (MetricInfo) junto al rótulo. */
+  info?: React.ReactNode;
+  /** Si existe, toda la tarjeta lleva a esa ruta. */
+  href?: string;
   valor: number;
   formato?: (n: number) => string;
   /** Variación en % contra el periodo anterior (positivo = sube). */
@@ -36,8 +41,15 @@ export function Indicador({ rotulo, valor, formato, variacion, detalle, serie }:
   const sube = (variacion ?? 0) >= 0;
   return (
     <motion.div variants={item}
-      className="rounded-xl border border-linea bg-white px-4 py-3.5 shadow-tarjeta dark:bg-slate-900 dark:border-slate-800">
-      <div className="text-[13px] text-tinta-2 dark:text-slate-400">{rotulo}</div>
+      className={`relative rounded-xl border border-linea bg-white px-4 py-3.5 shadow-tarjeta dark:bg-slate-900 dark:border-slate-800
+        ${href ? 'transition-[box-shadow,transform] duration-150 ease-lk hover:shadow-tarjeta-hover' : ''}`}>
+      {href && (
+        <Link href={href} aria-label={rotulo}
+          className="absolute inset-0 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marca/60" />
+      )}
+      <div className="relative z-10 flex items-center gap-1.5 text-[13px] text-tinta-2 dark:text-slate-400">
+        {rotulo}{info}
+      </div>
       <div className="mt-1.5 flex items-end justify-between gap-3">
         <div className="text-[26px] leading-none font-semibold tracking-tight tabular-nums text-tinta dark:text-slate-50">
           {texto}

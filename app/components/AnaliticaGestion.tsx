@@ -24,7 +24,7 @@ interface Row {
   id: number; codigo: string; nombre: string | null; organismo: string | null;
   estado: string; analistaId: number | null; analista: string; analistaEmail: string | null;
   monto: number; empresaId: number | null; empresa: string | null; tipo: string | null;
-  mpEstado: string | null; mpCerrada: boolean; aperturada: number;
+  mpEstado: string | null; adjEstado?: string | null; mpCerrada: boolean; aperturada: number;
   triageDias: number | null; triageResueltoEn: string | null; nivelDescarte: 'N1' | 'N2' | 'error_gestion' | null;
   descarteMotivo: string | null; resultado: 'ganada' | 'perdida' | 'evaluacion' | null;
   montoNeto: number | null; montoOfertado: number | null;
@@ -80,6 +80,9 @@ function limitesVentana(tipo: VentanaTriage, desde: string, hasta: string): { de
 }
 
 const esVigente = (r: Row) => r.mpEstado === 'Publicada' && r.estado !== 'DESCARTADA';
+// MP cerró el proceso sin adjudicar a nadie (Desierta / Revocada / Suspendida): no hubo ganador con quien competir.
+const esSinGanador = (r: Row) =>
+  /desiert|revocad|suspend/.test(`${r.adjEstado || ''} ${r.mpEstado || ''}`.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase());
 const ESTADOS_VIGENTES = ['ASIGNADO', 'EN_PROCESO', 'ANEXOS', 'ANEXO_LISTO', 'VISADO', 'POSTULADA'];
 // Ya ofertamos: incluye las resueltas (ganada/perdida), porque "lo que postulamos" es histórico
 // y no deja de serlo cuando MP publica el resultado. Ojo: en la práctica NINGUNA postulada es
@@ -125,7 +128,7 @@ function Kpi({ label, value, sub, icon, color, delay = 0, spec }: { label: strin
       whileHover={{ y: -3 }}
       className="bg-white border border-slate-200 rounded-2xl p-4 cursor-default">
       <div className="flex items-start justify-between">
-        <span className="text-[10.5px] font-semibold text-slate-400 uppercase tracking-wide flex items-center gap-1">
+        <span className="text-[10.5px] font-semibold text-slate-400 flex items-center gap-1">
           {label}
           {spec && <MetricInfo spec={spec} />}
         </span>
@@ -133,7 +136,7 @@ function Kpi({ label, value, sub, icon, color, delay = 0, spec }: { label: strin
       </div>
       {/* Los montos van completos ("$9.233.366.323" = 14 chars) y a 26px desbordaban la tarjeta.
           El tamaño baja según el largo en vez de truncar: un monto cortado es peor que uno chico. */}
-      <p className={`font-black leading-none tabular-nums text-slate-900 mt-2 ${
+      <p className={`font-semibold leading-none tabular-nums text-slate-900 mt-2 ${
         String(value).length > 12 ? 'text-[17px]' : String(value).length > 9 ? 'text-[21px]' : 'text-[26px]'
       }`}>{value}</p>
       {sub && <p className="text-[11px] text-slate-400 mt-1">{sub}</p>}
@@ -216,7 +219,7 @@ function DonutInteractivo({ segments, total, unidad, selected, onToggle, size = 
           })}
         </svg>
         <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none px-4">
-          <span className="text-[24px] font-black tabular-nums leading-none" style={{ color: he ? he.color : '#1e293b' }}>{he ? he.value : total}</span>
+          <span className="text-[24px] font-semibold tabular-nums leading-none" style={{ color: he ? he.color : '#1e293b' }}>{he ? he.value : total}</span>
           <span className="text-[10.5px] text-slate-400 text-center leading-tight mt-0.5 line-clamp-2">{he ? he.label : unidad}</span>
         </div>
       </div>
@@ -293,10 +296,10 @@ export function AnaliticaGestion() {
     value: vigentes.filter(r => r.estado === id).length,
   })), [vigentes]);
   const porAnalista = useMemo(() => {
-    const m = new Map<string, { nombre: string; email: string | null; n: number }>();
+    const m = new Map<string, { id: number | null; nombre: string; email: string | null; n: number }>();
     for (const r of pipeSel) {
       const k = String(r.analistaId ?? r.analista);
-      if (!m.has(k)) m.set(k, { nombre: r.analista, email: r.analistaEmail, n: 0 });
+      if (!m.has(k)) m.set(k, { id: r.analistaId, nombre: r.analista, email: r.analistaEmail, n: 0 });
       m.get(k)!.n++;
     }
     return [...m.values()].sort((a, b) => b.n - a.n);
@@ -380,13 +383,18 @@ export function AnaliticaGestion() {
     // Sub-estados finos (§4.1/4.3). "Resuelta" = MP ya publicó resultado (cache), aunque el
     // estado interno siga en POSTULADA.
     const resueltas = post.filter(r => r.resultado === 'ganada' || r.resultado === 'perdida');
-    const pend = post.filter(r => !(r.resultado === 'ganada' || r.resultado === 'perdida'));
+    const sinResultado = post.filter(r => !(r.resultado === 'ganada' || r.resultado === 'perdida'));
+    // Desierta / Revocada / Suspendida: MP cerró el proceso sin adjudicar. No son «perdidas» ni están «sin revisar»:
+    // van aparte (si no, inflaban «Cerrada sin apertura» y «Con apertura, sin marcar»).
+    const sinGanador = sinResultado.filter(esSinGanador);
+    const pend = sinResultado.filter(r => !esSinGanador(r));
     return {
       total: post.length,
       enPlazo: pend.filter(r => !r.mpCerrada).length,                                        // Publicada en plazo
       cerradaSinApertura: pend.filter(r => r.mpCerrada && !r.aperturada).length,             // Cerrada sin apertura
       aperturaSinMarcar: pend.filter(r => r.aperturada && !r.fuePosibleAdj).length,          // Con apertura, sin marcar
       posible: pend.filter(r => r.fuePosibleAdj).length,                                     // Posible adjudicado
+      sinGanador: sinGanador.length,                                                         // Desierta / Revocada / Suspendida
       resuelta: resueltas.length,                                                            // Resuelto oficial
     };
   }, [baseRows]);
@@ -527,20 +535,36 @@ export function AnaliticaGestion() {
         }}>
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <div>
-            <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide mb-2.5">Por estado interno</p>
+            <p className="text-[11px] font-semibold text-slate-400 mb-2.5">Por estado interno</p>
             <DonutInteractivo segments={porEstado} total={vigentes.length} unidad="vigentes"
               selected={selEstados} onToggle={toggleEstado} />
           </div>
           <div>
-            <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide mb-2.5">
+            <p className="text-[11px] font-semibold text-slate-400 mb-2.5">
               Por analista {selEstados.length ? `· ${selEstados.map(s => getEstadoPipeline(s)?.label).join(', ')}` : ''}
             </p>
             {porAnalista.length ? (
               <div className="space-y-1">
                 {porAnalista.map(a => (
                   <BarRow key={a.nombre} label={a.nombre.split(' ')[0]} value={a.n} max={maxAnalista}
-                    color={colorUsuario(a.email || a.nombre)} initials={inicialesUsuario(a.nombre, a.email)} />
+                    color={colorUsuario(a.email || a.nombre)} initials={inicialesUsuario(a.nombre, a.email)}
+                    // Clic = filtrar TODO el tablero por esa persona (vuelve a tocar para quitarlo).
+                    onClick={a.id != null ? () => toggleNum(a.id!) : undefined}
+                    active={a.id != null && selAnalistas.includes(a.id)} />
                 ))}
+                <p className="pt-1 text-[11px] text-slate-400">Toca a una persona para ver solo lo suyo en todo el tablero.</p>
+              </div>
+            ) : selEstados.length > 0 && vigentes.length > 0 ? (
+              // La selección inicial («en trabajo») puede quedar vacía aunque haya vigentes en otras etapas: se dice y se ofrece salir.
+              <div className="py-6 text-center">
+                <p className="text-sm text-slate-600">
+                  Ningún negocio vigente está en {selEstados.length === 1 ? 'la etapa marcada' : 'las etapas marcadas'}.
+                </p>
+                <p className="mt-1 text-[12px] text-slate-400">Hay {vigentes.length} vigente{vigentes.length === 1 ? '' : 's'} en otras etapas.</p>
+                <button type="button" onClick={() => setSelEstados([])}
+                  className="mt-3 inline-flex h-8 items-center rounded-lg border border-slate-200 bg-white px-3 text-[13px] font-medium text-slate-700 shadow-sm transition-colors hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/60">
+                  Ver las {vigentes.length} vigentes
+                </button>
               </div>
             ) : <p className="text-sm text-slate-400 py-8 text-center">Sin licitaciones en la selección</p>}
           </div>
@@ -582,7 +606,7 @@ export function AnaliticaGestion() {
               <Clock size={20} />
             </div>
             <div className="min-w-0">
-              <p className="text-[26px] font-black text-orange-700 leading-none tabular-nums">{triageMed != null ? `${triageMed}d` : '—'}</p>
+              <p className="text-[26px] font-semibold text-orange-700 leading-none tabular-nums">{triageMed != null ? `${triageMed}d` : '—'}</p>
               <p className="text-[12px] text-orange-600/80 mt-1">
                 {triageEnVentana.length} caso{triageEnVentana.length === 1 ? '' : 's'} resuelto{triageEnVentana.length === 1 ? '' : 's'} · {VENTANA_LABEL[ventanaTriage]}
               </p>
@@ -594,7 +618,7 @@ export function AnaliticaGestion() {
             </div>
           </div>
           <div>
-            <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide mb-2.5">Por analista, en la ventana elegida</p>
+            <p className="text-[11px] font-semibold text-slate-400 mb-2.5">Por analista, en la ventana elegida</p>
             {triagePorAnalista.length ? (
               <div className="space-y-1.5">
                 {triagePorAnalista.map(a => (
@@ -624,37 +648,37 @@ export function AnaliticaGestion() {
           }}>
           <div className="grid grid-cols-2 gap-3">
             <motion.div whileHover={{ y: -3 }} className="rounded-xl border border-emerald-200 bg-emerald-50 p-3.5">
-              <p className="text-[10.5px] font-semibold text-emerald-700 uppercase tracking-wide flex items-center gap-1"><Percent size={11} /> Éxito competitivo
+              <p className="text-[10.5px] font-semibold text-emerald-700 flex items-center gap-1"><Percent size={11} /> Éxito competitivo
                 <MetricInfo spec={{
                   mide: 'De lo ya resuelto por MP, qué porcentaje ganamos.',
                   calculo: 'Ganadas ÷ (ganadas + perdidas) × 100. Solo mira licitaciones donde MP ya publicó a quién adjudicó — no cuenta lo que sigue en evaluación.',
                 }} />
               </p>
-              <p className="text-[28px] font-black text-emerald-700 leading-none mt-1.5 tabular-nums">{adj.exito}%</p>
+              <p className="text-[28px] font-semibold text-emerald-700 leading-none mt-1.5 tabular-nums">{adj.exito}%</p>
               <p className="text-[11px] text-emerald-600/80 mt-1">{adj.ganadas} de {adj.resueltas} resueltas</p>
             </motion.div>
             <motion.div whileHover={{ y: -3 }} className="rounded-xl border border-teal-200 bg-teal-50 p-3.5">
-              <p className="text-[10.5px] font-semibold text-teal-700 uppercase tracking-wide flex items-center gap-1"><Percent size={11} /> Eficiencia embudo
+              <p className="text-[10.5px] font-semibold text-teal-700 flex items-center gap-1"><Percent size={11} /> Eficiencia embudo
                 <MetricInfo spec={{
                   mide: 'Qué tan bien se filtra ANTES de postular, no solo el resultado final.',
                   calculo: 'Ganadas ÷ (ganadas + perdidas + descartes de Nivel 2). Suma los descartes N2 (los que se botaron después de analizarlas, no al toque) al denominador — castiga haber invertido tiempo en algo que igual no se ganó ni se llegó a postular.',
                 }} />
               </p>
-              <p className="text-[28px] font-black text-teal-700 leading-none mt-1.5 tabular-nums">{adj.embudo}%</p>
+              <p className="text-[28px] font-semibold text-teal-700 leading-none mt-1.5 tabular-nums">{adj.embudo}%</p>
               <p className="text-[11px] text-teal-700/80 mt-1">incluye {adj.n2} descartes N2</p>
             </motion.div>
             <motion.div whileHover={{ y: -3 }} className="rounded-xl border border-slate-200 bg-slate-50 p-3.5">
-              <p className="text-[10.5px] font-semibold text-slate-500 uppercase tracking-wide flex items-center gap-1"><Trophy size={11} /> Ganadas
+              <p className="text-[10.5px] font-semibold text-slate-500 flex items-center gap-1"><Trophy size={11} /> Ganadas
                 <MetricInfo spec={{
                   mide: 'Cuántas licitaciones ganamos (al menos una línea).',
                   calculo: 'Cuenta de licitaciones donde el RUT de alguna de nuestras empresas aparece como ganador en al menos una línea del acta de MP.',
                 }} />
               </p>
-              <p className="text-[28px] font-black text-slate-800 leading-none mt-1.5 tabular-nums">{adj.ganadas}</p>
+              <p className="text-[28px] font-semibold text-slate-800 leading-none mt-1.5 tabular-nums">{adj.ganadas}</p>
               <p className="text-[11px] text-slate-400 mt-1">proyectos ganados</p>
             </motion.div>
             <motion.div whileHover={{ y: -3 }} className="rounded-xl border border-slate-200 bg-slate-50 p-3.5">
-              <p className="text-[10.5px] font-semibold text-slate-500 uppercase tracking-wide flex items-center gap-1"><Wallet size={11} /> Monto neto real
+              <p className="text-[10.5px] font-semibold text-slate-500 flex items-center gap-1"><Wallet size={11} /> Monto neto real
                 <MetricInfo spec={{
                   mide: 'Cuánto ganamos en plata, sumando TODAS las líneas que ganamos en cada licitación (no solo una).',
                   calculo: 'Por cada licitación ganada, se recorren TODAS las líneas del acta y se suma MontoUnitario × Cantidad de cada línea donde el RUT ganador es nuestro. Si ganamos 3 líneas de 8, se suman las 3. Si por algún motivo esa suma queda en cero, usa como respaldo el monto que el equipo cargó a mano al ofertar.',
@@ -662,7 +686,7 @@ export function AnaliticaGestion() {
                   nota: 'Una vez que el sistema marca una licitación como "ya adjudicada", no la vuelve a consultar contra MP — si MP resuelve líneas en fechas distintas, las que se resuelvan DESPUÉS de esa foto podrían no capturarse solas.',
                 }} />
               </p>
-              <p className="text-[17px] font-black text-slate-800 leading-none mt-1.5 tabular-nums">{fmtMonto(adj.montoNeto)}</p>
+              <p className="text-[17px] font-semibold text-slate-800 leading-none mt-1.5 tabular-nums">{fmtMonto(adj.montoNeto)}</p>
               <p className="text-[11px] text-slate-400 mt-1">adjudicado según acta</p>
             </motion.div>
           </div>
@@ -672,7 +696,7 @@ export function AnaliticaGestion() {
           hint={`${postuladas.total} postuladas`}
           spec={{
             mide: 'En qué momento del trámite post-postulación está cada licitación (todavía no es "ganada/perdida" para el resto del tablero hasta que MP resuelve).',
-            calculo: '"Publicada en plazo" = MP todavía no cierra. "Cerrada sin apertura" = cerró pero MP no ha hecho la apertura técnica. "Con apertura, sin marcar" = ya hubo apertura pero nadie la marcó "posible adjudicado". "Posible adjudicado" = alguien la marcó a mano. "Resuelto oficial" = el acta de MP ya dice ganada o perdida.',
+            calculo: '"Publicada en plazo" = MP todavía no cierra. "Cerrada sin apertura" = cerró pero MP no ha hecho la apertura técnica. "Con apertura, sin marcar" = ya hubo apertura pero nadie la marcó "posible adjudicado". "Posible adjudicado" = alguien la marcó a mano. "Desierta / revocada" = MP cerró el proceso (o el organismo lo dejó sin efecto) sin adjudicar a nadie: no cuenta como perdida. "Resuelto oficial" = el acta de MP ya dice ganada o perdida.',
             fuente: 'negocios + licitacion_apertura + adjudicacion_cache',
           }}>
           <DonutInteractivo total={postuladas.total} unidad="postuladas"
@@ -681,6 +705,7 @@ export function AnaliticaGestion() {
               { key: 'cerradaSinApertura', label: 'Cerrada sin apertura', value: postuladas.cerradaSinApertura, color: '#0891b2' },
               { key: 'aperturaSinMarcar', label: 'Con apertura, sin marcar', value: postuladas.aperturaSinMarcar, color: '#475569' },
               { key: 'posible', label: 'Posible adjudicado', value: postuladas.posible, color: '#0d9488' },
+              { key: 'sinGanador', label: 'Desierta / revocada', value: postuladas.sinGanador, color: '#94a3b8' },
               { key: 'resuelta', label: 'Resuelto oficial', value: postuladas.resuelta, color: '#059669' },
             ]} />
         </Section>
@@ -708,7 +733,7 @@ export function AnaliticaGestion() {
                     <p className="text-[13px] font-bold text-slate-800">{meta.label}</p>
                     <p className="text-[11px] text-slate-400">{meta.desc}</p>
                   </div>
-                  <span className="ml-auto text-[22px] font-black tabular-nums" style={{ color: meta.color }}>{n}</span>
+                  <span className="ml-auto text-[22px] font-semibold tabular-nums" style={{ color: meta.color }}>{n}</span>
                 </motion.div>
               );
             })}
@@ -721,11 +746,11 @@ export function AnaliticaGestion() {
                 <p className="text-[13px] font-bold text-slate-800">Sin gestionar</p>
                 <p className="text-[11px] text-slate-400">Cerró en MP sin que postuláramos</p>
               </div>
-              <span className="ml-auto text-[22px] font-black tabular-nums text-orange-600">{descartes.sinGestionar}</span>
+              <span className="ml-auto text-[22px] font-semibold tabular-nums text-orange-600">{descartes.sinGestionar}</span>
             </motion.div>
           </div>
           <div>
-            <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide mb-2.5">Motivos más frecuentes</p>
+            <p className="text-[11px] font-semibold text-slate-400 mb-2.5">Motivos más frecuentes</p>
             {descartes.motivos.length ? (
               <div className="space-y-1">
                 {descartes.motivos.map(m => (
@@ -748,18 +773,18 @@ export function AnaliticaGestion() {
           }}>
           <div className="grid grid-cols-3 gap-3">
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-3.5">
-              <p className="text-[10.5px] font-semibold text-slate-700 uppercase tracking-wide">Mediana</p>
-              <p className="text-[26px] font-black text-slate-700 leading-none mt-1.5 tabular-nums">{sla.medianaRevision != null ? `${sla.medianaRevision}d` : '—'}</p>
+              <p className="text-[10.5px] font-semibold text-slate-700">Mediana</p>
+              <p className="text-[26px] font-semibold text-slate-700 leading-none mt-1.5 tabular-nums">{sla.medianaRevision != null ? `${sla.medianaRevision}d` : '—'}</p>
               <p className="text-[11px] text-slate-600/80 mt-1">apertura → marca</p>
             </div>
             <div className="rounded-xl border border-orange-200 bg-orange-50 p-3.5">
-              <p className="text-[10.5px] font-semibold text-orange-700 uppercase tracking-wide">Sin revisar</p>
-              <p className="text-[26px] font-black text-orange-700 leading-none mt-1.5 tabular-nums">{sla.sinRevisar}</p>
+              <p className="text-[10.5px] font-semibold text-orange-700">Sin revisar</p>
+              <p className="text-[26px] font-semibold text-orange-700 leading-none mt-1.5 tabular-nums">{sla.sinRevisar}</p>
               <p className="text-[11px] text-orange-600/80 mt-1">aperturadas pendientes</p>
             </div>
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-3.5">
-              <p className="text-[10.5px] font-semibold text-slate-500 uppercase tracking-wide">Espera máx.</p>
-              <p className="text-[26px] font-black text-slate-800 leading-none mt-1.5 tabular-nums">{sla.esperaMax != null ? `${sla.esperaMax}d` : '—'}</p>
+              <p className="text-[10.5px] font-semibold text-slate-500">Espera máx.</p>
+              <p className="text-[26px] font-semibold text-slate-800 leading-none mt-1.5 tabular-nums">{sla.esperaMax != null ? `${sla.esperaMax}d` : '—'}</p>
               <p className="text-[11px] text-slate-400 mt-1">la más rezagada</p>
             </div>
           </div>
@@ -781,8 +806,8 @@ export function AnaliticaGestion() {
               { l: 'Correcto', v: precision.correcto, sub: 'no marcamos, no ganamos', c: '#0891b2', bg: 'bg-cyan-50 border-cyan-200' },
             ].map(x => (
               <div key={x.l} className={`rounded-xl border p-3 ${x.bg}`}>
-                <p className="text-[10.5px] font-semibold uppercase tracking-wide" style={{ color: x.c }}>{x.l}</p>
-                <p className="text-[24px] font-black leading-none mt-1 tabular-nums" style={{ color: x.c }}>{x.v}</p>
+                <p className="text-[10.5px] font-semibold" style={{ color: x.c }}>{x.l}</p>
+                <p className="text-[24px] font-semibold leading-none mt-1 tabular-nums" style={{ color: x.c }}>{x.v}</p>
                 <p className="text-[10.5px] text-slate-500 mt-0.5">{x.sub}</p>
               </div>
             ))}
