@@ -53,6 +53,45 @@ interface ComprasFila {
 }
 interface Candidato { id: number; nombre: string | null; carga: number }
 
+// Pestaña «Licitaciones por avances»: negocios abiertos con su avance = tareas hechas / tareas totales.
+function VistaAvancesCompras({ negocios }: { negocios: ComprasFila[] }) {
+  const filas = negocios
+    .map(f => ({ f, pct: f.tareasTotal > 0 ? Math.round((f.tareasHechas / f.tareasTotal) * 100) : 0 }))
+    .sort((a, b) => b.pct - a.pct || b.f.tareasHechas - a.f.tareasHechas);
+  const promedio = filas.length ? Math.round(filas.reduce((s, x) => s + x.pct, 0) / filas.length) : 0;
+  const color = (pct: number, venc: number) => venc > 0 ? 'bg-rose-500' : pct >= 100 ? 'bg-emerald-600' : pct >= 50 ? 'bg-teal-600' : 'bg-amber-500';
+  return (
+    <div className="rounded-xl border border-zinc-200 bg-white overflow-hidden">
+      <div className="flex items-center justify-between px-4 py-2.5 border-b border-zinc-100 bg-zinc-50">
+        <span className="text-[12px] font-semibold text-zinc-600">{filas.length} licitaciones en trabajo</span>
+        <span className="text-[12px] text-zinc-500">Avance promedio <b className="text-zinc-800 tabular-nums">{promedio}%</b></span>
+      </div>
+      <ul className="divide-y divide-zinc-100">
+        {filas.map(({ f, pct }) => (
+          <li key={f.negocioId}>
+            <Link href={`/compras/${f.negocioId}`} className="flex items-center gap-4 px-4 py-3 hover:bg-zinc-50 transition-colors">
+              <span className="min-w-0 flex-1">
+                <span className="block text-[13px] font-semibold text-zinc-900 truncate">{f.licitacionNombre || f.licitacionCodigo}</span>
+                <span className="block text-[11.5px] text-zinc-500 truncate">
+                  {f.licitacionCodigo}{f.asignadoNombre ? ` · ${f.asignadoNombre}` : ' · Sin asignar'}
+                  {f.tareasVencidas > 0 ? ` · ${f.tareasVencidas} tarea(s) vencida(s)` : ''}
+                </span>
+              </span>
+              <span className="hidden sm:block w-48 h-2 rounded-full bg-zinc-100 overflow-hidden flex-shrink-0">
+                <span className={`block h-full ${color(pct, f.tareasVencidas)}`} style={{ width: `${pct}%` }} />
+              </span>
+              <span className="w-24 text-right flex-shrink-0">
+                <span className="block text-[15px] font-semibold tabular-nums text-zinc-900">{pct}%</span>
+                <span className="block text-[11px] text-zinc-500 tabular-nums">{f.tareasTotal > 0 ? `${f.tareasHechas}/${f.tareasTotal} tareas` : 'sin tareas'}</span>
+              </span>
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 const SS_COMPRAS_FILTROS = 'compras:filtros:v1';
 // Pestañas de Compras (11-nov-2026): abierta = sin marca de cierre; cerrada = entregada; cancelada = OC cancelada por el organismo o no realizada.
 type EstadoCompra = 'abiertas' | 'cerradas' | 'canceladas' | 'todas';
@@ -1371,7 +1410,7 @@ export default function ComprasPage() {
   const toast = useToast();
   const [exportando, setExportando] = useState(false);
   // Pestaña: ganadas en firme o pre-compras (POSIBLE ADJ, sin adjudicación firme).
-  const [ambito, setAmbito] = useState<'ganadas' | 'precompras'>('ganadas');
+  const [ambito, setAmbito] = useState<'ganadas' | 'precompras' | 'avances'>('ganadas');
   const [fechaDesde, setFechaDesde] = useState('');
   const [fechaHasta, setFechaHasta] = useState('');
   const [orden, setOrden] = useState<Orden>('reciente');
@@ -1405,7 +1444,7 @@ export default function ComprasPage() {
         if (typeof f.fechaDesde === 'string') setFechaDesde(f.fechaDesde);
         if (typeof f.fechaHasta === 'string') setFechaHasta(f.fechaHasta);
         if (f.orden === 'reciente' || f.orden === 'antiguo' || f.orden === 'monto_desc' || f.orden === 'monto_asc') setOrden(f.orden);
-        if (f.ambito === 'ganadas' || f.ambito === 'precompras') setAmbito(f.ambito);
+        if (f.ambito === 'ganadas' || f.ambito === 'precompras' || f.ambito === 'avances') setAmbito(f.ambito);
         if (f.vista === 'lista' || f.vista === 'mes' || f.vista === 'gantt') setVista(f.vista);
         if (f.mesesVista === 1 || f.mesesVista === 2 || f.mesesVista === 3) setMesesVista(f.mesesVista);
       }
@@ -1541,7 +1580,7 @@ export default function ComprasPage() {
       if (soloSinAsignar && f.asignadoA != null) return false;
       if (soloFielCumplimiento && !f.fielCumplimiento) return false;
       // Pestañas Abiertas / Cerradas / Canceladas / Todas (11-nov-2026): lo cerrado o cancelado no compite con el trabajo activo.
-      if (ambito === 'precompras') { if (f.cierreLegado) return false; }
+      if (ambito === 'precompras' || ambito === 'avances') { if (f.cierreLegado) return false; }
       else if (estado !== 'todas' && estadoDeCompra(f) !== estado) return false;
       const dia = f.ganadoAt.slice(0, 10);
       if (fechaDesde && dia < fechaDesde) return false;
@@ -1704,11 +1743,12 @@ export default function ComprasPage() {
               { key: 'canceladas', label: 'Canceladas', n: nPorEstado.canceladas, clase: 'border-rose-600 text-rose-700' },
               { key: 'todas', label: 'Todas', n: nPorEstado.todas, clase: 'border-zinc-700 text-zinc-800' },
               { key: 'precompras', label: 'Pre-compras (POSIBLE ADJ)', n: nPrecompras, clase: 'border-slate-600 text-slate-700' },
+              { key: 'avances', label: 'Licitaciones por avances', n: nPorEstado.abiertas, clase: 'border-indigo-600 text-indigo-700' },
             ] as const).map(t => {
-              const activa = t.key === 'precompras' ? ambito === 'precompras' : ambito === 'ganadas' && estado === t.key;
+              const activa = t.key === 'precompras' ? ambito === 'precompras' : t.key === 'avances' ? ambito === 'avances' : ambito === 'ganadas' && estado === t.key;
               return (
               <button key={t.key} role="tab" aria-selected={activa}
-                onClick={() => { if (t.key === 'precompras') setAmbito('precompras'); else { setAmbito('ganadas'); setEstado(t.key); } }}
+                onClick={() => { if (t.key === 'precompras') setAmbito('precompras'); else if (t.key === 'avances') setAmbito('avances'); else { setAmbito('ganadas'); setEstado(t.key); } }}
                 className={`inline-flex items-center gap-2 text-[13px] font-semibold px-3.5 py-2 -mb-px border-b-2 transition-colors ${
                   activa ? t.clase : 'border-transparent text-zinc-500 hover:text-zinc-700'
                 }`}>
@@ -1859,6 +1899,8 @@ export default function ComprasPage() {
             <p className="text-[13.5px] font-semibold text-zinc-500">{ambito === 'precompras' && nPrecompras === 0 ? 'No hay pre-compras abiertas' : 'Sin resultados'}</p>
             <p className="text-[12px] text-zinc-400">{ambito === 'precompras' && nPrecompras === 0 ? 'Se abren solas cuando una licitación pasa a POSIBLE ADJ.' : 'Ningún negocio coincide con la búsqueda o los filtros.'}</p>
           </div>
+        ) : ambito === 'avances' ? (
+          <VistaAvancesCompras negocios={filtrados} />
         ) : soloUrgentes ? (
           <VistaUrgentesCompras negocios={filtrados} />
         ) : vista === 'gantt' ? (

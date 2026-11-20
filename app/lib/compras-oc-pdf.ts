@@ -33,7 +33,7 @@ async function bajarFoto(url: string | null): Promise<Buffer | null> {
 const imagen = (ruta: string) => fs.readFileSync(path.join(process.cwd(), 'public', ruta));
 
 /** Para una OC que no sale de Obuma (OC propia de Comercial MP, 05-nov-2026): otro logo y, si no hay firma, sin imagen de firma. */
-export interface OpcionesPdfOc { logo?: string; firma?: string | null }
+export interface OpcionesPdfOc { logo?: string; firma?: string | null; /** Para una cotización: título, frase de entrada y rótulo del pie (por defecto, los de la OC). */ titulo?: string; frase?: string; rotuloPie?: string }
 
 export async function generarPdfOc(oc: OcDocumento, opciones: OpcionesPdfOc = {}): Promise<Uint8Array> {
   const pdf = await PDFDocument.create();
@@ -98,7 +98,7 @@ export async function generarPdfOc(oc: OcDocumento, opciones: OpcionesPdfOc = {}
       texto('E-mail:', 28, y + 24, 8, bold); texto(` ${oc.emisor.email}`, 28 + w('E-mail:', bold, 8), y + 24);
     }
     page.drawImage(logo, { x: 389.7 + 180 - logoW, y: PH - 40.8 - logoH, width: logoW, height: logoH });
-    derecha(`ORDEN DE COMPRA N° ${oc.folio}`, 566.5, 175, 10, bold);
+    derecha(`${opciones.titulo ?? 'ORDEN DE COMPRA'} N° ${oc.folio}`, 566.5, 175, 10, bold);
   };
   const nuevaHoja = () => { page = pdf.addPage([PW, PH]); paginas.push(page); encabezado(); };
 
@@ -129,7 +129,7 @@ export async function generarPdfOc(oc: OcDocumento, opciones: OpcionesPdfOc = {}
   ];
   filasEnt.forEach(([a, b], i) => { texto(a, 30, 284 + 14 * i, 8, bold); enCaja(`: ${b}`, 164, 284 + 14 * i, 400); });
 
-  texto('Agradecemos a Ud.(s) se sirva(n) dar curso a la siguiente Orden de Compra: ', 28, 381, 12);
+  texto(opciones.frase ?? 'Agradecemos a Ud.(s) se sirva(n) dar curso a la siguiente Orden de Compra: ', 28, 381, 12);
 
   // Tabla de ítems.
   const COLS = [L, 82.2, 351.5, 405.4, 459.2, 513.1, R];
@@ -214,7 +214,7 @@ export async function generarPdfOc(oc: OcDocumento, opciones: OpcionesPdfOc = {}
   paginas.forEach((pg, i) => {
     page = pg;
     page.drawLine({ start: { x: 28.4, y: PH - 799.4 }, end: { x: R, y: PH - 799.4 }, thickness: 1, color: rgb(0, 0, 0) });
-    texto(`O.C. # ${oc.folio}${oc.generadoPor ? ` | Generado por: ${oc.generadoPor}` : ''}`, 28, 798);
+    texto(`${opciones.rotuloPie ?? 'O.C. #'} ${oc.folio}${oc.generadoPor ? ` | Generado por: ${oc.generadoPor}` : ''}`, 28, 798);
     texto(`Pagina ${i + 1} de ${paginas.length}`, 482, 798);
   });
 

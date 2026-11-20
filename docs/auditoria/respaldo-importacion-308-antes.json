@@ -1,0 +1,67 @@
+{
+ "fichas": [
+  {
+   "producto_id": 511,
+   "negocio_id": 308,
+   "fabricante": "YUSHENG",
+   "pais_origen": null,
+   "partida_arancelaria": null,
+   "numero_factura": null,
+   "incoterm": null,
+   "moneda": null,
+   "precio_fob": null,
+   "cantidad_pedida": null,
+   "bultos": null,
+   "peso_kg": null,
+   "volumen_m3": null,
+   "arancel_pct": null,
+   "seguro": null,
+   "notas": null,
+   "actualizado_por": 7,
+   "actualizado_por_nombre": "Asesor",
+   "updated_at": "2026-11-03T19:58:42.000Z"
+  }
+ ],
+ "importado": [
+  {
+   "id": 19,
+   "importado": 1
+  },
+  {
+   "id": 499,
+   "importado": 1
+  },
+  {
+   "id": 500,
+   "importado": 1
+  },
+  {
+   "id": 501,
+   "importado": 1
+  },
+  {
+   "id": 504,
+   "importado": 0
+  },
+  {
+   "id": 505,
+   "importado": 1
+  },
+  {
+   "id": 506,
+   "importado": 1
+  },
+  {
+   "id": 507,
+   "importado": 0
+  },
+  {
+   "id": 510,
+   "importado": 1
+  },
+  {
+   "id": 511,
+   "importado": 1
+  }
+ ]
+}
