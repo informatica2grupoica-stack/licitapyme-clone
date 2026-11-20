@@ -2,7 +2,79 @@
 
 Traspasado desde la memoria personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## Próxima sesión: empieza aquí (2026-11-20)
+
+- **Ya aplicadas con `licitank-ui` y dadas por realizadas por el dueño:** `/postuladas` (torta + tarjetas), `/dashboard`
+  (cifras revisadas contra la BD, interactivo, enlaces a Negocios y Radar con filtros por URL). Commit del dueño: `3a9aaa1`.
+- **Ganadas/Perdidas (`/adjudicadas`) aplicada el 2026-11-20, sin aprobación del dueño todavía** (entrada abajo). Queda
+  abierta la ganada que Postuladas cuenta de más (negocio duplicado 2408-179-LE26).
+- **Siguientes pantallas:** Análisis de licitación (22 / 904), Empresas (22 / 690),
+  Perfil (18 / 330), Puente (18 / 679), Favoritos (17 / 533), Órdenes de compra (13 / 578), Radar (86 / 2621, enorme),
+  Negocios vistas Lista y Mes. Conteo con `grep -nE "violet|indigo|purple|font-black|font-bold|uppercase|Badge|Sparkles|animate-pulse|gradient"`.
+- **Método que funcionó:** leer la pantalla y sus APIs → cruzar CADA cifra con la BD (`scripts/scratch/_dashboard_cifras.mjs`
+  como modelo; 2º argumento `dev` = BD Docker :3308 que usa el servidor local; sin él = VPS por túnel 3307, solo SELECT) y
+  con la otra pantalla que muestra lo mismo → aplicar kit (`Encabezado`, `Indicador`, `Dona`, `Pestanas`, `Boton`,
+  `Estado`, `Vacio`, `TarjetaCargando`, `Banner`) → ver en el navegador del panel (el plugin Playwright no estaba activo; la
+  sesión del dueño ya estaba iniciada) a 1366 y 800 px, claro y oscuro → anotar aquí.
+- **Pendientes de lo hecho:** ver 800 px y modo oscuro de `/dashboard`, Postuladas y los filtros por URL; vista de usuario
+  no admin del Dashboard; `AnaliticaGestion` sin rediseño completo (solo barrido de MAYÚSCULAS/font-black y 2 arreglos);
+  colores de etapa (`pipeline.ts`) siguen con morado/índigo; el hero del Buscador (`app/page.tsx`) sigue con degradado índigo.
+- Servidor local: la primera visita a cada pantalla compila hasta ~30 s (no es un fallo). El desarrollo usa datos de prueba
+  (63 de 72 usuarios activos son @sim/@licitank.test; en producción 9 de 21).
+
 ## Decisiones vigentes del dueño
+
+- **licitank-ui aplicada a Ganadas/Perdidas (`/adjudicadas`) (2026-11-20, pedido del dueño; sin aprobar aún).** El menú
+  sigue diciendo «Ganadas/Perdidas» (el dueño pidió dejarlo así). Front: `Encabezado` con Exportar + buscador; torta `Dona`
+  ganadas/perdidas con la efectividad al centro (clic en la torta o la leyenda = filtra, igual que las pestañas); «Última
+  ganada / perdida» al pie de la torta (antes eran pastillas con degradado y emoji); `Indicador` Ganadas · Perdidas ·
+  Monto ganado (se quitó «Tasa de éxito»: repetía el centro de la torta); `Pestanas` para el resultado y para
+  Lista/Tarjetas; `Estado` con punto en vez de pastillas; sin barra de color lateral ni índigo; rótulos sin MAYÚSCULAS;
+  `Tarjeta`/`Datos`, `Vacio`, carga con `Esqueleto` (sin `animate-pulse`); paginación teal; fechas «12 nov». **Lista por
+  ancho del panel** (`@container`, tabla desde `@5xl`): pasó de 10 a 8 columnas. El perfil se ve solo con iniciales (el
+  nombre va en el tooltip) y «OC llegó / aceptada» va bajo el N° de OC, porque a 1366 px con el menú no cabía.
+  **Cifra:** «Monto ganado» sumaba lo OFERTADO cuando MP no traía el monto adjudicado a nosotros. Ahora suma solo
+  `montoNuestro` de las ganadas, igual que Postuladas (en dev no cambia: ninguna ganada viene sin ese monto). Cuadra con
+  la BD dev: 263 resueltas = 71 ganadas + 192 perdidas (quedan fuera 10 revocadas y 9 desiertas), monto ganado
+  $1.919.252.437 (`scripts/scratch/_adjudicadas_cifras.mjs`). **Diferencia abierta con Postuladas:** allá salen
+  72 ganadas y $1.930.227.812 porque la licitación 2408-179-LE26 tiene DOS negocios activos (ids 1243 Deyna y 1723
+  «Asesor», ambos ADJUDICADA, $10.975.375). Ganadas/Perdidas cuenta una vez cada código y Postuladas no (331 postuladas
+  = 330 códigos). Falta que el dueño decida si Postuladas y el Dashboard cuentan por código y si se borra el negocio
+  repetido. Visto en el navegador a 1366 y 800 px, claro y oscuro. La consola no muestra errores propios (el aviso de
+  hidratación del `<html>` por el modo oscuro sale en todas las pantallas).
+  **«Por empresa» (mismo día, pedido del dueño: «identificar de cuáles empresas, con gráficos de torta»):** sección bajo
+  el resumen con dos `Dona` («Ganadas por empresa» y «Perdidas por empresa»: total al centro, leyenda con cantidad y %) y
+  una tarjeta «Efectividad por empresa» (ganadas / resueltas de cada una, barra y monto ganado). «Empresa» = la empresa
+  PROPIA con que se postuló (`empresa_nombre` del negocio), no el competidor adjudicado. Color fijo por empresa en los tres
+  bloques; «Sin empresa» va en gris y no filtra. Tocar una empresa filtra toda la pantalla (lo mismo que el filtro
+  Empresa): las demás se atenúan y aparece el botón «Viendo solo X» con la X para quitarlo. Las tortas usan la base SIN
+  el filtro de empresa, para poder pasar de una a otra. Cuadra con la BD dev (`scripts/scratch/_adjudicadas_por_empresa.mjs`):
+  Inversiones Claro ARZ 41 ganadas / 148 perdidas (22 %, $1.317.424.320), Comercial MP 26 / 42 (38 %, $551.520.862), sin
+  empresa 4 / 2 ($50.307.255); los montos suman el total de $1.919.252.437. Visto a 1366 y 800 px, claro y oscuro.
+  **Corrección del dueño (mismo día):** «26 de 68 ganadas» no se entendía. La tarjeta pasó a llamarse «¿Qué tan seguido
+  gana cada empresa?», dice la fórmula (ganadas ÷ (ganadas + perdidas), solo con resultado en MP) y por empresa muestra
+  «38 % de efectividad» en grande, una barra partida verde/roja y «26 ganadas · 42 perdidas · 68 con resultado · ganó $…».
+  **«Competidores que nos ganaron» (pedido del dueño; antes se titulaba «¿A quién le perdimos?» y el dueño pidió
+  palabras más claras):** se arma con las líneas del acta de cada PERDIDA. Competidor = RUT sin
+  puntos (si falta, el nombre); monto de cada línea = precio × cantidad adjudicada, igual que el total del acta. Hay dos
+  tarjetas. La torta «Cuánta plata se llevaron» muestra los 6 que más se llevaron + «Otros N competidores» y lleva una
+  frase que la lee («Nos ganaron 206 competidores distintos. Los 6 que más se llevaron suman el 24 %»), porque sin ella
+  «Otros» (76 %) no decía nada. La lista «Quién nos ganó más veces» cuenta las licitaciones donde se llevó ≥1 línea,
+  muestra 8 y tiene «Ver los N». Tocar un competidor filtra SOLO la lista y las pestañas a esas perdidas. El resumen, los
+  KPIs y «Por empresa» NO aplican ese filtro: daban «0 % de efectividad», como si nunca le ganáramos. Cuadra con la BD
+  dev (`scripts/scratch/_adjudicadas_competidores.mjs`): 192 perdidas, 0 sin detalle por línea, 206 competidores,
+  $7.119 MM; Fernando Veloso 10 licitaciones, Jiménez Segovia 6, Dercomaq 4 ($171,1 MM); Peña Spoerer el mayor monto
+  ($610,7 MM). **Kit `Dona`:** nueva prop `formato` (montos en la leyenda y el centro), el centro con `px-7` (un nombre
+  largo se salía del anillo) y la leyenda con `max-w-md` (en pantallas anchas los números quedaban lejos). Revisar que
+  `/dashboard` y `/postuladas` sigan bien. Visto a 1366 y 800 px, claro y oscuro.
+  **Detalle por competidor (pedido del dueño: «por empresa y qué licitaciones»):** cada fila de «Quién nos ganó más veces»
+  se abre (`FilaCompetidor`) y muestra (1) «Nos ganó cuando postulamos con» + cada empresa NUESTRA y cuántas veces, y (2)
+  «En estas licitaciones»: nombre con enlace a `/licitacion/<código>`, código, empresa con que postulamos, fecha de
+  adjudicación, lo que se llevó ese competidor y «toda la licitación» o «N de M líneas». El botón del pie «Ver estas N en
+  la lista de abajo» es ahora lo que filtra (antes filtraba el clic en la fila; la torta sigue filtrando con el clic).
+  Cuadra con la BD dev (`scripts/scratch/_adjudicadas_competidor_detalle.mjs 14205876-6 … dev`): Fernando Veloso 10
+  licitaciones = 7 Claro ARZ + 3 Comercial MP, $123.758.623; 2426-21-LP26 = 41 de 53 líneas, $31.798.353. Se corrigió
+  «licitaciónes» (tilde de más) y el título pasó a «Competidores que nos ganaron». Visto a 1366 y 800 px, claro y oscuro.
 
 - **Filtros por URL en Negocios y Radar (2026-11-20, pedido del dueño):** `/negocios?estado=PERDIDA` (ids de etapa
   separados por coma, solo los que existen), `&analista=correo` (coma), `&vista=lista|semana|calendario` (con `estado` y

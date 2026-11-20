@@ -8,7 +8,7 @@ import { useState } from 'react';
 
 export interface TajadaDona { clave: string; etiqueta: string; valor: number; color: string }
 
-export function Dona({ tajadas, centroValor, centroTexto, elegido, onElegir, descripcion }: {
+export function Dona({ tajadas, centroValor, centroTexto, elegido, onElegir, descripcion, formato }: {
   tajadas: TajadaDona[];
   centroValor: string;
   centroTexto: string;
@@ -16,7 +16,10 @@ export function Dona({ tajadas, centroValor, centroTexto, elegido, onElegir, des
   onElegir?: (clave: string) => void;
   /** Lectura del gráfico para lectores de pantalla. */
   descripcion: string;
+  /** Cómo mostrar cada valor (p. ej. montos «$12,4 MM»). Por defecto, el número tal cual. */
+  formato?: (n: number) => string;
 }) {
+  const fmt = formato ?? ((n: number) => String(n));
   const [sobre, setSobre] = useState<string | null>(null);
   const R = 52, C = 2 * Math.PI * R;
   const visibles = tajadas.filter(t => t.valor > 0);
@@ -43,27 +46,28 @@ export function Dona({ tajadas, centroValor, centroTexto, elegido, onElegir, des
               className={`transition-[opacity,stroke-width] duration-150 ${onElegir ? 'cursor-pointer' : ''}`}
               onMouseEnter={() => setSobre(t.clave)} onMouseLeave={() => setSobre(null)}
               onClick={() => onElegir?.(elegido === t.clave ? '' : t.clave)}>
-              <title>{`${t.etiqueta}: ${t.valor}`}</title>
+              <title>{`${t.etiqueta}: ${fmt(t.valor)}`}</title>
             </circle>
           ))}
         </svg>
-        <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center px-4 text-center">
-          <span className="text-[22px] font-semibold leading-none tracking-tight tabular-nums text-tinta dark:text-slate-50"
+        {/* El hueco del anillo mide ~88 px: px-7 deja el texto dentro aunque el nombre sea largo. */}
+        <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center px-7 text-center">
+          <span className={`${(enFoco ? fmt(enFoco.valor) : centroValor).length > 6 ? 'text-[15px]' : 'text-[22px]'} font-semibold leading-none tracking-tight tabular-nums text-tinta dark:text-slate-50`}
             style={enFoco ? { color: enFoco.color } : undefined}>
-            {enFoco ? enFoco.valor : centroValor}
+            {enFoco ? fmt(enFoco.valor) : centroValor}
           </span>
-          <span className="mt-1 line-clamp-2 text-[11px] leading-tight text-tinta-2 dark:text-slate-400">
+          <span className="mt-1 line-clamp-2 break-words text-[10.5px] leading-tight text-tinta-2 dark:text-slate-400">
             {enFoco ? enFoco.etiqueta : centroTexto}
           </span>
         </div>
       </div>
-      <ul className="min-w-[180px] flex-1 space-y-0.5">
+      <ul className="min-w-[180px] max-w-md flex-1 space-y-0.5">
         {visibles.map(t => {
           const fila = (
             <>
               <span aria-hidden style={{ backgroundColor: t.color }} className="h-2 w-2 flex-shrink-0 rounded-full" />
               <span className="flex-1 truncate text-tinta dark:text-slate-100">{t.etiqueta}</span>
-              <span className="font-semibold tabular-nums text-tinta dark:text-slate-100">{t.valor}</span>
+              <span className="font-semibold tabular-nums text-tinta dark:text-slate-100">{fmt(t.valor)}</span>
               <span className="w-10 text-right text-xs tabular-nums text-tinta-2 dark:text-slate-400">{Math.round((t.valor / total) * 100)} %</span>
             </>
           );

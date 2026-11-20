@@ -99,7 +99,9 @@ export async function compararOrdenCompra(negocioId: number, ocFolio: string): P
   }));
 
   const netoOc = netoDeCompra(oc);
-  const netoFactOk = facturas.filter(f => f.estado === 'OK').reduce((s, f) => s + (f.neto ?? (f.total != null ? Math.round(f.total / 1.19) : 0)), 0);
+  // Mismo criterio que `netoDeCompra` (total − IVA): una factura de combustible trae además el impuesto específico exento, que NO está en el
+  // «neto» del XML pero sí es costo (OC 4058: neto 35.810 + impuesto 7.537 = 43.347). Sin IVA leído se vuelve al neto del XML o total ÷ 1,19.
+  const netoFactOk = facturas.filter(f => f.estado === 'OK').reduce((s, f) => s + (f.total != null && f.iva != null ? Math.round(f.total - f.iva) : (f.neto ?? (f.total != null ? Math.round(f.total / 1.19) : 0))), 0);
   const avisos: string[] = [];
   if (cotizs.length === 0) avisos.push('Esta OC no tiene una cotización elegida asociada (compra hecha fuera de lo cotizado o a otro proveedor).');
   if (facturas.length === 0) avisos.push('Esta OC todavía no tiene factura.');

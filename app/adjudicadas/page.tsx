@@ -24,8 +24,16 @@ import { colorUsuario, inicialesUsuario } from '@/app/lib/user-color';
 import { MultiSelect } from '@/app/components/ui/MultiSelect';
 import { Select } from '@/app/components/ui/Select';
 import { Banner } from '@/app/components/ui/Banner';
-import { StatCard } from '@/app/components/ui/StatCard';
-import { IconTrophy as Trophy, IconCircleX as XCircle, IconExternalLink as ExternalLink, IconBuilding as Building2, IconCalendar as Calendar, IconInbox as Inbox, IconAward as Award, IconUsers as Users, IconFileCheck as FileCheck2, IconChevronDown as ChevronDown, IconChevronUp as ChevronUp, IconCircleCheck as CheckCircle2, IconWallet as Wallet, IconTarget as Target, IconSearch as Search, IconLayoutList as LayoutList, IconLayoutGrid as LayoutGrid, IconX as X, IconArrowsUpDown as ArrowUpDown, IconChevronLeft as ChevronLeft, IconChevronRight as ChevronRight, IconDownload as Download, IconLoader2 as Loader2 } from '@tabler/icons-react';
+import { motion } from 'framer-motion';
+import { item } from '@/app/components/ui/kit/movimiento';
+import { Lista } from '@/app/components/ui/kit/Aparecer';
+import { Tarjeta, Datos, Dato, Estado } from '@/app/components/ui/kit/Tarjeta';
+import { Indicador } from '@/app/components/ui/kit/Indicador';
+import { Pestanas } from '@/app/components/ui/kit/Pestanas';
+import { Boton } from '@/app/components/ui/kit/Boton';
+import { Dona } from '@/app/components/ui/kit/Dona';
+import { Encabezado, Esqueleto, TarjetaCargando, Vacio } from '@/app/components/ui/kit/Estructura';
+import { IconTrophy as Trophy, IconCircleX as XCircle, IconExternalLink as ExternalLink, IconBuilding as Building2, IconInbox as Inbox, IconUsers as Users, IconFileCheck as FileCheck2, IconChevronDown as ChevronDown, IconChevronUp as ChevronUp, IconSearch as Search, IconX as X, IconArrowsUpDown as ArrowUpDown, IconChevronLeft as ChevronLeft, IconChevronRight as ChevronRight, IconDownload as Download, IconLoader2 as Loader2 } from '@tabler/icons-react';
 import { useToast } from '@/app/components/ui/toast';
 import { ChipsOc } from '@/app/components/OcChips';
 import { getEstadoPipeline } from '@/app/lib/pipeline';
@@ -72,10 +80,13 @@ function fmtCLP(n: number | null | undefined) {
   return new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n);
 }
 // Fecha defensiva: zero-dates de MySQL o basura no deben pintar "Invalid Date".
-function fmtFecha(s: string | null | undefined, formato = 'DD/MM/YYYY') {
+// Formato de la casa: «12 nov» (año solo si no es el actual: «12 nov 2025»).
+function fmtFecha(s: string | null | undefined) {
   if (!s) return '—';
   const d = dayjs(s);
-  return d.isValid() ? d.format(formato) : '—';
+  if (!d.isValid()) return '—';
+  return new Intl.DateTimeFormat('es-CL', { day: 'numeric', month: 'short', ...(d.year() === dayjs().year() ? {} : { year: 'numeric' }) })
+    .format(d.toDate()).replace('.', '');
 }
 // Ficha pública de la OC en Mercado Público — solo para la columna «Link OC» del Excel (en pantalla la OC se ve en el visor).
 const urlOc = (codigo: string) => `https://www.mercadopublico.cl/PurchaseOrder/Modules/PO/DetailsPurchaseOrder.aspx?codigoOC=${encodeURIComponent(codigo)}`;
@@ -87,7 +98,25 @@ const META: Record<Resultado, { label: string; short: string; color: string; ico
   perdida: { label: 'Perdida', short: 'Perdidas', color: '#dc2626', icon: XCircle },
 };
 
-const OPCIONES_ORDEN: { value: Orden; label: string }[] = [
+// Serie de colores para las empresas (paleta licitank-ui, sin índigo/violeta). El verde va al final para
+// no confundirse con «ganada».
+const SERIE_EMPRESAS = ['#0d9488', '#475569', '#d97706', '#0891b2', '#ea580c', '#db2777', '#78716c', '#16a34a'];
+const SIN_EMPRESA = '__sin_empresa';
+const OTROS = '__otros';
+
+// Clave de un proveedor adjudicado: RUT sin puntos ni espacios; si MP no trae RUT, el nombre en mayúsculas.
+function claveProveedor(l: LineaAdjudicada): string {
+  const rut = (l.rutProveedor || '').replace(/[.\s]/g, '').toUpperCase();
+  return rut || (l.proveedor || '').trim().toUpperCase();
+}
+
+// Montos grandes en bloques: «$551,5 MM»; bajo un millón, el monto completo.
+function fmtMM(n: number) {
+  if (Math.abs(n) < 1_000_000) return fmtCLP(n);
+  return `$${(n / 1_000_000).toLocaleString('es-CL', { maximumFractionDigits: 1 })} MM`;
+}
+
+const OPCIONES_ORDEN:{ value: Orden; label: string }[] = [
   { value: 'recientes', label: 'Más recientes' },
   { value: 'antiguas', label: 'Más antiguas' },
   { value: 'monto_ganado', label: 'Monto del resultado' },
@@ -109,6 +138,7 @@ function montoResultado(n: Negocio, adj: Adjudicacion | null, r: Resultado): num
 }
 
 // ── Detalle de adjudicación (líneas + acta) ───────────────────────────────────
+// Va separado con border-t dentro de la tarjeta/fila: nada de caja teñida dentro de otra caja.
 function BloqueAdjudicacion({ adj, ganamos, defaultAbierto = false }: { adj: Adjudicacion; ganamos: boolean; defaultAbierto?: boolean }) {
   const [abierto, setAbierto] = useState(defaultAbierto);
   const meta = adj.adjudicacion;
@@ -116,84 +146,85 @@ function BloqueAdjudicacion({ adj, ganamos, defaultAbierto = false }: { adj: Adj
   const nuestras = lineas.filter(l => l.esNuestra).length;
   const acc = ganamos ? META.ganada : META.perdida;
   return (
-    <div className="rounded-xl border p-3" style={{ borderColor: acc.color + '33', background: acc.color + '0c' }}>
-      <div className="flex items-center gap-2 flex-wrap">
-        <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full border"
-          style={{ color: acc.color, background: acc.color + '18', borderColor: acc.color + '33' }}>
-          {ganamos ? <Trophy size={11} /> : <Award size={11} />}
-          {ganamos ? (nuestras > 0 ? `Ganamos ${nuestras} línea${nuestras !== 1 ? 's' : ''}` : 'Ganada') : 'Adjudicada a terceros'}
+    <div className="mt-3 pt-3 border-t border-linea dark:border-slate-800">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-tinta-2 dark:text-slate-400">
+        <span className="font-medium text-tinta dark:text-slate-100">
+          <Estado color={acc.color}>
+            {ganamos ? (nuestras > 0 ? `Ganamos ${nuestras} de ${lineas.length} línea${lineas.length !== 1 ? 's' : ''}` : 'Ganada') : 'Adjudicada a terceros'}
+          </Estado>
         </span>
-        {adj.fechaAdjudicacion && (
-          <span className="inline-flex items-center gap-1 text-[11px] text-slate-500"><Calendar size={11} /> {fmtFecha(adj.fechaAdjudicacion)}</span>
+        {adj.fechaAdjudicacion && <span>Adjudicada el {fmtFecha(adj.fechaAdjudicacion)}</span>}
+        {meta?.numeroOferentes != null && <span>{meta.numeroOferentes} oferente{meta.numeroOferentes !== 1 ? 's' : ''}</span>}
+        {meta?.numeroResolucion && <span>Res. N° {meta.numeroResolucion}</span>}
+        {meta?.urlActa && (
+          <a href={meta.urlActa} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}
+            className="inline-flex items-center gap-1 font-medium text-marca hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marca/60 rounded">
+            <FileCheck2 size={14} stroke={1.75} /> Ver acta <ExternalLink size={12} stroke={1.75} />
+          </a>
         )}
-        {meta?.numeroOferentes != null && (
-          <span className="inline-flex items-center gap-1 text-[11px] text-slate-500"><Users size={11} /> {meta.numeroOferentes} oferente{meta.numeroOferentes !== 1 ? 's' : ''}</span>
-        )}
-        {meta?.numeroResolucion && <span className="text-[11px] text-slate-500">Res. N° {meta.numeroResolucion}</span>}
       </div>
 
       {lineas.length > 0 && (
         <>
-          <button onClick={() => setAbierto(o => !o)} aria-expanded={abierto}
-            className="mt-2.5 inline-flex items-center gap-1 text-[11.5px] font-semibold text-slate-600 hover:text-slate-800 transition-colors">
-            {abierto ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
-            {abierto ? 'Ocultar' : 'Ver'} adjudicación por línea ({lineas.length})
+          <button type="button" onClick={e => { e.stopPropagation(); setAbierto(o => !o); }} aria-expanded={abierto}
+            className="mt-2 inline-flex items-center gap-1 rounded text-xs font-medium text-tinta-2 hover:text-tinta focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marca/60 dark:text-slate-400 dark:hover:text-slate-200">
+            {abierto ? <ChevronUp size={14} stroke={1.75} /> : <ChevronDown size={14} stroke={1.75} />}
+            {abierto ? 'Ocultar' : 'Ver'} adjudicación por línea
+            <span className="font-semibold tabular-nums">{lineas.length}</span>
           </button>
           <div className="colapsable" data-abierto={abierto ? '1' : '0'}>
             <div className="colapsable-inner">
-              <div className="mt-2 space-y-1.5">
+              <ul className="mt-1.5 divide-y divide-linea dark:divide-slate-800">
                 {lineas.map((l, i) => (
-                  <div key={i} className={`flex items-start justify-between gap-2 rounded-lg px-2.5 py-1.5 border ${l.esNuestra ? 'bg-emerald-50 border-emerald-200' : 'bg-white border-slate-200'}`}>
+                  <li key={i} className="flex items-start justify-between gap-3 py-2">
                     <div className="min-w-0">
-                      <p className="text-[11.5px] font-medium text-slate-700 truncate" title={l.producto || l.descripcion}>{l.producto || l.descripcion || `Línea ${l.correlativo ?? i + 1}`}</p>
-                      <p className={`text-[10.5px] truncate ${l.esNuestra ? 'text-emerald-700 font-semibold' : 'text-slate-500'}`} title={`${l.proveedor || ''} ${l.rutProveedor || ''}`}>
-                        {l.esNuestra ? <CheckCircle2 size={10} className="inline mr-0.5 -mt-0.5" /> : <Award size={9} className="inline mr-0.5" />}
-                        {l.proveedor || 'Proveedor adjudicado'}{l.rutProveedor ? ` · ${l.rutProveedor}` : ''}
+                      <p className="text-[13px] text-tinta truncate dark:text-slate-100" title={l.producto || l.descripcion}>
+                        {l.producto || l.descripcion || `Línea ${l.correlativo ?? i + 1}`}
+                      </p>
+                      <p className="mt-0.5 text-xs text-tinta-2 truncate dark:text-slate-400" title={`${l.proveedor || ''} ${l.rutProveedor || ''}`}>
+                        {l.esNuestra
+                          ? <span className="font-medium text-exito"><Estado color={META.ganada.color}>Nosotros</Estado></span>
+                          : null}
+                        {l.esNuestra ? ' · ' : ''}{l.proveedor || 'Proveedor adjudicado'}{l.rutProveedor ? ` · ${l.rutProveedor}` : ''}
                       </p>
                     </div>
-                    <div className="text-right whitespace-nowrap">
-                      {l.esNuestra && <span className="block text-[9px] font-black tracking-wide text-emerald-600 uppercase">Nosotros</span>}
-                      <span className="text-[11.5px] font-bold text-slate-800">{fmtCLP(l.montoUnitario)}</span>
-                    </div>
-                  </div>
+                    <span className="text-[13px] font-semibold tabular-nums text-tinta whitespace-nowrap dark:text-slate-100">{fmtCLP(l.montoUnitario)}</span>
+                  </li>
                 ))}
-              </div>
+              </ul>
             </div>
           </div>
         </>
-      )}
-
-      {meta?.urlActa && (
-        <a href={meta.urlActa} target="_blank" rel="noopener noreferrer"
-          className="mt-2.5 inline-flex items-center gap-1.5 text-[11.5px] font-semibold hover:underline" style={{ color: acc.color }}>
-          <FileCheck2 size={12} /> Ver acta de adjudicación <ExternalLink size={11} />
-        </a>
       )}
     </div>
   );
 }
 
-// ── Chips compartidos entre vistas ────────────────────────────────────────────
-function BadgeResultado({ r }: { r: Resultado }) {
-  const m = META[r];
+// Avatar del perfil (solo el admin lo ve). Con `soloAvatar` muestra las iniciales y el nombre va en el tooltip.
+function ChipPerfil({ n, soloAvatar = false }: { n: Negocio; soloAvatar?: boolean }) {
+  if (!n.usuario_nombre && !n.usuario_email) return null;
+  const col = colorUsuario(n.usuario_email || n.usuario_nombre || '');
+  const nombre = n.usuario_nombre || n.usuario_email;
   return (
-    <span className="inline-flex items-center gap-1 text-[10.5px] px-2 py-0.5 rounded-full font-bold border whitespace-nowrap"
-      style={{ backgroundColor: m.color + '16', color: m.color, borderColor: m.color + '3d' }}>
-      <m.icon size={11} /> {m.label}
+    <span className="inline-flex items-center gap-1.5 text-xs text-tinta-2 min-w-0 dark:text-slate-400" title={soloAvatar ? nombre : n.usuario_email}>
+      <span style={{ background: col }} aria-hidden
+        className="inline-flex items-center justify-center w-6 h-6 rounded-full text-white text-[10px] font-semibold flex-shrink-0">
+        {inicialesUsuario(n.usuario_nombre, n.usuario_email)}
+      </span>
+      {soloAvatar ? <span className="sr-only">{nombre}</span> : <span className="truncate">{nombre}</span>}
     </span>
   );
 }
 
-function ChipPerfil({ n }: { n: Negocio }) {
-  if (!n.usuario_nombre && !n.usuario_email) return null;
-  const col = colorUsuario(n.usuario_email || n.usuario_nombre || '');
+// Enlace solo-ícono a la ficha de la licitación.
+function VerLicitacion({ codigo }: { codigo: string }) {
   return (
-    <span className="inline-flex items-center gap-1.5 text-[11px] text-slate-600 font-medium min-w-0" title={n.usuario_email}>
-      <span style={{ background: col }} className="inline-flex items-center justify-center w-5 h-5 rounded-full text-white text-[8.5px] font-bold flex-shrink-0">
-        {inicialesUsuario(n.usuario_nombre, n.usuario_email)}
-      </span>
-      <span className="truncate">{n.usuario_nombre || n.usuario_email}</span>
-    </span>
+    <Link href={`/licitacion/${encodeURIComponent(codigo)}`}
+      onClick={e => e.stopPropagation()} onKeyDown={e => e.stopPropagation()}
+      title="Ver licitación" aria-label={`Ver licitación ${codigo}`}
+      className="inline-flex items-center justify-center w-8 h-8 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-tinta transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marca/60 dark:hover:bg-slate-800 dark:hover:text-slate-100">
+      <ExternalLink size={16} stroke={1.75} />
+    </Link>
   );
 }
 
@@ -201,69 +232,52 @@ function ChipPerfil({ n }: { n: Negocio }) {
 function Card({ n, adj, cargandoAdj, isAdmin }: { n: Negocio; adj: Adjudicacion | null; cargandoAdj: boolean; isAdmin: boolean }) {
   const r = resultadoDe(n, adj);
   const m = META[r];
-  const metrica = r === 'ganada'
-    ? { label: 'Ganamos', valor: fmtCLP(adj?.montoNuestro ?? n.monto_ofertado ?? null), cls: 'bg-emerald-50 border-emerald-200 text-emerald-800', sub: 'text-emerald-700' }
-    : { label: 'Adjudicado (total)', valor: fmtCLP(adj?.montoAdjudicadoTotal), cls: 'bg-rose-50 border-rose-200 text-rose-800', sub: 'text-rose-700' };
+  const monto = montoResultado(n, adj, r);
 
   return (
-    <div className="relative bg-white border border-slate-200 rounded-2xl p-4 pl-5 overflow-hidden hover:shadow-lg hover:-translate-y-0.5 transition-all duration-300">
-      <span className="absolute left-0 top-0 bottom-0 w-1.5" style={{ background: m.color }} />
+    <Tarjeta layout>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <div className="flex items-center gap-2 mb-1 flex-wrap">
-            <span className="text-[11px] font-mono font-semibold text-slate-500">{n.licitacion_codigo}</span>
-            <BadgeResultado r={r} />
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+            <span className="font-mono text-tinta-2 dark:text-slate-400">{n.licitacion_codigo}</span>
+            <span className="font-medium text-tinta dark:text-slate-100"><Estado color={m.color}>{m.label}</Estado></span>
             {r === 'ganada' && <ChipsOc codigos={adj?.ocCodigos} />}
             {isAdmin && <ChipPerfil n={n} />}
           </div>
-          <h3 className="text-[14px] font-semibold text-slate-800 line-clamp-2 leading-snug" title={n.licitacion_nombre}>{n.licitacion_nombre || 'Sin nombre'}</h3>
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-1.5 text-[12px] text-slate-500">
-            <span className="inline-flex items-center gap-1 min-w-0"><Building2 size={12} className="flex-shrink-0" /><span className="truncate max-w-[240px]">{n.licitacion_organismo || '—'}</span></span>
-            {n.licitacion_cierre && <span className="inline-flex items-center gap-1"><Calendar size={12} />{fmtFecha(n.licitacion_cierre)}</span>}
-          </div>
-          {n.empresa_nombre && (
-            <span className="inline-flex items-center gap-1 mt-1.5 text-[11px] font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-full px-2 py-0.5">
-              <Building2 size={11} /> {n.empresa_nombre}
-            </span>
-          )}
+          <h3 className="mt-1.5 text-[15px] font-semibold leading-snug text-tinta line-clamp-2 dark:text-slate-50" title={n.licitacion_nombre}>
+            {n.licitacion_nombre || 'Sin nombre'}
+          </h3>
+          <p className="mt-1 text-xs text-tinta-2 truncate dark:text-slate-400">
+            {[n.licitacion_organismo, n.empresa_nombre].filter(Boolean).join(' · ') || '—'}
+          </p>
         </div>
-        <Link href={`/licitacion/${encodeURIComponent(n.licitacion_codigo)}`}
-          className="flex-shrink-0 inline-flex items-center gap-1 text-[12px] font-semibold text-indigo-600 hover:text-indigo-700">
-          Ver <ExternalLink size={12} />
-        </Link>
+        <VerLicitacion codigo={n.licitacion_codigo} />
       </div>
 
-      <div className="grid grid-cols-3 gap-2 mt-3">
-        <div className="rounded-lg bg-slate-50 border border-slate-200 px-3 py-2">
-          <p className="text-[10.5px] text-slate-500">Presupuesto real</p>
-          <p className="text-[13.5px] font-bold text-slate-800">{fmtCLP(n.licitacion_monto)}</p>
-        </div>
-        <div className="rounded-lg bg-slate-50 border border-slate-200 px-3 py-2">
-          <p className="text-[10.5px] text-slate-500">Postulamos con</p>
-          <p className="text-[13.5px] font-bold text-slate-800">{fmtCLP(n.monto_ofertado)}</p>
-        </div>
-        <div className={`rounded-lg border px-3 py-2 ${metrica.cls}`}>
-          <p className={`text-[10.5px] ${metrica.sub}`}>{metrica.label}</p>
-          <p className="text-[13.5px] font-bold">{cargandoAdj ? '…' : metrica.valor}</p>
-        </div>
-      </div>
+      <Datos columnas={3}>
+        <Dato rotulo="Presupuesto real">{fmtCLP(n.licitacion_monto)}</Dato>
+        <Dato rotulo="Postulamos con">{fmtCLP(n.monto_ofertado)}</Dato>
+        <Dato rotulo={r === 'ganada' ? 'Ganamos' : 'Adjudicado (total)'}>{cargandoAdj ? '…' : fmtCLP(monto)}</Dato>
+      </Datos>
 
       {adj?.esAdjudicada
-        ? <div className="mt-3 pt-3 border-t border-slate-100"><BloqueAdjudicacion adj={adj} ganamos={r === 'ganada'} /></div>
+        ? <BloqueAdjudicacion adj={adj} ganamos={r === 'ganada'} />
         : !cargandoAdj && (
-            <div className="mt-3 flex items-center gap-1.5 text-[11.5px] text-slate-500 bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5">
-              <Award size={12} /> Sin detalle de adjudicación en Mercado Público
-            </div>
+            <p className="mt-3 pt-3 border-t border-linea text-xs text-tinta-2 dark:border-slate-800 dark:text-slate-400">
+              Sin detalle de adjudicación en Mercado Público
+            </p>
           )}
-    </div>
+    </Tarjeta>
   );
 }
 
 // ── Vista LISTA (fila expandible) ─────────────────────────────────────────────
-// Los templates del grid se declaran COMPLETOS (Tailwind los extrae estáticamente):
-// para no-admin la columna Perfil no existe (evita un hueco muerto de 150px).
-const GRID_ADMIN = 'lg:grid-cols-[minmax(0,1fr)_150px_170px_130px_96px_150px_96px_96px_96px_70px]';
-const GRID_USER  = 'lg:grid-cols-[minmax(0,1fr)_170px_130px_96px_150px_96px_96px_96px_70px]';
+// Columnas por ancho del PANEL (@container), no de la pantalla: en un notebook de 1366 px con el menú
+// al contenido le quedan ~1060 px, así que la tabla se arma desde @5xl (1024 px). Las fechas de la OC
+// van bajo su número (antes eran 2 columnas más y no cabían). Templates completos: Tailwind los extrae
+// estáticamente; para no-admin la columna Perfil no existe.
+const GRID_ADMIN = '@5xl:grid-cols-[minmax(0,1fr)_28px_140px_120px_88px_168px_80px_64px]';
+const GRID_USER  = '@5xl:grid-cols-[minmax(0,1fr)_140px_120px_88px_168px_80px_64px]';
 
 function Fila({ n, adj, cargandoAdj, isAdmin }: { n: Negocio; adj: Adjudicacion | null; cargandoAdj: boolean; isAdmin: boolean }) {
   const [abierta, setAbierta] = useState(false);
@@ -273,10 +287,15 @@ function Fila({ n, adj, cargandoAdj, isAdmin }: { n: Negocio; adj: Adjudicacion 
   const lineas = adj?.lineasAdjudicadas || [];
   const nuestras = lineas.filter(l => l.esNuestra).length;
   const expandible = !!adj?.esAdjudicada;
+  const fechaAdj = adj?.esAdjudicada && adj.fechaAdjudicacion ? fmtFecha(adj.fechaAdjudicacion) : '—';
+  const fechasOc = [
+    adj?.fechaOcLlegada ? `llegó ${fmtFecha(adj.fechaOcLlegada)}` : '',
+    adj?.fechaOcAceptada ? `aceptada ${fmtFecha(adj.fechaOcAceptada)}` : '',
+  ].filter(Boolean).join(' · ');
 
   return (
-    <div className="relative bg-white border border-slate-200 rounded-xl overflow-hidden transition-shadow hover:shadow-md">
-      <span className="absolute left-0 top-0 bottom-0 w-1" style={{ background: m.color }} />
+    <motion.div variants={item} layout="position"
+      className={`rounded-xl border border-linea bg-white shadow-tarjeta transition-shadow duration-150 ease-lk dark:border-slate-800 dark:bg-slate-900 ${expandible ? 'hover:shadow-tarjeta-hover' : ''}`}>
       <div
         role={expandible ? 'button' : undefined}
         tabIndex={expandible ? 0 : undefined}
@@ -289,97 +308,74 @@ function Fila({ n, adj, cargandoAdj, isAdmin }: { n: Negocio; adj: Adjudicacion 
           if (e.target !== e.currentTarget) return;
           if (expandible && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); setAbierta(o => !o); }
         }}
-        className={`grid grid-cols-[1fr_auto] ${isAdmin ? GRID_ADMIN : GRID_USER} items-center gap-x-3 gap-y-1 pl-4 pr-3 py-2.5 ${expandible ? 'cursor-pointer' : ''}`}>
+        className={`grid grid-cols-[1fr_auto] ${isAdmin ? GRID_ADMIN : GRID_USER} items-center gap-x-3 gap-y-1.5 rounded-xl px-4 py-3
+          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marca/60 ${expandible ? 'cursor-pointer' : ''}`}>
 
-        {/* Código + nombre + organismo */}
+        {/* Código + resultado + nombre + organismo */}
         <div className="min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-[10.5px] font-mono font-semibold text-slate-500">{n.licitacion_codigo}</span>
-            <BadgeResultado r={r} />
-            <span className="contents lg:hidden">{r === 'ganada' && <ChipsOc codigos={adj?.ocCodigos} />}</span>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+            <span className="font-mono text-tinta-2 dark:text-slate-400">{n.licitacion_codigo}</span>
+            <span className="font-medium text-tinta dark:text-slate-100"><Estado color={m.color}>{m.label}</Estado></span>
             {r === 'ganada' && nuestras > 0 && (
-              <span className="hidden sm:inline-flex text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-1.5 py-px">
-                {nuestras} línea{nuestras !== 1 ? 's' : ''}
+              <span className="text-tinta-2 dark:text-slate-400">
+                <span className="font-semibold tabular-nums">{nuestras}</span> de {lineas.length} línea{lineas.length !== 1 ? 's' : ''}
               </span>
             )}
           </div>
-          <p className="text-[13px] font-semibold text-slate-800 truncate mt-0.5" title={n.licitacion_nombre}>{n.licitacion_nombre || 'Sin nombre'}</p>
-          <p className="text-[11px] text-slate-500 truncate flex items-center gap-1"><Building2 size={10} className="flex-shrink-0" />{n.licitacion_organismo || '—'}</p>
+          <p className="mt-0.5 text-[13px] font-semibold text-tinta truncate dark:text-slate-50" title={n.licitacion_nombre}>{n.licitacion_nombre || 'Sin nombre'}</p>
+          <p className="text-xs text-tinta-2 truncate dark:text-slate-400">{n.licitacion_organismo || '—'}</p>
         </div>
 
-        {/* Perfil (solo admin: la columna no existe para usuarios) */}
-        {isAdmin && <div className="hidden lg:block min-w-0"><ChipPerfil n={n} /></div>}
+        {/* Perfil (solo admin) */}
+        {isAdmin && <div className="hidden @5xl:block"><ChipPerfil n={n} soloAvatar /></div>}
 
         {/* Empresa */}
-        <div className="hidden lg:block min-w-0">
-          {n.empresa_nombre
-            ? <span className="inline-flex items-center gap-1 max-w-full text-[11px] font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-full px-2 py-0.5"><Building2 size={10} className="flex-shrink-0" /><span className="truncate">{n.empresa_nombre}</span></span>
-            : <span className="text-[11px] text-slate-400">—</span>}
+        <div className="hidden @5xl:block min-w-0 text-[13px] text-tinta truncate dark:text-slate-200" title={n.empresa_nombre || undefined}>
+          {n.empresa_nombre || <span className="text-tinta-3">—</span>}
         </div>
 
-        {/* Monto resultado */}
-        <div className="hidden lg:block text-right">
-          <p className="text-[10px] uppercase tracking-wide font-semibold" style={{ color: m.color }}>{r === 'ganada' ? 'Ganamos' : 'Adjudicado'}</p>
-          <p className="text-[13px] font-bold text-slate-800 tabular-nums">{cargandoAdj ? '…' : fmtCLP(monto)}</p>
+        {/* Monto del resultado (dice de quién es: en las perdidas es plata de terceros) */}
+        <div className="hidden @5xl:block text-right">
+          <p className="text-[13px] font-semibold tabular-nums text-tinta dark:text-slate-50">{cargandoAdj ? '…' : fmtCLP(monto)}</p>
+          <p className="text-[11px] text-tinta-2 dark:text-slate-400">{r === 'ganada' ? 'ganamos' : 'a terceros'}</p>
         </div>
 
         {/* Fecha de adjudicación (la que ordena la lista) */}
-        <div className="hidden lg:block text-right">
-          <p className="text-[10px] uppercase tracking-wide font-semibold text-slate-500">Adjudicación</p>
-          <p className="text-[12px] font-semibold text-slate-600 tabular-nums">{adj?.esAdjudicada && adj.fechaAdjudicacion ? fmtFecha(adj.fechaAdjudicacion, 'DD/MM/YY') : '—'}</p>
-        </div>
+        <div className={`hidden @5xl:block text-right text-[13px] tabular-nums ${fechaAdj === '—' ? 'text-tinta-3' : 'text-tinta dark:text-slate-200'}`}>{fechaAdj}</div>
 
-        {/* N° de OC con botón Ir (solo las ganadas tienen) */}
-        <div className="hidden lg:flex flex-col items-end gap-1 min-w-0">
-          <p className="text-[10px] uppercase tracking-wide font-semibold text-slate-500">N° OC</p>
+        {/* OC: número (abre el PDF) y, debajo, cuándo llegó y cuándo se aceptó */}
+        <div className="hidden @5xl:flex flex-col items-end gap-0.5 min-w-0">
           {r === 'ganada' && adj?.ocCodigos?.length
             ? <ChipsOc codigos={adj.ocCodigos} />
-            : <p className="text-[12px] font-semibold text-slate-600">—</p>}
+            : <span className="text-[13px] text-tinta-3">—</span>}
+          {fechasOc && <span className="text-[11px] text-tinta-2 tabular-nums truncate max-w-full dark:text-slate-400" title={fechasOc}>{fechasOc}</span>}
         </div>
 
-        {/* OC: cuándo llegó y cuándo se aceptó (solo las ganadas tienen) */}
-        <div className="hidden lg:block text-right">
-          <p className="text-[10px] uppercase tracking-wide font-semibold text-slate-500">OC llegó</p>
-          <p className="text-[12px] font-semibold text-slate-600 tabular-nums">{adj?.fechaOcLlegada ? fmtFecha(adj.fechaOcLlegada, 'DD/MM/YY') : '—'}</p>
-        </div>
-        <div className="hidden lg:block text-right">
-          <p className="text-[10px] uppercase tracking-wide font-semibold text-slate-500">OC aceptada</p>
-          <p className="text-[12px] font-semibold text-slate-600 tabular-nums">{adj?.fechaOcAceptada ? fmtFecha(adj.fechaOcAceptada, 'DD/MM/YY') : '—'}</p>
-        </div>
-
-        {/* Fecha cierre */}
-        <div className="hidden lg:block text-right">
-          <p className="text-[10px] uppercase tracking-wide font-semibold text-slate-500">Cierre</p>
-          <p className="text-[12px] font-semibold text-slate-600 tabular-nums">{fmtFecha(n.licitacion_cierre, 'DD/MM/YY')}</p>
-        </div>
+        {/* Cierre */}
+        <div className="hidden @5xl:block text-right text-[13px] tabular-nums text-tinta-2 dark:text-slate-400">{fmtFecha(n.licitacion_cierre)}</div>
 
         {/* Acciones */}
-        <div className="flex items-center justify-end gap-1 row-start-1 col-start-2 lg:row-auto lg:col-auto">
-          <Link href={`/licitacion/${encodeURIComponent(n.licitacion_codigo)}`}
-            onClick={e => e.stopPropagation()}
-            onKeyDown={e => e.stopPropagation()}
-            title="Ver licitación"
-            className="inline-flex items-center justify-center w-7 h-7 rounded-lg text-indigo-600 hover:bg-indigo-50 transition-colors">
-            <ExternalLink size={14} />
-          </Link>
+        <div className="flex items-center justify-end gap-0.5 row-start-1 col-start-2 @5xl:row-auto @5xl:col-auto">
+          <VerLicitacion codigo={n.licitacion_codigo} />
           {expandible && (
-            <span className="inline-flex items-center justify-center w-7 h-7 rounded-lg text-slate-400">
-              {abierta ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+            <span aria-hidden className="inline-flex items-center justify-center w-6 h-8 text-slate-400">
+              <ChevronDown size={16} stroke={1.75} className={`transition-transform duration-150 ${abierta ? 'rotate-180' : ''}`} />
             </span>
           )}
         </div>
 
-        {/* Resumen compacto en móvil (con etiqueta del monto: en perdidas es plata de terceros) */}
-        <div className="lg:hidden col-span-2 flex items-center gap-3 text-[11px] text-slate-500 flex-wrap">
+        {/* Resumen compacto cuando el panel es angosto: cada dato con su rótulo */}
+        <div className="@5xl:hidden col-span-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-tinta-2 dark:text-slate-400">
           {isAdmin && <ChipPerfil n={n} />}
-          {n.empresa_nombre && <span className="inline-flex items-center gap-1 font-semibold text-indigo-700"><Building2 size={10} />{n.empresa_nombre}</span>}
-          <span className="inline-flex items-center gap-1">
-            <span className="font-semibold uppercase text-[9.5px] tracking-wide" style={{ color: m.color }}>{r === 'ganada' ? 'Ganamos' : 'Adjudicado'}</span>
-            <span className="font-bold text-slate-700 tabular-nums">{cargandoAdj ? '…' : fmtCLP(monto)}</span>
+          {n.empresa_nombre && <span className="truncate max-w-[220px]">{n.empresa_nombre}</span>}
+          <span>
+            {r === 'ganada' ? 'Ganamos ' : 'Adjudicado '}
+            <span className="font-semibold tabular-nums text-tinta dark:text-slate-100">{cargandoAdj ? '…' : fmtCLP(monto)}</span>
           </span>
-          {adj?.esAdjudicada && adj.fechaAdjudicacion && <span className="inline-flex items-center gap-1" title="Fecha de adjudicación"><Trophy size={10} />{fmtFecha(adj.fechaAdjudicacion, 'DD/MM/YY')}</span>}
-          {adj?.fechaOcLlegada && <span className="inline-flex items-center gap-1" title="OC llegó / aceptada">OC {fmtFecha(adj.fechaOcLlegada, 'DD/MM/YY')}{adj.fechaOcAceptada ? ` · acept. ${fmtFecha(adj.fechaOcAceptada, 'DD/MM/YY')}` : ''}</span>}
-          {n.licitacion_cierre && <span className="inline-flex items-center gap-1" title="Cierre"><Calendar size={10} />{fmtFecha(n.licitacion_cierre, 'DD/MM/YY')}</span>}
+          {fechaAdj !== '—' && <span>Adjudicada {fechaAdj}</span>}
+          {r === 'ganada' && <ChipsOc codigos={adj?.ocCodigos} />}
+          {fechasOc && <span>OC {fechasOc}</span>}
+          {n.licitacion_cierre && <span>Cierre {fmtFecha(n.licitacion_cierre)}</span>}
         </div>
       </div>
 
@@ -387,71 +383,328 @@ function Fila({ n, adj, cargandoAdj, isAdmin }: { n: Negocio; adj: Adjudicacion 
       {expandible && (
         <div className="colapsable" data-abierto={abierta ? '1' : '0'}>
           <div className="colapsable-inner">
-            <div className="px-4 pb-3 pt-1 border-t border-slate-100 bg-slate-50/50">
-              <p className="text-[12.5px] font-semibold text-slate-700 mt-2">{n.licitacion_nombre}</p>
-              <div className="grid grid-cols-3 gap-2 my-2.5 max-w-xl">
-                <div className="rounded-lg bg-white border border-slate-200 px-3 py-1.5">
-                  <p className="text-[10px] text-slate-500">Presupuesto real</p>
-                  <p className="text-[12.5px] font-bold text-slate-800">{fmtCLP(n.licitacion_monto)}</p>
-                </div>
-                <div className="rounded-lg bg-white border border-slate-200 px-3 py-1.5">
-                  <p className="text-[10px] text-slate-500">Postulamos con</p>
-                  <p className="text-[12.5px] font-bold text-slate-800">{fmtCLP(n.monto_ofertado)}</p>
-                </div>
-                <div className="rounded-lg bg-white border border-slate-200 px-3 py-1.5">
-                  <p className="text-[10px]" style={{ color: m.color }}>{r === 'ganada' ? 'Ganamos' : 'Adjudicado (total)'}</p>
-                  <p className="text-[12.5px] font-bold" style={{ color: m.color }}>{fmtCLP(monto)}</p>
-                </div>
-              </div>
+            <div className="px-4 pb-3.5 border-t border-linea dark:border-slate-800">
+              <dl className="mt-3 grid grid-cols-3 gap-x-4 max-w-xl">
+                <Dato rotulo="Presupuesto real">{fmtCLP(n.licitacion_monto)}</Dato>
+                <Dato rotulo="Postulamos con">{fmtCLP(n.monto_ofertado)}</Dato>
+                <Dato rotulo={r === 'ganada' ? 'Ganamos' : 'Adjudicado (total)'}>{fmtCLP(monto)}</Dato>
+              </dl>
               {adj?.esAdjudicada && <BloqueAdjudicacion adj={adj} ganamos={r === 'ganada'} defaultAbierto />}
             </div>
           </div>
         </div>
       )}
-    </div>
+    </motion.div>
   );
 }
 
-// Esqueleto de carga (shimmer) — reserva KPIs + toolbar + filas para no saltar al cargar.
-function Esqueleto({ vista }: { vista: Vista }) {
+// ── Por empresa propia ────────────────────────────────────────────────────────
+// Responde «¿con cuál de nuestras empresas ganamos y con cuál perdimos?». Dos tortas (ganadas y perdidas, cada
+// una con su total al centro y la leyenda con cantidad y %) y la efectividad de cada empresa (ganadas sobre sus
+// resueltas). Tocar una empresa en cualquiera de los tres bloques filtra toda la pantalla; volver a tocarla lo quita.
+type FilaEmpresa = { clave: string; etiqueta: string; ganadas: number; perdidas: number; monto: number; color: string };
+
+function PorEmpresa({ filas, elegida, onElegir }: { filas: FilaEmpresa[]; elegida: string; onElegir: (clave: string) => void }) {
+  const totG = filas.reduce((s, f) => s + f.ganadas, 0);
+  const totP = filas.reduce((s, f) => s + f.perdidas, 0);
+  const nombreElegida = filas.find(f => f.clave === elegida)?.etiqueta;
+  const tarjeta = 'rounded-xl border border-linea bg-white px-4 py-3.5 shadow-tarjeta dark:border-slate-800 dark:bg-slate-900';
+  const torta = (titulo: string, texto: string, campo: 'ganadas' | 'perdidas', total: number) => (
+    <div className={tarjeta}>
+      <h3 className="text-[15px] font-semibold text-tinta dark:text-slate-100">{titulo}</h3>
+      <p className="mt-0.5 mb-3 text-xs text-tinta-2 dark:text-slate-400">{texto}</p>
+      {total > 0 ? (
+        <Dona tajadas={filas.map(f => ({ clave: f.clave, etiqueta: f.etiqueta, valor: f[campo], color: f.color }))}
+          centroValor={String(total)} centroTexto={campo} elegido={elegida} onElegir={onElegir}
+          descripcion={`${total} ${campo} repartidas por empresa: ${filas.filter(f => f[campo] > 0).map(f => `${f.etiqueta} ${f[campo]}`).join(', ')}`} />
+      ) : (
+        <p className="py-6 text-center text-[13px] text-tinta-2 dark:text-slate-400">No hay {campo} con estos filtros.</p>
+      )}
+    </div>
+  );
+
+  return (
+    <section className="mb-6">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-[15px] font-semibold text-tinta dark:text-slate-100">Por empresa</h2>
+        {nombreElegida && (
+          <Boton tamano="sm" variante="secundario" onClick={() => onElegir('')} icono={<X size={16} stroke={1.75} />}
+            aria-label={`Quitar el filtro por ${nombreElegida}`}>
+            Viendo solo {nombreElegida}
+          </Boton>
+        )}
+      </div>
+      <div className="grid gap-3 @4xl:grid-cols-2">
+        {torta('Ganadas por empresa', 'Con cuál de nuestras empresas ganamos.', 'ganadas', totG)}
+        {torta('Perdidas por empresa', 'Con cuál de nuestras empresas perdimos (adjudicadas a terceros).', 'perdidas', totP)}
+      </div>
+      <div className={`${tarjeta} mt-3`}>
+          <h3 className="text-[15px] font-semibold text-tinta dark:text-slate-100">¿Qué tan seguido gana cada empresa?</h3>
+          <p className="mt-0.5 mb-3 text-xs text-tinta-2 dark:text-slate-400">
+            Efectividad = ganadas ÷ (ganadas + perdidas). Solo cuentan las licitaciones que ya tienen resultado en Mercado Público.
+          </p>
+          <ul className="grid gap-x-4 gap-y-2 @2xl:grid-cols-2 @5xl:grid-cols-3">
+            {filas.map(f => {
+              const resueltas = f.ganadas + f.perdidas;
+              const pct = resueltas ? Math.round((f.ganadas / resueltas) * 100) : 0;
+              const pctG = resueltas ? (f.ganadas / resueltas) * 100 : 0;
+              const filtrable = f.clave !== SIN_EMPRESA;
+              const activa = elegida === f.clave;
+              const atenuada = !!elegida && !activa;
+              const contenido = (
+                <>
+                  <div className="flex items-start justify-between gap-3">
+                    <span className="flex min-w-0 items-center gap-2 pt-0.5 text-[13px] font-medium text-tinta dark:text-slate-100">
+                      <span aria-hidden style={{ backgroundColor: f.color }} className="h-2 w-2 flex-shrink-0 rounded-full" />
+                      <span className="truncate" title={f.etiqueta}>{f.etiqueta}</span>
+                    </span>
+                    <span className="flex-shrink-0 text-right">
+                      <span className="block text-[22px] font-semibold leading-none tracking-tight tabular-nums text-tinta dark:text-slate-50">{pct} %</span>
+                      <span className="mt-1 block text-[11px] text-tinta-2 dark:text-slate-400">de efectividad</span>
+                    </span>
+                  </div>
+                  {/* Barra partida: verde lo ganado, rojo lo perdido (mismos colores que arriba). */}
+                  <div className="mt-2 flex h-2 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800" role="img"
+                    aria-label={`${f.ganadas} ganadas y ${f.perdidas} perdidas`}>
+                    <div className="h-full transition-[width] duration-300 ease-lk" style={{ width: `${pctG}%`, backgroundColor: META.ganada.color }} />
+                    <div className="h-full transition-[width] duration-300 ease-lk" style={{ width: `${100 - pctG}%`, backgroundColor: META.perdida.color }} />
+                  </div>
+                  <div className="mt-1.5 flex items-center justify-between gap-3 text-xs tabular-nums text-tinta-2 dark:text-slate-400">
+                    <Estado color={META.ganada.color}><span><span className="font-semibold text-tinta dark:text-slate-100">{f.ganadas}</span> ganadas</span></Estado>
+                    <Estado color={META.perdida.color}><span><span className="font-semibold text-tinta dark:text-slate-100">{f.perdidas}</span> perdidas</span></Estado>
+                  </div>
+                  <p className="mt-1.5 text-xs text-tinta-2 dark:text-slate-400">
+                    {resueltas} con resultado{f.monto > 0 ? <> · ganó <span className="font-semibold tabular-nums text-tinta dark:text-slate-100">{fmtCLP(f.monto)}</span></> : ''}
+                  </p>
+                </>
+              );
+              const base = `block w-full rounded-lg px-2 py-2 text-left transition-[background-color,opacity] duration-150 ${activa ? 'bg-slate-50 dark:bg-slate-800' : ''} ${atenuada ? 'opacity-40' : ''}`;
+              return (
+                <li key={f.clave}>
+                  {filtrable ? (
+                    <button type="button" onClick={() => onElegir(activa ? '' : f.clave)} aria-pressed={activa}
+                      title={activa ? 'Quitar filtro' : `Ver solo ${f.etiqueta}`}
+                      className={`${base} hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marca/60 dark:hover:bg-slate-800`}>
+                      {contenido}
+                    </button>
+                  ) : (
+                    <div className={base} title="Negocios sin empresa asignada: no se pueden filtrar">{contenido}</div>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+      </div>
+    </section>
+  );
+}
+
+// ── ¿A quién le perdimos? ─────────────────────────────────────────────────────
+// Torta: cómo se reparte la plata de nuestras perdidas entre los competidores (las 6 que más se llevaron + «Otros»;
+// es un reparto exacto: suma el total adjudicado a terceros). Lista: quién nos ganó más veces (licitaciones donde
+// se adjudicó al menos una línea). Tocar un competidor en cualquiera de los dos filtra la pantalla a esas perdidas.
+type LicitacionPerdida = { codigo: string; nombre: string; empresa: string | null; fecha: string | null; lineas: number; lineasTotal: number; monto: number };
+type Competidor = { clave: string; nombre: string; rut: string | null; licitaciones: number; monto: number; detalle: LicitacionPerdida[] };
+const SERIE_COMPETIDORES = ['#0d9488', '#475569', '#d97706', '#0891b2', '#ea580c', '#db2777'];
+
+// Una fila del ranking: al abrirla muestra contra qué empresa nuestra ganó ese competidor y en qué licitaciones
+// (con cuántas líneas y cuánto se llevó en cada una). El botón del pie filtra la lista de la pantalla a esas perdidas.
+function FilaCompetidor({ c, color, elegido, onElegir }: {
+  c: Competidor; color: string; elegido: string; onElegir: (clave: string) => void;
+}) {
+  const [abierta, setAbierta] = useState(false);
+  const activo = elegido === c.clave;
+  const porEmpresa = [...c.detalle.reduce((m, d) => m.set(d.empresa || 'Sin empresa', (m.get(d.empresa || 'Sin empresa') || 0) + 1), new Map<string, number>())]
+    .sort((x, y) => y[1] - x[1]);
+  return (
+    <li className={`transition-opacity duration-150 ${elegido && !activo ? 'opacity-40' : ''}`}>
+      <button type="button" onClick={() => setAbierta(v => !v)} aria-expanded={abierta}
+        className={`flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left transition-colors duration-150 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marca/60 dark:hover:bg-slate-800
+          ${activo || abierta ? 'bg-slate-50 dark:bg-slate-800' : ''}`}>
+        <span aria-hidden style={{ backgroundColor: color }} className="h-2 w-2 flex-shrink-0 rounded-full" />
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-[13px] font-medium text-tinta dark:text-slate-100" title={c.nombre}>{c.nombre}</span>
+          {c.rut && <span className="block text-[11px] tabular-nums text-tinta-2 dark:text-slate-400">RUT {c.rut}</span>}
+        </span>
+        <span className="flex-shrink-0 text-right">
+          <span className="block text-[13px] font-semibold tabular-nums text-tinta dark:text-slate-50">
+            {c.licitaciones} {c.licitaciones !== 1 ? 'licitaciones' : 'licitación'}
+          </span>
+          <span className="block text-[11px] tabular-nums text-tinta-2 dark:text-slate-400">se llevó {fmtMM(c.monto)}</span>
+        </span>
+        <ChevronDown size={16} stroke={1.75} aria-hidden className={`flex-shrink-0 text-slate-400 transition-transform duration-150 ${abierta ? 'rotate-180' : ''}`} />
+      </button>
+
+      <div className="colapsable" data-abierto={abierta ? '1' : '0'}>
+        <div className="colapsable-inner">
+          <div className="px-2 pb-3 pt-1">
+            {/* Contra cuál de nuestras empresas */}
+            <p className="text-[11px] text-tinta-2 dark:text-slate-400">Nos ganó cuando postulamos con</p>
+            <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-[13px] text-tinta dark:text-slate-100">
+              {porEmpresa.map(([emp, n]) => (
+                <span key={emp}>{emp} <span className="font-semibold tabular-nums">{n}</span></span>
+              ))}
+            </div>
+
+            {/* En qué licitaciones */}
+            <p className="mt-3 text-[11px] text-tinta-2 dark:text-slate-400">En estas licitaciones</p>
+            <ul className="mt-1 divide-y divide-linea dark:divide-slate-800">
+              {c.detalle.map(d => (
+                <li key={d.codigo} className="flex items-start justify-between gap-3 py-1.5">
+                  <div className="min-w-0">
+                    <Link href={`/licitacion/${encodeURIComponent(d.codigo)}`}
+                      className="block truncate text-[13px] font-medium text-tinta hover:text-marca hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marca/60 rounded dark:text-slate-100"
+                      title={d.nombre}>
+                      {d.nombre}
+                    </Link>
+                    <p className="text-xs text-tinta-2 truncate dark:text-slate-400">
+                      <span className="font-mono">{d.codigo}</span>
+                      {d.empresa ? ` · postulamos con ${d.empresa}` : ' · sin empresa asignada'}
+                      {d.fecha ? ` · adjudicada ${fmtFecha(d.fecha)}` : ''}
+                    </p>
+                  </div>
+                  <div className="flex-shrink-0 text-right">
+                    <p className="text-[13px] font-semibold tabular-nums text-tinta dark:text-slate-50">{fmtCLP(d.monto)}</p>
+                    <p className="text-[11px] tabular-nums text-tinta-2 dark:text-slate-400">
+                      {d.lineas === d.lineasTotal ? 'toda la licitación' : `${d.lineas} de ${d.lineasTotal} líneas`}
+                    </p>
+                  </div>
+                </li>
+              ))}
+            </ul>
+
+            <div className="mt-2">
+              <Boton tamano="sm" variante={activo ? 'secundario' : 'fantasma'} onClick={() => onElegir(activo ? '' : c.clave)}
+                icono={activo ? <X size={16} stroke={1.75} /> : <Search size={16} stroke={1.75} />}>
+                {activo ? 'Quitar el filtro de la lista' : `Ver estas ${c.licitaciones} en la lista de abajo`}
+              </Boton>
+            </div>
+          </div>
+        </div>
+      </div>
+    </li>
+  );
+}
+
+function APerdimos({ lista, perdidas, sinDetalle, elegido, onElegir }: {
+  lista: Competidor[]; perdidas: number; sinDetalle: number; elegido: string; onElegir: (clave: string) => void;
+}) {
+  const [verTodos, setVerTodos] = useState(false);
+  const porMonto = [...lista].sort((a, b) => b.monto - a.monto);
+  const top = porMonto.slice(0, 6);
+  const resto = porMonto.slice(6);
+  const color = new Map(top.map((c, i) => [c.clave, SERIE_COMPETIDORES[i]]));
+  const totalMonto = lista.reduce((s, c) => s + c.monto, 0);
+  const tajadas = [
+    ...top.map(c => ({ clave: c.clave, etiqueta: c.nombre, valor: c.monto, color: color.get(c.clave)! })),
+    ...(resto.length ? [{ clave: OTROS, etiqueta: `Otros ${resto.length} competidores`, valor: resto.reduce((s, c) => s + c.monto, 0), color: '#94a3b8' }] : []),
+  ];
+  const pctTop = totalMonto ? Math.round((top.reduce((s, c) => s + c.monto, 0) / totalMonto) * 100) : 0;
+  // Centro sin decimales: «$7.119 MM» cabe en una línea dentro del anillo.
+  const centro = totalMonto >= 1_000_000 ? `$${Math.round(totalMonto / 1_000_000).toLocaleString('es-CL')} MM` : fmtCLP(totalMonto);
+  // Si el elegido ya no aparece (otro filtro lo dejó fuera), el botón para quitarlo sigue visible.
+  const elegidoNombre = elegido ? (lista.find(c => c.clave === elegido)?.nombre ?? elegido) : '';
+  const LIMITE = 8;
+  const visibles = verTodos ? lista : lista.slice(0, LIMITE);
+  const tarjeta = 'rounded-xl border border-linea bg-white px-4 py-3.5 shadow-tarjeta dark:border-slate-800 dark:bg-slate-900';
+
+  return (
+    <section className="mb-6">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h2 className="text-[15px] font-semibold text-tinta dark:text-slate-100">Competidores que nos ganaron</h2>
+          <p className="mt-0.5 text-xs text-tinta-2 dark:text-slate-400">
+            En las {perdidas} licitaciones que perdimos, qué empresas se quedaron con el contrato. Dato del acta de adjudicación de Mercado Público.
+            {sinDetalle > 0 && ` ${sinDetalle} no traen el detalle por línea y no entran aquí.`}
+          </p>
+        </div>
+        {elegidoNombre && (
+          <Boton tamano="sm" onClick={() => onElegir('')} icono={<X size={16} stroke={1.75} />} aria-label={`Quitar el filtro por ${elegidoNombre}`}>
+            Viendo lo que nos ganó {elegidoNombre.length > 28 ? `${elegidoNombre.slice(0, 28)}…` : elegidoNombre}
+          </Boton>
+        )}
+      </div>
+      <div className="grid gap-3 @4xl:grid-cols-2">
+        <div className={tarjeta}>
+          <h3 className="text-[15px] font-semibold text-tinta dark:text-slate-100">Cuánta plata se llevaron</h3>
+          <p className="mt-0.5 mb-3 text-xs text-tinta-2 dark:text-slate-400">
+            Monto adjudicado a cada competidor en nuestras perdidas (precio × cantidad de sus líneas).
+          </p>
+          <Dona tajadas={tajadas} formato={fmtMM} centroValor={centro} centroTexto="a terceros"
+            elegido={!elegido ? '' : color.has(elegido) ? elegido : OTROS} onElegir={c => { if (c !== OTROS) onElegir(c); }}
+            descripcion={`${fmtMM(totalMonto)} adjudicados a competidores: ${tajadas.map(t => `${t.etiqueta} ${fmtMM(t.valor)}`).join(', ')}`} />
+          {/* La lectura del gráfico en una frase: sin esto, una torta con «Otros» grande no se entiende. */}
+          <p className="mt-3 border-t border-linea pt-2.5 text-xs text-tinta-2 dark:border-slate-800 dark:text-slate-400">
+            Nos ganaron <span className="font-semibold tabular-nums text-tinta dark:text-slate-100">{lista.length}</span> competidores distintos.
+            {resto.length > 0
+              ? <> Los {top.length} que más se llevaron suman el <span className="font-semibold tabular-nums text-tinta dark:text-slate-100">{pctTop} %</span>; el resto está muy repartido.</>
+              : null}
+          </p>
+        </div>
+
+        <div className={tarjeta}>
+          <h3 className="text-[15px] font-semibold text-tinta dark:text-slate-100">Quién nos ganó más veces</h3>
+          <p className="mt-0.5 mb-2 text-xs text-tinta-2 dark:text-slate-400">
+            Cuántas de nuestras licitaciones perdidas se llevó cada competidor (completas o algunas líneas). Ábrelo para ver
+            contra cuál de nuestras empresas nos ganó y en qué licitaciones.
+          </p>
+          <ul className="divide-y divide-linea dark:divide-slate-800">
+            {visibles.map(c => (
+              <FilaCompetidor key={c.clave} c={c} color={color.get(c.clave) || '#94a3b8'}
+                elegido={elegido} onElegir={onElegir} />
+            ))}
+          </ul>
+          {lista.length > LIMITE && (
+            <div className="mt-2 flex items-center justify-between gap-2 border-t border-linea pt-2 text-xs text-tinta-2 dark:border-slate-800 dark:text-slate-400">
+              <span className="tabular-nums">{visibles.length} de {lista.length} competidores</span>
+              <Boton tamano="sm" variante="fantasma" onClick={() => setVerTodos(v => !v)}
+                icono={<ChevronDown size={16} stroke={1.75} className={`transition-transform ${verTodos ? 'rotate-180' : ''}`} />}>
+                {verTodos ? 'Ver menos' : `Ver los ${lista.length}`}
+              </Boton>
+            </div>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// Carga: bloques con la forma de lo que viene (KPIs + barra + filas). Sin giradores.
+function Cargando({ vista }: { vista: Vista }) {
   const filas = Array.from({ length: 6 });
   return (
     <>
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
-        {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 animate-pulse">
-            <div className="h-3 w-20 bg-slate-200 rounded mb-3" />
-            <div className="h-7 w-16 bg-slate-200 rounded" />
+      <div className="mb-6 grid gap-3 @4xl:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
+        <div className="rounded-xl border border-linea bg-white px-4 py-3.5 shadow-tarjeta dark:border-slate-800 dark:bg-slate-900">
+          <Esqueleto className="h-4 w-48" />
+          <div className="mt-3 flex items-center gap-6">
+            <Esqueleto className="h-[132px] w-[132px] rounded-full" />
+            <div className="flex-1 space-y-2"><Esqueleto className="h-4" /><Esqueleto className="h-4" /></div>
           </div>
-        ))}
-      </div>
-      <div className="bg-white border border-slate-200 rounded-2xl p-3 mb-5 animate-pulse">
-        <div className="h-9 w-64 bg-slate-100 rounded-xl mb-2.5" />
-        <div className="h-9 w-full max-w-md bg-slate-100 rounded-lg" />
-      </div>
-      {vista === 'tarjetas' ? (
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-3 sm:gap-4">
-          {filas.map((_, i) => (
-            <div key={i} className="bg-white border border-slate-200 rounded-2xl p-4 animate-pulse">
-              <div className="h-3 w-40 bg-slate-200 rounded mb-3" />
-              <div className="h-4 w-3/4 bg-slate-200 rounded mb-2" />
-              <div className="h-3 w-1/2 bg-slate-100 rounded mb-4" />
-              <div className="grid grid-cols-3 gap-2">
-                <div className="h-12 bg-slate-100 rounded-lg" /><div className="h-12 bg-slate-100 rounded-lg" /><div className="h-12 bg-slate-100 rounded-lg" />
-              </div>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className={`rounded-xl border border-linea bg-white px-4 py-3.5 shadow-tarjeta dark:border-slate-800 dark:bg-slate-900 ${i === 2 ? 'col-span-2' : ''}`}>
+              <Esqueleto className="h-3 w-20" /><Esqueleto className="mt-3 h-7 w-24" />
             </div>
           ))}
+        </div>
+      </div>
+      <div className="mb-5 rounded-xl border border-linea bg-white p-3 shadow-tarjeta dark:border-slate-800 dark:bg-slate-900">
+        <Esqueleto className="h-8 w-72" />
+        <Esqueleto className="mt-3 h-8 w-full max-w-md" />
+      </div>
+      {vista === 'tarjetas' ? (
+        <div className="grid grid-cols-1 gap-3 @4xl:grid-cols-2">
+          {filas.map((_, i) => <TarjetaCargando key={i} />)}
         </div>
       ) : (
         <div className="space-y-2">
           {filas.map((_, i) => (
-            <div key={i} className="bg-white border border-slate-200 rounded-xl px-4 py-3 animate-pulse flex items-center gap-4">
-              <div className="flex-1">
-                <div className="h-3 w-36 bg-slate-200 rounded mb-2" />
-                <div className="h-4 w-2/3 bg-slate-200 rounded" />
-              </div>
-              <div className="h-4 w-24 bg-slate-100 rounded hidden lg:block" />
-              <div className="h-4 w-20 bg-slate-100 rounded hidden lg:block" />
+            <div key={i} className="flex items-center gap-4 rounded-xl border border-linea bg-white px-4 py-3 shadow-tarjeta dark:border-slate-800 dark:bg-slate-900">
+              <div className="flex-1"><Esqueleto className="h-3 w-36" /><Esqueleto className="mt-2 h-4 w-2/3" /></div>
+              <Esqueleto className="hidden @5xl:block h-4 w-24" />
+              <Esqueleto className="hidden @5xl:block h-4 w-20" />
             </div>
           ))}
         </div>
@@ -479,10 +732,12 @@ function Paginacion({ pagina, totalPaginas, total, desde, hasta, porPagina, onPa
   onPagina: (p: number) => void; onPorPagina: (n: number) => void;
 }) {
   if (total === 0) return null;
+  const btn = 'inline-flex items-center justify-center h-8 rounded-lg text-[13px] font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marca/60';
+  const neutro = 'border border-linea text-tinta-2 hover:bg-slate-50 hover:text-tinta dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800';
   return (
-    <div className="flex flex-col sm:flex-row items-center justify-between gap-3 mt-5">
-      <div className="flex items-center gap-3 text-[12px] text-slate-500">
-        <span><b className="text-slate-700">{desde}–{hasta}</b> de <b className="text-slate-700">{total}</b></span>
+    <div className="flex flex-col @xl:flex-row items-center justify-between gap-3 mt-5">
+      <div className="flex items-center gap-3 text-xs text-tinta-2 dark:text-slate-400">
+        <span className="tabular-nums"><span className="font-semibold text-tinta dark:text-slate-100">{desde}–{hasta}</span> de <span className="font-semibold text-tinta dark:text-slate-100">{total}</span></span>
         <span className="inline-flex items-center gap-1.5">
           Por página
           <Select value={String(porPagina)} onChange={v => onPorPagina(Number(v))} minWidth={70}
@@ -492,21 +747,20 @@ function Paginacion({ pagina, totalPaginas, total, desde, hasta, porPagina, onPa
       {totalPaginas > 1 && (
         <nav className="flex items-center gap-1" aria-label="Paginación">
           <button onClick={() => onPagina(pagina - 1)} disabled={pagina <= 1} aria-label="Página anterior"
-            className="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed">
-            <ChevronLeft size={15} />
+            className={`${btn} ${neutro} w-8 disabled:opacity-40 disabled:pointer-events-none`}>
+            <ChevronLeft size={16} stroke={1.75} />
           </button>
           {numerosPagina(pagina, totalPaginas).map((p, i) => p === '…'
-            ? <span key={`e${i}`} className="w-8 text-center text-slate-400 text-[12px]">…</span>
+            ? <span key={`e${i}`} className="w-8 text-center text-xs text-tinta-3">…</span>
             : (
               <button key={p} onClick={() => onPagina(p)} aria-current={p === pagina ? 'page' : undefined}
-                className={`inline-flex items-center justify-center min-w-[32px] h-8 px-1 rounded-lg text-[12.5px] font-semibold transition-colors ${
-                  p === pagina ? 'bg-slate-800 text-white' : 'border border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
+                className={`${btn} min-w-[32px] px-1 tabular-nums ${p === pagina ? 'bg-marca text-white hover:bg-marca-fuerte' : neutro}`}>
                 {p}
               </button>
             ))}
           <button onClick={() => onPagina(pagina + 1)} disabled={pagina >= totalPaginas} aria-label="Página siguiente"
-            className="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed">
-            <ChevronRight size={15} />
+            className={`${btn} ${neutro} w-8 disabled:opacity-40 disabled:pointer-events-none`}>
+            <ChevronRight size={16} stroke={1.75} />
           </button>
         </nav>
       )}
@@ -531,6 +785,7 @@ export default function AdjudicadasPage() {
   const [fPerfil, setFPerfil] = useState<string[]>([]);
   const [fEmpresa, setFEmpresa] = useState<string[]>([]);
   const [resultadoSel, setResultadoSel] = useState<Resultado | ''>('');
+  const [fCompetidor, setFCompetidor] = useState(''); // clave del proveedor (RUT) que nos ganó
   const [orden, setOrden] = useState<Orden>('recientes');
   const [pagina, setPagina] = useState(1);
   const [porPagina, setPorPagina] = useState(25);
@@ -685,11 +940,13 @@ export default function AdjudicadasPage() {
   }, [opcionesEmpresa]);
 
   // ── Cadena de filtrado: perfil/empresa/búsqueda → base (para KPIs y tabs) ───
-  const base = useMemo(() => {
+  // Cada bloque gráfico se calcula SIN su propio filtro (las tortas por empresa sin el de empresa; la de
+  // competidores sin el de competidor): al elegir una opción las demás siguen visibles (atenuadas) para
+  // poder cambiar de una a otra. La lista y los KPIs usan `base`, con todos los filtros.
+  const baseComun = useMemo(() => {
     const texto = q.trim().toLowerCase();
     return resueltas.filter(n =>
       (fPerfil.length === 0 || fPerfil.includes(n.usuario_email || n.usuario_nombre || '—')) &&
-      (fEmpresa.length === 0 || (!!n.empresa_nombre && fEmpresa.includes(n.empresa_nombre))) &&
       (!texto
         || (n.licitacion_nombre || '').toLowerCase().includes(texto)
         || (n.licitacion_codigo || '').toLowerCase().includes(texto)
@@ -698,8 +955,86 @@ export default function AdjudicadasPage() {
         // El perfil solo es un campo visible (y por tanto buscable) para el admin.
         || (isAdmin && ((n.usuario_nombre || '').toLowerCase().includes(texto)
           || (n.usuario_email || '').toLowerCase().includes(texto)))));
-  }, [resueltas, fPerfil, fEmpresa, q, isAdmin]);
+  }, [resueltas, fPerfil, q, isAdmin]);
+  const pasaEmpresa = useCallback(
+    (n: Negocio) => fEmpresa.length === 0 || (!!n.empresa_nombre && fEmpresa.includes(n.empresa_nombre)), [fEmpresa]);
+  // Competidor elegido: solo las PERDIDAS donde ese proveedor se adjudicó al menos una línea.
+  const pasaCompetidor = useCallback((n: Negocio) => {
+    if (!fCompetidor) return true;
+    const a = adjMap[n.licitacion_codigo];
+    return resultadoDe(n, a) === 'perdida' && (a?.lineasAdjudicadas || []).some(l => !l.esNuestra && claveProveedor(l) === fCompetidor);
+  }, [fCompetidor, adjMap]);
+  const baseSinCompetidor = useMemo(() => baseComun.filter(pasaEmpresa), [baseComun, pasaEmpresa]);
+  const base = useMemo(() => baseComun.filter(n => pasaEmpresa(n) && pasaCompetidor(n)), [baseComun, pasaEmpresa, pasaCompetidor]);
 
+  // ── ¿A quién le perdimos? ────────────────────────────────────────────────────
+  // Desde las líneas del acta de cada PERDIDA: quién se adjudicó cada línea (por RUT; si falta, por nombre).
+  // Monto de una línea = precio unitario × cantidad adjudicada (mismo cálculo que el total adjudicado del
+  // acta, app/lib/adjudicacion.ts). Una licitación por líneas puede tener varios ganadores: por eso las
+  // licitaciones por competidor pueden sumar más que las perdidas.
+  const competidores = useMemo(() => {
+    const m = new Map<string, { clave: string; nombres: Map<string, number>; rut: string | null; detalle: Map<string, LicitacionPerdida>; monto: number }>();
+    let perdidas = 0, sinDetalle = 0;
+    for (const n of baseSinCompetidor) {
+      const a = adjMap[n.licitacion_codigo];
+      if (resultadoDe(n, a) !== 'perdida') continue;
+      perdidas++;
+      const lineas = (a?.lineasAdjudicadas || []).filter(l => !l.esNuestra && claveProveedor(l));
+      if (!a?.esAdjudicada || lineas.length === 0) { sinDetalle++; continue; }
+      for (const l of lineas) {
+        const clave = claveProveedor(l);
+        const e = m.get(clave) || { clave, nombres: new Map(), rut: l.rutProveedor, detalle: new Map(), monto: 0 };
+        const nombre = (l.proveedor || l.rutProveedor || 'Proveedor').trim();
+        e.nombres.set(nombre, (e.nombres.get(nombre) || 0) + 1);
+        const montoLinea = (Number(l.montoUnitario) || 0) * (Number(l.cantidad) || 1);
+        // Por licitación: qué empresa nuestra postuló, cuántas líneas y cuánto se llevó ese competidor.
+        const d = e.detalle.get(n.licitacion_codigo) || {
+          codigo: n.licitacion_codigo, nombre: n.licitacion_nombre || n.licitacion_codigo, empresa: n.empresa_nombre || null,
+          fecha: a.fechaAdjudicacion || null, lineas: 0, lineasTotal: (a.lineasAdjudicadas || []).length, monto: 0,
+        };
+        d.lineas++; d.monto += montoLinea;
+        e.detalle.set(n.licitacion_codigo, d);
+        e.monto += montoLinea;
+        m.set(clave, e);
+      }
+    }
+    const lista = [...m.values()].map(e => ({
+      clave: e.clave, rut: e.rut, licitaciones: e.detalle.size, monto: e.monto,
+      detalle: [...e.detalle.values()].sort((x, y) => tsDe(y.fecha) - tsDe(x.fecha)),
+      // El nombre que más se repite para ese RUT (MP a veces lo escribe distinto).
+      nombre: [...e.nombres.entries()].sort((x, y) => y[1] - x[1])[0][0],
+    })).sort((x, y) => y.licitaciones - x.licitaciones || y.monto - x.monto);
+    return { lista, perdidas, sinDetalle };
+  }, [baseSinCompetidor, adjMap]);
+
+  // ── Por empresa propia: con cuál de nuestras empresas ganamos / perdimos ─────
+  // Mismo criterio que los KPIs (resultadoDe + montoNuestro de las ganadas). Color fijo por empresa
+  // (la misma en las dos tortas y en la efectividad); «Sin empresa» en gris y no filtra.
+  const porEmpresa = useMemo(() => {
+    const m = new Map<string, { clave: string; etiqueta: string; ganadas: number; perdidas: number; monto: number }>();
+    for (const n of baseComun) {
+      const a = adjMap[n.licitacion_codigo];
+      const clave = n.empresa_nombre || SIN_EMPRESA;
+      const e = m.get(clave) || { clave, etiqueta: n.empresa_nombre || 'Sin empresa', ganadas: 0, perdidas: 0, monto: 0 };
+      if (resultadoDe(n, a) === 'ganada') { e.ganadas++; if (a?.ganamos && a.montoNuestro) e.monto += a.montoNuestro; }
+      else e.perdidas++;
+      m.set(clave, e);
+    }
+    const filas = [...m.values()].sort((x, y) =>
+      (x.clave === SIN_EMPRESA ? 1 : 0) - (y.clave === SIN_EMPRESA ? 1 : 0) || (y.ganadas + y.perdidas) - (x.ganadas + x.perdidas));
+    let i = 0;
+    return filas.map(f => ({ ...f, color: f.clave === SIN_EMPRESA ? '#94a3b8' : SERIE_EMPRESAS[i++ % SERIE_EMPRESAS.length] }));
+  }, [baseComun, adjMap]);
+  const empresaElegida = fEmpresa.length === 1 ? fEmpresa[0] : '';
+  const elegirEmpresa = (clave: string) => { if (clave !== SIN_EMPRESA) setFEmpresa(clave ? [clave] : []); };
+
+  // El resumen (torta, KPIs) NO aplica el filtro de competidor: ese filtro deja solo perdidas y mostraría
+  // «0 % de efectividad», como si nunca le ganáramos a ese competidor. Solo la lista y las pestañas lo usan.
+  const conteoResumen = useMemo(() => {
+    const c = { ganada: 0, perdida: 0 };
+    for (const n of baseSinCompetidor) c[resultadoDe(n, adjMap[n.licitacion_codigo])]++;
+    return c;
+  }, [baseSinCompetidor, adjMap]);
   const conteo = useMemo(() => {
     const c = { ganada: 0, perdida: 0 };
     for (const n of base) c[resultadoDe(n, adjMap[n.licitacion_codigo])]++;
@@ -812,7 +1147,7 @@ export default function AdjudicadasPage() {
     () => visibles.slice((paginaSegura - 1) * porPagina, paginaSegura * porPagina),
     [visibles, paginaSegura, porPagina]);
   // Cambio de filtro/orden vuelve a la página 1 (cambiar de VISTA no: son los mismos datos).
-  useEffect(() => { setPagina(1); }, [q, fPerfil, fEmpresa, resultadoSel, orden, porPagina]);
+  useEffect(() => { setPagina(1); }, [q, fPerfil, fEmpresa, fCompetidor, resultadoSel, orden, porPagina]);
   // Si los datos en vivo encogen el total, el estado no puede quedar apuntando a una
   // página que ya no existe (el clamp del render solo corrige lo visible).
   useEffect(() => { if (pagina > totalPaginas) setPagina(totalPaginas); }, [pagina, totalPaginas]);
@@ -824,15 +1159,16 @@ export default function AdjudicadasPage() {
   };
 
   const stats = useMemo(() => {
+    // Mismo criterio que Postuladas y el Dashboard: solo lo que Mercado Público adjudicó a
+    // nosotros (antes, si faltaba ese monto, se sumaba lo ofertado y las cifras no cuadraban).
     let montoGanado = 0;
-    for (const n of base) {
-      if (resultadoDe(n, adjMap[n.licitacion_codigo]) !== 'ganada') continue;
+    for (const n of baseSinCompetidor) {
       const a = adjMap[n.licitacion_codigo];
-      montoGanado += (a?.montoNuestro ?? n.monto_ofertado ?? 0) || 0;
+      if (a?.ganamos && a.montoNuestro) montoGanado += a.montoNuestro;
     }
-    const total = conteo.ganada + conteo.perdida;
-    return { montoGanado, exito: total ? Math.round((conteo.ganada / total) * 100) : null };
-  }, [base, conteo, adjMap]);
+    const total = conteoResumen.ganada + conteoResumen.perdida;
+    return { montoGanado, exito: total ? Math.round((conteoResumen.ganada / total) * 100) : null };
+  }, [baseSinCompetidor, conteoResumen, adjMap]);
 
   const TABS: { id: Resultado | ''; label: string; count: number; color: string }[] = [
     { id: '', label: 'Todas', count: base.length, color: '#334155' },
@@ -840,8 +1176,8 @@ export default function AdjudicadasPage() {
     { id: 'perdida', label: 'Perdidas', count: conteo.perdida, color: META.perdida.color },
   ];
 
-  const hayFiltros = q.trim() !== '' || fPerfil.length > 0 || fEmpresa.length > 0 || resultadoSel !== '';
-  const limpiarFiltros = () => { setQ(''); setFPerfil([]); setFEmpresa([]); setResultadoSel(''); };
+  const hayFiltros = q.trim() !== '' || fPerfil.length > 0 || fEmpresa.length > 0 || resultadoSel !== '' || fCompetidor !== '';
+  const limpiarFiltros = () => { setQ(''); setFPerfil([]); setFEmpresa([]); setResultadoSel(''); setFCompetidor(''); };
 
   // Hasta que el cruce con el cache no esté listo, tratamos la vista como "cargando" para no
   // mostrar un conteo parcial que luego salta.
@@ -849,38 +1185,36 @@ export default function AdjudicadasPage() {
 
   return (
     <AppLayout breadcrumb={[{ label: 'Dashboard', href: '/dashboard' }, { label: 'Ganadas/Perdidas' }]}>
-      <div className="p-4 sm:p-6 lg:p-8">
-        {/* Encabezado */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-              <Trophy size={24} className="text-emerald-600" /> Ganadas/Perdidas
-              {ultimaGanada && (
-                <Link
-                  href={`/negocios/${ultimaGanada.id}`}
-                  title={`Última licitación ganada: ${ultimaGanada.licitacion_nombre || ultimaGanada.licitacion_codigo}`}
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold border shadow-sm hover:shadow transition-shadow"
-                  style={{ background: 'linear-gradient(135deg,#fef3c7,#fde68a)', borderColor: '#d97706', color: '#92400e' }}
-                >
-                  🏆 Última ganada: {(ultimaGanada.licitacion_nombre || ultimaGanada.licitacion_codigo).slice(0, 42)}
-                </Link>
-              )}
-              {ultimaPerdida && (
-                <Link
-                  href={`/negocios/${ultimaPerdida.id}`}
-                  title={`Última licitación perdida: ${ultimaPerdida.licitacion_nombre || ultimaPerdida.licitacion_codigo}`}
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold border shadow-sm hover:shadow transition-shadow"
-                  style={{ background: 'linear-gradient(135deg,#fee2e2,#fecaca)', borderColor: '#dc2626', color: '#991b1b' }}
-                >
-                  ⛔ Última perdida: {(ultimaPerdida.licitacion_nombre || ultimaPerdida.licitacion_codigo).slice(0, 42)}
-                </Link>
-              )}
-            </h1>
-            <p className="text-sm text-gray-500 mt-0.5">
-              {cargandoTodo ? 'Cargando…' : `${base.length} resuelta${base.length !== 1 ? 's' : ''} · resultado real de Mercado Público`}
-            </p>
-          </div>
-        </div>
+      <div className="@container p-4 sm:p-6 lg:p-8">
+        <Encabezado
+          titulo="Ganadas/Perdidas"
+          descripcion={cargandoTodo
+            ? 'Cargando…'
+            : `${base.length} licitación${base.length !== 1 ? 'es' : ''} resuelta${base.length !== 1 ? 's' : ''} · resultado real de Mercado Público`}
+          acciones={
+            <>
+              <Boton onClick={exportarExcel} disabled={exportando || cargandoTodo || visibles.length === 0}
+                title="Exportar a Excel las licitaciones con los filtros actuales (incluye la fecha de adjudicación)"
+                icono={exportando ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} stroke={1.75} />}>
+                {exportando ? 'Exportando…' : 'Exportar'}
+              </Boton>
+              <div className="relative w-64 @2xl:w-80">
+                <Search size={16} stroke={1.75} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                <input value={q} onChange={e => setQ(e.target.value)}
+                  placeholder="Buscar por nombre o código…"
+                  title={isAdmin ? 'Busca por nombre, código, organismo, empresa o perfil' : 'Busca por nombre, código, organismo o empresa'}
+                  aria-label="Buscar licitaciones resueltas"
+                  className="h-9 w-full rounded-lg border border-linea bg-white pl-9 pr-8 text-sm text-tinta placeholder:text-tinta-3 focus:outline-none focus:ring-2 focus:ring-marca/60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" />
+                {q && (
+                  <button onClick={() => setQ('')} aria-label="Limpiar búsqueda" title="Limpiar búsqueda"
+                    className="absolute right-1.5 top-1/2 -translate-y-1/2 inline-flex h-6 w-6 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-tinta dark:hover:bg-slate-800">
+                    <X size={14} stroke={1.75} />
+                  </button>
+                )}
+              </div>
+            </>
+          }
+        />
 
         {/* Aviso no bloqueante: el detalle de adjudicación (cache MP) no cargó */}
         {!cargandoTodo && errorCruce && (
@@ -892,109 +1226,91 @@ export default function AdjudicadasPage() {
         )}
 
         {cargandoTodo ? (
-          <Esqueleto vista={vista} />
+          <Cargando vista={vista} />
         ) : error ? (
           <Banner variante="error" accion={{ label: 'Reintentar', onClick: () => { setCargando(true); setVersion(v => v + 1); } }}>
             {error}
           </Banner>
         ) : (
           <>
-            {/* KPIs */}
-            {resueltas.length > 0 && (
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
-                <div className="stagger-item" style={{ '--stagger-i': 0 } as React.CSSProperties}>
-                  <StatCard icon={<Trophy size={22} />} label="Ganadas" value={conteo.ganada} sub={stats.exito != null ? `${stats.exito}% de efectividad` : undefined} color={META.ganada.color} />
+            {/* Resumen: torta ganadas/perdidas (clic = filtra) + indicadores clave */}
+            {baseSinCompetidor.length > 0 && (
+              <div className="mb-6 grid gap-3 @4xl:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
+                <div className="rounded-xl border border-linea bg-white px-4 py-3.5 shadow-tarjeta dark:border-slate-800 dark:bg-slate-900">
+                  <h2 className="text-[15px] font-semibold text-tinta dark:text-slate-100">Resultado de las {baseSinCompetidor.length} resueltas</h2>
+                  <p className="mt-0.5 mb-3 text-xs text-tinta-2 dark:text-slate-400">Ganadas sobre el total adjudicado en Mercado Público. Toca una para ver solo esas.</p>
+                  <Dona
+                    tajadas={[
+                      { clave: 'ganada', etiqueta: META.ganada.short, valor: conteoResumen.ganada, color: META.ganada.color },
+                      { clave: 'perdida', etiqueta: META.perdida.short, valor: conteoResumen.perdida, color: META.perdida.color },
+                    ]}
+                    centroValor={stats.exito != null ? `${stats.exito} %` : '—'} centroTexto="de efectividad"
+                    elegido={resultadoSel} onElegir={c => setResultadoSel(c as Resultado | '')}
+                    descripcion={`${conteoResumen.ganada} ganadas y ${conteoResumen.perdida} perdidas de ${baseSinCompetidor.length} resueltas`} />
+                  {(ultimaGanada || ultimaPerdida) && (
+                    <div className="mt-3 space-y-1 border-t border-linea pt-2.5 text-xs dark:border-slate-800">
+                      {([['ganada', ultimaGanada], ['perdida', ultimaPerdida]] as const).map(([r, n]) => n && (
+                        <Link key={r} href={`/negocios/${n.id}`} title={n.licitacion_nombre || n.licitacion_codigo}
+                          className="flex min-w-0 items-center gap-2 rounded px-0.5 hover:text-marca focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marca/60">
+                          <span className="flex-shrink-0 text-tinta-2 dark:text-slate-400">
+                            <Estado color={META[r].color}>Última {META[r].label.toLowerCase()}</Estado>
+                          </span>
+                          <span className="truncate font-medium text-tinta dark:text-slate-100">{n.licitacion_nombre || n.licitacion_codigo}</span>
+                        </Link>
+                      ))}
+                    </div>
+                  )}
                 </div>
-                <div className="stagger-item" style={{ '--stagger-i': 1 } as React.CSSProperties}>
-                  <StatCard icon={<XCircle size={22} />} label="Perdidas" value={conteo.perdida} sub="Adjudicadas a terceros" color={META.perdida.color} />
-                </div>
-                <div className="stagger-item" style={{ '--stagger-i': 2 } as React.CSSProperties}>
-                  <StatCard icon={<Target size={22} />} label="Tasa de éxito" value={stats.exito != null ? `${stats.exito}%` : '—'} sub="ganadas / resueltas" color="#7c3aed" />
-                </div>
-                <div className="stagger-item" style={{ '--stagger-i': 3 } as React.CSSProperties}>
-                  <StatCard icon={<Wallet size={22} />} label="Monto ganado" value={stats.montoGanado || '—'} formato={fmtCLP} sub="Lo adjudicado a nosotros" color="#0d9488" />
-                </div>
+                <Lista className="grid grid-cols-2 gap-3 content-start">
+                  <Indicador rotulo="Ganadas" valor={conteoResumen.ganada}
+                    detalle={stats.exito != null ? `${stats.exito} % de efectividad` : undefined} />
+                  <Indicador rotulo="Perdidas" valor={conteoResumen.perdida} detalle="Adjudicadas a terceros" />
+                  <div className="col-span-2">
+                    <Indicador rotulo="Monto ganado" valor={stats.montoGanado || 0} formato={fmtCLP} detalle="Lo adjudicado a nosotros" />
+                  </div>
+                </Lista>
               </div>
             )}
 
-            {/* Barra de herramientas: tabs resultado · vista · buscador · filtros · orden */}
+            {/* Por empresa propia: dos tortas + efectividad de cada una (clic = filtra por esa empresa) */}
+            {porEmpresa.length > 0 && baseComun.length > 0 && (
+              <PorEmpresa filas={porEmpresa} elegida={empresaElegida} onElegir={elegirEmpresa} />
+            )}
+
+            {/* Competidores que se adjudicaron nuestras perdidas (clic = filtra a esas perdidas) */}
+            {competidores.lista.length > 0 && (
+              <APerdimos lista={competidores.lista} perdidas={competidores.perdidas} sinDetalle={competidores.sinDetalle}
+                elegido={fCompetidor} onElegir={setFCompetidor} />
+            )}
+
+            {/* Barra de control: resultado · vista · filtros · orden */}
             {resueltas.length > 0 && (
-              <div className="bg-white border border-slate-200 rounded-2xl p-3 mb-5 space-y-2.5">
-                <div className="flex flex-wrap items-center gap-2">
-                  {/* Tabs de resultado */}
-                  <div className="flex items-center gap-0.5 bg-slate-100 rounded-xl p-0.5">
-                    {TABS.map(t => {
-                      const activo = resultadoSel === t.id;
-                      return (
-                        <button key={t.id || 'all'} onClick={() => setResultadoSel(t.id)}
-                          className={`inline-flex items-center gap-1.5 text-[12.5px] font-bold px-3 py-1.5 rounded-lg transition-all ${
-                            activo ? 'bg-white shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-                          style={activo ? { color: t.color } : undefined}>
-                          {t.label}
-                          <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1 rounded-full text-[10.5px] font-black"
-                            style={{ background: t.color + (activo ? '18' : '10'), color: activo ? t.color : '#64748b' }}>{t.count}</span>
-                        </button>
-                      );
-                    })}
+              <div className="mb-5 rounded-xl border border-linea bg-white p-3 shadow-tarjeta dark:border-slate-800 dark:bg-slate-900">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="overflow-x-auto">
+                    <Pestanas id="adjudicadas-resultado" valor={resultadoSel} onCambio={setResultadoSel}
+                      opciones={TABS.map(t => ({ valor: t.id, etiqueta: t.label, contador: t.count }))} />
                   </div>
-
-                  <div className="flex-1 min-w-[160px]" />
-
-                  <button onClick={exportarExcel} disabled={exportando || visibles.length === 0}
-                    title="Exportar a Excel las licitaciones con los filtros actuales (incluye la fecha de adjudicación)"
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[12.5px] font-semibold border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
-                    {exportando ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
-                    Exportar Excel
-                  </button>
-
-                  {/* Conmutador de vista */}
-                  <div className="flex items-center gap-0.5 bg-slate-100 rounded-xl p-0.5" role="group" aria-label="Tipo de vista">
-                    <button onClick={() => cambiarVista('lista')} title="Vista de lista" aria-pressed={vista === 'lista'}
-                      className={`inline-flex items-center gap-1.5 text-[12px] font-semibold px-3 py-1.5 rounded-lg transition-all ${
-                        vista === 'lista' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
-                      <LayoutList size={14} /> Lista
-                    </button>
-                    <button onClick={() => cambiarVista('tarjetas')} title="Vista de tarjetas" aria-pressed={vista === 'tarjetas'}
-                      className={`inline-flex items-center gap-1.5 text-[12px] font-semibold px-3 py-1.5 rounded-lg transition-all ${
-                        vista === 'tarjetas' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
-                      <LayoutGrid size={14} /> Tarjetas
-                    </button>
-                  </div>
+                  <Pestanas id="adjudicadas-vista" valor={vista} onCambio={cambiarVista}
+                    opciones={[{ valor: 'lista', etiqueta: 'Lista' }, { valor: 'tarjetas', etiqueta: 'Tarjetas' }]} />
                 </div>
 
-                <div className="flex flex-wrap items-center gap-2">
-                  {/* Buscador */}
-                  <div className="relative flex-1 min-w-[200px] max-w-md">
-                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                    <input value={q} onChange={e => setQ(e.target.value)}
-                      placeholder={isAdmin ? 'Buscar por nombre, código, organismo, empresa o perfil…' : 'Buscar por nombre, código, organismo o empresa…'}
-                      className="w-full pl-8 pr-8 py-2 text-[13px] border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 outline-none" />
-                    {q && (
-                      <button onClick={() => setQ('')} title="Limpiar búsqueda"
-                        className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
-                        <X size={14} />
-                      </button>
-                    )}
-                  </div>
-
-                  {/* Filtros multi-select */}
+                <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-linea pt-3 dark:border-slate-800">
                   {isAdmin && opcionesPerfil.length > 1 && (
                     <MultiSelect label="Perfil" icon={<Users size={13} />} options={opcionesPerfil} selected={fPerfil} onChange={setFPerfil} />
                   )}
                   {opcionesEmpresa.length > 1 && (
                     <MultiSelect label="Empresa" icon={<Building2 size={13} />} options={opcionesEmpresa} selected={fEmpresa} onChange={setFEmpresa} />
                   )}
-
-                  {/* Orden */}
-                  <Select value={orden} onChange={v => setOrden(v as Orden)} options={OPCIONES_ORDEN}
-                    icon={<ArrowUpDown size={13} />} minWidth={190} />
-
                   {hayFiltros && (
-                    <button onClick={limpiarFiltros}
-                      className="inline-flex items-center gap-1 text-[12px] font-semibold text-rose-600 hover:bg-rose-50 border border-transparent hover:border-rose-200 rounded-lg px-2.5 py-2 transition-colors">
-                      <X size={13} /> Limpiar
-                    </button>
+                    <Boton tamano="sm" variante="fantasma" onClick={limpiarFiltros} icono={<X size={16} stroke={1.75} />}>Limpiar filtros</Boton>
                   )}
+                  <div className="ml-auto inline-flex items-center gap-2">
+                    <span className="inline-flex items-center gap-1 text-[11px] text-tinta-2 dark:text-slate-400">
+                      <ArrowUpDown size={14} stroke={1.75} className="text-slate-400" /> Ordenar por
+                    </span>
+                    <Select value={orden} onChange={v => setOrden(v as Orden)} options={OPCIONES_ORDEN} minWidth={180} />
+                  </div>
                 </div>
               </div>
             )}
@@ -1002,53 +1318,40 @@ export default function AdjudicadasPage() {
             {/* Contenido */}
             <div ref={listaRef} className="scroll-mt-16">
               {visibles.length === 0 ? (
-                <div className="text-center py-20 bg-white rounded-2xl border border-slate-100 fade-in">
-                  <Inbox size={36} className="text-gray-300 mx-auto mb-3" />
-                  <h3 className="text-lg font-semibold text-gray-700 mb-2">
-                    {resueltas.length === 0 ? 'Todavía no hay licitaciones resueltas' : 'Nada con estos filtros'}
-                  </h3>
-                  <p className="text-sm text-gray-400">
-                    {resueltas.length === 0
-                      ? <>Cuando Mercado Público publique el resultado de una postulada, aparecerá aquí como <b>Ganada</b> o <b>Perdida</b>.</>
-                      : isAdmin ? 'Prueba con otra búsqueda, resultado o perfil.' : 'Prueba con otra búsqueda, resultado o empresa.'}
-                  </p>
-                  {hayFiltros && resueltas.length > 0 && (
-                    <button onClick={limpiarFiltros}
-                      className="mt-4 inline-flex items-center gap-1.5 text-[13px] font-semibold text-indigo-600 hover:text-indigo-700">
-                      <X size={14} /> Limpiar filtros
-                    </button>
-                  )}
-                </div>
+                resueltas.length === 0 ? (
+                  <Vacio icono={<Inbox size={28} stroke={1.5} />} titulo="Todavía no hay licitaciones resueltas"
+                    texto="Cuando Mercado Público publique el resultado de una postulada, aparecerá aquí como ganada o perdida." />
+                ) : (
+                  <Vacio icono={<Inbox size={28} stroke={1.5} />} titulo="Nada con estos filtros"
+                    texto={isAdmin ? 'Prueba con otra búsqueda, resultado, perfil o empresa.' : 'Prueba con otra búsqueda, resultado o empresa.'}
+                    accion={hayFiltros ? <Boton tamano="sm" onClick={limpiarFiltros} icono={<X size={16} stroke={1.75} />}>Limpiar filtros</Boton> : undefined} />
+                )
               ) : vista === 'tarjetas' ? (
-                <div className="grid grid-cols-1 xl:grid-cols-2 gap-3 sm:gap-4">
-                  {enPagina.map((n, i) => (
-                    <div key={n.id} className="stagger-item" style={{ '--stagger-i': Math.min(i, 12) } as React.CSSProperties}>
-                      <Card n={n} adj={adjMap[n.licitacion_codigo] ?? null}
-                        cargandoAdj={!resueltos.has(n.licitacion_codigo)} isAdmin={!!isAdmin} />
-                    </div>
+                <Lista key={`t-${paginaSegura}`} className="grid grid-cols-1 gap-3 @4xl:grid-cols-2">
+                  {enPagina.map(n => (
+                    <Card key={n.id} n={n} adj={adjMap[n.licitacion_codigo] ?? null}
+                      cargandoAdj={!resueltos.has(n.licitacion_codigo)} isAdmin={!!isAdmin} />
                   ))}
-                </div>
+                </Lista>
               ) : (
                 <div className="space-y-2">
-                  {/* Encabezado de columnas (solo escritorio) */}
-                  <div className={`hidden lg:grid ${isAdmin ? GRID_ADMIN : GRID_USER} gap-x-3 px-4 pb-1 text-[10.5px] font-bold uppercase tracking-wide text-slate-500`}>
+                  {/* Encabezado de columnas (solo con panel ancho) */}
+                  <div className={`hidden @5xl:grid ${isAdmin ? GRID_ADMIN : GRID_USER} gap-x-3 px-4 pb-0.5 text-[11px] text-tinta-2 dark:text-slate-400`}>
                     <span>Licitación</span>
-                    {isAdmin && <span>Perfil</span>}
+                    {isAdmin && <span><span className="sr-only">Perfil</span></span>}
                     <span>Empresa</span>
-                    <span className="text-right">Resultado $</span>
-                    <span className="text-right">Adjudicación</span>
-                    <span className="text-right">N° OC</span>
-                    <span className="text-right">OC llegó</span>
-                    <span className="text-right">OC aceptada</span>
+                    <span className="text-right">Monto</span>
+                    <span className="text-right">Adjudicada</span>
+                    <span className="text-right">Orden de compra</span>
                     <span className="text-right">Cierre</span>
                     <span />
                   </div>
-                  {enPagina.map((n, i) => (
-                    <div key={n.id} className="stagger-item" style={{ '--stagger-i': Math.min(i, 12) } as React.CSSProperties}>
-                      <Fila n={n} adj={adjMap[n.licitacion_codigo] ?? null}
+                  <Lista key={`l-${paginaSegura}`} className="space-y-2">
+                    {enPagina.map(n => (
+                      <Fila key={n.id} n={n} adj={adjMap[n.licitacion_codigo] ?? null}
                         cargandoAdj={!resueltos.has(n.licitacion_codigo)} isAdmin={!!isAdmin} />
-                    </div>
-                  ))}
+                    ))}
+                  </Lista>
                 </div>
               )}
             </div>

@@ -34,6 +34,8 @@ import { calcularHitosGantt, planificarTarea, type AnclaTarea, type EntradaAncla
 import { emparejarProductos, type ProductoExistente } from '@/app/lib/compras-producto-sync';
 import { decidirNoAdjudicadas, esSubestadoFuera, type DecisionNoAdjudicadas } from '@/app/lib/compras-no-adjudicadas';
 import { listarPagosOc, ocsConFacturas, ocPagada } from '@/app/lib/compras-pagos-oc';
+import { borrarCarga, guardarCarga, hayTablaCombustible } from '@/app/lib/compras-combustible';
+import { validarCarga, type CargaCombustible } from '@/app/lib/compras-combustible-core';
 import { esEstadoCancelada, procesarOcCancelada, reabrirSiOcVigente, registrarCancelacionManual, quitarCancelacionManual } from '@/app/lib/compras-oc-cancelada';
 
 // ── Aritmética de fechas "de pared" (sin reinterpretar zona horaria) ───────────────────────────
@@ -2071,7 +2073,7 @@ export async function engancharOrdenesCompraPendientes(limite = 25): Promise<{ r
 // El proyecto es dicotómico (se entrega o no se entrega, §14.1); lo que tiene grados es CADA
 // producto. "Cobertura total o nada" (§14.2): con un solo producto pendiente, el proyecto entero
 // no se puede entregar.
-export type TipoServicio = 'FLETE' | 'ADICIONAL';
+export type TipoServicio = 'FLETE' | 'ADICIONAL' | 'COMBUSTIBLE';
 export type SubestadoProducto = 'PENDIENTE' | 'COTIZANDO' | 'COMPRADO' | 'EN_BODEGA' | 'LISTO_ENTREGA' | 'ENTREGADO' | 'RENUNCIADO' | 'NO_ADJUDICADA';
 
 export interface ProductoCompra {
@@ -2369,7 +2371,7 @@ export async function listarProductosCompra(negocioId: number): Promise<Producto
     cantidad: r.cantidad == null ? null : Number(r.cantidad), unidad: r.unidad,
     montoUnitario: r.monto_unitario == null ? null : Number(r.monto_unitario),
     subestado: r.subestado, productoPadreId: r.producto_padre_id ?? null, esServicio: !!r.es_servicio,
-    servicioTipo: r.es_servicio && (r.servicio_tipo === 'FLETE' || r.servicio_tipo === 'ADICIONAL') ? r.servicio_tipo : null, renunciaMotivo: r.renuncia_motivo,
+    servicioTipo: r.es_servicio && (r.servicio_tipo === 'FLETE' || r.servicio_tipo === 'ADICIONAL' || r.servicio_tipo === 'COMBUSTIBLE') ? r.servicio_tipo : null, renunciaMotivo: r.renuncia_motivo,
     renunciaPropuestaPorNombre: r.renuncia_propuesta_por_nombre, renunciaPropuestaAt: r.renuncia_propuesta_at,
     renunciaAprobadaPorNombre: r.renuncia_aprobada_por_nombre, renunciaAprobadaAt: r.renuncia_aprobada_at,
     cantidadCosteo: r.cantidad_costeo == null ? null : Number(r.cantidad_costeo), cantidadMotivo: r.cantidad_motivo ?? null,
@@ -2591,6 +2593,7 @@ export async function eliminarParteProducto(productoId: number, actorId: number,
     }
   }
   await pool.query(`DELETE FROM compras_producto WHERE id = ?`, [productoId]);
+  if (esServicio) await borrarCarga(productoId).catch(() => {});
   // Un servicio es costo, no alcance de lo vendido: quitarlo no invalida las aprobaciones.
   if (!esServicio) await invalidarAprobacionesCompras(p.negocio_id, 'Se quitó una parte que se compraba aparte: cambió el alcance de la compra.');
   else await sincronizarTareaAprobacion(p.negocio_id).catch(() => {});
@@ -2606,7 +2609,7 @@ export async function eliminarParteProducto(productoId: number, actorId: number,
  *  precio de venta, sin producto del que colgar (a diferencia de una «parte»), fuera de la cobertura de entrega y del acta. Su costo va al
  *  costo real como gasto. Es costo, no alcance de lo vendido: agregarlo NO invalida las aprobaciones ya dadas. */
 export async function crearServicioProducto(
-  negocioId: number, datos: { descripcion: string; cantidad: number; unidad?: string | null; tipo?: TipoServicio | null },
+  negocioId: number, datos: { descripcion: string; cantidad: number; unidad?: string | null; tipo?: TipoServicio | null; combustible?: CargaCombustible | null },
   actorId: number, actorNombre: string | null,
 ): Promise<number> {
   const descripcion = datos.descripcion.trim().slice(0, 500);
@@ -2614,7 +2617,13 @@ export async function crearServicioProducto(
   if (!Number.isFinite(datos.cantidad) || datos.cantidad <= 0) throw new Error('La cantidad debe ser mayor a cero.');
   if (!(await hayColumnaServicio())) throw new Error('Falta aplicar la migración de servicios (migration-177) en esta base.');
   const conTipo = await hayColumnaServicioTipo();
-  if (datos.tipo === 'ADICIONAL' && !conTipo) throw new Error('Falta aplicar la migración 181 (node scripts/aplicar-migration-181.mjs) para los adicionales.');
+  if ((datos.tipo === 'ADICIONAL' || datos.tipo === 'COMBUSTIBLE') && !conTipo) throw new Error('Falta aplicar la migración 181 (node scripts/aplicar-migration-181.mjs) para los adicionales.');
+  if (datos.tipo === 'COMBUSTIBLE') {
+    // Se valida ANTES de crear nada: una carga sin litros o sin neto no puede llegar a la OC.
+    const errorCarga = datos.combustible ? validarCarga(datos.combustible) : 'Faltan los datos de la carga de combustible.';
+    if (errorCarga) throw new Error(errorCarga);
+    if (!(await hayTablaCombustible())) throw new Error('Falta aplicar la migración 202 (node scripts/aplicar-migration-202.mjs) para el combustible.');
+  }
   const [rows] = await pool.query(`SELECT licitacion_codigo FROM negocios WHERE id = ? LIMIT 1`, [negocioId]) as any;
   const negocio = (rows as any[])[0];
   if (!negocio) throw new Error('Negocio no encontrado.');
@@ -2624,9 +2633,13 @@ export async function crearServicioProducto(
      VALUES (?, NULL, NULL, 1, ${conTipo ? '?, ' : ''}?, ?, ?, NULL, 'PENDIENTE', ?, ?)`,
     [negocioId, ...(conTipo ? [datos.tipo ?? 'FLETE'] : []), descripcion, datos.cantidad, datos.unidad?.trim().slice(0, 30) || null, ahora, ahora],
   ) as any;
+  if (datos.tipo === 'COMBUSTIBLE' && datos.combustible) {
+    try { await guardarCarga(negocioId, r.insertId, datos.combustible); }
+    catch (e) { await pool.query(`DELETE FROM compras_producto WHERE id = ?`, [r.insertId]); throw e; }   // nunca queda un servicio de combustible sin sus datos
+  }
   await registrarEvento({
     tipo: 'COMPRAS_SERVICIO_AGREGADO', licitacionCodigo: negocio.licitacion_codigo, actorId, actorNombre,
-    mensaje: `Se agregó ${datos.tipo === 'ADICIONAL' ? 'el adicional' : 'el servicio'} «${descripcion}» (${datos.cantidad}${datos.unidad ? ` ${datos.unidad}` : ''}): se cotiza, lleva SKU y OC, y no se vende.`,
+    mensaje: `Se agregó ${datos.tipo === 'ADICIONAL' ? 'el adicional' : datos.tipo === 'COMBUSTIBLE' ? 'la carga de combustible' : 'el servicio'} «${descripcion}» (${datos.cantidad}${datos.unidad ? ` ${datos.unidad}` : ''}): se cotiza, lleva SKU y OC, y no se vende.`,
     metadata: { negocio_id: negocioId, producto_id: r.insertId },
   }).catch(() => {});
   return r.insertId as number;

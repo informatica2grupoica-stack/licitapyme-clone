@@ -8,18 +8,26 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useToast } from '@/app/components/ui/toast';
 import { useCompras } from '@/app/compras/[negocioId]/ComprasContext';
-import { IconPlus as Plus, IconLoader2 as Loader2, IconTruck as Truck, IconTool as Tool, IconBarcode as Barcode } from '@tabler/icons-react';
+import { IconPlus as Plus, IconLoader2 as Loader2, IconTruck as Truck, IconTool as Tool, IconBarcode as Barcode, IconGasStation as Fuel } from '@tabler/icons-react';
 import { rutValido, formatearRut } from './FletesCompra';
+import { TIPOS_COMBUSTIBLE, calcularCarga, cuadraConFactura, etiquetaCombustible, validarCarga, type CargaCombustible, type TipoCombustible } from '@/app/lib/compras-combustible-core';
 
-type Tipo = 'FLETE' | 'ADICIONAL';
+type Tipo = 'FLETE' | 'ADICIONAL' | 'COMBUSTIBLE';
 interface Servicio { id: number; descripcion: string; cantidad: number | null; esServicio: boolean; servicioTipo: Tipo | null; subestado: string }
 interface Rapida { productoId: number; estado: 'PENDIENTE' | 'APROBADA' | 'RECHAZADA'; proveedorNombre: string | null; proveedorRut: string | null; precioUnitario: number | null; comentario: string | null; resueltoPorNombre: string | null }
 interface Cotizacion { id: number; archivoUrl: string | null; items: Array<{ productoId: number }> }
-type Form = { tipo: Tipo | null; nombre: string; proveedor: string; rut: string; precio: string };
+type Form = { tipo: Tipo | null; nombre: string; proveedor: string; rut: string; precio: string; comb: string; litros: string; netoComb: string; impuesto: string; patente: string; totalFact: string };
+interface CargaVista extends CargaCombustible { productoId: number }
+const FORM_VACIO: Form = { tipo: null, nombre: '', proveedor: '', rut: '', precio: '', comb: 'DIESEL', litros: '', netoComb: '', impuesto: '', patente: '', totalFact: '' };
 
 const clp = (n: number) => `$${Math.round(n).toLocaleString('es-CL')}`;
 const monto = (t: string): number | null => { const n = Number(String(t).replace(/[^\d,.-]/g, '').replace(/\./g, '').replace(',', '.')); return Number.isFinite(n) && n > 0 ? n : null; };
-const ETIQUETA: Record<Tipo, string> = { FLETE: 'Flete', ADICIONAL: 'Adicional' };
+const ETIQUETA: Record<Tipo, string> = { FLETE: 'Flete', ADICIONAL: 'Adicional', COMBUSTIBLE: 'Combustible' };
+/** La carga que dicen los campos del formulario (litros con coma decimal; neto e impuesto en pesos enteros). */
+const cargaDelForm = (f: Form): CargaCombustible => {
+  const n = (t: string) => Number(String(t).replace(/[^\d,.-]/g, '').replace(/\./g, '').replace(',', '.'));
+  return { tipo: f.comb as TipoCombustible, litros: n(f.litros), netoAfecto: n(f.netoComb), impuestoEspecifico: f.impuesto.trim() ? n(f.impuesto) : 0, patente: f.patente.trim() || null };
+};
 
 export function ServiciosConSkuCard({ negocioId, puedeOperar }: { negocioId: number; puedeOperar: boolean }) {
   const toast = useToast();
@@ -27,6 +35,7 @@ export function ServiciosConSkuCard({ negocioId, puedeOperar }: { negocioId: num
   const [servicios, setServicios] = useState<Servicio[]>([]);
   const [rapidas, setRapidas] = useState<Rapida[]>([]);
   const [cotizaciones, setCotizaciones] = useState<Cotizacion[]>([]);
+  const [cargas, setCargas] = useState<Map<number, CargaVista>>(new Map());
   const [cargando, setCargando] = useState(true);
   const [form, setForm] = useState<Form | null>(null);
   const [archivo, setArchivo] = useState<File | null>(null);
@@ -38,11 +47,12 @@ export function ServiciosConSkuCard({ negocioId, puedeOperar }: { negocioId: num
 
   const cargar = useCallback(async () => {
     try {
-      const [rP, rR, rC] = await Promise.all([fetch(`/api/compras/${negocioId}/productos`), fetch(`/api/compras/${negocioId}/compra-rapida`), fetch(`/api/compras/${negocioId}/cotizaciones`)]);
-      const [dP, dR, dC] = await Promise.all([rP.json(), rR.json(), rC.json().catch(() => ({}))]);
+      const [rP, rR, rC, rK] = await Promise.all([fetch(`/api/compras/${negocioId}/productos`), fetch(`/api/compras/${negocioId}/compra-rapida`), fetch(`/api/compras/${negocioId}/cotizaciones`), fetch(`/api/compras/${negocioId}/combustible`)]);
+      const [dP, dR, dC, dK] = await Promise.all([rP.json(), rR.json(), rC.json().catch(() => ({})), rK.json().catch(() => ({}))]);
       if (dP.success) setServicios((dP.productos || []).filter((p: Servicio) => p.esServicio));
       if (dR.success) setRapidas(dR.compras || []);
       if (dC.success) setCotizaciones(dC.cotizaciones || []);
+      if (dK.success) setCargas(new Map((dK.cargas || []).map((c: CargaVista) => [c.productoId, c])));
     } catch (e: any) { toast.error('No se pudieron cargar los gastos con SKU', e.message); }
     finally { setCargando(false); }
   }, [negocioId]);
@@ -78,7 +88,7 @@ export function ServiciosConSkuCard({ negocioId, puedeOperar }: { negocioId: num
   /** Lee el documento (sin guardar nada) y propone precio neto, proveedor y RUT; lo que ya escribiste no se pisa. */
   const elegirArchivo = async (file: File | null) => {
     setArchivo(file); setLeyendo(null);
-    if (!file) return;
+    if (!file || form?.tipo === 'COMBUSTIBLE') return;   // la factura de combustible se digita (neto e impuesto van aparte): no se lee un «precio» del documento
     setLeyendo({ estado: 'leyendo' });
     try {
       const fd = new FormData(); fd.set('file', file);
@@ -98,9 +108,21 @@ export function ServiciosConSkuCard({ negocioId, puedeOperar }: { negocioId: num
 
   const guardar = async () => {
     if (!form) return;
-    const proveedor = form.proveedor.trim(), rut = form.rut.trim(), precio = monto(form.precio);
-    if (!form.tipo) return toast.error('Falta elegir', '¿Es un flete o un adicional?');
-    if (!form.nombre.trim()) return toast.error('Falta qué es', form.tipo === 'FLETE' ? 'Por ejemplo «Flete Santiago – Temuco».' : 'Por ejemplo «Grúa horquilla para descarga».');
+    const proveedor = form.proveedor.trim(), rut = form.rut.trim();
+    if (!form.tipo) return toast.error('Falta elegir', '¿Es un flete, un adicional o combustible?');
+    const esComb = form.tipo === 'COMBUSTIBLE';
+    const carga = esComb ? cargaDelForm(form) : null;
+    // Combustible: el costo es neto + impuesto específico (el IVA es crédito fiscal); el nombre se arma solo.
+    const precio = esComb ? calcularCarga(carga!).costo : monto(form.precio);
+    const nombre = esComb ? `Combustible ${etiquetaCombustible(carga!.tipo)} ${carga!.litros.toLocaleString('es-CL')} L${carga!.patente ? ` ${carga!.patente.toUpperCase()}` : ''}` : form.nombre.trim();
+    const totalFactura = esComb ? monto(form.totalFact) : null;
+    if (carga) {
+      const e = validarCarga(carga); if (e) return toast.error('Revisa la carga', e);
+      // La carga tiene que cuadrar con la factura, así la OC de Obuma queda igual a ella (neto + impuesto exento + IVA = total).
+      if (totalFactura == null) return toast.error('Falta el total de la factura', 'Escribe el total que dice la factura del combustible.');
+      if (!cuadraConFactura(carga, totalFactura)) return toast.error('La carga no cuadra con la factura', `Neto + impuesto específico + IVA da ${clp(calcularCarga(carga).totalFactura)} y la factura dice ${clp(totalFactura)}. Revisa el neto y el impuesto.`);
+    }
+    if (!nombre) return toast.error('Falta qué es', form.tipo === 'FLETE' ? 'Por ejemplo «Flete Santiago – Temuco».' : 'Por ejemplo «Grúa horquilla para descarga».');
     if (!proveedor) return toast.error('Falta el proveedor', 'Es obligatorio para crear el SKU y emitir la OC.');
     if (!rutValido(rut)) return toast.error('El RUT del proveedor no es válido', 'Escríbelo con dígito verificador, por ejemplo 76.123.456-7.');
     if (precio == null) return toast.error('Falta el precio', 'Pon el precio neto (sin IVA).');
@@ -109,10 +131,11 @@ export function ServiciosConSkuCard({ negocioId, puedeOperar }: { negocioId: num
       // 1 · El ítem (servicio: no va al costeo).
       const r = await fetch(`/api/compras/${negocioId}/productos`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ accion: 'agregar_servicio', tipo: form.tipo, descripcion: form.nombre.trim(), cantidad: 1, unidad: null }),
+        body: JSON.stringify({ accion: 'agregar_servicio', tipo: form.tipo, descripcion: nombre, cantidad: 1, unidad: null, ...(carga ? { combustible: { ...carga, totalFactura } } : {}) }),
       });
       const d = await r.json();
       if (!r.ok || !d.success || !d.productoId) throw new Error(d.error || 'No se pudo crear el ítem');
+      if (Array.isArray(d.avisos) && d.avisos.length) toast.warning('Revisa los números de la carga', d.avisos.join(' '));
       const productoId = Number(d.productoId);
       // 2 · Su compra directa: guarda la cotización y pide la aprobación del jefe de ventas SOLO de este ítem (compra rápida).
       const items = [{ productoId, precioUnitario: precio, cumple: 'CUMPLE' }];
@@ -172,10 +195,10 @@ export function ServiciosConSkuCard({ negocioId, puedeOperar }: { negocioId: num
       <div className="px-4 py-3 bg-zinc-50 border-b border-zinc-100 flex items-start gap-3 flex-wrap">
         <div className="flex-1 min-w-[240px] space-y-0.5">
           <p className="text-[13px] font-bold text-zinc-800 flex items-center gap-1.5"><Barcode size={15} /> Gastos con SKU y orden de compra{lista.length > 0 && <span className="text-zinc-400 font-semibold">({lista.length})</span>}</p>
-          <p className="text-[11.5px] text-zinc-500">Un flete o un adicional (grúa, armado, instalación) que salió después y necesita SKU, OC y factura. Lo aprueba el jefe de ventas solo a él: no toca el costeo ni lo que ya estaba aprobado.</p>
+          <p className="text-[11.5px] text-zinc-500">Un flete, un adicional (grúa, armado, instalación) o una carga de combustible que necesita SKU, OC y factura. Lo aprueba el jefe de ventas solo a él: no toca el costeo ni lo que ya estaba aprobado.</p>
         </div>
         {puedeOperar && !form && (
-          <button type="button" onClick={() => { setArchivo(null); setLeyendo(null); setProvInfo(null); setForm({ tipo: null, nombre: '', proveedor: '', rut: '', precio: '' }); }} data-testid="agregar-con-sku"
+          <button type="button" onClick={() => { setArchivo(null); setLeyendo(null); setProvInfo(null); setForm({ ...FORM_VACIO }); }} data-testid="agregar-con-sku"
             className="flex-shrink-0 inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-teal-700 bg-teal-50 hover:bg-teal-100 px-3 py-2 rounded-lg"><Plus size={14} /> Agregar con SKU y OC</button>
         )}
       </div>
@@ -188,11 +211,16 @@ export function ServiciosConSkuCard({ negocioId, puedeOperar }: { negocioId: num
             const cot = cotizaciones.find(c => c.archivoUrl && c.items.some(i => i.productoId === s.id));
             return (
               <li key={s.id} className="px-4 py-2.5 flex items-start gap-3 flex-wrap" data-testid={`servicio-sku-${s.id}`}>
-                <span className={`mt-0.5 inline-flex items-center gap-1 text-[10.5px] font-bold px-1.5 py-0.5 rounded border ${tipo === 'FLETE' ? 'bg-sky-50 text-sky-800 border-sky-200' : 'bg-violet-50 text-violet-800 border-violet-200'}`}>
-                  {tipo === 'FLETE' ? <Truck size={11} /> : <Tool size={11} />} {ETIQUETA[tipo].toUpperCase()}
+                <span className={`mt-0.5 inline-flex items-center gap-1 text-[10.5px] font-bold px-1.5 py-0.5 rounded border ${tipo === 'FLETE' ? 'bg-sky-50 text-sky-800 border-sky-200' : tipo === 'COMBUSTIBLE' ? 'bg-amber-50 text-amber-800 border-amber-200' : 'bg-violet-50 text-violet-800 border-violet-200'}`}>
+                  {tipo === 'FLETE' ? <Truck size={11} /> : tipo === 'COMBUSTIBLE' ? <Fuel size={11} /> : <Tool size={11} />} {ETIQUETA[tipo].toUpperCase()}
                 </span>
                 <div className="flex-1 min-w-[200px]">
                   <p className="text-[13px] font-semibold text-zinc-900">{s.descripcion}</p>
+                  {cargas.get(s.id) && (() => { const c = cargas.get(s.id)!; const k = calcularCarga(c); return (
+                    <p className="text-[11.5px] text-zinc-500 tabular-nums" data-testid={`carga-${s.id}`}>
+                      {c.litros.toLocaleString('es-CL')} L · neto {clp(c.netoAfecto)} + impuesto específico {clp(c.impuestoEspecifico)} (exento) = <b className="text-zinc-700">{clp(k.costo)}</b> de costo · IVA {clp(k.iva)} (crédito) · total factura {clp(k.totalFactura)}{c.patente ? ` · ${c.patente}` : ''}
+                    </p>
+                  ); })()}
                   <p className="text-[12px] text-zinc-500">{r.proveedorNombre} · {r.proveedorRut || 'sin RUT'} · <b className="text-zinc-800 tabular-nums">{r.precioUnitario != null ? clp(r.precioUnitario) : 'sin precio'}</b> neto</p>
                   {r.estado === 'RECHAZADA' && <p className="text-[12px] text-rose-700">Rechazado{r.resueltoPorNombre ? ` por ${r.resueltoPorNombre}` : ''}: {r.comentario}</p>}
                   {r.estado === 'APROBADA' && <p className="text-[12px] text-zinc-500">Créale el SKU en «Aprobación y SKU» y emite la OC en «Órdenes y facturas».</p>}
@@ -219,21 +247,49 @@ export function ServiciosConSkuCard({ negocioId, puedeOperar }: { negocioId: num
         <div className="border-t border-zinc-100 px-4 py-3 space-y-2.5 bg-teal-50/30" data-testid="form-con-sku">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-[12.5px] font-semibold text-zinc-700">¿Qué es?</span>
-            {(['FLETE', 'ADICIONAL'] as const).map(t => (
+            {(['FLETE', 'ADICIONAL', 'COMBUSTIBLE'] as const).map(t => (
               <button key={t} type="button" onClick={() => set({ tipo: t })} aria-pressed={form.tipo === t} data-testid={`tipo-${t.toLowerCase()}`}
                 className={`inline-flex items-center gap-1 text-[12px] font-semibold px-3 py-1 rounded-lg border ${form.tipo === t ? 'bg-teal-600 text-white border-teal-600' : 'bg-white text-zinc-600 border-zinc-200 hover:border-teal-400'}`}>
-                {t === 'FLETE' ? <Truck size={13} /> : <Tool size={13} />} {ETIQUETA[t]}
+                {t === 'FLETE' ? <Truck size={13} /> : t === 'COMBUSTIBLE' ? <Fuel size={13} /> : <Tool size={13} />} {ETIQUETA[t]}
               </button>
             ))}
           </div>
           {form.tipo && (
             <>
-              <input value={form.nombre} onChange={e => set({ nombre: e.target.value })} aria-label="Qué es"
-                placeholder={form.tipo === 'FLETE' ? 'Qué flete es (ej. Flete Santiago – Temuco)' : 'Qué adicional es (ej. Grúa horquilla para descarga)'} className={`${campo} w-full max-w-xl`} />
+              {form.tipo !== 'COMBUSTIBLE' && (
+                <input value={form.nombre} onChange={e => set({ nombre: e.target.value })} aria-label="Qué es"
+                  placeholder={form.tipo === 'FLETE' ? 'Qué flete es (ej. Flete Santiago – Temuco)' : 'Qué adicional es (ej. Grúa horquilla para descarga)'} className={`${campo} w-full max-w-xl`} />
+              )}
+              {form.tipo === 'COMBUSTIBLE' && (() => {
+                const c = cargaDelForm(form);
+                const error = form.litros.trim() || form.netoComb.trim() ? validarCarga(c) : null;
+                const k = !error && c.netoAfecto > 0 ? calcularCarga(c) : null;
+                return (
+                  <div className="space-y-1.5" data-testid="form-combustible">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <select value={form.comb} onChange={e => set({ comb: e.target.value })} aria-label="Tipo de combustible" className={`${campo} w-40`}>
+                        {TIPOS_COMBUSTIBLE.map(t => <option key={t.clave} value={t.clave}>{t.etiqueta}</option>)}
+                      </select>
+                      <input value={form.litros} onChange={e => set({ litros: e.target.value })} inputMode="decimal" placeholder="Litros" aria-label="Litros" className={`${campo} w-24`} />
+                      <input value={form.netoComb} onChange={e => set({ netoComb: e.target.value })} inputMode="numeric" placeholder="Neto afecto (factura)" aria-label="Neto afecto" className={`${campo} w-44`} />
+                      <input value={form.impuesto} onChange={e => set({ impuesto: e.target.value })} inputMode="numeric" placeholder="Impuesto específico" aria-label="Impuesto específico" className={`${campo} w-40`} />
+                      <input value={form.patente} onChange={e => set({ patente: e.target.value })} placeholder="Patente (opcional)" aria-label="Patente" className={`${campo} w-36`} />
+                      <input value={form.totalFact} onChange={e => set({ totalFact: e.target.value })} inputMode="numeric" placeholder="Total factura" aria-label="Total de la factura" className={`${campo} w-36`} />
+                    </div>
+                    {k && (() => { const tf = monto(form.totalFact); return (
+                      <p className="text-[11.5px] text-zinc-600 tabular-nums" data-testid="calculo-combustible">Costo del proyecto <b>{clp(k.costo)}</b> (neto + impuesto) · IVA {clp(k.iva)} es crédito fiscal · total calculado <b>{clp(k.totalFactura)}</b> · {clp(k.precioLitroNeto)} neto por litro.{' '}
+                        {tf == null ? <span className="text-zinc-500">Escribe el total de la factura para comprobarlo.</span>
+                          : cuadraConFactura(c, tf) ? <span className="text-emerald-700 font-semibold">Cuadra con la factura.</span>
+                          : <span className="text-rose-700 font-semibold">No cuadra: la factura dice {clp(tf)}.</span>}
+                      </p>); })()}
+                    {error && <p className="text-[11.5px] text-amber-700">{error}</p>}
+                  </div>
+                );
+              })()}
               <div className="flex items-center gap-2 flex-wrap">
                 <input value={form.proveedor} onChange={e => set({ proveedor: e.target.value })} placeholder="Proveedor (nombre)" aria-label="Proveedor" className={`${campo} w-64`} />
                 <input value={form.rut} onChange={e => cambiarRut(e.target.value)} placeholder="RUT del proveedor" aria-label="RUT del proveedor" className={`${campo} w-40`} />
-                <input value={form.precio} onChange={e => set({ precio: e.target.value })} inputMode="numeric" placeholder="Precio neto (sin IVA)" aria-label="Precio neto" className={`${campo} w-44`} />
+                {form.tipo !== 'COMBUSTIBLE' && <input value={form.precio} onChange={e => set({ precio: e.target.value })} inputMode="numeric" placeholder="Precio neto (sin IVA)" aria-label="Precio neto" className={`${campo} w-44`} />}
                 {provInfo && (
                   <span className={`basis-full text-[11.5px] ${provInfo.estado === 'no_existe' ? 'text-amber-700' : provInfo.estado === 'error' ? 'text-zinc-500' : 'text-emerald-700'}`}>
                     {provInfo.estado === 'cargando' && 'Buscando proveedor…'}

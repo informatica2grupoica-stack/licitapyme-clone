@@ -72,7 +72,7 @@ export type MatrizProps = {
   onCompraPorLink?: (productoId: number, d: { link: string; precio: number; proveedor: string }) => void;
   productos: Array<{ id: number; descripcion: string; cantidad?: number | string | null; esServicio?: boolean; unidad?: string | null;
     /** Servicio con SKU: FLETE (reemplaza la reserva del 5 %) o ADICIONAL (grúa, instalación: gasto que no estaba en el costeo). */
-    servicioTipo?: 'FLETE' | 'ADICIONAL' | null;
+    servicioTipo?: 'FLETE' | 'ADICIONAL' | 'COMBUSTIBLE' | null;
     /** Cantidad a comprar cambiada desde Compara precios (migration-179): la del costeo y la observación. */
     cantidadCosteo?: number | null; cantidadMotivo?: string | null; cantidadCambiadaPorNombre?: string | null; cantidadCambiadaAt?: string | null }>; cotizaciones: CotizacionMin[];
   costeado: Record<number, number | null>;

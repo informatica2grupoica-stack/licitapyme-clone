@@ -13,6 +13,8 @@ import { permisosCrudosDeUsuario } from '@/app/lib/api-auth';
 import { linksDelCosteoPorProducto } from '@/app/lib/compras-auditoria-cotizacion';
 import { listarComprasRapidas, type CompraRapida } from '@/app/lib/compras-compra-rapida';
 import { marcarCompradosConOc } from '@/app/lib/compras-oc-obuma';
+import { cargasPreviasParaAvisos } from '@/app/lib/compras-combustible';
+import { avisosCarga, calcularCarga, cuadraConFactura, validarCarga } from '@/app/lib/compras-combustible-core';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -78,9 +80,19 @@ async function __PATCH(request: NextRequest, { params }: Params) {
 
     if (body.accion === 'agregar_servicio') {
       // Servicio que se compra con proveedor/cotización/SKU/OC pero no se vende (el flete que lleva toda la entrega, migration-177).
-      const productoId = await crearServicioProducto(id, { descripcion: String(body.descripcion || ''), cantidad: Number(body.cantidad), unidad: body.unidad ?? null, tipo: body.tipo === 'ADICIONAL' ? 'ADICIONAL' : 'FLETE' }, userId, nombre);
+      const tipoServicio = body.tipo === 'ADICIONAL' ? 'ADICIONAL' : body.tipo === 'COMBUSTIBLE' ? 'COMBUSTIBLE' : 'FLETE';
+      // Carga de combustible: tipo, litros, neto afecto, impuesto específico y patente (compras-combustible-core.ts valida y la OC sale con dos líneas).
+      const b = body.combustible ?? {};
+      const combustible = tipoServicio === 'COMBUSTIBLE'
+        ? { tipo: b.tipo, litros: Number(b.litros), netoAfecto: Number(b.netoAfecto), impuestoEspecifico: Number(b.impuestoEspecifico ?? 0), patente: b.patente ? String(b.patente) : null }
+        : null;
+      // El total de la factura es obligatorio: la carga tiene que cuadrar con él para que la OC de Obuma quede igual a la factura.
+      if (combustible && !validarCarga(combustible) && !cuadraConFactura(combustible, Number(b.totalFactura)))
+        return NextResponse.json({ error: `La carga no cuadra con la factura: neto + impuesto específico + IVA da ${calcularCarga(combustible).totalFactura} y la factura dice ${b.totalFactura ?? '(sin total)'}.` }, { status: 400 });
+      const avisos = combustible ? avisosCarga(combustible, await cargasPreviasParaAvisos(id).catch(() => [])) : [];
+      const productoId = await crearServicioProducto(id, { descripcion: String(body.descripcion || ''), cantidad: Number(body.cantidad), unidad: body.unidad ?? null, tipo: tipoServicio, combustible }, userId, nombre);
       const [productos, cobertura] = await Promise.all([listarProductosCompra(id), coberturaProyecto(id)]);
-      return NextResponse.json({ success: true, productoId, productos, cobertura });
+      return NextResponse.json({ success: true, productoId, productos, cobertura, avisos });
     }
 
     const productoId = Number(body.productoId);

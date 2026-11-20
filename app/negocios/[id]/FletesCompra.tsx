@@ -30,7 +30,7 @@ export function rutValido(rut: string): boolean {
   return dv === (r === 11 ? '0' : r === 10 ? 'K' : String(r));
 }
 
-interface ProductoFlete { id: number; descripcion: string; cantidad?: number | null; esServicio?: boolean; servicioTipo?: 'FLETE' | 'ADICIONAL' | null; subestado?: string }
+interface ProductoFlete { id: number; descripcion: string; cantidad?: number | null; esServicio?: boolean; servicioTipo?: 'FLETE' | 'ADICIONAL' | 'COMBUSTIBLE' | null; subestado?: string }
 interface CotizacionFlete {
   id: number; proveedorNombre: string; proveedorRut: string | null; archivoUrl: string | null; descripcionLibre: string | null; moneda: string;
   plazoEntregaTexto: string | null; vigenciaAt?: string | null;
@@ -52,7 +52,7 @@ export function FletesCompra({ negocioId, puedeOperar, productos, cotizaciones, 
   const [quitando, setQuitando] = useState(false);
   const [leyendo, setLeyendo] = useState<{ estado: 'leyendo' | 'ok' | 'sin_precio' | 'error'; texto?: string } | null>(null);
   const [provInfo, setProvInfo] = useState<{ estado: 'cargando' | 'sistema' | 'obuma' | 'no_existe' | 'error'; nombre?: string } | null>(null);
-  const fletes = productos.filter(p => p.esServicio && p.servicioTipo !== 'ADICIONAL');   // los adicionales (grúa, armado) viven en «Gastos extra»
+  const fletes = productos.filter(p => p.esServicio && p.servicioTipo !== 'ADICIONAL' && p.servicioTipo !== 'COMBUSTIBLE');   // los adicionales (grúa, armado) y el combustible viven en «Gastos extra»
   if (fletes.length === 0 && !puedeOperar) return null;
 
   /** Al completar un RUT válido: busca el proveedor en nuestro sistema y, si no está, en Obuma, y rellena el nombre si está vacío. */

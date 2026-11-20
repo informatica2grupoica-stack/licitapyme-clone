@@ -185,7 +185,7 @@ export function ComparadorPrecios({ productos, cotizaciones, costeado, venta, li
     const m = menorDe.get(p.id); if (m == null) continue;
     const c = cotizaciones.find(c => !reemp.has(`${c.id}:${p.id}`) && c.items.find(i => i.productoId === p.id)?.precioUnitario === m);
     const fila = { proveedor: c?.proveedorNombre ?? '', cotizacionId: c?.id ?? 0, monto: m * num(p.cantidad), nombre: p.descripcion };
-    (p.servicioTipo === 'ADICIONAL' ? adicionalesCotizados : fletesCotizados).push(fila);
+    (p.servicioTipo === 'ADICIONAL' || p.servicioTipo === 'COMBUSTIBLE' ? adicionalesCotizados : fletesCotizados).push(fila);   // el combustible es un gasto que no estaba en el costeo: se resta aparte, igual que la grúa
   }
 
   if (productos.length === 0 || (cotizaciones.length === 0 && !lecLink?.disponible)) return null;

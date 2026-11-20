@@ -1,5 +1,17 @@
 # Infraestructura, stack, seguridad y multi-cliente
 
+## 2026-11-20 — n8n: guía con nombres de proveedores desde Obuma (RUT, contacto, correo, teléfono)
+- La guía del asistente ya no muestra «proveedor id N»: n8n lee `carpetas/_datos/proveedores-obuma.json`, una copia del catálogo de Obuma (`proveedores.list.json`, 2.851 proveedores, 2.015 con correo), y completa lo que LICITANK no tiene. Se bajó en 29 llamadas de solo lectura; no se usa `proveedores.findById` porque tiene cuota diaria compartida con LICITANK.
+- La guía v2 explica cada ítem (qué comprar, qué piden, último precio, más barato, mediana, rango) y avisa cuando los precios de compras parecidas son muy dispares. Probada con 1035-27-LE26 y publicada.
+- Un negocio se detecta como «entró a EN PROCESO» por su estado actual, porque LICITANK no registra evento cuando el asistente mueve su propio negocio.
+
+## 2026-11-20 — n8n: un solo correo de resumen en vez de muchos avisos
+- Reportes de error, salud del sitio, fallos de n8n, gasto de IA y vencimientos ya no envían correo propio: dejan su aviso en una cola y el flujo «Resumen único de avisos» manda un correo a las 08:30, 13:30 y 19:00 (solo si hay algo nuevo). La guía de EN PROCESO sigue saliendo aparte.
+- Se agregó un nodo «Prueba manual» a todos los flujos para poder probarlos a mano.
+
+## 2026-11-20 — n8n: informe diario para el jefe (Don Carlos), en lenguaje simple
+- Cada día a las 17:00 (hora de Santiago) n8n arma un informe no técnico de lo trabajado ese día (memoria del proyecto + subidas a GitHub), escrito con IA para un lector que no es técnico. Por ahora se envía solo a informatica2 como borrador de revisión; cuando el dueño lo apruebe se activa el envío a Don Carlos.
+
 ## 2026-11-19 — n8n LOCAL en el PC del dueño, para aprender (nada en el VPS)
 **Decidido (dueño):** n8n va **local** (su PC, Docker), no en el VPS, y NO entra al producto (ni scheduler, ni avisos a clientes, ni lógica, ni credenciales de clientes); solo flujos internos que LEEN la BD. Un primer intento lo puso como perfil en `docker-compose.yml` del VPS: se revirtió el mismo día (compose y `bd-respaldo-nocturno.sh` quedaron como en git). Avisos a clientes: propuesta aparte de webhooks salientes por empresa (sin construir).
 **Hecho:** todo vive FUERA del repo, en **`D:\n8n`** (pedido del dueño; en el repo no queda nada de n8n): `docker-compose.yml` (proyecto `licitank-n8n-local`, `127.0.0.1:5678`, volumen `licitank-n8n-local_licitank-n8n-datos`, sin telemetría, historial 14 días), `iniciar-n8n.bat` (doble clic: prende la BD local `D:\licitapyme-clone\docker-compose.dev-db.yml` + n8n y abre el navegador), `apagar-n8n.bat`, `crear-usuario-lectura.ps1` (BD local 3308: usuario `n8n_lectura`/`n8n_local`, solo SELECT en `ia_uso`, `reportes_error`, `clientes`) — **ya creado**: lee reportes, `usuarios` → denegado, UPDATE → denegado; guía `GUIA-n8n.md` en 8 clases (levantar, credenciales MySQL `host.docker.internal:3308` + Telegram, práctica, aviso de fallos, reportes sin repetir, salud de licitank.cl, gasto IA con Code, vencimientos). Consultas SQL de la guía probadas con `n8n_lectura` en la BD local. Levantado en el PC el 19-nov: n8n **2.23.3** (fijada en el compose), abre en `http://localhost:5678/setup`; el aviso «Python 3 is missing» es inofensivo (la guía usa solo JavaScript). **No** probado: los nodos en su interfaz (la cuenta de dueño la crea el dueño).

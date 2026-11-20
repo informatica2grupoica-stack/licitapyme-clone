@@ -26,6 +26,8 @@
 // escrita todavía (ver obuma-memoria.ts) — escribirla a ciegas arriesgaría cruzar mal el costo
 // real de una experiencia, que es justo el dato que no se puede inventar.
 
+import { totalesOc } from '@/app/lib/compras-combustible-core';
+
 const BASE_V1 = process.env.OBUMA_API_URL || 'https://api.obuma.cl/v1.0';
 const BASE_V2 = BASE_V1.replace(/\/v1\.0\/?$/, '/v2.0');
 const TOKEN = process.env.OBUMA_API_TOKEN || '';
@@ -757,6 +759,8 @@ export interface DatosItemOrdenCompra {
   nombre: string; cantidad: number; precioUnitarioNeto: number;
   /** Descripción de la línea (`producto_descripcion`); viene de la que el encargado escribió en el producto de Obuma. */
   descripcion?: string | null;
+  /** Línea exenta de IVA (ej. el impuesto específico del combustible, como en la OC 4058). Solo cambia las OC nacionales: en las internacionales todo ya es exento. */
+  exento?: boolean;
 }
 export interface DatosCrearOrdenCompra {
   proveedorRut: string | null; proveedorRazonSocial: string;
@@ -789,7 +793,8 @@ export interface DatosCrearOrdenCompra {
    *  con decimales, cada línea exenta, sin IVA (el IVA de una importación se paga en aduana) y el total en la moneda extranjera. */
   monedaId?: string | null;
   tipoCambio?: number | null;
-  conceptoGasto?: 'GASTO' | 'INVENTARIO' | 'ACTIVO'; // default INVENTARIO
+  /** Default INVENTARIO. En una OC de Gasto Obuma guarda aquí el ID de la cuenta contable (4058 = 120452; el texto «GASTO» no sirve). */
+  conceptoGasto?: 'GASTO' | 'INVENTARIO' | 'ACTIVO' | (string & {});
   // ID real del centro de costo (contabilidadCentrosDeCostos.list.json) — ver
   // buscarCentroCostoPorLicitacion. Se omite del payload cuando es null: no se manda un centro de
   // costo cualquiera solo por rellenar el campo.
@@ -832,7 +837,7 @@ export async function crearOrdenCompraObuma(
     descuento: 0,
     subtotal: redondear(it.cantidad * it.precioUnitarioNeto),
     // Las líneas de las OC internacionales hechas a mano van todas con «producto_exento 1».
-    ...(internacional ? { producto_exento: '1' } : {}),
+    ...(internacional || it.exento ? { producto_exento: '1' } : {}),
     // Por API no existe centro de costo por línea: todas toman el de la cabecera (soporte de Obuma).
   }));
   if (datos.fleteMonto != null) {
@@ -850,10 +855,11 @@ export async function crearOrdenCompraObuma(
   }
   if (itemsPayload.length === 0) throw new Error('La orden de compra no tiene ningún ítem.');
 
-  const subtotalNeto = redondear(itemsPayload.reduce((s, it) => s + Number(it.subtotal), 0));
   // Internacional: todo exento, sin IVA (OC 384/385 hechas a mano: exento = total, neto 0, IVA 0).
-  const iva = internacional ? 0 : Math.round(subtotalNeto * 0.19);
-  const total = redondear(subtotalNeto + iva);
+  // Nacional con líneas exentas (impuesto específico del combustible): el IVA va solo sobre lo afecto, como la OC 4058 (neto 35.810, exento 7.537, IVA 6.804).
+  // El flete (última línea del payload) es afecto, igual que antes.
+  const { afecto, exento: exentoOc, iva, subtotal: subtotalNeto, total } = totalesOc(
+    itemsPayload.map(it => ({ subtotal: Number(it.subtotal), exento: it.producto_exento === '1' })), internacional, redondear);
 
   const doc: Record<string, unknown> = {
     proveedor_razon_social: datos.proveedorRazonSocial,
@@ -863,12 +869,12 @@ export async function crearOrdenCompraObuma(
     // Obuma guarda este campo como TEXTO tal cual llega (la OC 3988 quedó con «2824», la 3982 hecha a mano con el nombre): se manda el NOMBRE.
     oc_forma_pago: datos.formaPagoNombre?.trim() || datos.formaPagoId,
     oc_subtotal: String(subtotalNeto),
-    oc_neto: String(internacional ? 0 : subtotalNeto),
+    oc_neto: String(internacional ? 0 : afecto),
     oc_iva: String(iva),
     oc_total: String(total),
     oc_referencia: datos.referencia,
     oc_internacional: internacional ? '1' : '0',
-    ...(internacional ? { oc_exento: String(subtotalNeto), oc_internacional_tipocambio: String(datos.tipoCambio) } : {}),
+    ...(internacional ? { oc_exento: String(subtotalNeto), oc_internacional_tipocambio: String(datos.tipoCambio) } : exentoOc > 0 ? { oc_exento: String(exentoOc) } : {}),
     oc_concepto_gasto: datos.conceptoGasto || 'INVENTARIO',
     oc_detalle: itemsPayload,
   };
@@ -969,6 +975,10 @@ export interface CambiosOcObuma {
   metodoDespacho?: string | null;
   /** Por `codId` de Obuma. Lo que no viene se deja como está. `precio` es neto (en la moneda de la OC). */
   lineas?: { codId: string; cantidad?: number; precio?: number; descripcion?: string }[];
+  /** Anula la OC (`oc_estado: 'ANULADA'`, probado con la 4075). */
+  anular?: boolean;
+  /** ID de la cuenta contable de una OC de Gasto (`oc_concepto_gasto`, ej. COMBUSTIBLE = 120453). */
+  cuentaGasto?: string;
 }
 
 /** Arma el documento de `comprasOc.update.json` (puro, sin tocar Obuma): la OC actual con los cambios aplicados y los montos recalculados. */
@@ -1031,6 +1041,8 @@ export function armarDocActualizacionOc(
   if (observacion) doc.oc_observacion = observacion;
   if (lleno(c0.compra_oc_concepto)) doc.oc_concepto = c0.compra_oc_concepto;
   if (lleno(c0.compra_oc_concepto_gasto)) doc.oc_concepto_gasto = c0.compra_oc_concepto_gasto;
+  if (cambios.cuentaGasto) doc.oc_concepto_gasto = cambios.cuentaGasto;
+  if (cambios.anular) doc.oc_estado = 'ANULADA';
   if (lleno(c0.compra_oc_validez)) doc.oc_validez = c0.compra_oc_validez;
   if (lleno(c0.compra_oc_condiciones)) doc.oc_condiciones = c0.compra_oc_condiciones;
   if (lleno(c0.compra_oc_direccion_despacho)) doc.oc_direccion_despacho = c0.compra_oc_direccion_despacho;

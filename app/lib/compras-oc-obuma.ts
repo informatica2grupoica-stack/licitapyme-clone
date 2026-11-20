@@ -23,6 +23,8 @@ import { METODOS_DESPACHO_OBUMA } from '@/app/lib/obuma-despacho';
 import { comprasObumaDeLicitacion, netoDeCompra, type FacturaObuma } from '@/app/lib/obuma-compras';
 import { rutNormalizado } from '@/app/lib/ordenes-compra';
 import { listarOcPropias } from '@/app/lib/compras-oc-propia';
+import { cargasDeProductos } from '@/app/lib/compras-combustible';
+import { calcularCarga, lineasOcCombustible } from '@/app/lib/compras-combustible-core';
 
 async function licitacionDeNegocio(negocioId: number): Promise<string | null> {
   const [rows] = await pool.query(`SELECT licitacion_codigo FROM negocios WHERE id = ? LIMIT 1`, [negocioId]) as any;
@@ -627,6 +629,14 @@ export async function crearOrdenCompraParaProveedor(
   const formaPagoNombre = (await listarFormasPago().catch(() => [])).find(f => f.id === opciones.formaPagoId)?.nombre ?? null;
 
   const descripcionesObuma = await descripcionesProductosObuma(itemsOrden.map(it => it.obumaProductoId).filter((x): x is string => !!x));
+  // Cargas de combustible: cada una sale con DOS líneas (combustible afecto + «impuesto especifico» exento), como la OC 4058. El precio de la
+  // compra aprobada (neto + impuesto) tiene que ser el de la carga: si alguien lo cambió a mano, no se emite una OC que no cuadra.
+  const cargas = await cargasDeProductos(itemsOrden.map(it => it.productoId));
+  for (const it of itemsOrden) {
+    const carga = cargas.get(it.productoId);
+    if (carga && Math.abs(it.precioUnitario * it.cantidad - calcularCarga(carga).costo) > 1)
+      throw new Error(`La carga de combustible «${it.descripcion}» suma ${calcularCarga(carga).costo} (neto + impuesto) pero la compra aprobada dice ${Math.round(it.precioUnitario * it.cantidad)}: corrígela antes de emitir la OC.`);
+  }
   const creada = await crearOrdenCompraObuma({
     proveedorRut: ficha.rut || null, proveedorRazonSocial: ficha.razonSocial,
     proveedorDireccion: ficha.direccion, proveedorComuna: ficha.comuna,
@@ -634,16 +644,30 @@ export async function crearOrdenCompraParaProveedor(
     fecha, formaPagoId: opciones.formaPagoId, formaPagoNombre,
     referencia: licitacionCodigo || `negocio-${negocioId}`,
     // «inventario» es lo que activa el botón Inventario en la pantalla de Obuma; el texto de la licitación va como observación.
-    concepto: 'inventario',
+    // Una OC solo de combustible va como «gasto», igual que las hechas a mano en Obuma (4058 y 4076: compra_oc_concepto = gasto).
+    ...(cargas.size > 0 && itemsOrden.every(it => cargas.has(it.productoId))
+      ? { concepto: 'gasto' }   // probado con la OC 4082: queda «gasto»; la cuenta de cabecera (oc_concepto_gasto) Obuma la ignora por API, queda la del producto
+      : { concepto: 'inventario' }),
     observacion: `Compra para licitación ${licitacionCodigo || negocioId}`,
     centroCostoId: centroCosto?.id ?? null,
     centroCostoCodigo: centroCosto ? ((await centrosDeCostoCompleto().catch(() => [])).find(c => c.id === centroCosto.id)?.codigo || null) : null,
-    items: itemsOrden.map(it => ({
-      productoIdObuma: it.obumaProductoId, codigoComercial: it.obumaCodigoComercial,
-      nombre: it.descripcion, cantidad: it.cantidad, precioUnitarioNeto: aMonedaOc(it.precioUnitario),
-      // La descripción que el encargado escribió en el producto de Obuma al crear el SKU (si no hay, la línea va sin descripción).
-      descripcion: (it.obumaProductoId && descripcionesObuma.get(it.obumaProductoId)) || null,
-    })),
+    items: itemsOrden.flatMap(it => {
+      const carga = cargas.get(it.productoId);
+      if (carga) {
+        // La primera línea lleva el SKU del servicio; la del impuesto es texto, como el flete (no tiene producto en el catálogo).
+        return lineasOcCombustible(carga, it.descripcion).map((l, i) => ({
+          productoIdObuma: i === 0 ? it.obumaProductoId : null, codigoComercial: i === 0 ? it.obumaCodigoComercial : null,
+          nombre: l.nombre, cantidad: l.cantidad, precioUnitarioNeto: aMonedaOc(l.precioUnitarioNeto), exento: l.exento,
+          descripcion: l.descripcion,
+        }));
+      }
+      return [{
+        productoIdObuma: it.obumaProductoId, codigoComercial: it.obumaCodigoComercial,
+        nombre: it.descripcion, cantidad: it.cantidad, precioUnitarioNeto: aMonedaOc(it.precioUnitario),
+        // La descripción que el encargado escribió en el producto de Obuma al crear el SKU (si no hay, la línea va sin descripción).
+        descripcion: (it.obumaProductoId && descripcionesObuma.get(it.obumaProductoId)) || null,
+      }];
+    }),
     fleteMonto: opciones.incluirFlete && opciones.fleteMonto != null ? aMonedaOc(opciones.fleteMonto) : null,
     fechaEntrega: opciones.fechaEntrega, metodoDespacho: opciones.metodoDespacho,
     internacional, monedaId: moneda?.id ?? null, tipoCambio: internacional ? tc : null,
