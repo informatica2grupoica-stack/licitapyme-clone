@@ -147,6 +147,14 @@ export function marcarEvidenciasQueCuentan(evs: EvidenciaAdj[]): EvidenciaAdj[] 
   return evs;
 }
 
+// Evidencia válida de que las bases licitan VARIAS líneas adjudicadas por separado: «N líneas» (N ≥ 2) en una frase
+// ADJUDICA_POR_LINEA, o un presupuesto propio por línea. Con eso la API de 1 ítem no manda (la API agrupa).
+const N_LINEAS = /(?:[2-9]|d{2,})s+l[ií]neas|(?:dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce|trece|catorce|quince)s+l[ií]neas/i;
+function variasLineasEnBases(validas: EvidenciaAdj[]): boolean {
+  return validas.some(e => (e.tipo === 'ADJUDICA_POR_LINEA' && N_LINEAS.test(String(e.cita?.frase || '')))
+    || (e.tipo === 'PRESUPUESTO_POR_LINEA' && e.origen !== 'detector'));
+}
+
 /** Tabla de decisión de la especificación 1, P1 (en este orden). */
 export function decidirAdjudicacion(evs: EvidenciaAdj[], lineasApi: number): DecisionAdjudicacion {
   const validas = evs.filter(e => e.cuenta);
@@ -162,8 +170,11 @@ export function decidirAdjudicacion(evs: EvidenciaAdj[], lineasApi: number): Dec
     pregunta_foro: resultado === 'NO_CLARO' ? pregunta : null,
   });
 
-  // 1. La API trae 1 línea → GLOBAL (si la API no respondió, se salta).
-  if (lineasApi === 1) return res('GLOBAL', 1, 'La API de Mercado Público trae una sola línea: no hay nada que repartir.');
+  // 1. La API trae 1 línea → GLOBAL (si la API no respondió, se salta). Excepción: las bases dicen EXPRESAMENTE que
+  //    hay varias líneas adjudicadas aparte (1172445-10-LE26, 20-nov-2026: la API trae un solo ítem «Proyectos de
+  //    equipamiento», las bases «13 líneas… cada línea se adjudicará de manera independiente» con presupuesto por
+  //    línea, y salía GLOBAL por esta regla).
+  if (lineasApi === 1 && !variasLineasEnBases(validas)) return res('GLOBAL', 1, 'La API de Mercado Público trae una sola línea: no hay nada que repartir.');
   // 2. COTIZAR_TOTALIDAD gana aunque otra frase diga "se adjudica por línea".
   const totalidad = decisivas.filter(e => e.tipo === 'COTIZAR_TOTALIDAD');
   if (totalidad.length) return res('GLOBAL', 2, 'Las bases obligan a ofertar todas las líneas: se cotiza el 100 %.', totalidad);

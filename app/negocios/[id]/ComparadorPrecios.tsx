@@ -17,7 +17,7 @@ import { ESTILO_VEREDICTO, ESTILO_TECNICO, cotizacionesReemplazadas } from './Ma
 import type { MatrizProps } from './MatrizPrecios';
 import { lineasPendientes } from './ListaCotizaciones';
 import { EmparejarAMano, type AsignacionMano, type CotizacionDeLista } from './EmparejarAMano';
-import type { LineaCotizacion } from '@/app/lib/compras-cotizacion-lineas';
+import { lineasDesdeTabla, factoresPrecioDeCotizacion, type LineaCotizacion } from '@/app/lib/compras-cotizacion-lineas';
 
 const clp = (n: number) => `$${Math.round(n).toLocaleString('es-CL')}`;
 /** Con centavos cuando los hay ($5.181,30): el desglose tiene que cuadrar al peso con la cotización (3789-30-LE26). */
@@ -127,6 +127,20 @@ export function ComparadorPrecios({ productos, cotizaciones, costeado, venta, li
     try { await onEditarAdicionales(cotizacionId, productoId, ads.map((a, j) => ({ concepto: a.concepto, cantidad: a.cantidad, precioUnitario: j === i ? nuevo : a.precioUnitario }))); }
     finally { setGuardandoPrecio(null); }
   };
+  // Precio del producto principal de una oferta (el «Producto principal» del cuadro): se guarda con los mismos adicionales y un precio base nuevo.
+  const guardarBase = async (cotizacionId: number, productoId: number, ads: AdicionalCotizacion[]) => {
+    if (cancelarPrecio.current) { cancelarPrecio.current = false; return; }
+    if (!editPrecio || !onEditarAdicionales) return;
+    const nuevo = leerNumero(editPrecio.valor.replace(/\$/g, ''));
+    const clave = editPrecio.clave;
+    setEditPrecio(null);
+    if (!Number.isFinite(nuevo) || nuevo <= 0) return;
+    setGuardandoPrecio(clave);
+    try { await onEditarAdicionales(cotizacionId, productoId, ads.map(a => ({ concepto: a.concepto, cantidad: a.cantidad, precioUnitario: a.precioUnitario })), nuevo); }
+    finally { setGuardandoPrecio(null); }
+  };
+  // Líneas del documento de cada cotización: sirven para decir QUÉ producto es el precio base de una oferta.
+  const lineasDeCot = useMemo(() => new Map(cotizaciones.map(c => [c.id, lineasDesdeTabla(String((c as unknown as { descripcionLibre?: string | null }).descripcionLibre || ''))] as const)), [cotizaciones]);
   // Líneas del documento sin usar, por cotización (las cotizaciones llegan completas, con el texto del documento).
   const pendientesPorCot = useMemo(() => new Map(cotizaciones.map(c => [c.id, lineasPendientes(c as unknown as Parameters<typeof lineasPendientes>[0], productos)] as const)), [cotizaciones, productos]);
   const [emparejando, setEmparejando] = useState<number | null>(null);   // producto abierto en «Emparejar a mano»
@@ -217,6 +231,12 @@ export function ComparadorPrecios({ productos, cotizaciones, costeado, venta, li
     const pctDesc = c.descuentoSobreTotal && c.descuentoPct ? c.descuentoPct : null;
     const montoDesc = pctDesc != null && item.precioBase != null ? descuentoDelPrecio(item.precioBase, ads, pctDesc) : 0;
     const soloProducto = item.precioBase != null ? item.precioBase : item.precioUnitario != null ? item.precioUnitario - sumaAds : null;
+    // Qué producto es el «Producto principal»: la línea del documento cuyo precio es ese precio base (con la moneda y el IVA de la cotización).
+    const cx = c as unknown as { moneda?: string | null; tipoCambioUsado?: number | null; notas?: string | null };
+    const factoresBase = factoresPrecioDeCotizacion({ moneda: cx.moneda, tipoCambioUsado: cx.tipoCambioUsado, notas: cx.notas });
+    const lineaBase = soloProducto != null && soloProducto > 0
+      ? (lineasDeCot.get(c.id) ?? []).find(l => l.precioUnitario != null && factoresBase.some(f => Math.abs((l.precioUnitario as number) * f - soloProducto) <= Math.max(1, soloProducto * 0.005))) ?? null
+      : null;
     const pendientes = onAgregarLinea && !bloqueada ? (pendientesPorCot.get(c.id) ?? []) : [];
     // Redondeo A PEDIDO (dueño, 16-11): el sistema guarda siempre lo que dice la cotización; solo una persona redondea, por oferta,
     // las piezas y el precio del producto a peso entero, hacia arriba o hacia abajo.
@@ -287,7 +307,36 @@ export function ComparadorPrecios({ productos, cotizaciones, costeado, venta, li
             <p className="text-[11px] text-zinc-500 mb-0.5">{esKit ? 'Qué trae el kit, por unidad' : 'Qué incluye este precio, por unidad'}</p>
             <table className="w-full max-w-[520px] text-[12px] tabular-nums">
               <tbody>
-                {!esKit && <tr><td className="py-0.5 text-zinc-800">{incluido ? 'Producto (va incluido en otro)' : 'Producto solo'}</td><td className="py-0.5 text-right text-zinc-800">{soloProducto != null ? clpExacto(soloProducto) : '—'}</td></tr>}
+                {!esKit && (
+                  <tr>
+                    <td className="py-0.5 text-tinta dark:text-slate-100">
+                      {/* El nombre del artículo: la línea del documento que trae este precio (lo que cotizó el proveedor) o, si no se encuentra, el producto que pide la licitación. */}
+                      <span className="block font-medium max-w-[420px] truncate" title={lineaBase?.descripcion ?? p.descripcion}>{corto(lineaBase?.descripcion ?? p.descripcion, 90)}</span>
+                      <span className="block text-[11px] text-tinta-2 dark:text-slate-400">
+                        {incluido ? 'Va incluido en el precio de otro producto' : lineaBase ? 'Artículo cotizado, sin los adicionales' : 'Artículo pedido, sin los adicionales'}
+                      </span>
+                    </td>
+                    <td className="py-0.5 text-right align-top text-tinta dark:text-slate-100">
+                      {soloProducto == null ? '—' : (() => {
+                        const clave = `${c.id}:${p.id}:base:unit`;
+                        if (editPrecio?.clave === clave) return (
+                          <input autoFocus value={editPrecio.valor} inputMode="decimal" aria-label={`Precio del producto principal de ${c.proveedorNombre}`}
+                            onChange={e => setEditPrecio({ clave, valor: e.target.value })}
+                            onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); e.currentTarget.blur(); } if (e.key === 'Escape') { cancelarPrecio.current = true; setEditPrecio(null); } }}
+                            onBlur={() => void guardarBase(c.id, p.id, ads)}
+                            className="w-28 rounded border border-teal-400 bg-white dark:bg-slate-900 px-1 py-0 text-[12px] tabular-nums text-right outline-none focus:ring-1 focus:ring-marca" />
+                        );
+                        if (!onEditarAdicionales || bloqueada) return clpExacto(soloProducto);
+                        return (
+                          <button type="button" onClick={() => { cancelarPrecio.current = false; setEditPrecio({ clave, valor: String(Math.round(soloProducto * 100) / 100).replace('.', ',') }); }} disabled={guardandoPrecio != null}
+                            title="Cambiar el precio del producto principal (acepta decimales con coma)" className="underline decoration-dotted underline-offset-2 hover:text-marca disabled:opacity-50">
+                            {guardandoPrecio === clave ? 'Guardando…' : clpExacto(soloProducto)}
+                          </button>
+                        );
+                      })()}
+                    </td>
+                  </tr>
+                )}
                 {ads.map((a, i) => {
                   const editable = !!onEditarAdicionales && !bloqueada;
                   // Un monto del cuadro: texto, botón para editarlo o el campo abierto. modo = precio unitario o total de la línea.

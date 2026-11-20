@@ -343,3 +343,12 @@ sale `metodo=error` en cada análisis: los .dotx no se extraen.
 - Telemetría de costo por modelo usa una sola tarifa; curar/fusionar reglas aprendidas cuando se
   acumulen; timeouts de 240 s por modelo en la cadena (propuesto acortar los primeros, sin decidir).
 - Doctor del pipeline: falta re-OCR y descomprimir zip.
+
+## 20-nov-2026 · 1172445-10-LE26 salía GLOBAL siendo por línea
+- Causa: la API de Mercado Público trae 1 solo ítem («Proyectos de equipamiento») y la regla 1 de
+  `decidirAdjudicacion` (1 línea en la API = GLOBAL) pisaba las evidencias de las bases («13 líneas… cada línea se
+  adjudicará de manera independiente», presupuesto máximo por línea).
+- Regla: la regla 1 cede si hay evidencia válida de varias líneas: `ADJUDICA_POR_LINEA` con «N líneas» (N ≥ 2) o
+  `PRESUPUESTO_POR_LINEA` del modelo (no del detector). «Se adjudica por línea» genérico con 1 ítem sigue GLOBAL.
+  Cambio en las dos copias (`viabilidad-v4/` y `cv/v4/`), con test.
+- Pendiente: el informe guardado sigue diciendo GLOBAL hasta re-analizar la licitación (no se tocó la BD).

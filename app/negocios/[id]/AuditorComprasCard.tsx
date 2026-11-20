@@ -1398,7 +1398,8 @@ export function AuditorComprasCard({ negocioId, puedeOperar, soloLectura = false
           const d = await r.json().catch(() => ({}));
           if (!r.ok || !d.success) throw new Error(d.error || 'No se pudo emparejar.');
           toast.success('Línea asignada a mano', 'Quedó guardado quién y cuándo. El auditor la vuelve a revisar y el pareo automático ya no rehace esa cotización.');
-          await cargar(); recargarCompartido();
+          // El panel se cierra al tiro: recargar la pantalla entera (141 productos) tardaba ~15 s con el botón en «Guardando…».
+          void cargar().then(() => recargarCompartido());
         } : undefined}
         onEditarAdicionales={puedeOperar ? async (cotizacionId, productoId, adicionales, precioBase) => {
           try {

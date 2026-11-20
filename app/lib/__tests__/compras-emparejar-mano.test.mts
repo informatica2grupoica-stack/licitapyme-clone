@@ -41,3 +41,14 @@ test('envase declarado y resumen de la asignación', () => {
   assert.equal(r.costeadoTotal, 48000);
   assert.equal(r.difPct, 8.3);
 });
+
+test('copla 110 (1356 en producción): E.F.110 PN16 e INGAP d=110 van antes que E.F.090 y E.F.063, que avisan que hablan de otro tamaño', () => {
+  const dicran = cot(371, 'Dicran', [['HDPE COPLA E.F.090', 10, 5100], ['HDPE COPLA E.F.063', 30, 2860], ['HDPE COPLA E.F.110 PN16', 40, 5200]]);
+  const ingap = cot(359, 'INGAP', [['Coplas EF PE100 PN16 d= 110 mm', 40, 7416.5]]);
+  const filas = candidatasParaProducto(COPLA, [COPLA], [dicran, ingap]);
+  assert.deepEqual(filas.slice(0, 2).map(f => f.descripcion).sort(), ['Coplas EF PE100 PN16 d= 110 mm', 'HDPE COPLA E.F.110 PN16']);
+  const e090 = filas.find(f => f.descripcion.endsWith('090'))!;
+  assert.equal(e090.tono, 'dudoso');
+  assert.ok(e090.avisos.some(a => /habla de 90 y piden 110/.test(a.texto)));
+  assert.ok(!e090.avisos.some(a => /no muestra diferencia/.test(a.texto)), 'ya no dice que está todo bien');
+});

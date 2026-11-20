@@ -54,9 +54,24 @@ function avisosDe(p: ProductoParaMano, l: LineaPareo, equivalencias: Equivalenci
     if (l.cantidad + 1e-9 < pedida) out.push({ tono: 'dudoso', texto: `Cotiza ${fmt(l.cantidad)} y piden ${fmt(pedida)}` });
     else out.push({ tono: 'ok', texto: `Cubre las ${fmt(pedida)}` });
   }
-  if (!conf.length && !fam) out.push({ tono: 'ok', texto: 'El texto no muestra diferencia de medida ni de familia (míralo en la cotización)' });
+  // El parser de medidas solo ve números con unidad («110 mm»); una línea «HDPE COPLA E.F.090» frente a un producto de 110 mm pasaba por buena.
+  const nump = numerosDeTamano(p.descripcion), numl = numerosDeTamano(l.descripcion);
+  const habla = nump.size > 0 && numl.size > 0;
+  const otroTamano = habla && ![...nump].some(n => numl.has(n));
+  if (otroTamano) out.push({ tono: 'dudoso', texto: `La línea habla de ${[...numl].join(' / ')} y piden ${[...nump].join(' / ')}` });
+  if (!conf.length && !fam && !otroTamano) out.push({ tono: 'ok', texto: 'El texto no muestra diferencia de medida ni de familia (míralo en la cotización)' });
   return out;
 }
+
+/** Números de tamaño que dice un texto (110, 90, 063 → 63), sin presión PN ni PE/SDR y sin números chicos: sirve para ver si la línea habla de la MISMA medida
+ *  aunque no escriba «mm». */
+export function numerosDeTamano(texto: string): Set<number> {
+  const limpio = String(texto).replace(/\bPN\s*-?\d+/gi, ' ').replace(/\b(?:PE|SDR)\s*-?\d+/gi, ' ');
+  return new Set([...limpio.matchAll(/(?<!\d[.,])(?<!\d)(\d{2,4})(?!\d)(?![.,]\d)/g)].map(m => Number(m[1])).filter(n => n >= 20));
+}
+
+/** ¿La línea trae alguno de los números de tamaño del producto? Sube su lugar en la lista. */
+const mismoTamanoQue = (p: string, l: string) => { const a = numerosDeTamano(p), b = numerosDeTamano(l); return a.size > 0 && [...a].some(n => b.has(n)); };
 
 /** Líneas candidatas para un producto, de la más probable a la menos. Las que chocan en medida o familia van al final (no se esconden: a veces el equipo sabe más). */
 export function candidatasParaProducto(p: ProductoParaMano, productos: ProductoParaMano[], cotizaciones: CotizacionParaEmparejar[], equivalencias: EquivalenciaFamilia[] = []): CandidataMano[] {
@@ -81,7 +96,8 @@ export function candidatasParaProducto(p: ProductoParaMano, productos: ProductoP
     };
   });
   // Primero las que no chocan (de más a menos parecidas, a igual parecido la más barata); al final las que chocan.
-  return filas.sort((a, b) => Number(a.tono === 'malo') - Number(b.tono === 'malo') || b.puntaje - a.puntaje || (a.precioNeto ?? Infinity) - (b.precioNeto ?? Infinity));
+  const mismo = new Map(filas.map(f => [f, mismoTamanoQue(p.descripcion, f.descripcion)] as const));
+  return filas.sort((a, b) => Number(a.tono === 'malo') - Number(b.tono === 'malo') || Number(mismo.get(b)) - Number(mismo.get(a)) || b.puntaje - a.puntaje || (a.precioNeto ?? Infinity) - (b.precioNeto ?? Infinity));
 }
 
 /** Qué quedaría al asignar: precio por unidad del producto, total, cobertura y diferencia contra lo costeado. */

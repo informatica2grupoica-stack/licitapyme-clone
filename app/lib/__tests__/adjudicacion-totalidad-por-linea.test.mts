@@ -113,3 +113,18 @@ test('la copia de cv/v4 decide igual', () => {
   for (const f of [...COMPLETAR_CADA_LINEA, ...OFERTAR_TODO]) assert.equal(cv.totalidadDentroDeLinea(f), totalidadDentroDeLinea(f), f);
   for (const f of [...NO_HABLAN_DE_TOTALIDAD, ...SI_HABLAN_DE_TOTALIDAD]) assert.equal(cv.hablaDeTotalidad(f), hablaDeTotalidad(f), f);
 });
+
+test('1172445-10-LE26: API con 1 ítem pero bases con «13 líneas… independiente» + presupuesto por línea → POR_LINEAS', () => {
+  const evs = marcarEvidenciasQueCuentan([
+    ev('ADJUDICA_POR_LINEA', 'Se licitará en 13 líneas de licitación, cada línea se adjudicará de manera independiente'),
+    ev('PRESUPUESTO_POR_LINEA', 'El monto de la Licitación tendrá a su vez un monto máximo por Línea a adjudicar'),
+  ]);
+  const d = decidirAdjudicacion(evs, 1);
+  assert.equal(d.resultado, 'POR_LINEAS');
+  assert.equal(cv.decidirAdjudicacion(evs, 1).resultado, 'POR_LINEAS');
+});
+
+test('1 línea en la API + «adjudicar por línea» genérico sin número → sigue GLOBAL', () => {
+  const evs = marcarEvidenciasQueCuentan([ev('ADJUDICA_POR_LINEA', 'Se adjudicará por línea')]);
+  assert.equal(decidirAdjudicacion(evs, 1).resultado, 'GLOBAL');
+});
