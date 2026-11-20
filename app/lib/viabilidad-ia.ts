@@ -1556,10 +1556,8 @@ async function _analizarViabilidadIAV4Intento(codigo: string, onFase?: (fase: Fa
   // Con UNA sola línea en la API el tope es el total: los «montos por línea» que lea el modelo son
   // otra cosa (3712-74-LP26: las líneas de intervención del convenio, M$ 28.097 / 40.294 / 25.113,
   // quedaban como presupuesto de la única hoja del costeo: $23,6M neto en vez de $78,6M).
-  if (Array.isArray(ctx.itemsMP) && ctx.itemsMP.length === 1 && porLinea.length) {
-    console.log(`[viabilidad-ia-v4] ${codigo}: ${porLinea.length} monto(s) por línea ignorados: la API trae una sola línea.`);
-    porLinea = [];
-  }
+  // (El descarte se hace MÁS ABAJO, tras decidir la adjudicación: si las bases adjudican por línea —1172445-10-LE26,
+  // 13 líneas con presupuesto propio y 1 ítem en la API— los montos por línea SON el tope de cada hoja.)
   pres.por_linea_interpretado = porLinea;
   pres.suma_lineas_cuadra = sumaLineasCuadra(porLinea, _num(pres.bruto));
   if (pres.caracter !== 'EXCLUYENTE') pres.nota_art_32 = NOTA_ART_32;
@@ -1718,6 +1716,12 @@ async function _analizarViabilidadIAV4Intento(codigo: string, onFase?: (fase: Fa
     cotizar_100_texto: decision.cotizar_100_texto,
     pregunta_foro: decision.pregunta_foro,
   });
+  if (lineasApi === 1 && decision.resultado !== 'POR_LINEAS' && porLinea.length) {
+    console.log(`[viabilidad-ia-v4] ${codigo}: ${porLinea.length} monto(s) por línea ignorados: la API trae una sola línea.`);
+    porLinea = [];
+    pres.por_linea_interpretado = [];
+    pres.suma_lineas_cuadra = sumaLineasCuadra(porLinea, _num(pres.bruto));
+  }
   delete adj.como_se_adjudica; delete adj.modalidad_pago_interna; delete adj.estado; delete adj.cotizar_100_obligatorio;
   delete adj.evaluacion_puntaje; delete adj.confianza; delete adj.libertad_de_pricing;
   console.log(`[viabilidad-ia-v4] ${codigo}: adjudicación ${decision.resultado} (regla ${decision.regla_aplicada}: ${decision.motivo}) — ${evidencias.filter(e => e.cuenta).length}/${evidencias.length} evidencia(s) válidas.`);

@@ -352,3 +352,15 @@ sale `metodo=error` en cada análisis: los .dotx no se extraen.
   `PRESUPUESTO_POR_LINEA` del modelo (no del detector). «Se adjudica por línea» genérico con 1 ítem sigue GLOBAL.
   Cambio en las dos copias (`viabilidad-v4/` y `cv/v4/`), con test.
 - Pendiente: el informe guardado sigue diciendo GLOBAL hasta re-analizar la licitación (no se tocó la BD).
+- Costeo de 1172445-10-LE26 (20-nov): el costeo manda por `modalidad.tipo`, no por la adjudicación; el re-decidir sin IA
+  dejaba `suma_alzada` → una sola hoja. Ahora el informe y el editor (negocio 1738, sin precios) quedaron por línea,
+  13 hojas. Además: la tabla de la L4 (9 productos) es imagen en el PDF REX (págs. 36) y el texto no la trae → la IA la
+  metió dentro de la L6 (19 productos, con «Punto» basura); se movió a L4 y se agregó la L7 (2). Filas por línea del
+  Anexo 5: 10/6/3/9/2/9/2/1/15/1/1/11/3. Respaldos en scripts/scratch/_respaldo_*_pre_lineas_201126.json.
+- Pendiente: la L1 tiene 12 filas contra 10 del Anexo 5 (saltos de página partieron «Tornillo micrométrico», «Máscara»,
+  «Careta»); y el pipeline sigue sin leer tablas-imagen: un re-análisis desde el VPS volvería a mezclar L4 con L6.
+- Regla para scripts de re-decidir: si el resultado pasa a POR_LINEAS, poner también `modalidad.tipo = 'por_linea'`.
+- Presupuesto por línea de 1172445-10-LE26 (20-nov): el análisis descartaba los montos por línea cuando la API trae 1 ítem
+  (`viabilidad-ia.ts`, «montos por línea ignorados») y las 13 hojas quedaban sin tope. Ahora el descarte se hace DESPUÉS de
+  decidir la adjudicación y solo si NO es POR_LINEAS. Datos arreglados en el informe (por_linea_interpretado + presupuesto_linea
+  del manifiesto; suma = $86.125.144 = total de las bases). El editor lee los topes del informe, no se tocó.

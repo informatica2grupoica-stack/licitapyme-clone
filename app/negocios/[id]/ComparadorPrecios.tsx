@@ -278,7 +278,9 @@ export function ComparadorPrecios({ productos, cotizaciones, costeado, venta, li
             <p className="text-[15px] font-semibold tabular-nums text-tinta dark:text-slate-100">{item.precioUnitario != null ? clpExacto(item.precioUnitario) : 'sin precio'}</p>
           </div>
           <div className="min-w-0 col-start-2 col-span-2 @3xl:col-span-1 @3xl:col-start-auto">
-            <p className="text-xs text-tinta dark:text-slate-200 truncate">{queIncluye}</p>
+            {/* Qué artículo ofrece este proveedor: la línea de su cotización que trae el precio (para elegir sabiendo qué se compra). */}
+            {lineaBase && <p className="text-[13px] font-medium text-tinta dark:text-slate-100 leading-snug line-clamp-2" title={lineaBase.descripcion}>{lineaBase.descripcion}</p>}
+            <p className="text-xs text-tinta-2 dark:text-slate-300 truncate">{queIncluye}</p>
             {tecnico && !incluido && (et && t
               ? <p className="text-xs text-tinta-2 dark:text-slate-400" title={`Ficha de ${t.modelo || 'este modelo'} contra las bases`} data-testid={`tecnico-${c.id}-${p.id}`}><Estado color={PUNTO_FICHA[t.estado] ?? PUNTO_FICHA.NO_CORRIDO}>Ficha: {et.texto}{t.total > 0 ? ` ${t.cumple}/${t.total}` : ''}</Estado></p>
               : <p className="text-xs text-tinta-3">Sin ficha técnica</p>)}
