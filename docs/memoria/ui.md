@@ -8,6 +8,7 @@ Traspasado desde la memoria personal el 2026-10-27; las fechas son de cuando se 
   (cifras revisadas contra la BD, interactivo, enlaces a Negocios y Radar con filtros por URL). Commit del dueño: `3a9aaa1`.
 - **Ganadas/Perdidas (`/adjudicadas`) aplicada el 2026-11-20, sin aprobación del dueño todavía** (entrada abajo). Queda
   abierta la ganada que Postuladas cuenta de más (negocio duplicado 2408-179-LE26).
+- **Proyectos (Obuma) (`/compras/proyectos`) aplicada el 2026-11-20, sin aprobación del dueño todavía** (detalle en `compras.md`, sección 2026-11-20 (3)): `Encabezado`, `Indicador` ×4, `Pestanas` por estado, `Estado` con punto, `Tarjeta`, avisos ámbar de datos de Obuma, carga con `Esqueleto`, `@container`; sin índigo ni `font-bold`/MAYÚSCULAS. Tandas de 25 tarjetas con «Ver más» (232 entradas con animación escalonada tardaban ~9 s en terminar de entrar). Visto a 1366 y 800 px, claro y oscuro; consola sin errores.
 - **Siguientes pantallas:** Análisis de licitación (22 / 904), Empresas (22 / 690),
   Perfil (18 / 330), Puente (18 / 679), Favoritos (17 / 533), Órdenes de compra (13 / 578), Radar (86 / 2621, enorme),
   Negocios vistas Lista y Mes. Conteo con `grep -nE "violet|indigo|purple|font-black|font-bold|uppercase|Badge|Sparkles|animate-pulse|gradient"`.

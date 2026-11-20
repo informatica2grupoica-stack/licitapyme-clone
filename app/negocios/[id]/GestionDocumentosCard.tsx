@@ -249,7 +249,15 @@ export function GestionDocumentosCard({ negocioId }: { negocioId: number }) {
           <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-3 space-y-2">
             <p className="text-[13px] font-semibold text-zinc-800">Agregar un logo</p>
             <input className={entrada} placeholder="Nombre (ej.: Tecnomaq, Grupo ICA)" value={logoNombre} onChange={e => setLogoNombre(e.target.value)} />
-            <input type="file" accept="image/png,image/jpeg,image/webp" onChange={e => setLogoArchivo(e.target.files?.[0] || null)} className="block w-full text-[12.5px] text-zinc-600" />
+            <label className={`flex items-center gap-3 rounded-lg border-2 border-dashed px-4 py-4 cursor-pointer transition-colors ${logoArchivo ? "border-teal-500 bg-teal-50" : "border-zinc-300 bg-white hover:border-teal-500 hover:bg-teal-50"}`}>
+              <span className="inline-flex items-center gap-2 text-[13px] font-semibold px-3 py-2 rounded-lg bg-zinc-800 text-white shrink-0">
+                <Upload size={14} /> {logoArchivo ? "Cambiar imagen" : "Elegir imagen"}
+              </span>
+              <span className={`text-[13px] truncate ${logoArchivo ? "text-teal-800 font-medium" : "text-zinc-500"}`}>
+                {logoArchivo ? logoArchivo.name : "Haz clic aquí para seleccionar el logo desde tu computador"}
+              </span>
+              <input type="file" accept="image/png,image/jpeg,image/webp" onChange={e => setLogoArchivo(e.target.files?.[0] || null)} className="sr-only" />
+            </label>
             <p className="text-[11.5px] text-zinc-500">PNG, JPG o WEBP, hasta 5 MB. Mejor con fondo transparente o blanco y de buena calidad.</p>
             <button onClick={subirLogo} disabled={!logoArchivo || !logoNombre.trim() || subiendoLogo} className="inline-flex items-center gap-2 text-[13px] font-semibold px-4 py-2 rounded-lg bg-teal-600 text-white hover:bg-teal-700 disabled:opacity-50">
               {subiendoLogo ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />} Guardar en el banco

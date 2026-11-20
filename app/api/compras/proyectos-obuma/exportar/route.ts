@@ -91,10 +91,19 @@ export async function GET(request: NextRequest) {
       { header: 'Costo', key: 'costo', width: 15 },
       { header: 'Precio neto (venta)', key: 'precioNeto', width: 16 },
       { header: 'Facturado (ficha Proyecto)', key: 'facturadoMonto', width: 18 },
-      { header: 'Gasto en OC', key: 'totalGastado', width: 15 },
+      { header: 'Gasto en OC (con IVA, incluye anuladas)', key: 'totalGastado', width: 20 },
       { header: 'Cantidad OC', key: 'cantidadOc', width: 12 },
-      { header: 'Facturado real (cruce facturas)', key: 'totalFacturado', width: 20 },
+      { header: 'Gasto contabilizado (facturas de compra, con IVA)', key: 'totalFacturado', width: 22 },
       { header: 'Cantidad facturas', key: 'cantidadFacturas', width: 14 },
+      // Cifras netas y sin anuladas (las mismas de la pantalla), para comparar con la ficha del Proyecto, que es neta.
+      { header: 'OC vigentes (neto)', key: 'ocVigentesNeto', width: 16 },
+      { header: 'OC vigentes (cantidad)', key: 'ocVigentesCant', width: 12 },
+      { header: 'Comprometido sin factura (neto)', key: 'ocPendientesNeto', width: 18 },
+      { header: 'OC anuladas (cantidad)', key: 'ocAnuladasCant', width: 12 },
+      { header: 'OC anuladas (total con IVA)', key: 'ocAnuladasTotal', width: 16 },
+      { header: 'Gasto contabilizado (neto)', key: 'documentosNeto', width: 16 },
+      { header: 'OC de otro centro que mencionan el proyecto (cantidad)', key: 'ocOtroCentroCant', width: 20 },
+      { header: 'OC de otro centro que mencionan el proyecto (neto)', key: 'ocOtroCentroNeto', width: 20 },
       { header: 'Centros de costo', key: 'centros', width: 30 },
       { header: 'Negocio(s) nuestro(s)', key: 'negocios', width: 40 },
     ];
@@ -129,11 +138,19 @@ export async function GET(request: NextRequest) {
         cantidadOc: p.cantidadOc,
         totalFacturado: p.totalFacturado,
         cantidadFacturas: p.cantidadFacturas,
+        ocVigentesNeto: p.ocVigentes?.neto ?? '',
+        ocVigentesCant: p.ocVigentes?.cantidad ?? '',
+        ocPendientesNeto: p.ocPendientes?.neto ?? '',
+        ocAnuladasCant: p.ocAnuladas?.cantidad ?? '',
+        ocAnuladasTotal: p.ocAnuladas?.total ?? '',
+        documentosNeto: p.documentosNeto ?? '',
+        ocOtroCentroCant: p.ocEnOtroCentro?.cantidad ?? 0,
+        ocOtroCentroNeto: p.ocEnOtroCentro?.neto ?? 0,
         centros: p.centros.map(c => c.nombre || `(ID ${c.id})`).join(' · '),
         negocios: p.negociosCoincidentes.map(n => `${n.licitacionCodigo}${n.licitacionNombre ? ` — ${n.licitacionNombre}` : ''}`).join(' | '),
       });
     }
-    for (const col of ['presupuesto', 'costo', 'precioNeto', 'facturadoMonto', 'totalGastado', 'totalFacturado']) {
+    for (const col of ['presupuesto', 'costo', 'precioNeto', 'facturadoMonto', 'totalGastado', 'totalFacturado', 'ocVigentesNeto', 'ocPendientesNeto', 'ocAnuladasTotal', 'documentosNeto', 'ocOtroCentroNeto']) {
       hojaP.getColumn(col).numFmt = '#,##0';
     }
     // Fechas día-mes-año (pedido del usuario 1-oct-2026); son fechas reales, así que Excel las ordena bien.

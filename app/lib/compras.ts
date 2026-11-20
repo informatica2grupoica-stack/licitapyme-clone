@@ -1145,6 +1145,8 @@ export interface ComprasFila {
   precompra: boolean;
   // Solo pre-compras: fecha ESTIMADA de adjudicación que informa Mercado Público (ficha). null si no la trae.
   adjudicacionEstimadaAt: string | null;
+  // Las bases exigen boleta/garantía de fiel cumplimiento (dato del Resumen Ejecutivo al abrir el negocio).
+  fielCumplimiento: boolean;
   // Por qué `urgente` es true (Cadena de Urgencia, §3.7/§15.2): el plazo de entrega OFERTADO es
   // menor a 3 días — no es una cuenta regresiva de cuánto falta desde hoy, es que el compromiso
   // mismo era muy corto. Se manda para poder explicarlo en pantalla (spec pedía el botón
@@ -1287,8 +1289,10 @@ export async function listarAsignacionesCompras(): Promise<ComprasFila[]> {
     let plazoEntregaDias: number | null = null;
     let plazoAceptacionOCDias: number | null = null;
     let hitoInicioPlazo: string | null = null;
+    let fielCumplimiento = false;
     try {
       const resumen = JSON.parse(r.resumen_json);
+      fielCumplimiento = !!resumen?.requiereBoletaFielCumplimiento;
       montoNuestro = resumen?.montoNuestro ?? null;
       plazoEntregaDias = resumen?.plazoEntregaDias ?? null;
       plazoAceptacionOCDias = parsearDiasDeTexto(resumen?.plazoAceptacionOC ?? null);
@@ -1308,6 +1312,7 @@ export async function listarAsignacionesCompras(): Promise<ComprasFila[]> {
       precompra: precompraPorNegocio.has(Number(r.negocio_id)),
       adjudicacionEstimadaAt: precompraPorNegocio.has(Number(r.negocio_id)) ? (adjEstimadaPorCodigo.get(r.licitacion_codigo) ?? null) : null,
       plazoEntregaDias,
+      fielCumplimiento,
       postuladoPorNombre: r.postulado_por_nombre ?? null,
       plazoAceptacionOCDias,
       hitoInicioPlazo,

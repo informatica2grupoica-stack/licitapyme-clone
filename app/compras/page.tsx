@@ -19,7 +19,7 @@ import { useRealtime } from '@/app/lib/use-realtime';
 import { fechaHoraParaExcel, hojaDeFilas } from '@/app/lib/exportar-fechas';
 import { GanttComprasCard } from '@/app/negocios/[id]/GanttComprasCard';
 import type { FaseTarea, HitosGantt as HitosPlan } from '@/app/lib/compras-plan';
-import { IconShoppingCart as ShoppingCart, IconLoader2 as Loader2, IconBuilding as Building2, IconArrowUpRight as ArrowUpRight, IconSearch as Search, IconFilter as Filter, IconX as X, IconCalendar as Calendar, IconUsers as Users, IconArrowsUpDown as ArrowUpDown, IconAlertTriangle as AlertTriangle, IconClock as Clock, IconUserPlus as UserPlus, IconCircleCheck as CheckCircle2, IconChartBar as BarChart3, IconChevronLeft as ChevronLeft, IconChevronRight as ChevronRight, IconChevronsLeft as ChevronsLeft, IconChevronsRight as ChevronsRight, IconList as List, IconPackage as PackageCheck, IconCircleX as XCircle, IconArrowBackUp as Undo2, IconPencil as Pencil, IconTimeline as GanttChart, IconChartLine as LineChart, IconZoomIn as ZoomIn, IconZoomOut as ZoomOut, IconDiamond as Diamond, IconCalendarClock as CalendarClock, IconDownload as Download } from '@tabler/icons-react';
+import { IconShoppingCart as ShoppingCart, IconLoader2 as Loader2, IconBuilding as Building2, IconArrowUpRight as ArrowUpRight, IconSearch as Search, IconFilter as Filter, IconX as X, IconCalendar as Calendar, IconUsers as Users, IconArrowsUpDown as ArrowUpDown, IconAlertTriangle as AlertTriangle, IconClock as Clock, IconUserPlus as UserPlus, IconCircleCheck as CheckCircle2, IconChartBar as BarChart3, IconChevronLeft as ChevronLeft, IconChevronRight as ChevronRight, IconChevronsLeft as ChevronsLeft, IconChevronsRight as ChevronsRight, IconList as List, IconPackage as PackageCheck, IconCircleX as XCircle, IconArrowBackUp as Undo2, IconPencil as Pencil, IconTimeline as GanttChart, IconChartLine as LineChart, IconZoomIn as ZoomIn, IconZoomOut as ZoomOut, IconDiamond as Diamond, IconCalendarClock as CalendarClock, IconDownload as Download, IconShieldCheck as ShieldCheck } from '@tabler/icons-react';
 
 type CierreLegado = 'ENTREGADA' | 'NO_REALIZADA' | 'PRECOMPRA_SIN_ADJUDICAR' | 'OC_CANCELADA';
 type EstadoTareaGantt = 'PENDIENTE' | 'EN_CURSO' | 'HECHA';
@@ -43,6 +43,7 @@ interface ComprasFila {
   precompra: boolean;
   adjudicacionEstimadaAt: string | null;
   plazoEntregaDias: number | null;
+  fielCumplimiento?: boolean;
   postuladoPorNombre: string | null;
   plazoAceptacionOCDias: number | null;
   hitoInicioPlazo: string | null;
@@ -1364,6 +1365,7 @@ export default function ComprasPage() {
   const [soloTareasVencidas, setSoloTareasVencidas] = useState(false);
   const [soloUrgentes, setSoloUrgentes] = useState(false);
   const [soloSinAsignar, setSoloSinAsignar] = useState(false);
+  const [soloFielCumplimiento, setSoloFielCumplimiento] = useState(false);
   const [estado, setEstado] = useState<EstadoCompra>('abiertas');
   const [obumaCierre, setObumaCierre] = useState<Record<number, ObumaDeCerrada> | null>(null);
   const toast = useToast();
@@ -1398,6 +1400,7 @@ export default function ComprasPage() {
         if (typeof f.soloTareasVencidas === 'boolean') setSoloTareasVencidas(f.soloTareasVencidas);
         if (typeof f.soloUrgentes === 'boolean') setSoloUrgentes(f.soloUrgentes);
         if (typeof f.soloSinAsignar === 'boolean') setSoloSinAsignar(f.soloSinAsignar);
+        if (typeof f.soloFielCumplimiento === 'boolean') setSoloFielCumplimiento(f.soloFielCumplimiento);
         if (f.estado === 'abiertas' || f.estado === 'cerradas' || f.estado === 'canceladas' || f.estado === 'todas') setEstado(f.estado);
         if (typeof f.fechaDesde === 'string') setFechaDesde(f.fechaDesde);
         if (typeof f.fechaHasta === 'string') setFechaHasta(f.fechaHasta);
@@ -1416,11 +1419,11 @@ export default function ComprasPage() {
     try {
       sessionStorage.setItem(SS_COMPRAS_FILTROS, JSON.stringify({
         q, fAsignado, fOrganismo, fRegion, fPostulador, fOC, montoMin, montoMax, plazoMin, plazoMax, soloTareasVencidas,
-        soloUrgentes, soloSinAsignar, estado, fechaDesde, fechaHasta, orden, vista, mesesVista, ambito,
+        soloUrgentes, soloSinAsignar, soloFielCumplimiento, estado, fechaDesde, fechaHasta, orden, vista, mesesVista, ambito,
       }));
     } catch { /* cuota llena */ }
   }, [hidratado, q, fAsignado, fOrganismo, fRegion, fPostulador, fOC, montoMin, montoMax, plazoMin, plazoMax, soloTareasVencidas,
-      soloUrgentes, soloSinAsignar, estado, fechaDesde, fechaHasta, orden, vista, mesesVista, ambito]);
+      soloUrgentes, soloSinAsignar, soloFielCumplimiento, estado, fechaDesde, fechaHasta, orden, vista, mesesVista, ambito]);
 
   // Datos de Obuma de lo cerrado/cancelado: se piden una sola vez, cuando se abre una pestaña que no es «Abiertas».
   useEffect(() => {
@@ -1438,11 +1441,11 @@ export default function ComprasPage() {
   const nPrecompras = useMemo(() => negocios.filter(f => f.precompra && !f.cierreLegado).length, [negocios]);
   const hayFiltro = fAsignado.length > 0 || fOrganismo.length > 0 || fRegion.length > 0 || fPostulador.length > 0 || fOC !== 'todos'
     || !!montoMin || !!montoMax || !!plazoMin || !!plazoMax || soloTareasVencidas
-    || soloUrgentes || soloSinAsignar || !!fechaDesde || !!fechaHasta;
+    || soloUrgentes || soloSinAsignar || soloFielCumplimiento || !!fechaDesde || !!fechaHasta;
   const limpiar = () => {
     setFAsignado([]); setFOrganismo([]); setFRegion([]); setFPostulador([]); setFOC('todos');
     setMontoMin(''); setMontoMax(''); setPlazoMin(''); setPlazoMax(''); setSoloTareasVencidas(false);
-    setSoloUrgentes(false); setSoloSinAsignar(false); setFechaDesde(''); setFechaHasta('');
+    setSoloUrgentes(false); setSoloSinAsignar(false); setSoloFielCumplimiento(false); setFechaDesde(''); setFechaHasta('');
   };
 
   // "Ser admin" ya no alcanza solo (pedido explícito, 10-sep-2026) — mismo criterio que el backend
@@ -1536,6 +1539,7 @@ export default function ComprasPage() {
       if (soloTareasVencidas && f.tareasVencidas <= 0) return false;
       if (soloUrgentes && !f.urgente) return false;
       if (soloSinAsignar && f.asignadoA != null) return false;
+      if (soloFielCumplimiento && !f.fielCumplimiento) return false;
       // Pestañas Abiertas / Cerradas / Canceladas / Todas (11-nov-2026): lo cerrado o cancelado no compite con el trabajo activo.
       if (ambito === 'precompras') { if (f.cierreLegado) return false; }
       else if (estado !== 'todas' && estadoDeCompra(f) !== estado) return false;
@@ -1557,7 +1561,7 @@ export default function ComprasPage() {
     arr.sort((a, b) => Number(b.urgente) - Number(a.urgente));
     return arr;
   }, [negocios, q, fAsignado, fOrganismo, fRegion, fPostulador, fOC, montoMin, montoMax, plazoMin, plazoMax, soloTareasVencidas,
-      soloUrgentes, soloSinAsignar, estado, fechaDesde, fechaHasta, orden, ambito]);
+      soloUrgentes, soloSinAsignar, soloFielCumplimiento, estado, fechaDesde, fechaHasta, orden, ambito]);
   // Exporta la MISMA lista que se ve (filtros + pestaña Ganadas/Pre-compras), una fila por negocio.
   const exportarExcel = async () => {
     if (exportando) return;
@@ -1760,6 +1764,13 @@ export default function ComprasPage() {
                 soloSinAsignar ? 'text-amber-700 bg-amber-50 border-amber-200' : 'text-zinc-500 bg-white border-zinc-200 hover:bg-zinc-50'
               }`}>
               <Clock size={12} /> Sin asignar
+            </button>
+            <button onClick={() => setSoloFielCumplimiento(v => !v)}
+              title="Solo licitaciones cuyas bases exigen boleta de garantía de fiel cumplimiento"
+              className={`inline-flex items-center gap-1 text-[12px] font-semibold px-2.5 py-2 rounded-lg border transition-colors ${
+                soloFielCumplimiento ? 'text-teal-700 bg-teal-50 border-teal-200' : 'text-zinc-500 bg-white border-zinc-200 hover:bg-zinc-50'
+              }`}>
+              <ShieldCheck size={12} /> Fiel cumplimiento
             </button>
             <div className="flex items-center gap-1.5 border border-zinc-200 rounded-lg px-2.5 py-1">
               <Calendar size={13} className="text-zinc-400 flex-shrink-0" />

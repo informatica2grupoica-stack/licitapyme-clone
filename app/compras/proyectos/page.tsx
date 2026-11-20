@@ -54,13 +54,16 @@ interface ProyectoObuma {
   documentos: DocumentoDelProyecto[];
   ocVigentes?: ResumenOc; ocPendientes?: ResumenOc; ocAnuladas?: { cantidad: number; total: number };
   documentosNeto?: number; documentosTruncados?: boolean;
+  ocEnOtroCentro?: { codigo: string; cantidad: number; neto: number; ocs: (OcDelProyecto & { centroNombre: string | null })[] };
 }
 interface MetaProyectos {
   totalReportadoPorObuma: number | null; totalConFicha: number; completo: boolean; fuentesConError: string[];
   generadoAt?: string; leidoDeObuma?: { oc: number; documentos: number; proyectos: number };
 }
 
-const SIN_FICHA = 'Sin ficha';
+// «Sin ficha» = centros de costo de Obuma que no son un proyecto (administración, gasto general): acumulan miles de OC y
+// mezclarlos con los proyectos inflaba los totales, por eso van en su propia pestaña y no entran en «Todos».
+const SIN_FICHA = 'Centros sin proyecto';
 // Color por estado: ámbar = en curso, cian = abierto, gris = cerrado, rojo = cancelado/rechazado (no se concretó).
 const COLOR_ESTADO: Record<string, string> = {
   'En proceso': '#d97706', Abierto: '#0891b2', Cerrado: '#64748b', Cancelado: '#dc2626', Rechazado: '#dc2626', [SIN_FICHA]: '#94a3b8',
@@ -154,7 +157,7 @@ export default function ProyectosObumaPage() {
     }
   };
 
-  // Búsqueda + «solo con negocio nuestro»; las pestañas de estado cuentan sobre ESTO (para que el número de cada pestaña sea el que verás).
+  // Búsqueda + «solo los que están en Licitank»; las pestañas de estado cuentan sobre ESTO (para que el número de cada pestaña sea el que verás).
   const base = useMemo(() => {
     const texto = q.trim().toLowerCase();
     return proyectos.filter(p => {
@@ -171,7 +174,9 @@ export default function ProyectosObumaPage() {
     return c;
   }, [base]);
 
-  const filtrados = useMemo(() => base.filter(p => !estadoFiltro || estadoDe(p) === estadoFiltro), [base, estadoFiltro]);
+  // «Todos» = los proyectos con ficha; los centros de costo sueltos solo se ven en su pestaña.
+  const filtrados = useMemo(() => base.filter(p => (estadoFiltro ? estadoDe(p) === estadoFiltro : p.tieneProyectoReal)), [base, estadoFiltro]);
+  const totalConFicha = useMemo(() => base.filter(p => p.tieneProyectoReal).length, [base]);
 
   // Indicadores sobre lo que se ve (cada cifra dice de qué conjunto es).
   const totales = useMemo(() => ({
@@ -267,7 +272,7 @@ export default function ProyectosObumaPage() {
             {/* Indicadores del conjunto que se ve */}
             <Lista className="grid grid-cols-2 gap-3 @4xl:grid-cols-4">
               <Indicador rotulo="Proyectos" valor={filtrados.length}
-                detalle={`${totales.conNegocio} con negocio nuestro${hayFiltros ? ` · de ${proyectos.length}` : ''}`} />
+                detalle={`${totales.conNegocio} están en Licitank${hayFiltros ? ' · del filtro actual' : ''}`} />
               <Indicador rotulo="OC vigentes (neto)" valor={totales.ocNeto} formato={fmtMM}
                 detalle={`${totales.ocCant.toLocaleString('es-CL')} OC · sin ${totales.anuladasCant} anuladas (${fmtMM(totales.anuladasTotal)})`} />
               <Indicador rotulo="Comprometido sin factura (neto)" valor={totales.pendNeto} formato={fmtMM}
@@ -281,7 +286,7 @@ export default function ProyectosObumaPage() {
               <div className="overflow-x-auto">
                 <Pestanas id="proyectos-estado" valor={estadoFiltro} onCambio={setEstadoFiltro}
                   opciones={[
-                    { valor: '', etiqueta: 'Todos', contador: base.length },
+                    { valor: '', etiqueta: 'Todos', contador: totalConFicha },
                     ...ORDEN_ESTADOS.filter(e => conteoEstados[e]).map(e => ({ valor: e, etiqueta: e, contador: conteoEstados[e] })),
                   ]} />
               </div>
@@ -299,8 +304,9 @@ export default function ProyectosObumaPage() {
                   )}
                 </div>
                 <Boton tamano="sm" onClick={() => setSoloCoincidentes(v => !v)} aria-pressed={soloCoincidentes}
+                  title="Muestra solo los proyectos de Obuma cuya licitación ya tienes como negocio en Licitank (su código está en la referencia o el nombre del proyecto)"
                   className={soloCoincidentes ? 'border-marca/50 text-marca' : ''} icono={<LinkIcon size={16} stroke={1.75} />}>
-                  Solo con negocio nuestro
+                  Solo los que están en Licitank
                 </Boton>
                 {hayFiltros && <Boton tamano="sm" variante="fantasma" onClick={limpiar} icono={<X size={16} stroke={1.75} />}>Limpiar filtros</Boton>}
               </div>
@@ -336,6 +342,7 @@ export default function ProyectosObumaPage() {
 function TarjetaProyecto({ p }: { p: ProyectoObuma }) {
   const [abierta, setAbierta] = useState(false);
   const estado = estadoDe(p);
+  const activo = estado === 'En proceso' || estado === 'Abierto'; // en un proyecto vigente estos avisos importan; en uno cerrado son historia
   const titulo = p.tieneProyectoReal ? (p.nombre || `Proyecto #${p.folio}`) : (p.centros[0]?.nombre || 'Centro de costo sin nombre');
   const sub = p.tieneProyectoReal
     ? [p.folio != null && `Folio ${p.folio}`, p.cliente, p.referencia && `Ref. ${p.referencia}`].filter(Boolean).join(' · ')
@@ -347,6 +354,12 @@ function TarjetaProyecto({ p }: { p: ProyectoObuma }) {
   const docsNeto = p.documentosNeto ?? 0;
   const dif = facturadasNeto - docsNeto;
   const mostrarDif = p.cantidadOc > 0 && Math.abs(dif) > 1000;
+  // Qué hay para abrir (si no hay nada, no se muestra el botón).
+  const detalle = [
+    p.cantidadOc > 0 && `${p.cantidadOc} OC`,
+    p.cantidadFacturas > 0 && `${p.cantidadFacturas} documentos de gasto`,
+    p.ocEnOtroCentro && `${p.ocEnOtroCentro.cantidad} OC de otro centro`,
+  ].filter(Boolean) as string[];
 
   return (
     <Tarjeta>
@@ -354,7 +367,7 @@ function TarjetaProyecto({ p }: { p: ProyectoObuma }) {
         <div className="min-w-0 flex-1">
           <h3 className="text-[15px] font-semibold leading-snug text-tinta line-clamp-2 dark:text-slate-50" title={titulo}>{titulo}</h3>
           <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-tinta-2 dark:text-slate-400">
-            <span className="font-medium text-tinta dark:text-slate-100"><Estado color={COLOR_ESTADO[estado] || '#94a3b8'}>{estado}</Estado></span>
+            <span className="font-medium text-tinta dark:text-slate-100"><Estado color={COLOR_ESTADO[estado] || '#94a3b8'}>{p.tieneProyectoReal ? estado : 'Centro de costo sin proyecto'}</Estado></span>
             {sub && <span className="min-w-0 truncate" title={sub}>{sub}</span>}
           </p>
         </div>
@@ -390,6 +403,23 @@ function TarjetaProyecto({ p }: { p: ProyectoObuma }) {
         </Dato>
       </dl>
 
+      {/* Avisos de datos de Obuma: lo que el equipo debería corregir allá (esta pantalla solo lee) */}
+      {(p.ocEnOtroCentro || (p.tieneProyectoReal && p.centros.length === 0)) && (
+        <div className="mt-3 space-y-1 border-t border-linea/80 pt-3 text-xs text-tinta-2 dark:border-slate-800 dark:text-slate-400">
+          {p.tieneProyectoReal && p.centros.length === 0 && (
+            <p className={activo ? 'font-medium text-alerta' : ''}>
+              Este proyecto no tiene centro de costo en Obuma, por eso no se le puede asignar ninguna OC ni gasto.
+            </p>
+          )}
+          {p.ocEnOtroCentro && (
+            <p className={activo ? 'font-medium text-alerta' : ''}>
+              Obuma tiene {p.ocEnOtroCentro.cantidad} OC que mencionan {p.ocEnOtroCentro.codigo} ({fmtCLP(p.ocEnOtroCentro.neto)} neto) pero están en el centro
+              de costo de otro proyecto; no suman aquí. Se corrigen en Obuma: ábrelo abajo para ver cuáles.
+            </p>
+          )}
+        </div>
+      )}
+
       {p.negociosCoincidentes.length > 0 && (
         <p className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-linea/80 pt-3 text-xs dark:border-slate-800">
           <span className="text-tinta-2 dark:text-slate-400">Negocio en Compras</span>
@@ -403,12 +433,14 @@ function TarjetaProyecto({ p }: { p: ProyectoObuma }) {
         </p>
       )}
 
-      <div className="mt-3 border-t border-linea/80 pt-2 dark:border-slate-800">
-        <Boton tamano="sm" variante="fantasma" onClick={() => setAbierta(v => !v)} aria-expanded={abierta}
-          icono={<ChevronDown size={16} stroke={1.75} className={`transition-transform duration-150 ${abierta ? 'rotate-180' : ''}`} />}>
-          {abierta ? 'Ocultar' : 'Ver'} las {p.cantidadOc} OC y los {p.cantidadFacturas} documentos de gasto
-        </Boton>
-      </div>
+      {detalle.length > 0 && (
+        <div className="mt-3 border-t border-linea/80 pt-2 dark:border-slate-800">
+          <Boton tamano="sm" variante="fantasma" onClick={() => setAbierta(v => !v)} aria-expanded={abierta}
+            icono={<ChevronDown size={16} stroke={1.75} className={`transition-transform duration-150 ${abierta ? 'rotate-180' : ''}`} />}>
+            {abierta ? 'Ocultar' : 'Ver'} {detalle.join(' · ')}
+          </Boton>
+        </div>
+      )}
 
       {abierta && (
         <div className="mt-1">
@@ -444,6 +476,18 @@ function TarjetaProyecto({ p }: { p: ProyectoObuma }) {
               {p.documentosTruncados && <p className="mt-1 text-xs text-tinta-2 dark:text-slate-400">Mostrando {p.documentos.length} de {p.cantidadFacturas}; el total de arriba cuenta todos.</p>}
             </div>
           </div>
+          {p.ocEnOtroCentro && (
+            <div className="mt-4">
+              <h4 className="text-[13px] font-semibold text-tinta dark:text-slate-100">
+                OC de otro centro de costo que mencionan {p.ocEnOtroCentro.codigo} <span className="tabular-nums text-tinta-3">{p.ocEnOtroCentro.cantidad}</span>
+              </h4>
+              <p className="mt-0.5 text-xs text-tinta-2 dark:text-slate-400">No suman en este proyecto (Obuma las tiene en otro). Si son de este proyecto, hay que cambiarles el centro de costo en Obuma.</p>
+              <ul className="mt-1 divide-y divide-linea @4xl:columns-2 @4xl:gap-x-6 dark:divide-slate-800">
+                {p.ocEnOtroCentro.ocs.map(oc => <FilaOc key={oc.compraOcId} oc={oc} centro={oc.centroNombre ?? 'sin centro de costo'} />)}
+              </ul>
+              {p.ocEnOtroCentro.cantidad > p.ocEnOtroCentro.ocs.length && <p className="mt-1 text-xs text-tinta-2 dark:text-slate-400">Mostrando {p.ocEnOtroCentro.ocs.length} de {p.ocEnOtroCentro.cantidad}.</p>}
+            </div>
+          )}
         </div>
       )}
     </Tarjeta>
@@ -451,7 +495,7 @@ function TarjetaProyecto({ p }: { p: ProyectoObuma }) {
 }
 
 // Una OC: se abre para ver sus ítems (se piden a Obuma recién al abrirla).
-function FilaOc({ oc }: { oc: OcDelProyecto }) {
+function FilaOc({ oc, centro }: { oc: OcDelProyecto; centro?: string }) {
   const toast = useToast();
   const [abierta, setAbierta] = useState(false);
   const [items, setItems] = useState<EstadoItems | null>(null);
@@ -485,7 +529,8 @@ function FilaOc({ oc }: { oc: OcDelProyecto }) {
             <span className="font-medium text-tinta dark:text-slate-100"><Estado color={COLOR_OC[clave] || '#94a3b8'}>{nombreEstadoOc(oc.estado)}</Estado></span>
             {oc.folio && <span className="tabular-nums">OC {oc.folio}</span>}
             {oc.proveedorRut && <span className="tabular-nums">{oc.proveedorRut}</span>}
-            {oc.fecha && <span>{fmtFecha(oc.fecha)}</span>}
+            {fmtFecha(oc.fecha) && <span>{fmtFecha(oc.fecha)}</span>}
+            {centro && <span className="min-w-0 truncate" title={centro}>en «{centro}»</span>}
           </span>
         </span>
         <span className="flex-shrink-0 text-right">
@@ -533,7 +578,7 @@ function FilaDocumento({ d }: { d: DocumentoDelProyecto }) {
           {tipo}{d.folio && d.folio !== '0' ? ` N° ${d.folio}` : ''}
         </span>
         <span className="block truncate text-xs text-tinta-2 dark:text-slate-400" title={quien}>
-          {quien}{d.fecha ? ` · ${fmtFecha(d.fecha)}` : ''}
+          {[quien, fmtFecha(d.fecha)].filter(Boolean).join(' · ')}
         </span>
       </span>
       <span className="flex-shrink-0 text-right">

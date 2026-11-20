@@ -240,6 +240,21 @@ export async function resumenComparativoCompra(negocioId: number): Promise<Resum
       // Unidades de una OC marcadas «no son de este negocio» (stock u otro uso, migration-184): Obuma las suma, Licitank no. Explicadas, no «sin explicar»
       // (4152-22-LE26: OC 3811 con 2 rodillos + repuestos, se usa 1 rodillo → +$3.641.845 salía «sin explicar», 13-nov-2026).
       for (const o of vigentes) if (o.excluidoNeto) ocDif.push({ concepto: `OC ${o.folio || o.compraOcId} ${o.proveedorRazonSocial || ''} — unidades que no son de este negocio (stock u otro uso, marcadas en «Para este negocio»)`, monto: Math.round((o.totalOriginal ?? 0) - (o.total ?? 0)) });
+      // Al revés: OC que Licitank liga a este negocio (la referencia nombra la licitación) pero que en Obuma NO están en el centro de costo de
+      // este proyecto: Obuma no las cuenta aquí. Caso 708 / proyecto #201 (sin centro de costo) con la OC 4026 guardada en el centro de otro proyecto.
+      if (!proy.ocsTruncadas) {
+        const enProyecto = new Set(proy.ocs.map(o => String(o.folio)));
+        const enOtroCentro = new Map((proy.ocEnOtroCentro?.ocs ?? []).map(o => [String(o.folio), o]));
+        for (const o of vigentes) {
+          const folio = String(o.folio || o.compraOcId);
+          if (enProyecto.has(folio)) continue;
+          const otro = enOtroCentro.get(folio);
+          const donde = otro
+            ? (otro.centroNombre ? `está en Obuma en el centro de costo «${otro.centroNombre}» de otro proyecto` : 'está en Obuma sin centro de costo, no asignada a ningún proyecto')
+            : (proy.centros.length === 0 ? 'el proyecto de Obuma no tiene centro de costo' : 'en Obuma no está en el centro de costo de este proyecto');
+          ocDif.push({ concepto: `OC ${folio} ${o.proveedorRazonSocial || ''} — ${donde}: Obuma no la cuenta aquí; se corrige en Obuma`, monto: -Math.round(o.total ?? 0) });
+        }
+      }
       const ocSin = Math.round(proy.totalGastado - ocDif.reduce((s, d) => s + d.monto, 0) - licOcTotal);
 
       // Facturas: se compara documento a documento lo que Obuma contabilizó en el centro de costo del proyecto.
@@ -263,6 +278,13 @@ export async function resumenComparativoCompra(negocioId: number): Promise<Resum
         if (enLicitank.has(d.folio)) continue;
         const desc = descartada.get(d.folio);
         facDif.push({ concepto: desc ? `Factura ${d.folio} ${quien} — ${desc.motivo}` : `Factura ${d.folio} ${quien} — está en el proyecto pero no cuelga de ninguna OC`, monto });
+      }
+      // Facturas que Licitank tiene enlazadas a una OC de este negocio pero que en Obuma NO están contabilizadas en el centro de costo del proyecto.
+      if (!proy.documentosTruncados) {
+        for (const fa of facObuma) {
+          if (foliosObuma.has(`${fa.folio}`)) continue;
+          facDif.push({ concepto: `Factura ${fa.folio} ${fa.proveedor || ''}${fa.ocFolio ? ` (de la OC ${fa.ocFolio})` : ''} — Licitank la tiene enlazada a la OC, pero en Obuma NO está contabilizada en el centro de costo de este proyecto`, monto: -Math.round(fa.total || 0) });
+        }
       }
       const soloEnOc = gastos.facturas.descartadas.filter(f => !foliosObuma.has(`${f.folio}`)).map(f => `Factura ${f.folio} ${f.proveedor || ''} (${clp(f.total ?? 0)}): en Obuma NO está contabilizada en este proyecto; solo aparece enlazada a una OC por error. ${f.motivo}`);
       const facSin = Math.round(proy.totalFacturado - facDif.reduce((s, d) => s + d.monto, 0) - licFacTotal);

@@ -73,6 +73,9 @@ export interface ProyectoObuma {
   ocAnuladas?: { cantidad: number; total: number }; // ANULADA en Obuma: no son gasto
   documentosNeto?: number;            // gasto contabilizado (facturas, boletas, gastos propios; NC resta), neto + exento
   documentosTruncados?: boolean;      // el detalle de `documentos` se corta en TOPE_OC_DETALLE (cantidad y totales cuentan todos)
+  /** OC VIGENTES de Obuma que mencionan el código de este proyecto pero están en el centro de costo de OTRO proyecto (o sin centro):
+   *  Obuma no las cuenta aquí. No se suman; se muestran para que el equipo las corrija en Obuma (caso #201 / OC 4026, 20-nov-2026). */
+  ocEnOtroCentro?: { codigo: string; cantidad: number; neto: number; ocs: (OcDelProyecto & { centroNombre: string | null })[] };
 }
 
 export interface MetaProyectosObuma {
@@ -87,7 +90,10 @@ export interface MetaProyectosObuma {
 }
 
 /** Sube cuando se agregan campos al snapshot: un snapshot guardado con otra versión no se muestra, se recalcula. */
-const VERSION_SNAPSHOT = 2;
+const VERSION_SNAPSHOT = 3;
+
+/** Código de licitación dentro de la referencia o el nombre de un Proyecto («ID2446-240-LE26», «1095439-8-LP26», «2827-72-R126»…). */
+const CODIGO_LICITACION_RE = /(\d{3,7}-\d{1,4}-(?:L[A-Z0-9]|R1|CO|SE|AG)\d{2})/i;
 
 let cacheProyectos: { en: number; datos: ProyectoObuma[]; meta: MetaProyectosObuma } | null = null;
 const CACHE_PROYECTOS_MS = 5 * 60_000;
@@ -132,6 +138,9 @@ async function calcularProyectosObuma(forzar = false): Promise<{ proyectos: Proy
       .catch(e => { console.warn('[compras-proyectos-obuma] negocios (BD) falló:', String(e).slice(0, 150)); fuentesConError.push('negocios (BD)'); return []; }),
   ]);
 
+  const nombreCentroPorId = new Map(centros.map(c => [c.id, c.nombre]));
+  // Texto de cada OC (referencia + observación + concepto) en mayúsculas, una sola vez, para buscar códigos de licitación sin repetir trabajo.
+  const ocsConTexto = ocs.map(o => ({ o, t: `${o.compra_oc_referencia || ''} ${o.compra_oc_observacion || ''} ${String((o as Record<string, unknown>).compra_oc_concepto || '')}`.toUpperCase() }));
   const clientePorId = new Map(clientes.map(c => [c.cliente_id, c.cliente_razon_social]));
   const proveedorPorIdMap = new Map(proveedores.map(p => [p.proveedor_id, { nombre: p.proveedor_razon_social, rut: p.proveedor_rut }]));
   const centrosPorProyectoId = new Map<string, ObumaCentroCosto[]>();
@@ -199,7 +208,7 @@ async function calcularProyectosObuma(forzar = false): Promise<{ proyectos: Proy
     const ocAnuladas = ocsDelGrupo.filter(o => estadoOc(o) === 'ANULADA');
 
     const ordenadas = [...ocsDelGrupo].sort((a, b) => String(b.compra_oc_fecha_ingreso || '').localeCompare(String(a.compra_oc_fecha_ingreso || '')));
-    const ocsDetalle: OcDelProyecto[] = ordenadas.slice(0, TOPE_OC_DETALLE).map(oc => {
+    const detalleOc = (oc: (typeof ocs)[number]): OcDelProyecto => {
       const prov = proveedorPorIdMap.get(String(oc.rel_proveedor_id));
       return {
         compraOcId: oc.compra_oc_id, folio: oc.compra_oc_folio || null,
@@ -207,7 +216,23 @@ async function calcularProyectosObuma(forzar = false): Promise<{ proyectos: Proy
         proveedorNombre: prov?.nombre || null, proveedorRut: prov?.rut || null, total: Number(oc.compra_oc_total) || 0,
         neto: netoOc(oc),
       };
-    });
+    };
+    const ocsDetalle: OcDelProyecto[] = ordenadas.slice(0, TOPE_OC_DETALLE).map(detalleOc);
+
+    // OC de Obuma que hablan de este proyecto (su código de licitación) pero están en otro centro de costo: Obuma no las cuenta aquí.
+    let ocEnOtroCentro: ProyectoObuma['ocEnOtroCentro'];
+    const codigoProyecto = tieneProyectoReal ? (CODIGO_LICITACION_RE.exec(`${ficha.referencia || ''} ${ficha.nombre || ''}`)?.[1]?.toUpperCase() ?? null) : null;
+    if (codigoProyecto) {
+      const sueltas = ocsConTexto
+        .filter(({ o, t }) => estadoOc(o) !== 'ANULADA' && !ids.has(String(o.compra_oc_centro_costo)) && t.includes(codigoProyecto) && mencionaCodigo(t, codigoProyecto))
+        .map(x => x.o);
+      if (sueltas.length) {
+        ocEnOtroCentro = {
+          codigo: codigoProyecto, cantidad: sueltas.length, neto: sueltas.reduce((s, o) => s + netoOc(o), 0),
+          ocs: sueltas.slice(0, 30).map(oc => ({ ...detalleOc(oc), centroNombre: nombreCentroPorId.get(String(oc.compra_oc_centro_costo)) || null })),
+        };
+      }
+    }
 
     // Criterio de orden pedido explícito (22-sep-2026): fecha de CREACIÓN del proyecto, no de su
     // última actividad — un proyecto real ordena por cuándo se creó en Obuma. Los centros sin
@@ -223,7 +248,7 @@ async function calcularProyectosObuma(forzar = false): Promise<{ proyectos: Proy
       negociosCoincidentes, ocs: ocsDetalle, ocsTruncadas: ocsDelGrupo.length > ocsDetalle.length, ordenFecha,
       ocVigentes: resumirOc(ocVigentes), ocPendientes: resumirOc(ocPendientes),
       ocAnuladas: { cantidad: ocAnuladas.length, total: ocAnuladas.reduce((s, o) => s + (Number(o.compra_oc_total) || 0), 0) },
-      documentosNeto, documentosTruncados: facturasDelGrupo.length > documentos.length,
+      documentosNeto, documentosTruncados: facturasDelGrupo.length > documentos.length, ocEnOtroCentro,
     };
   }
 

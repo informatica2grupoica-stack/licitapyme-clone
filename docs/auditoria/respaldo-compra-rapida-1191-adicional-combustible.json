@@ -1,0 +1,18 @@
+{
+  "negocio_id": 1191,
+  "producto_id": 664,
+  "estado": "APROBADA",
+  "proveedor_nombre": "COMERCIAL Y SERVICIOS JP LIMITADA",
+  "proveedor_rut": "76.930.671-4",
+  "precio_unitario": "35810.00",
+  "link": null,
+  "motivo": null,
+  "ya_comprada": 0,
+  "comentario": null,
+  "solicitado_por": 1,
+  "solicitado_por_nombre": "Alexis Tobar",
+  "solicitado_at": "2026-11-12T18:40:31.000Z",
+  "resuelto_por": 1,
+  "resuelto_por_nombre": "Alexis Tobar",
+  "resuelto_at": "2026-11-12T18:40:52.000Z"
+}
