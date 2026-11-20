@@ -21,6 +21,8 @@ export interface NegocioCoincidente {
 export interface OcDelProyecto {
   compraOcId: string; folio: string | null; fecha: string | null; estado: string | null;
   proveedorNombre: string | null; proveedorRut: string | null; total: number;
+  /** Neto + exento (sin IVA), como lo informa Obuma. `total` es con IVA, como lo lista Obuma. Opcional: los snapshots antiguos no lo traen. */
+  neto?: number;
 }
 
 // Tope de OC que se listan en detalle por proyecto — hay centros de costo genéricos (ej. el propio
@@ -33,8 +35,12 @@ export interface DocumentoDelProyecto {
   folio: string; tipo: string;              // tipo SII: 33 factura · 61 nota de crédito · 0 = gasto propio sin documento
   proveedorNombre: string | null;           // null = gasto propio (horas extras, retiros…)
   total: number;                            // CON IVA; las notas de crédito vienen en NEGATIVO
+  neto?: number;                            // neto + exento según Obuma (NC en negativo). Opcional: snapshots antiguos no lo traen
   observacion: string | null; fecha: string | null;
 }
+
+/** Cifras de OC de un proyecto, para COMPARAR con Obuma sin mezclar cosas. Cantidad y montos de un mismo conjunto de OC. */
+export interface ResumenOcProyecto { cantidad: number; neto: number; total: number }
 
 export interface ProyectoObuma {
   documentos: DocumentoDelProyecto[];
@@ -60,6 +66,13 @@ export interface ProyectoObuma {
   ocs: OcDelProyecto[];
   ocsTruncadas: boolean;
   ordenFecha: string | null;        // criterio real de orden: fecha de creación del Proyecto (si tiene ficha), si no la OC más reciente
+  // ── Cifras para comparar con Obuma (se AGREGAN: `totalGastado`/`cantidadOc` siguen contando las anuladas porque el Resumen
+  // comparativo de Compras las explica aparte, ver compras-resumen-comparativo.ts). Opcionales: los snapshots antiguos no las traen. ──
+  ocVigentes?: ResumenOcProyecto;     // OC que NO están anuladas (lo que de verdad se compró o se comprometió)
+  ocPendientes?: ResumenOcProyecto;   // parte de las vigentes en estado EMITIDA/SOLICITADA: comprometido, todavía sin factura
+  ocAnuladas?: { cantidad: number; total: number }; // ANULADA en Obuma: no son gasto
+  documentosNeto?: number;            // gasto contabilizado (facturas, boletas, gastos propios; NC resta), neto + exento
+  documentosTruncados?: boolean;      // el detalle de `documentos` se corta en TOPE_OC_DETALLE (cantidad y totales cuentan todos)
 }
 
 export interface MetaProyectosObuma {
@@ -68,7 +81,13 @@ export interface MetaProyectosObuma {
   completo: boolean;                     // totalConFicha === totalReportadoPorObuma (o no se pudo confirmar)
   fuentesConError: string[];             // qué fuentes fallaron esta corrida (la función sigue funcionando igual, con menos datos)
   generadoAt?: string;                   // cuándo se armó el snapshot guardado en BD (ISO)
+  version?: number;                      // formato del snapshot: si es menor que VERSION_SNAPSHOT se recalcula al leerlo
+  /** Cuántas OC, documentos de compra y proyectos leyó Obuma en esta corrida: sirve para comprobar que no falta nada. */
+  leidoDeObuma?: { oc: number; documentos: number; proyectos: number };
 }
+
+/** Sube cuando se agregan campos al snapshot: un snapshot guardado con otra versión no se muestra, se recalcula. */
+const VERSION_SNAPSHOT = 2;
 
 let cacheProyectos: { en: number; datos: ProyectoObuma[]; meta: MetaProyectosObuma } | null = null;
 const CACHE_PROYECTOS_MS = 5 * 60_000;
@@ -145,10 +164,14 @@ async function calcularProyectosObuma(forzar = false): Promise<{ proyectos: Proy
     const facturasDelGrupo = (ids.size ? facturas.filter(f => ids.has(String(f.compra_centro_costo))) : []).filter(f => String(f.compra_anulada) !== '1');
     const signo = (f: { compra_tipo_dcto: string }) => String(f.compra_tipo_dcto) === '61' ? -1 : 1;
     const totalFacturado = facturasDelGrupo.reduce((s, f) => s + signo(f) * (Number(f.compra_total) || 0), 0);
+    // Neto = neto + exento tal como lo informa Obuma (la ficha del Proyecto —presupuesto, costo, precio— también es neta).
+    const netoDoc = (f: Record<string, unknown>) => (Number(f.compra_neto) || 0) + (Number(f.compra_total_exento) || 0);
+    const documentosNeto = facturasDelGrupo.reduce((s, f) => s + signo(f) * netoDoc(f), 0);
     const documentos: DocumentoDelProyecto[] = facturasDelGrupo.slice(0, TOPE_OC_DETALLE).map(f => ({
       folio: String(f.compra_folio || ''), tipo: String(f.compra_tipo_dcto || '0'),
       proveedorNombre: String(f.rel_proveedor_id) !== '0' ? (proveedorPorIdMap.get(String(f.rel_proveedor_id))?.nombre ?? null) : null,
       total: signo(f) * (Number(f.compra_total) || 0),
+      neto: signo(f) * netoDoc(f),
       observacion: String(f.compra_observacion || '').replace(/\s+/g, ' ').trim() || null,
       fecha: String(f.compra_fechaingreso || '').slice(0, 10) || null,
     }));
@@ -166,6 +189,15 @@ async function calcularProyectosObuma(forzar = false): Promise<{ proyectos: Proy
       }
     }
 
+    const netoOc = (oc: Record<string, unknown>) => (Number(oc.compra_oc_neto) || 0) + (Number(oc.compra_oc_exento) || 0);
+    const estadoOc = (oc: Record<string, unknown>) => String(oc.compra_oc_estado || '').toUpperCase();
+    const resumirOc = (arr: typeof ocsDelGrupo): ResumenOcProyecto => ({
+      cantidad: arr.length, neto: arr.reduce((s, o) => s + netoOc(o), 0), total: arr.reduce((s, o) => s + (Number(o.compra_oc_total) || 0), 0),
+    });
+    const ocVigentes = ocsDelGrupo.filter(o => estadoOc(o) !== 'ANULADA');
+    const ocPendientes = ocVigentes.filter(o => estadoOc(o) === 'EMITIDA' || estadoOc(o) === 'SOLICITADA');
+    const ocAnuladas = ocsDelGrupo.filter(o => estadoOc(o) === 'ANULADA');
+
     const ordenadas = [...ocsDelGrupo].sort((a, b) => String(b.compra_oc_fecha_ingreso || '').localeCompare(String(a.compra_oc_fecha_ingreso || '')));
     const ocsDetalle: OcDelProyecto[] = ordenadas.slice(0, TOPE_OC_DETALLE).map(oc => {
       const prov = proveedorPorIdMap.get(String(oc.rel_proveedor_id));
@@ -173,6 +205,7 @@ async function calcularProyectosObuma(forzar = false): Promise<{ proyectos: Proy
         compraOcId: oc.compra_oc_id, folio: oc.compra_oc_folio || null,
         fecha: oc.compra_oc_fecha_ingreso || null, estado: oc.compra_oc_estado || null,
         proveedorNombre: prov?.nombre || null, proveedorRut: prov?.rut || null, total: Number(oc.compra_oc_total) || 0,
+        neto: netoOc(oc),
       };
     });
 
@@ -188,6 +221,9 @@ async function calcularProyectosObuma(forzar = false): Promise<{ proyectos: Proy
       centros: grupo.map(c => ({ id: c.id, nombre: c.nombre, codigo: c.codigo, activo: c.activo })),
       totalGastado, cantidadOc: ocsDelGrupo.length, totalFacturado, cantidadFacturas: facturasDelGrupo.length,
       negociosCoincidentes, ocs: ocsDetalle, ocsTruncadas: ocsDelGrupo.length > ocsDetalle.length, ordenFecha,
+      ocVigentes: resumirOc(ocVigentes), ocPendientes: resumirOc(ocPendientes),
+      ocAnuladas: { cantidad: ocAnuladas.length, total: ocAnuladas.reduce((s, o) => s + (Number(o.compra_oc_total) || 0), 0) },
+      documentosNeto, documentosTruncados: facturasDelGrupo.length > documentos.length,
     };
   }
 
@@ -239,6 +275,8 @@ async function calcularProyectosObuma(forzar = false): Promise<{ proyectos: Proy
     totalConFicha,
     completo: totalReportado == null ? fuentesConError.length === 0 : totalConFicha === totalReportado,
     fuentesConError,
+    version: VERSION_SNAPSHOT,
+    leidoDeObuma: { oc: ocs.length, documentos: facturas.length, proyectos: proyectosExt.length },
   };
 
   cacheProyectos = { en: Date.now(), datos: resultado, meta };
@@ -281,7 +319,10 @@ export async function listarProyectosObuma(forzar = false): Promise<{ proyectos:
   await asegurarTablaSnapshot();
   if (!forzar) {
     const [rows] = await pool.query(`SELECT datos, meta, generado_at FROM obuma_proyectos_snapshot WHERE id = 1`) as any[];
-    if (rows[0]) {
+    // Un snapshot de una versión anterior no trae los campos nuevos (OC vigentes, netos…): se recalcula en vez de mostrarlo incompleto.
+    let versionGuardada: number | undefined;
+    try { versionGuardada = rows[0] ? JSON.parse(rows[0].meta).version : undefined; } catch { /* meta ilegible: se recalcula */ }
+    if (rows[0] && versionGuardada === VERSION_SNAPSHOT) {
       const edad = Date.now() - new Date(rows[0].generado_at).getTime();
       if (edad > SNAPSHOT_VIEJO_MS && !refrescando) {
         refrescando = recalcularYGuardar(true)

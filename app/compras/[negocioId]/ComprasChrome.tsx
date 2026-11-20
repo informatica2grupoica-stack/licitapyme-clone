@@ -936,7 +936,7 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
                   contenido: <ModalidadRetiroCard negocioId={negocioId} puedeOperar={puedeOperar} /> },
                 { clave: 'importacion', titulo: 'Importación (si aplica)', ayuda: 'Solo si el producto viene del extranjero: flete, aduana y costo final puesto en bodega. Si no, sáltate esta pestaña.',
                   contenido: <ImportacionCard negocioId={negocioId} puedeOperar={puedeOperar} /> },
-                { clave: 'gastos', titulo: 'Gastos extra', ayuda: 'Gastos que no son productos. Si necesita SKU, OC y factura (un flete o un adicional como una grúa), agrégalo con SKU y OC: va a aprobación solo ese ítem. Si no (colación, bencina, viáticos), anótalo como gasto.',
+                { clave: 'gastos', titulo: 'Gastos extra', ayuda: 'Gastos que no son productos. Si necesita SKU, OC y factura (un flete, un adicional como una grúa o una carga de combustible con factura), agrégalo con SKU y OC: va a aprobación solo ese ítem. Si no (colación, viáticos), anótalo como gasto.',
                   contenido: (
                     <div className="space-y-4">
                       <ServiciosConSkuCard negocioId={negocioId} puedeOperar={puedeOperar} />

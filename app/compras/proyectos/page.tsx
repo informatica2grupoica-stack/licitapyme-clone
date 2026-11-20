@@ -1,29 +1,44 @@
 'use client';
 
-// "PROYECTOS" DE OBUMA — pedido explícito del usuario (22-sep-2026): "ver si tenemos lo mismo de
-// Obuma... para hacer una comparación". Reescrita el mismo día tras un hallazgo grande: soporte de
-// Obuma confirmó por correo el endpoint `/v1.0/ext-proyectos.list.json`, que trae el módulo REAL de
-// Proyectos (nombre, cliente, Referencia, presupuesto, costo, facturado, estado) SIN necesitar el
-// access-url de v2.0 que la cuenta no tiene contratado. Reemplaza la reconstrucción aproximada +
-// login-scraping de antes — ahora es todo por API real, en vivo, sin guardar ninguna clave personal.
+// «PROYECTOS (OBUMA)» — pedido explícito del dueño (22-sep-2026): «ver si tenemos lo mismo de Obuma… para hacer una
+// comparación». Todo sale por API real de Obuma (ext-proyectos + centros de costo + comprasOc + compras), sin login.
 // Ver app/lib/compras-proyectos-obuma.ts.
+//
+// Rediseñada el 2026-11-20 (licitank-ui) y revisada contra Obuma «al 100 %» (pedido del dueño: «con todos los gastos y OC»):
+//  · Las OC ANULADAS ya no se suman como gasto (antes sumaban $164 M en 29 proyectos): se muestran aparte.
+//  · Todo en NETO, como la ficha del Proyecto (presupuesto, costo y precio son netos); el «con IVA» va al lado.
+//  · «Facturado real» pasó a llamarse «Gasto contabilizado»: son facturas de COMPRA, no lo facturado al cliente
+//    (eso es «Facturado al cliente», de la ficha).
+//  · Cada proyecto lista TODAS sus OC y todos sus documentos de gasto (facturas, boletas, gastos propios, notas de crédito).
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
+import dayjs from 'dayjs';
 import { AppLayout } from '@/app/components/AppLayout';
 import { useSession } from '@/app/lib/session-context';
 import { useToast } from '@/app/components/ui/toast';
+import { Banner } from '@/app/components/ui/Banner';
+import { Lista } from '@/app/components/ui/kit/Aparecer';
+import { Tarjeta, Dato, Estado } from '@/app/components/ui/kit/Tarjeta';
+import { Indicador } from '@/app/components/ui/kit/Indicador';
+import { Pestanas } from '@/app/components/ui/kit/Pestanas';
+import { Boton } from '@/app/components/ui/kit/Boton';
+import { Encabezado, Esqueleto, Vacio } from '@/app/components/ui/kit/Estructura';
 import {
-  IconLoader2 as Loader2, IconSearch as Search, IconFolders as Folders, IconLink as LinkIcon,
-  IconExternalLink as ExternalLink, IconWallet as Wallet, IconChevronDown as ChevronDown,
-  IconChevronUp as ChevronUp, IconBuilding as Building2, IconRefresh as RefreshCw, IconFolderX as FolderX,
-  IconCircleCheck as CircleCheck, IconAlertTriangle as AlertTriangle, IconFileSpreadsheet as FileSpreadsheet,
+  IconLoader2 as Loader2, IconSearch as Search, IconX as X, IconExternalLink as ExternalLink,
+  IconChevronDown as ChevronDown, IconRefresh as RefreshCw, IconFileSpreadsheet as FileSpreadsheet,
+  IconFolders as Folders, IconLink as LinkIcon,
 } from '@tabler/icons-react';
 
 interface NegocioCoincidente { negocioId: number; licitacionCodigo: string; licitacionNombre: string | null }
 interface OcDelProyecto {
   compraOcId: string; folio: string | null; fecha: string | null; estado: string | null;
-  proveedorNombre: string | null; proveedorRut: string | null; total: number;
+  proveedorNombre: string | null; proveedorRut: string | null; total: number; neto?: number;
 }
+interface DocumentoDelProyecto {
+  folio: string; tipo: string; proveedorNombre: string | null; total: number; neto?: number;
+  observacion: string | null; fecha: string | null;
+}
+interface ResumenOc { cantidad: number; neto: number; total: number }
 interface ItemOc { nombre: string; cantidad: number; precioUnitario: number; subtotal: number }
 type EstadoItems = { estado: 'cargando' } | { estado: 'error' } | { estado: 'listo'; items: ItemOc[] };
 
@@ -36,28 +51,50 @@ interface ProyectoObuma {
   totalGastado: number; cantidadOc: number; totalFacturado: number; cantidadFacturas: number;
   negociosCoincidentes: NegocioCoincidente[];
   ocs: OcDelProyecto[]; ocsTruncadas: boolean; ordenFecha: string | null;
+  documentos: DocumentoDelProyecto[];
+  ocVigentes?: ResumenOc; ocPendientes?: ResumenOc; ocAnuladas?: { cantidad: number; total: number };
+  documentosNeto?: number; documentosTruncados?: boolean;
 }
 interface MetaProyectos {
   totalReportadoPorObuma: number | null; totalConFicha: number; completo: boolean; fuentesConError: string[];
+  generadoAt?: string; leidoDeObuma?: { oc: number; documentos: number; proyectos: number };
 }
-const ESTADOS_FILTRO = ['Abierto', 'En proceso', 'Cerrado', 'Cancelado', 'Rechazado'];
+
+const SIN_FICHA = 'Sin ficha';
+// Color por estado: ámbar = en curso, cian = abierto, gris = cerrado, rojo = cancelado/rechazado (no se concretó).
+const COLOR_ESTADO: Record<string, string> = {
+  'En proceso': '#d97706', Abierto: '#0891b2', Cerrado: '#64748b', Cancelado: '#dc2626', Rechazado: '#dc2626', [SIN_FICHA]: '#94a3b8',
+};
+const ORDEN_ESTADOS = ['En proceso', 'Abierto', 'Cerrado', 'Cancelado', 'Rechazado', SIN_FICHA];
+const estadoDe = (p: ProyectoObuma) => (p.tieneProyectoReal ? (p.estado || 'Sin estado') : SIN_FICHA);
+
+// Estado de la OC en Obuma: FACTURADA ya está en los documentos de compra; EMITIDA/SOLICITADA es plata comprometida sin factura;
+// ANULADA no es gasto (ni se suma).
+const COLOR_OC: Record<string, string> = { FACTURADA: '#16a34a', EMITIDA: '#d97706', SOLICITADA: '#d97706', ANULADA: '#dc2626' };
+const nombreEstadoOc = (e: string | null) => { const t = (e || '').toLowerCase(); return t ? t[0].toUpperCase() + t.slice(1) : 'Sin estado'; };
+
+// Tipo de documento de compra (códigos del SII que usa Obuma). 0 = gasto propio sin documento (horas extras, retiros…).
+const TIPO_DOC: Record<string, string> = {
+  '0': 'Gasto propio', '32': 'Factura exenta', '33': 'Factura', '34': 'Factura exenta', '35': 'Boleta', '38': 'Boleta exenta',
+  '39': 'Boleta electrónica', '41': 'Boleta exenta electrónica', '43': 'Liquidación-factura', '52': 'Guía de despacho',
+  '56': 'Nota de débito', '61': 'Nota de crédito', '914': 'Declaración de ingreso (DIN)',
+};
 
 const fmtCLP = (n: number | null | undefined) => n == null ? '—'
   : new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n);
+// Montos grandes de los indicadores: «$1.919 MM». Las tarjetas muestran el monto exacto.
+const fmtMM = (n: number) => Math.abs(n) < 1_000_000 ? fmtCLP(n) : `$${Math.round(n / 1_000_000).toLocaleString('es-CL')} MM`;
+const fmtFecha = (s: string | null | undefined) => {
+  const d = dayjs(s ?? ''); if (!d.isValid()) return '';
+  return new Intl.DateTimeFormat('es-CL', { day: 'numeric', month: 'short', ...(d.year() === dayjs().year() ? {} : { year: 'numeric' }) }).format(d.toDate()).replace('.', '');
+};
+const sumar = <T,>(arr: T[], f: (x: T) => number) => arr.reduce((s, x) => s + f(x), 0);
 
-// Link real al documento de la OC en Obuma — patrón confirmado en vivo (22-sep-2026, el usuario
-// copió el link real del botón "Ver PDF" y se verificó contra la API que `id` = compra_oc_id).
-// Requiere sesión iniciada en Obuma en esa pestaña — si no, Obuma pide login, comportamiento normal
-// de un link a otro sistema.
+// Link real al documento de la OC en Obuma — patrón confirmado en vivo (22-sep-2026, el usuario copió el link real del botón
+// "Ver PDF" y se verificó contra la API que `id` = compra_oc_id). Pide sesión iniciada en Obuma, como cualquier link a otro sistema.
 const urlOcEnObuma = (compraOcId: string) => `https://app.obuma.cl/obuma2.0/mod-compras/oc/iframe-main.php?id=${compraOcId}`;
 
-const ESTADO_COLOR: Record<string, string> = {
-  Abierto: 'bg-sky-50 text-sky-700 border-sky-200',
-  Cerrado: 'bg-zinc-100 text-zinc-600 border-zinc-200',
-  Cancelado: 'bg-rose-50 text-rose-600 border-rose-200',
-  Rechazado: 'bg-rose-50 text-rose-600 border-rose-200',
-  'En proceso': 'bg-amber-50 text-amber-700 border-amber-200',
-};
+const POR_TANDA = 25;
 
 export default function ProyectosObumaPage() {
   const { usuario, cargando: cargandoSesion } = useSession();
@@ -70,11 +107,9 @@ export default function ProyectosObumaPage() {
   const [exportando, setExportando] = useState(false);
   const [q, setQ] = useState('');
   const [soloCoincidentes, setSoloCoincidentes] = useState(false);
-  const [soloConFicha, setSoloConFicha] = useState(false);
-  const [estadoFiltro, setEstadoFiltro] = useState<string>('');
-  const [expandido, setExpandido] = useState<string | null>(null);
-  const [ocAbierta, setOcAbierta] = useState<string | null>(null);
-  const [itemsPorFolio, setItemsPorFolio] = useState<Record<string, EstadoItems>>({});
+  const [estadoFiltro, setEstadoFiltro] = useState('');
+  // Cuántas tarjetas se ven: se reinicia solo cuando cambia algún filtro (la firma va junto al número, sin efectos).
+  const [tanda, setTanda] = useState({ firma: '', n: POR_TANDA });
 
   const puedeVer = !!usuario?.permisos?.compras_todo || !!usuario?.permisos?.compras || !!usuario?.permisos?.aprobar_comercial || !!usuario?.permisos?.compras_ver || !!usuario?.permisos?.compras_auditor;
 
@@ -86,12 +121,13 @@ export default function ProyectosObumaPage() {
       if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo cargar');
       setProyectos(data.proyectos || []);
       setMeta(data.meta || null);
-    } catch (e: any) {
-      toast.error('No se pudieron cargar los proyectos de Obuma', e.message);
+      if (forzar) toast.success('Datos de Obuma actualizados', 'Se volvió a leer todo desde Obuma.');
+    } catch (e) {
+      toast.error('No se pudieron cargar los proyectos de Obuma', e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false); setActualizando(false);
     }
-  }, []);
+  }, [toast]);
 
   useEffect(() => {
     if (cargandoSesion) return;
@@ -111,316 +147,399 @@ export default function ProyectosObumaPage() {
       a.download = `proyectos-obuma-${new Date().toISOString().slice(0, 10)}.xlsx`;
       document.body.appendChild(a); a.click(); a.remove();
       URL.revokeObjectURL(url);
-    } catch (e: any) {
-      toast.error('No se pudo exportar a Excel', e.message);
+    } catch (e) {
+      toast.error('No se pudo exportar a Excel', e instanceof Error ? e.message : String(e));
     } finally {
       setExportando(false);
     }
   };
 
-  const toggleOc = async (folio: string | null) => {
-    if (!folio) return;
-    if (ocAbierta === folio) { setOcAbierta(null); return; }
-    setOcAbierta(folio);
-    if (itemsPorFolio[folio]) return;
-    setItemsPorFolio(m => ({ ...m, [folio]: { estado: 'cargando' } }));
-    try {
-      const res = await fetch(`/api/compras/proyectos-obuma/items?folio=${encodeURIComponent(folio)}`);
-      const data = await res.json();
-      if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo consultar');
-      setItemsPorFolio(m => ({ ...m, [folio]: { estado: 'listo', items: data.items } }));
-    } catch (e: any) {
-      setItemsPorFolio(m => ({ ...m, [folio]: { estado: 'error' } }));
-      toast.error('No se pudieron cargar los ítems de la OC', e.message);
-    }
-  };
-
-  const stats = useMemo(() => {
-    const conFicha = proyectos.filter(p => p.tieneProyectoReal).length;
-    const conNegocio = proyectos.filter(p => p.negociosCoincidentes.length > 0).length;
-    const totalGasto = proyectos.reduce((s, p) => s + p.totalGastado, 0);
-    const totalFacturado = proyectos.reduce((s, p) => s + p.totalFacturado, 0);
-    return { total: proyectos.length, conFicha, conNegocio, totalGasto, totalFacturado };
-  }, [proyectos]);
-
-  const filtrados = useMemo(() => {
+  // Búsqueda + «solo con negocio nuestro»; las pestañas de estado cuentan sobre ESTO (para que el número de cada pestaña sea el que verás).
+  const base = useMemo(() => {
     const texto = q.trim().toLowerCase();
     return proyectos.filter(p => {
       if (soloCoincidentes && p.negociosCoincidentes.length === 0) return false;
-      if (soloConFicha && !p.tieneProyectoReal) return false;
-      if (estadoFiltro && p.estado !== estadoFiltro) return false;
       if (!texto) return true;
       const campos = [p.nombre, p.referencia, p.cliente, ...p.centros.map(c => c.nombre), ...p.negociosCoincidentes.map(n => n.licitacionCodigo)];
       return campos.some(v => (v || '').toLowerCase().includes(texto));
     });
-  }, [proyectos, q, soloCoincidentes, soloConFicha, estadoFiltro]);
+  }, [proyectos, q, soloCoincidentes]);
+
+  const conteoEstados = useMemo(() => {
+    const c: Record<string, number> = {};
+    for (const p of base) c[estadoDe(p)] = (c[estadoDe(p)] || 0) + 1;
+    return c;
+  }, [base]);
+
+  const filtrados = useMemo(() => base.filter(p => !estadoFiltro || estadoDe(p) === estadoFiltro), [base, estadoFiltro]);
+
+  // Indicadores sobre lo que se ve (cada cifra dice de qué conjunto es).
+  const totales = useMemo(() => ({
+    ocNeto: sumar(filtrados, p => p.ocVigentes?.neto ?? 0),
+    ocCant: sumar(filtrados, p => p.ocVigentes?.cantidad ?? 0),
+    anuladasCant: sumar(filtrados, p => p.ocAnuladas?.cantidad ?? 0),
+    anuladasTotal: sumar(filtrados, p => p.ocAnuladas?.total ?? 0),
+    pendNeto: sumar(filtrados, p => p.ocPendientes?.neto ?? 0),
+    pendCant: sumar(filtrados, p => p.ocPendientes?.cantidad ?? 0),
+    docsNeto: sumar(filtrados, p => p.documentosNeto ?? 0),
+    docsCant: sumar(filtrados, p => p.cantidadFacturas),
+    conNegocio: filtrados.filter(p => p.negociosCoincidentes.length > 0).length,
+  }), [filtrados]);
+
+  const firma = `${q}|${soloCoincidentes}|${estadoFiltro}`;
+  const visibles = tanda.firma === firma ? tanda.n : POR_TANDA;
+
+  const hayFiltros = q.trim() !== '' || soloCoincidentes || estadoFiltro !== '';
+  const limpiar = () => { setQ(''); setSoloCoincidentes(false); setEstadoFiltro(''); };
 
   if (cargandoSesion || (!puedeVer && loading)) {
     return (
       <AppLayout breadcrumb={[{ label: 'Proyectos (Obuma)' }]}>
-        <div className="p-6 flex items-center justify-center text-zinc-400"><Loader2 className="animate-spin" size={20} /></div>
+        <div className="p-6 flex items-center justify-center text-tinta-3"><Loader2 className="animate-spin" size={20} /></div>
       </AppLayout>
     );
   }
   if (!puedeVer) return null;
 
-  if (loading) {
-    return (
-      <AppLayout breadcrumb={[{ label: 'Proyectos (Obuma)' }]}>
-        <div className="p-4 sm:p-6 w-full">
-          <div className="bg-white rounded-2xl border border-zinc-200 p-10 flex flex-col items-center justify-center gap-3 text-center max-w-lg mx-auto">
-            <Loader2 className="animate-spin text-indigo-500" size={26} />
-            <p className="text-[13px] font-semibold text-zinc-600">Consultando los Proyectos reales de Obuma…</p>
-            <p className="text-[11.5px] text-zinc-400 max-w-sm">
-              Primera carga: recorre Proyectos, clientes, centros de costo, órdenes de compra y facturas de
-              toda la cuenta. Cacheado 5 minutos — las próximas veces va a estar lista al toque.
-            </p>
-          </div>
-        </div>
-      </AppLayout>
-    );
-  }
-
   return (
     <AppLayout breadcrumb={[{ label: 'Proyectos (Obuma)' }]}>
-      <div className="p-4 sm:p-6 w-full space-y-4">
-        <div className="flex items-center justify-between gap-3 flex-wrap">
-          <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-lg bg-indigo-50 flex items-center justify-center flex-shrink-0"><Folders size={17} className="text-indigo-600" /></div>
-            <div>
-              <h1 className="text-[16px] font-bold text-zinc-900 leading-tight">Proyectos (Obuma)</h1>
-              <p className="text-[12px] text-zinc-500">Dato real, por API — nombre, cliente, presupuesto y facturación reales de Obuma</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="relative">
-              <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-400" />
-              <input value={q} onChange={e => setQ(e.target.value)} placeholder="Buscar por nombre, cliente, referencia, licitación…"
-                className="pl-8 pr-3 py-2 text-[12.5px] border border-zinc-200 rounded-lg outline-none focus:ring-1 focus:ring-indigo-500 w-64" />
-            </div>
-            <select value={estadoFiltro} onChange={e => setEstadoFiltro(e.target.value)}
-              className="text-[12px] border border-zinc-200 rounded-lg px-2.5 py-2 outline-none focus:ring-1 focus:ring-indigo-500 bg-white flex-shrink-0">
-              <option value="">Todos los estados</option>
-              {ESTADOS_FILTRO.map(e => <option key={e} value={e}>{e}</option>)}
-            </select>
-            <button onClick={exportar} disabled={exportando} title="Exportar todos los proyectos y sus órdenes de compra a Excel"
-              className="flex items-center gap-1.5 text-[12px] font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 disabled:opacity-50 px-3 py-2 rounded-lg flex-shrink-0">
-              {exportando ? <Loader2 size={14} className="animate-spin" /> : <FileSpreadsheet size={14} />} Exportar Excel
-            </button>
-            <button onClick={() => cargar(true)} disabled={actualizando} title="Volver a consultar Obuma (ignora la caché de 5 min)"
-              className="flex items-center gap-1.5 text-[12px] font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 disabled:opacity-50 px-3 py-2 rounded-lg flex-shrink-0">
-              {actualizando ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />} Actualizar
-            </button>
-          </div>
-        </div>
+      <div className="@container p-4 sm:p-6 lg:p-8">
+        <Encabezado
+          titulo="Proyectos (Obuma)"
+          descripcion="Lo que Obuma tiene de cada proyecto: su ficha, las órdenes de compra y los gastos contabilizados. Los montos son netos (sin IVA), igual que la ficha, salvo donde dice «con IVA»."
+          acciones={
+            <>
+              <Boton onClick={exportar} disabled={exportando || loading} title="Exportar todos los proyectos y sus órdenes de compra a Excel"
+                icono={exportando ? <Loader2 size={16} className="animate-spin" /> : <FileSpreadsheet size={16} stroke={1.75} />}>
+                {exportando ? 'Exportando…' : 'Exportar'}
+              </Boton>
+              <Boton onClick={() => cargar(true)} disabled={actualizando || loading} title="Volver a leer Obuma ahora (ignora lo guardado)"
+                icono={<RefreshCw size={16} stroke={1.75} className={actualizando ? 'animate-spin' : ''} />}>
+                {actualizando ? 'Actualizando…' : 'Actualizar'}
+              </Boton>
+            </>
+          }
+        />
 
-        {meta && (
-          meta.completo ? (
-            <div className="bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2 flex items-center gap-2 text-[11.5px] text-emerald-700">
-              <CircleCheck size={14} className="flex-shrink-0" />
-              {meta.totalReportadoPorObuma != null
-                ? <>Están los {meta.totalConFicha} de {meta.totalReportadoPorObuma} Proyectos que Obuma dice tener — ninguno se cortó.</>
-                : <>Sin problemas al consultar Obuma.</>}
+        {loading ? (
+          <>
+            <p className="mb-4 text-[13px] text-tinta-2 dark:text-slate-400 max-w-2xl">
+              Leyendo Obuma: proyectos, centros de costo, órdenes de compra y documentos de compra de toda la cuenta. La primera vez
+              toma un rato; después queda guardado y abre al tiro.
+            </p>
+            <div className="grid grid-cols-2 gap-3 @4xl:grid-cols-4">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <div key={i} className="rounded-xl border border-linea bg-white px-4 py-3.5 shadow-tarjeta dark:border-slate-800 dark:bg-slate-900">
+                  <Esqueleto className="h-3 w-24" /><Esqueleto className="mt-3 h-7 w-28" />
+                </div>
+              ))}
             </div>
-          ) : (
-            <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 flex items-center gap-2 text-[11.5px] text-amber-800">
-              <AlertTriangle size={14} className="flex-shrink-0" />
-              {meta.totalReportadoPorObuma != null && meta.totalConFicha !== meta.totalReportadoPorObuma
-                ? <>Ojo: Obuma dice tener {meta.totalReportadoPorObuma} Proyectos, pero solo se pudieron traer {meta.totalConFicha}. </>
-                : null}
-              {meta.fuentesConError.length > 0 && <>Fuentes que fallaron esta corrida: {meta.fuentesConError.join(', ')}. </>}
-              Probá "Actualizar".
+            <div className="mt-5 space-y-3">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <div key={i} className="rounded-xl border border-linea bg-white px-4 py-3.5 shadow-tarjeta dark:border-slate-800 dark:bg-slate-900">
+                  <Esqueleto className="h-4 w-2/3" /><Esqueleto className="mt-2 h-3 w-1/3" />
+                  <div className="mt-4 grid grid-cols-4 gap-3"><Esqueleto className="h-8" /><Esqueleto className="h-8" /><Esqueleto className="h-8" /><Esqueleto className="h-8" /></div>
+                </div>
+              ))}
             </div>
-          )
-        )}
-
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
-          <div className="bg-white rounded-xl border border-zinc-200 p-3">
-            <p className="text-[10.5px] font-bold text-zinc-400 uppercase flex items-center gap-1"><Folders size={11} /> Total</p>
-            <p className="text-[19px] font-bold text-zinc-900 mt-0.5">{stats.total}</p>
-          </div>
-          <button onClick={() => setSoloConFicha(v => !v)}
-            className={`text-left rounded-xl border p-3 transition-colors ${soloConFicha ? 'border-indigo-400 bg-indigo-50 ring-1 ring-indigo-200' : 'border-zinc-200 bg-white hover:bg-zinc-50'}`}>
-            <p className="text-[10.5px] font-bold text-zinc-400 uppercase flex items-center gap-1"><Folders size={11} /> Con ficha real</p>
-            <p className="text-[19px] font-bold text-zinc-900 mt-0.5">{stats.conFicha}</p>
-          </button>
-          <button onClick={() => setSoloCoincidentes(v => !v)}
-            className={`text-left rounded-xl border p-3 transition-colors ${soloCoincidentes ? 'border-emerald-400 bg-emerald-50 ring-1 ring-emerald-200' : 'border-zinc-200 bg-white hover:bg-zinc-50'}`}>
-            <p className="text-[10.5px] font-bold text-zinc-400 uppercase flex items-center gap-1"><LinkIcon size={11} /> Con negocio nuestro</p>
-            <p className="text-[19px] font-bold text-zinc-900 mt-0.5">{stats.conNegocio}</p>
-          </button>
-          <div className="bg-white rounded-xl border border-zinc-200 p-3">
-            <p className="text-[10.5px] font-bold text-zinc-400 uppercase flex items-center gap-1"><Wallet size={11} /> Gasto en OC</p>
-            <p className="text-[15px] font-bold text-zinc-900 mt-0.5">{fmtCLP(stats.totalGasto)}</p>
-          </div>
-          <div className="bg-white rounded-xl border border-zinc-200 p-3">
-            <p className="text-[10.5px] font-bold text-zinc-400 uppercase flex items-center gap-1"><Wallet size={11} /> Facturado real</p>
-            <p className="text-[15px] font-bold text-emerald-700 mt-0.5">{fmtCLP(stats.totalFacturado)}</p>
-          </div>
-        </div>
-
-        {filtrados.length === 0 ? (
-          <p className="text-center text-[12px] text-zinc-400 py-8">Sin resultados para este filtro.</p>
+          </>
         ) : (
-          <div className="space-y-2.5">
-            {filtrados.map(p => (
-              <div key={p.proyectoId} className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
-                <div className="px-4 py-3 flex items-start justify-between gap-3 flex-wrap">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <p className="text-[12.5px] font-bold text-zinc-800">
-                        {p.tieneProyectoReal
-                          ? (p.nombre || `Proyecto #${p.folio}`)
-                          : (p.centros[0]?.nombre || 'Centro de costo sin nombre')}
-                      </p>
-                      {p.estado && (
-                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full border ${ESTADO_COLOR[p.estado] || 'bg-zinc-50 text-zinc-500 border-zinc-200'}`}>
-                          {p.estado}
-                        </span>
-                      )}
-                      {!p.tieneProyectoReal && (
-                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full border bg-zinc-50 text-zinc-400 border-zinc-200 inline-flex items-center gap-0.5">
-                          <FolderX size={9} /> sin ficha de Proyecto
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-[11.5px] text-zinc-500 mt-0.5 truncate">
-                      {p.tieneProyectoReal
-                        ? [p.cliente, p.referencia && `Ref: ${p.referencia}`].filter(Boolean).join(' · ')
-                        : p.centros.map(c => c.nombre || `(ID ${c.id})`).join(' · ')}
-                    </p>
-                    {p.fechaIngreso && <p className="text-[10px] text-zinc-400 mt-0.5">Ingresado: {p.fechaIngreso}</p>}
-                  </div>
-                  <div className="text-right whitespace-nowrap flex-shrink-0">
-                    {p.tieneProyectoReal ? (
-                      <>
-                        <p className="text-[13.5px] font-bold text-zinc-800">{fmtCLP(p.precioNeto)}</p>
-                        <p className="text-[10px] text-zinc-400">presup. {fmtCLP(p.presupuesto)} · costo {fmtCLP(p.costo)}</p>
-                      </>
-                    ) : (
-                      <p className="text-[13.5px] font-bold text-zinc-800">{fmtCLP(p.totalGastado)}</p>
-                    )}
-                    {p.cantidadFacturas > 0 && (
-                      <p className="text-[10.5px] text-emerald-700 font-semibold">facturado {fmtCLP(p.totalFacturado)}</p>
-                    )}
-                    <button onClick={() => setExpandido(v => v === p.proyectoId ? null : p.proyectoId)}
-                      className="text-[10.5px] text-indigo-600 hover:text-indigo-700 font-semibold inline-flex items-center gap-0.5">
-                      {p.cantidadOc} OC{p.cantidadFacturas > 0 ? ` · ${p.cantidadFacturas} facturas` : ''}
-                      {expandido === p.proyectoId ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
-                    </button>
-                  </div>
-                </div>
+          <>
+            {meta && (
+              meta.completo ? (
+                <Banner variante="success" className="mb-4">
+                  {meta.totalReportadoPorObuma != null
+                    ? <>Están los {meta.totalConFicha} de {meta.totalReportadoPorObuma} proyectos que Obuma dice tener</>
+                    : <>Sin problemas al consultar Obuma</>}
+                  {meta.leidoDeObuma && <> y se leyeron completas sus {meta.leidoDeObuma.oc.toLocaleString('es-CL')} órdenes de compra y {meta.leidoDeObuma.documentos.toLocaleString('es-CL')} documentos de compra</>}
+                  {meta.generadoAt && <> (datos de {dayjs(meta.generadoAt).format('D MMM · HH:mm')}; «Actualizar» vuelve a leer Obuma)</>}.
+                </Banner>
+              ) : (
+                <Banner variante="warning" className="mb-4" accion={{ label: 'Actualizar', onClick: () => cargar(true), cargando: actualizando }}>
+                  {meta.totalReportadoPorObuma != null && meta.totalConFicha !== meta.totalReportadoPorObuma
+                    && <>Obuma dice tener {meta.totalReportadoPorObuma} proyectos, pero solo se pudieron traer {meta.totalConFicha}. </>}
+                  {meta.fuentesConError.length > 0 && <>Fuentes que fallaron esta vez: {meta.fuentesConError.join(', ')}. </>}
+                  Las cifras de abajo pueden estar incompletas.
+                </Banner>
+              )
+            )}
 
-                <div className="px-4 pb-3 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-x-4 gap-y-2 border-t border-zinc-100 pt-2.5">
-                  <Campo label="Folio" valor={p.folio != null ? String(p.folio) : '—'} />
-                  <Campo label="Cliente" valor={p.cliente || '—'} />
-                  <Campo label="Referencia" valor={p.referencia || '—'} />
-                  <Campo label="Fecha inicio" valor={p.fechaInicio || '—'} />
-                  <Campo label="Presupuesto" valor={fmtCLP(p.presupuesto)} />
-                  <Campo label="Costo" valor={fmtCLP(p.costo)} />
-                  <Campo label="Precio neto (venta)" valor={fmtCLP(p.precioNeto)} />
-                  <Campo label="Facturado (ficha)" valor={fmtCLP(p.facturadoMonto)} />
-                  <Campo label="Gasto en OC" valor={fmtCLP(p.totalGastado)} />
-                  <Campo label="Facturado real (cruce)" valor={fmtCLP(p.totalFacturado)} destacado={p.totalFacturado > 0} />
-                  <Campo label="Cantidad OC" valor={String(p.cantidadOc)} />
-                  <Campo label="Cantidad facturas" valor={String(p.cantidadFacturas)} />
-                  <div className="col-span-2 sm:col-span-3 md:col-span-4 lg:col-span-6">
-                    <p className="text-[9.5px] font-bold text-zinc-400 uppercase tracking-wide">Centros de costo</p>
-                    <div className="flex flex-wrap gap-1 mt-0.5">
-                      {p.centros.length === 0 ? <span className="text-[11px] text-zinc-400">—</span> : p.centros.map(c => (
-                        <span key={c.id} className={`text-[10.5px] font-medium px-1.5 py-0.5 rounded border ${c.activo ? 'bg-zinc-50 text-zinc-600 border-zinc-200' : 'bg-zinc-50 text-zinc-350 border-zinc-100 line-through'}`}>
-                          {c.nombre || `(ID ${c.id})`}{c.codigo ? ` · ${c.codigo}` : ''}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                </div>
+            {/* Indicadores del conjunto que se ve */}
+            <Lista className="grid grid-cols-2 gap-3 @4xl:grid-cols-4">
+              <Indicador rotulo="Proyectos" valor={filtrados.length}
+                detalle={`${totales.conNegocio} con negocio nuestro${hayFiltros ? ` · de ${proyectos.length}` : ''}`} />
+              <Indicador rotulo="OC vigentes (neto)" valor={totales.ocNeto} formato={fmtMM}
+                detalle={`${totales.ocCant.toLocaleString('es-CL')} OC · sin ${totales.anuladasCant} anuladas (${fmtMM(totales.anuladasTotal)})`} />
+              <Indicador rotulo="Comprometido sin factura (neto)" valor={totales.pendNeto} formato={fmtMM}
+                detalle={`${totales.pendCant} OC emitidas o solicitadas`} />
+              <Indicador rotulo="Gasto contabilizado (neto)" valor={totales.docsNeto} formato={fmtMM}
+                detalle={`${totales.docsCant.toLocaleString('es-CL')} documentos de compra`} />
+            </Lista>
 
-                {p.negociosCoincidentes.length > 0 && (
-                  <div className="px-4 py-2.5 border-t border-zinc-100 bg-emerald-50/50 flex flex-wrap gap-1.5">
-                    {p.negociosCoincidentes.map(n => (
-                      <a key={n.negocioId} href={`/compras/${n.negocioId}`} target="_blank" rel="noreferrer"
-                        className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 px-2 py-1 rounded-full inline-flex items-center gap-1">
-                        <LinkIcon size={10} /> {n.licitacionCodigo}{n.licitacionNombre ? ` — ${n.licitacionNombre.slice(0, 40)}` : ''} <ExternalLink size={10} />
-                      </a>
-                    ))}
-                  </div>
-                )}
-
-                {expandido === p.proyectoId && (
-                  <div className="border-t border-zinc-100">
-                    {p.ocs.length === 0 ? (
-                      <p className="px-4 py-3 text-[11.5px] text-zinc-400">Sin órdenes de compra para este proyecto.</p>
-                    ) : (
-                      <div className="divide-y divide-zinc-50">
-                        {p.ocs.map(oc => (
-                          <div key={oc.compraOcId}>
-                            <button type="button" onClick={() => toggleOc(oc.folio)} disabled={!oc.folio}
-                              className="w-full px-4 py-2 flex items-center justify-between gap-3 text-[11.5px] text-left hover:bg-zinc-50/80 disabled:hover:bg-transparent disabled:cursor-default">
-                              <div className="min-w-0 flex items-center gap-1.5">
-                                <Building2 size={11} className="text-zinc-300 flex-shrink-0" />
-                                <span className="font-semibold text-zinc-700 truncate">{oc.proveedorNombre || 'Proveedor sin nombre'}</span>
-                                {oc.proveedorRut && <span className="text-zinc-400 flex-shrink-0">· {oc.proveedorRut}</span>}
-                                {oc.folio && <span className="text-zinc-400 flex-shrink-0">· folio {oc.folio}</span>}
-                                {oc.estado && <span className="text-zinc-400 flex-shrink-0">· {oc.estado}</span>}
-                              </div>
-                              <div className="text-right flex-shrink-0 whitespace-nowrap flex items-center gap-1.5">
-                                <span className="font-bold text-zinc-700">{fmtCLP(oc.total)}</span>
-                                {oc.fecha && <span className="text-zinc-400">{oc.fecha.slice(0, 10)}</span>}
-                                {oc.folio && (ocAbierta === oc.folio ? <ChevronUp size={11} className="text-zinc-300" /> : <ChevronDown size={11} className="text-zinc-300" />)}
-                              </div>
-                            </button>
-                            {oc.folio && ocAbierta === oc.folio && (
-                              <div className="px-4 pb-2.5 pl-7">
-                                <a href={urlOcEnObuma(oc.compraOcId)} target="_blank" rel="noreferrer"
-                                  className="text-[10.5px] font-semibold text-indigo-600 hover:text-indigo-700 inline-flex items-center gap-1 mb-1">
-                                  <ExternalLink size={10} /> Ver esta orden de compra en Obuma
-                                </a>
-                                {itemsPorFolio[oc.folio]?.estado === 'cargando' && (
-                                  <p className="text-[10.5px] text-zinc-400 flex items-center gap-1 pt-1"><Loader2 size={10} className="animate-spin" /> Cargando ítems…</p>
-                                )}
-                                {itemsPorFolio[oc.folio]?.estado === 'error' && (
-                                  <p className="text-[10.5px] text-amber-600 pt-1">No se pudieron cargar los ítems.</p>
-                                )}
-                                {itemsPorFolio[oc.folio]?.estado === 'listo' && (
-                                  <div className="pt-1 space-y-0.5">
-                                    {(itemsPorFolio[oc.folio] as { estado: 'listo'; items: ItemOc[] }).items.length === 0 ? (
-                                      <p className="text-[10.5px] text-zinc-400">Sin ítems registrados para esta OC.</p>
-                                    ) : (itemsPorFolio[oc.folio] as { estado: 'listo'; items: ItemOc[] }).items.map((it, i) => (
-                                      <div key={i} className="flex items-center justify-between gap-3 text-[10.5px] text-zinc-500">
-                                        <span className="truncate">{it.nombre}</span>
-                                        <span className="flex-shrink-0 whitespace-nowrap">{it.cantidad} × {fmtCLP(it.precioUnitario)} = <b className="text-zinc-700">{fmtCLP(it.subtotal)}</b></span>
-                                      </div>
-                                    ))}
-                                  </div>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                        ))}
-                        {p.ocsTruncadas && (
-                          <p className="px-4 py-2 text-[10.5px] text-zinc-400">
-                            Mostrando las {p.ocs.length} más recientes de {p.cantidadOc} en total.
-                          </p>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                )}
+            {/* Filtros */}
+            <div className="mt-5 mb-5 rounded-xl border border-linea bg-white p-3 shadow-tarjeta dark:border-slate-800 dark:bg-slate-900">
+              <div className="overflow-x-auto">
+                <Pestanas id="proyectos-estado" valor={estadoFiltro} onCambio={setEstadoFiltro}
+                  opciones={[
+                    { valor: '', etiqueta: 'Todos', contador: base.length },
+                    ...ORDEN_ESTADOS.filter(e => conteoEstados[e]).map(e => ({ valor: e, etiqueta: e, contador: conteoEstados[e] })),
+                  ]} />
               </div>
-            ))}
-          </div>
+              <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-linea pt-3 dark:border-slate-800">
+                <div className="relative w-full @2xl:w-80">
+                  <Search size={16} stroke={1.75} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                  <input value={q} onChange={e => setQ(e.target.value)} placeholder="Buscar por nombre, cliente, referencia o licitación…"
+                    aria-label="Buscar proyectos"
+                    className="h-9 w-full rounded-lg border border-linea bg-white pl-9 pr-8 text-sm text-tinta placeholder:text-tinta-3 focus:outline-none focus:ring-2 focus:ring-marca/60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" />
+                  {q && (
+                    <button onClick={() => setQ('')} aria-label="Limpiar búsqueda" title="Limpiar búsqueda"
+                      className="absolute right-1.5 top-1/2 -translate-y-1/2 inline-flex h-6 w-6 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-tinta dark:hover:bg-slate-800">
+                      <X size={14} stroke={1.75} />
+                    </button>
+                  )}
+                </div>
+                <Boton tamano="sm" onClick={() => setSoloCoincidentes(v => !v)} aria-pressed={soloCoincidentes}
+                  className={soloCoincidentes ? 'border-marca/50 text-marca' : ''} icono={<LinkIcon size={16} stroke={1.75} />}>
+                  Solo con negocio nuestro
+                </Boton>
+                {hayFiltros && <Boton tamano="sm" variante="fantasma" onClick={limpiar} icono={<X size={16} stroke={1.75} />}>Limpiar filtros</Boton>}
+              </div>
+            </div>
+
+            {filtrados.length === 0 ? (
+              <Vacio icono={<Folders size={28} stroke={1.5} />} titulo="Ningún proyecto con estos filtros"
+                texto="Prueba con otra búsqueda o con otro estado."
+                accion={hayFiltros ? <Boton tamano="sm" onClick={limpiar} icono={<X size={16} stroke={1.75} />}>Limpiar filtros</Boton> : undefined} />
+            ) : (
+              <>
+                <Lista key={firma} className="space-y-3">
+                  {filtrados.slice(0, visibles).map(p => <TarjetaProyecto key={p.proyectoId} p={p} />)}
+                </Lista>
+                <div className="mt-4 flex items-center justify-between gap-3 text-xs text-tinta-2 dark:text-slate-400">
+                  <span className="tabular-nums">Mostrando {Math.min(visibles, filtrados.length)} de {filtrados.length} proyectos</span>
+                  {visibles < filtrados.length && (
+                    <Boton tamano="sm" onClick={() => setTanda({ firma, n: visibles + POR_TANDA })}>
+                      Ver {Math.min(POR_TANDA, filtrados.length - visibles)} más
+                    </Boton>
+                  )}
+                </div>
+              </>
+            )}
+          </>
         )}
       </div>
     </AppLayout>
   );
 }
 
-function Campo({ label, valor, destacado }: { label: string; valor: string; destacado?: boolean }) {
+// ── Un proyecto ───────────────────────────────────────────────────────────────
+function TarjetaProyecto({ p }: { p: ProyectoObuma }) {
+  const [abierta, setAbierta] = useState(false);
+  const estado = estadoDe(p);
+  const titulo = p.tieneProyectoReal ? (p.nombre || `Proyecto #${p.folio}`) : (p.centros[0]?.nombre || 'Centro de costo sin nombre');
+  const sub = p.tieneProyectoReal
+    ? [p.folio != null && `Folio ${p.folio}`, p.cliente, p.referencia && `Ref. ${p.referencia}`].filter(Boolean).join(' · ')
+    : p.centros.map(c => c.nombre || `(ID ${c.id})`).join(' · ');
+
+  const vig = p.ocVigentes, pend = p.ocPendientes, anul = p.ocAnuladas;
+  // Las OC ya facturadas deberían verse en los documentos de compra: si no se parecen, falta imputar una factura al proyecto o hay gasto sin OC.
+  const facturadasNeto = (vig?.neto ?? 0) - (pend?.neto ?? 0);
+  const docsNeto = p.documentosNeto ?? 0;
+  const dif = facturadasNeto - docsNeto;
+  const mostrarDif = p.cantidadOc > 0 && Math.abs(dif) > 1000;
+
   return (
-    <div className="min-w-0">
-      <p className="text-[9.5px] font-bold text-zinc-400 uppercase tracking-wide">{label}</p>
-      <p className={`text-[11.5px] font-semibold truncate ${destacado ? 'text-emerald-700' : 'text-zinc-700'}`}>{valor}</p>
-    </div>
+    <Tarjeta>
+      <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+        <div className="min-w-0 flex-1">
+          <h3 className="text-[15px] font-semibold leading-snug text-tinta line-clamp-2 dark:text-slate-50" title={titulo}>{titulo}</h3>
+          <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-tinta-2 dark:text-slate-400">
+            <span className="font-medium text-tinta dark:text-slate-100"><Estado color={COLOR_ESTADO[estado] || '#94a3b8'}>{estado}</Estado></span>
+            {sub && <span className="min-w-0 truncate" title={sub}>{sub}</span>}
+          </p>
+        </div>
+        {p.tieneProyectoReal && p.precioNeto != null && (
+          <div className="text-right">
+            <p className="text-[11px] text-tinta-2 dark:text-slate-400">Precio de venta (neto)</p>
+            <p className="text-lg font-semibold tracking-tight tabular-nums text-tinta dark:text-slate-50">{fmtCLP(p.precioNeto)}</p>
+          </div>
+        )}
+      </div>
+
+      {p.tieneProyectoReal && (
+        <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2.5 border-t border-linea/80 pt-3 @3xl:grid-cols-4 dark:border-slate-800">
+          <Dato rotulo="Presupuesto (ficha)">{fmtCLP(p.presupuesto)}</Dato>
+          <Dato rotulo="Costo estimado (ficha)">{fmtCLP(p.costo)}</Dato>
+          <Dato rotulo="Facturado al cliente (ficha)">{fmtCLP(p.facturadoMonto)}</Dato>
+          <Dato rotulo="Inicio">{p.fechaInicio ? fmtFecha(p.fechaInicio) || '—' : '—'}</Dato>
+        </dl>
+      )}
+
+      <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2.5 border-t border-linea/80 pt-3 @3xl:grid-cols-4 dark:border-slate-800">
+        <Dato rotulo="OC vigentes (neto)">
+          {fmtCLP(vig?.neto ?? 0)}<span className="block text-[11px] font-normal text-tinta-2 dark:text-slate-400">{vig?.cantidad ?? 0} OC</span>
+        </Dato>
+        <Dato rotulo="Comprometido sin factura (neto)">
+          {fmtCLP(pend?.neto ?? 0)}<span className="block text-[11px] font-normal text-tinta-2 dark:text-slate-400">{pend?.cantidad ?? 0} OC emitidas</span>
+        </Dato>
+        <Dato rotulo="Gasto contabilizado (neto)">
+          {fmtCLP(docsNeto)}<span className="block text-[11px] font-normal text-tinta-2 dark:text-slate-400">{p.cantidadFacturas} documentos</span>
+        </Dato>
+        <Dato rotulo="OC anuladas (no suman)">
+          {anul?.cantidad ? fmtCLP(anul.total) : '—'}<span className="block text-[11px] font-normal text-tinta-2 dark:text-slate-400">{anul?.cantidad ? `${anul.cantidad} OC, con IVA` : 'ninguna'}</span>
+        </Dato>
+      </dl>
+
+      {p.negociosCoincidentes.length > 0 && (
+        <p className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-linea/80 pt-3 text-xs dark:border-slate-800">
+          <span className="text-tinta-2 dark:text-slate-400">Negocio en Compras</span>
+          {p.negociosCoincidentes.map(n => (
+            <a key={n.negocioId} href={`/compras/${n.negocioId}`} target="_blank" rel="noreferrer"
+              className="inline-flex items-center gap-1 rounded font-medium text-marca hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marca/60"
+              title={n.licitacionNombre || undefined}>
+              {n.licitacionCodigo}{n.licitacionNombre ? ` — ${n.licitacionNombre.slice(0, 40)}` : ''} <ExternalLink size={12} stroke={1.75} />
+            </a>
+          ))}
+        </p>
+      )}
+
+      <div className="mt-3 border-t border-linea/80 pt-2 dark:border-slate-800">
+        <Boton tamano="sm" variante="fantasma" onClick={() => setAbierta(v => !v)} aria-expanded={abierta}
+          icono={<ChevronDown size={16} stroke={1.75} className={`transition-transform duration-150 ${abierta ? 'rotate-180' : ''}`} />}>
+          {abierta ? 'Ocultar' : 'Ver'} las {p.cantidadOc} OC y los {p.cantidadFacturas} documentos de gasto
+        </Boton>
+      </div>
+
+      {abierta && (
+        <div className="mt-1">
+          {mostrarDif && (
+            <p className="mb-3 text-xs text-tinta-2 dark:text-slate-400">
+              Las OC ya facturadas suman <span className="font-semibold tabular-nums text-tinta dark:text-slate-100">{fmtCLP(facturadasNeto)}</span> y
+              los documentos de gasto <span className="font-semibold tabular-nums text-tinta dark:text-slate-100">{fmtCLP(docsNeto)}</span> (neto):
+              hay <span className="font-semibold tabular-nums text-tinta dark:text-slate-100">{fmtCLP(Math.abs(dif))}</span> {dif > 0 ? 'más en OC que en documentos' : 'más en documentos que en OC'}.
+              Revisa en Obuma si falta imputar una factura a este proyecto o si hay gasto sin OC.
+            </p>
+          )}
+          <div className="grid gap-x-6 gap-y-4 @4xl:grid-cols-2">
+            <div>
+              <h4 className="text-[13px] font-semibold text-tinta dark:text-slate-100">Órdenes de compra <span className="tabular-nums text-tinta-3">{p.cantidadOc}</span></h4>
+              {p.ocs.length === 0 ? (
+                <p className="mt-1 text-xs text-tinta-2 dark:text-slate-400">Sin órdenes de compra para este proyecto.</p>
+              ) : (
+                <ul className="mt-1 divide-y divide-linea dark:divide-slate-800">
+                  {p.ocs.map(oc => <FilaOc key={oc.compraOcId} oc={oc} />)}
+                </ul>
+              )}
+              {p.ocsTruncadas && <p className="mt-1 text-xs text-tinta-2 dark:text-slate-400">Mostrando las {p.ocs.length} más recientes de {p.cantidadOc}; los totales de arriba cuentan todas.</p>}
+            </div>
+            <div>
+              <h4 className="text-[13px] font-semibold text-tinta dark:text-slate-100">Documentos de gasto <span className="tabular-nums text-tinta-3">{p.cantidadFacturas}</span></h4>
+              {p.documentos.length === 0 ? (
+                <p className="mt-1 text-xs text-tinta-2 dark:text-slate-400">Sin documentos de compra contabilizados en este proyecto.</p>
+              ) : (
+                <ul className="mt-1 divide-y divide-linea dark:divide-slate-800">
+                  {p.documentos.map((d, i) => <FilaDocumento key={`${d.tipo}-${d.folio}-${i}`} d={d} />)}
+                </ul>
+              )}
+              {p.documentosTruncados && <p className="mt-1 text-xs text-tinta-2 dark:text-slate-400">Mostrando {p.documentos.length} de {p.cantidadFacturas}; el total de arriba cuenta todos.</p>}
+            </div>
+          </div>
+        </div>
+      )}
+    </Tarjeta>
+  );
+}
+
+// Una OC: se abre para ver sus ítems (se piden a Obuma recién al abrirla).
+function FilaOc({ oc }: { oc: OcDelProyecto }) {
+  const toast = useToast();
+  const [abierta, setAbierta] = useState(false);
+  const [items, setItems] = useState<EstadoItems | null>(null);
+  const clave = (oc.estado || '').toUpperCase();
+  const anulada = clave === 'ANULADA';
+
+  const alternar = async () => {
+    if (!oc.folio) return;
+    if (abierta) { setAbierta(false); return; }
+    setAbierta(true);
+    if (items?.estado === 'listo') return;
+    setItems({ estado: 'cargando' });
+    try {
+      const res = await fetch(`/api/compras/proyectos-obuma/items?folio=${encodeURIComponent(oc.folio)}`);
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo consultar');
+      setItems({ estado: 'listo', items: data.items });
+    } catch (e) {
+      setItems({ estado: 'error' });
+      toast.error('No se pudieron cargar los ítems de la OC', e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  return (
+    <li>
+      <button type="button" onClick={alternar} disabled={!oc.folio} aria-expanded={oc.folio ? abierta : undefined}
+        className="flex w-full items-start justify-between gap-3 rounded-lg px-2 py-2 text-left transition-colors duration-150 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marca/60 disabled:cursor-default disabled:hover:bg-transparent dark:hover:bg-slate-800">
+        <span className="min-w-0">
+          <span className="block truncate text-[13px] font-medium text-tinta dark:text-slate-100">{oc.proveedorNombre || 'Proveedor sin nombre'}</span>
+          <span className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-tinta-2 dark:text-slate-400">
+            <span className="font-medium text-tinta dark:text-slate-100"><Estado color={COLOR_OC[clave] || '#94a3b8'}>{nombreEstadoOc(oc.estado)}</Estado></span>
+            {oc.folio && <span className="tabular-nums">OC {oc.folio}</span>}
+            {oc.proveedorRut && <span className="tabular-nums">{oc.proveedorRut}</span>}
+            {oc.fecha && <span>{fmtFecha(oc.fecha)}</span>}
+          </span>
+        </span>
+        <span className="flex-shrink-0 text-right">
+          <span className={`block text-[13px] font-semibold tabular-nums ${anulada ? 'text-tinta-3 line-through' : 'text-tinta dark:text-slate-50'}`}>{fmtCLP(oc.neto ?? oc.total)}</span>
+          <span className="block text-[11px] tabular-nums text-tinta-2 dark:text-slate-400">{fmtCLP(oc.total)} con IVA</span>
+        </span>
+      </button>
+      {abierta && oc.folio && (
+        <div className="px-2 pb-2.5">
+          <a href={urlOcEnObuma(oc.compraOcId)} target="_blank" rel="noreferrer"
+            className="inline-flex items-center gap-1 rounded text-xs font-medium text-marca hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marca/60">
+            <ExternalLink size={12} stroke={1.75} /> Ver esta OC en Obuma
+          </a>
+          {items?.estado === 'cargando' && <div className="mt-2 space-y-1.5"><Esqueleto className="h-3 w-full" /><Esqueleto className="h-3 w-2/3" /></div>}
+          {items?.estado === 'error' && <p className="mt-1 text-xs text-alerta">No se pudieron cargar los ítems. Ciérrala y ábrela de nuevo para reintentar.</p>}
+          {items?.estado === 'listo' && (
+            items.items.length === 0
+              ? <p className="mt-1 text-xs text-tinta-2 dark:text-slate-400">Sin ítems registrados para esta OC.</p>
+              : (
+                <ul className="mt-1.5 space-y-0.5">
+                  {items.items.map((it, i) => (
+                    <li key={i} className="flex items-start justify-between gap-3 text-xs text-tinta-2 dark:text-slate-400">
+                      <span className="min-w-0 truncate" title={it.nombre}>{it.nombre}</span>
+                      <span className="flex-shrink-0 whitespace-nowrap tabular-nums">{it.cantidad} × {fmtCLP(it.precioUnitario)} = <span className="font-semibold text-tinta dark:text-slate-100">{fmtCLP(it.subtotal)}</span></span>
+                    </li>
+                  ))}
+                </ul>
+              )
+          )}
+        </div>
+      )}
+    </li>
+  );
+}
+
+// Un documento de gasto: factura, boleta, nota de crédito (resta) o gasto propio.
+function FilaDocumento({ d }: { d: DocumentoDelProyecto }) {
+  const tipo = TIPO_DOC[d.tipo] || `Documento ${d.tipo}`;
+  const quien = d.proveedorNombre || d.observacion || 'Gasto propio';
+  const resta = d.total < 0;
+  return (
+    <li className="flex items-start justify-between gap-3 px-2 py-2">
+      <span className="min-w-0">
+        <span className="block truncate text-[13px] font-medium text-tinta dark:text-slate-100">
+          {tipo}{d.folio && d.folio !== '0' ? ` N° ${d.folio}` : ''}
+        </span>
+        <span className="block truncate text-xs text-tinta-2 dark:text-slate-400" title={quien}>
+          {quien}{d.fecha ? ` · ${fmtFecha(d.fecha)}` : ''}
+        </span>
+      </span>
+      <span className="flex-shrink-0 text-right">
+        <span className={`block text-[13px] font-semibold tabular-nums ${resta ? 'text-urgente' : 'text-tinta dark:text-slate-50'}`}>{fmtCLP(d.neto ?? d.total)}</span>
+        <span className="block text-[11px] tabular-nums text-tinta-2 dark:text-slate-400">{fmtCLP(d.total)} con IVA{resta ? ' · resta' : ''}</span>
+      </span>
+    </li>
   );
 }
