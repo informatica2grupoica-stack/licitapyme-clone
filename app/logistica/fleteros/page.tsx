@@ -196,7 +196,7 @@ export default function FleterosPage() {
         {formAbierto && (
           <div className="bg-white rounded-xl border border-zinc-200 p-4 space-y-2.5">
             <div>
-              <p className="text-[10px] font-semibold text-zinc-400 uppercase mb-1">Identidad (spec §13.3 — se busca en Obuma, no se tipea a ciegas)</p>
+              <p className="text-[10px] font-semibold text-zinc-400 mb-1">Identidad (spec §13.3 — se busca en Obuma, no se tipea a ciegas)</p>
               <div className="flex items-center gap-1.5">
                 <input value={form.rut} onChange={e => { setForm(f => ({ ...f, rut: e.target.value })); setObumaResultado(null); }} placeholder="RUT del fletero"
                   className="flex-1 text-[12.5px] border border-zinc-200 rounded-lg px-2.5 py-1.5 outline-none focus:ring-1 focus:ring-teal-500" />
@@ -259,7 +259,7 @@ export default function FleterosPage() {
 
         {/* §13.5: sugerencia automática por zona */}
         <div className="bg-white rounded-xl border border-zinc-200 p-4 space-y-2.5">
-          <p className="text-[11px] font-semibold text-zinc-400 uppercase flex items-center gap-1.5"><MapPin size={13} /> Sugerencia por zona de entrega</p>
+          <p className="text-[11px] font-semibold text-zinc-400 flex items-center gap-1.5"><MapPin size={13} /> Sugerencia por zona de entrega</p>
           <div className="flex items-center gap-2 flex-wrap">
             <input value={zonaBusqueda} onChange={e => setZonaBusqueda(e.target.value)} placeholder="Ej: Coyhaique"
               onKeyDown={e => e.key === 'Enter' && buscarSugerencia()}
@@ -306,7 +306,7 @@ export default function FleterosPage() {
                       {f.nombre}
                       <span className="text-[10px] font-semibold text-zinc-400 bg-zinc-100 border border-zinc-200 px-1.5 py-0.5 rounded-full">{CATEGORIA_LABEL[f.categoria]}</span>
                       {f.quedoEnPana && (
-                        <span className="text-[10px] font-semibold text-rose-700 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
+                        <span className="text-[10px] font-medium text-rose-700 flex items-center gap-0.5">
                           <AlertTriangle size={10} /> En pana — descartado
                         </span>
                       )}

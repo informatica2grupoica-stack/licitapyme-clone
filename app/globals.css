@@ -398,40 +398,151 @@
   .status-danger   { @apply bg-rose-50 text-rose-700 border border-rose-200; }
 }
 
-/* ── Sidebar: ítem activo con efecto "pestaña" (notch) que se funde con el panel ──
-   El ítem activo se extiende hasta el borde derecho del sidebar y, en sus esquinas
-   superior e inferior derecha, dos curvas CÓNCAVAS del color del panel de contenido
-   lo enmarcan, creando el efecto de pestaña continua (estilo Urbane) sobre la
-   paleta oscura del menú. La concavidad se logra con máscaras radiales.            */
-.sidebar-tab-active {
-  position: relative;
-  border-top-left-radius: 16px;
-  border-bottom-left-radius: 16px;
-}
-.sidebar-tab-active::before,
-.sidebar-tab-active::after {
-  content: "";
-  position: absolute;
-  right: 0;
-  width: 16px;
-  height: 16px;
-  background: var(--color-surface-2); /* = bg del panel de contenido (slate-50) */
-  pointer-events: none;
-}
-.sidebar-tab-active::before {
-  top: -16px;
-  -webkit-mask: radial-gradient(16px at top left, transparent 0 98%, #000 100%);
-          mask: radial-gradient(16px at top left, transparent 0 98%, #000 100%);
-}
-.sidebar-tab-active::after {
-  bottom: -16px;
-  -webkit-mask: radial-gradient(16px at bottom left, transparent 0 98%, #000 100%);
-          mask: radial-gradient(16px at bottom left, transparent 0 98%, #000 100%);
-}
 
-/* En móvil el sidebar es un drawer flotante (no hay panel a la derecha): ocultamos
-   las muescas para que no queden manchas claras sobre el overlay oscuro. */
-@media (max-width: 1023px) {
-  .sidebar-tab-active::before,
-  .sidebar-tab-active::after { display: none; }
-}
+/* ── Modo oscuro de compatibilidad (licitank-ui, 2026-11-23) ─────────────────────────────
+   Pantallas antiguas que usan bg-white / text-slate-800 / bg-amber-50 sin variante dark:.
+   Solo actúa si el elemento NO trae su propia clase dark:bg-* / dark:text-* / dark:border-*.
+   Al migrar una pantalla a las piezas del kit, estas reglas dejan de hacer falta.     */
+.dark .bg-white:not([class*="dark:bg-"]) { background-color: var(--color-surface); }
+.dark .bg-slate-50:not([class*="dark:bg-"]) { background-color: var(--color-surface-3); }
+.dark .bg-gray-50:not([class*="dark:bg-"]) { background-color: var(--color-surface-3); }
+.dark .bg-zinc-50:not([class*="dark:bg-"]) { background-color: var(--color-surface-3); }
+.dark .bg-neutral-50:not([class*="dark:bg-"]) { background-color: var(--color-surface-3); }
+.dark .bg-stone-50:not([class*="dark:bg-"]) { background-color: var(--color-surface-3); }
+.dark .bg-slate-100:not([class*="dark:bg-"]) { background-color: var(--color-surface-3); }
+.dark .bg-gray-100:not([class*="dark:bg-"]) { background-color: var(--color-surface-3); }
+.dark .bg-zinc-100:not([class*="dark:bg-"]) { background-color: var(--color-surface-3); }
+.dark .bg-neutral-100:not([class*="dark:bg-"]) { background-color: var(--color-surface-3); }
+.dark .bg-slate-200:not([class*="dark:bg-"]) { background-color: #2a2d35; }
+.dark .bg-gray-200:not([class*="dark:bg-"]) { background-color: #2a2d35; }
+.dark .bg-zinc-200:not([class*="dark:bg-"]) { background-color: #2a2d35; }
+.dark .text-slate-900:not([class*="dark:text-"]) { color: #f1f5f9; }
+.dark .text-slate-800:not([class*="dark:text-"]) { color: #f1f5f9; }
+.dark .text-gray-900:not([class*="dark:text-"]) { color: #f1f5f9; }
+.dark .text-gray-800:not([class*="dark:text-"]) { color: #f1f5f9; }
+.dark .text-zinc-900:not([class*="dark:text-"]) { color: #f1f5f9; }
+.dark .text-zinc-800:not([class*="dark:text-"]) { color: #f1f5f9; }
+.dark .text-neutral-900:not([class*="dark:text-"]) { color: #f1f5f9; }
+.dark .text-neutral-800:not([class*="dark:text-"]) { color: #f1f5f9; }
+.dark .text-slate-700:not([class*="dark:text-"]) { color: #cbd5e1; }
+.dark .text-slate-600:not([class*="dark:text-"]) { color: #cbd5e1; }
+.dark .text-gray-700:not([class*="dark:text-"]) { color: #cbd5e1; }
+.dark .text-gray-600:not([class*="dark:text-"]) { color: #cbd5e1; }
+.dark .text-zinc-700:not([class*="dark:text-"]) { color: #cbd5e1; }
+.dark .text-zinc-600:not([class*="dark:text-"]) { color: #cbd5e1; }
+.dark .text-slate-500:not([class*="dark:text-"]) { color: #94a3b8; }
+.dark .text-gray-500:not([class*="dark:text-"]) { color: #94a3b8; }
+.dark .text-zinc-500:not([class*="dark:text-"]) { color: #94a3b8; }
+.dark .border-slate-100:not([class*="dark:border-"]) { border-color: var(--color-border); }
+.dark .border-slate-200:not([class*="dark:border-"]) { border-color: var(--color-border); }
+.dark .border-slate-300:not([class*="dark:border-"]) { border-color: var(--color-border); }
+.dark .border-gray-100:not([class*="dark:border-"]) { border-color: var(--color-border); }
+.dark .border-gray-200:not([class*="dark:border-"]) { border-color: var(--color-border); }
+.dark .border-gray-300:not([class*="dark:border-"]) { border-color: var(--color-border); }
+.dark .border-zinc-100:not([class*="dark:border-"]) { border-color: var(--color-border); }
+.dark .border-zinc-200:not([class*="dark:border-"]) { border-color: var(--color-border); }
+.dark .border-zinc-300:not([class*="dark:border-"]) { border-color: var(--color-border); }
+.dark .border-linea:not([class*="dark:border-"]) { border-color: var(--color-border); }
+.dark .bg-red-50:not([class*="dark:bg-"]) { background-color: rgba(239,68,68,.14); }
+.dark .bg-red-100:not([class*="dark:bg-"]) { background-color: rgba(239,68,68,.14); }
+.dark .border-red-200:not([class*="dark:border-"]) { border-color: rgba(239,68,68,.35); }
+.dark .text-red-600:not([class*="dark:text-"]) { color: #fca5a5; }
+.dark .text-red-700:not([class*="dark:text-"]) { color: #fca5a5; }
+.dark .text-red-800:not([class*="dark:text-"]) { color: #fca5a5; }
+.dark .text-red-900:not([class*="dark:text-"]) { color: #fca5a5; }
+.dark .bg-rose-50:not([class*="dark:bg-"]) { background-color: rgba(244,63,94,.14); }
+.dark .bg-rose-100:not([class*="dark:bg-"]) { background-color: rgba(244,63,94,.14); }
+.dark .border-rose-200:not([class*="dark:border-"]) { border-color: rgba(244,63,94,.35); }
+.dark .text-rose-600:not([class*="dark:text-"]) { color: #fda4af; }
+.dark .text-rose-700:not([class*="dark:text-"]) { color: #fda4af; }
+.dark .text-rose-800:not([class*="dark:text-"]) { color: #fda4af; }
+.dark .text-rose-900:not([class*="dark:text-"]) { color: #fda4af; }
+.dark .bg-amber-50:not([class*="dark:bg-"]) { background-color: rgba(245,158,11,.14); }
+.dark .bg-amber-100:not([class*="dark:bg-"]) { background-color: rgba(245,158,11,.14); }
+.dark .border-amber-200:not([class*="dark:border-"]) { border-color: rgba(245,158,11,.35); }
+.dark .text-amber-600:not([class*="dark:text-"]) { color: #fcd34d; }
+.dark .text-amber-700:not([class*="dark:text-"]) { color: #fcd34d; }
+.dark .text-amber-800:not([class*="dark:text-"]) { color: #fcd34d; }
+.dark .text-amber-900:not([class*="dark:text-"]) { color: #fcd34d; }
+.dark .bg-emerald-50:not([class*="dark:bg-"]) { background-color: rgba(16,185,129,.14); }
+.dark .bg-emerald-100:not([class*="dark:bg-"]) { background-color: rgba(16,185,129,.14); }
+.dark .border-emerald-200:not([class*="dark:border-"]) { border-color: rgba(16,185,129,.35); }
+.dark .text-emerald-600:not([class*="dark:text-"]) { color: #6ee7b7; }
+.dark .text-emerald-700:not([class*="dark:text-"]) { color: #6ee7b7; }
+.dark .text-emerald-800:not([class*="dark:text-"]) { color: #6ee7b7; }
+.dark .text-emerald-900:not([class*="dark:text-"]) { color: #6ee7b7; }
+.dark .bg-green-50:not([class*="dark:bg-"]) { background-color: rgba(34,197,94,.14); }
+.dark .bg-green-100:not([class*="dark:bg-"]) { background-color: rgba(34,197,94,.14); }
+.dark .border-green-200:not([class*="dark:border-"]) { border-color: rgba(34,197,94,.35); }
+.dark .text-green-600:not([class*="dark:text-"]) { color: #86efac; }
+.dark .text-green-700:not([class*="dark:text-"]) { color: #86efac; }
+.dark .text-green-800:not([class*="dark:text-"]) { color: #86efac; }
+.dark .text-green-900:not([class*="dark:text-"]) { color: #86efac; }
+.dark .bg-teal-50:not([class*="dark:bg-"]) { background-color: rgba(20,184,166,.14); }
+.dark .bg-teal-100:not([class*="dark:bg-"]) { background-color: rgba(20,184,166,.14); }
+.dark .border-teal-200:not([class*="dark:border-"]) { border-color: rgba(20,184,166,.35); }
+.dark .text-teal-600:not([class*="dark:text-"]) { color: #5eead4; }
+.dark .text-teal-700:not([class*="dark:text-"]) { color: #5eead4; }
+.dark .text-teal-800:not([class*="dark:text-"]) { color: #5eead4; }
+.dark .text-teal-900:not([class*="dark:text-"]) { color: #5eead4; }
+.dark .bg-cyan-50:not([class*="dark:bg-"]) { background-color: rgba(6,182,212,.14); }
+.dark .bg-cyan-100:not([class*="dark:bg-"]) { background-color: rgba(6,182,212,.14); }
+.dark .border-cyan-200:not([class*="dark:border-"]) { border-color: rgba(6,182,212,.35); }
+.dark .text-cyan-600:not([class*="dark:text-"]) { color: #67e8f9; }
+.dark .text-cyan-700:not([class*="dark:text-"]) { color: #67e8f9; }
+.dark .text-cyan-800:not([class*="dark:text-"]) { color: #67e8f9; }
+.dark .text-cyan-900:not([class*="dark:text-"]) { color: #67e8f9; }
+.dark .bg-sky-50:not([class*="dark:bg-"]) { background-color: rgba(14,165,233,.14); }
+.dark .bg-sky-100:not([class*="dark:bg-"]) { background-color: rgba(14,165,233,.14); }
+.dark .border-sky-200:not([class*="dark:border-"]) { border-color: rgba(14,165,233,.35); }
+.dark .text-sky-600:not([class*="dark:text-"]) { color: #7dd3fc; }
+.dark .text-sky-700:not([class*="dark:text-"]) { color: #7dd3fc; }
+.dark .text-sky-800:not([class*="dark:text-"]) { color: #7dd3fc; }
+.dark .text-sky-900:not([class*="dark:text-"]) { color: #7dd3fc; }
+.dark .bg-blue-50:not([class*="dark:bg-"]) { background-color: rgba(59,130,246,.14); }
+.dark .bg-blue-100:not([class*="dark:bg-"]) { background-color: rgba(59,130,246,.14); }
+.dark .border-blue-200:not([class*="dark:border-"]) { border-color: rgba(59,130,246,.35); }
+.dark .text-blue-600:not([class*="dark:text-"]) { color: #93c5fd; }
+.dark .text-blue-700:not([class*="dark:text-"]) { color: #93c5fd; }
+.dark .text-blue-800:not([class*="dark:text-"]) { color: #93c5fd; }
+.dark .text-blue-900:not([class*="dark:text-"]) { color: #93c5fd; }
+.dark .bg-orange-50:not([class*="dark:bg-"]) { background-color: rgba(249,115,22,.14); }
+.dark .bg-orange-100:not([class*="dark:bg-"]) { background-color: rgba(249,115,22,.14); }
+.dark .border-orange-200:not([class*="dark:border-"]) { border-color: rgba(249,115,22,.35); }
+.dark .text-orange-600:not([class*="dark:text-"]) { color: #fdba74; }
+.dark .text-orange-700:not([class*="dark:text-"]) { color: #fdba74; }
+.dark .text-orange-800:not([class*="dark:text-"]) { color: #fdba74; }
+.dark .text-orange-900:not([class*="dark:text-"]) { color: #fdba74; }
+.dark .bg-yellow-50:not([class*="dark:bg-"]) { background-color: rgba(234,179,8,.14); }
+.dark .bg-yellow-100:not([class*="dark:bg-"]) { background-color: rgba(234,179,8,.14); }
+.dark .border-yellow-200:not([class*="dark:border-"]) { border-color: rgba(234,179,8,.35); }
+.dark .text-yellow-600:not([class*="dark:text-"]) { color: #fde047; }
+.dark .text-yellow-700:not([class*="dark:text-"]) { color: #fde047; }
+.dark .text-yellow-800:not([class*="dark:text-"]) { color: #fde047; }
+.dark .text-yellow-900:not([class*="dark:text-"]) { color: #fde047; }
+.dark .bg-pink-50:not([class*="dark:bg-"]) { background-color: rgba(236,72,153,.14); }
+.dark .bg-pink-100:not([class*="dark:bg-"]) { background-color: rgba(236,72,153,.14); }
+.dark .border-pink-200:not([class*="dark:border-"]) { border-color: rgba(236,72,153,.35); }
+.dark .text-pink-600:not([class*="dark:text-"]) { color: #f9a8d4; }
+.dark .text-pink-700:not([class*="dark:text-"]) { color: #f9a8d4; }
+.dark .text-pink-800:not([class*="dark:text-"]) { color: #f9a8d4; }
+.dark .text-pink-900:not([class*="dark:text-"]) { color: #f9a8d4; }
+
+.dark [class~="bg-gray-50/70"]:not([class*="dark:bg-"]) { background-color: var(--color-surface-3); }
+.dark [class~="bg-slate-50/40"]:not([class*="dark:bg-"]) { background-color: var(--color-surface-3); }
+.dark [class~="bg-slate-50/50"]:not([class*="dark:bg-"]) { background-color: var(--color-surface-3); }
+.dark [class~="bg-slate-50/60"]:not([class*="dark:bg-"]) { background-color: var(--color-surface-3); }
+.dark [class~="bg-slate-50/70"]:not([class*="dark:bg-"]) { background-color: var(--color-surface-3); }
+.dark [class~="bg-slate-50/80"]:not([class*="dark:bg-"]) { background-color: var(--color-surface-3); }
+.dark [class~="bg-slate-50/95"]:not([class*="dark:bg-"]) { background-color: var(--color-surface-3); }
+.dark [class~="bg-white/60"]:not([class*="dark:bg-"]) { background-color: var(--color-surface); }
+.dark [class~="bg-white/70"]:not([class*="dark:bg-"]) { background-color: var(--color-surface); }
+.dark [class~="bg-white/80"]:not([class*="dark:bg-"]) { background-color: var(--color-surface); }
+.dark [class~="bg-white/85"]:not([class*="dark:bg-"]) { background-color: var(--color-surface); }
+.dark [class~="bg-white/95"]:not([class*="dark:bg-"]) { background-color: var(--color-surface); }
+.dark [class~="bg-zinc-100/70"]:not([class*="dark:bg-"]) { background-color: var(--color-surface-3); }
+.dark [class~="bg-zinc-50/30"]:not([class*="dark:bg-"]) { background-color: var(--color-surface-3); }
+.dark [class~="bg-zinc-50/40"]:not([class*="dark:bg-"]) { background-color: var(--color-surface-3); }
+.dark [class~="bg-zinc-50/50"]:not([class*="dark:bg-"]) { background-color: var(--color-surface-3); }
+.dark [class~="bg-zinc-50/60"]:not([class*="dark:bg-"]) { background-color: var(--color-surface-3); }
+.dark [class~="bg-zinc-50/70"]:not([class*="dark:bg-"]) { background-color: var(--color-surface-3); }

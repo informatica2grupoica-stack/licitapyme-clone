@@ -114,7 +114,7 @@ function FilaCompra({ c, onVerFactura }: { c: CompraObuma; onVerFactura: (dteId:
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-[13px] font-semibold text-slate-800 font-mono">Folio {c.folio || c.compraOcId}</span>
             {c.estado && (
-              <span className="text-[10.5px] font-semibold px-2 py-0.5 rounded-full border bg-sky-50 text-sky-700 border-sky-200">
+              <span className="text-[10.5px] font-medium text-sky-700">
                 {c.estado}
               </span>
             )}
@@ -210,7 +210,7 @@ export function ComprasObumaBloque({ codigo }: { codigo: string }) {
       <div className="px-5 py-3.5 border-b border-slate-100 flex items-center gap-2 flex-wrap">
         <ShoppingBag size={15} className="text-slate-400" />
         <span className="text-[13px] font-semibold text-slate-700">Compras (Obuma)</span>
-        <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-sky-100 text-sky-700">
+        <span className="text-[11px] font-medium text-sky-700">
           {compras.length} compra{compras.length !== 1 ? 's' : ''}
         </span>
         <span className="ml-auto text-[12.5px] font-semibold text-slate-800">{fmtCLP(total)}</span>

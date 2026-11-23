@@ -129,8 +129,8 @@ export function AuditoriaCotizacionPanel({ negocioId, cotizacionId, productoId, 
         </div>
         {precio && precio.resultado !== 'NO_VERIFICABLE' && (
           <div className="grid grid-cols-2 gap-3 mt-2">
-            <div><p className="text-[11px] font-semibold text-zinc-400 uppercase">Lo costeado</p><p className="text-[14px] font-semibold text-zinc-800">{precio.requerido?.replace(/^Hasta /, '').replace(' (lo costeado)', '') || '—'}</p></div>
-            <div><p className="text-[11px] font-semibold text-zinc-400 uppercase">Esta cotización</p><p className="text-[14px] font-semibold text-zinc-800">{precio.cotizado || '—'}</p></div>
+            <div><p className="text-[11px] font-semibold text-zinc-400">Lo costeado</p><p className="text-[14px] font-semibold text-zinc-800">{precio.requerido?.replace(/^Hasta /, '').replace(' (lo costeado)', '') || '—'}</p></div>
+            <div><p className="text-[11px] font-semibold text-zinc-400">Esta cotización</p><p className="text-[14px] font-semibold text-zinc-800">{precio.cotizado || '—'}</p></div>
           </div>
         )}
         {item && item.adicionales.length > 0 && !editando && (

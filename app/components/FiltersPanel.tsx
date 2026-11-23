@@ -138,7 +138,7 @@ export function FiltersPanel({ filters, onChange, onClear, onApply }: FiltersPan
                     type="checkbox"
                     checked={filters.estado.includes(key)}
                     onChange={() => toggleEstado(key)}
-                    className="rounded border-gray-300 text-teal-600 focus:ring-blue-500 w-3.5 h-3.5"
+                    className="rounded border-gray-300 text-teal-600 focus:ring-teal-500 w-3.5 h-3.5"
                   />
                   <span className="text-sm text-gray-600 group-hover:text-gray-900 transition-colors">{label}</span>
                 </label>
@@ -155,7 +155,7 @@ export function FiltersPanel({ filters, onChange, onClear, onApply }: FiltersPan
                     type="checkbox"
                     checked={(filters.tipo || []).includes(t.codigo)}
                     onChange={() => toggleTipo(t.codigo)}
-                    className="rounded border-gray-300 text-teal-600 focus:ring-blue-500 w-3.5 h-3.5 flex-shrink-0"
+                    className="rounded border-gray-300 text-teal-600 focus:ring-teal-500 w-3.5 h-3.5 flex-shrink-0"
                   />
                   <span
                     className="text-[10px] font-semibold px-1.5 py-0 rounded text-white flex-shrink-0"
@@ -191,14 +191,14 @@ export function FiltersPanel({ filters, onChange, onClear, onApply }: FiltersPan
                 placeholder="Mín"
                 value={filters.montoMin}
                 onChange={e => onChange({ ...filters, montoMin: e.target.value })}
-                className="w-1/2 px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-1 focus:ring-blue-500 focus:border-teal-500"
+                className="w-1/2 px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-1 focus:ring-teal-500 focus:border-teal-500"
               />
               <input
                 type="number"
                 placeholder="Máx"
                 value={filters.montoMax}
                 onChange={e => onChange({ ...filters, montoMax: e.target.value })}
-                className="w-1/2 px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-1 focus:ring-blue-500 focus:border-teal-500"
+                className="w-1/2 px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-1 focus:ring-teal-500 focus:border-teal-500"
               />
             </div>
           </Section>
@@ -210,14 +210,14 @@ export function FiltersPanel({ filters, onChange, onClear, onApply }: FiltersPan
                 type="date"
                 value={filters.fechaDesde}
                 onChange={e => onChange({ ...filters, fechaDesde: e.target.value })}
-                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-1 focus:ring-blue-500 focus:border-teal-500"
+                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-1 focus:ring-teal-500 focus:border-teal-500"
                 placeholder="Desde"
               />
               <input
                 type="date"
                 value={filters.fechaHasta}
                 onChange={e => onChange({ ...filters, fechaHasta: e.target.value })}
-                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-1 focus:ring-blue-500 focus:border-teal-500"
+                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-1 focus:ring-teal-500 focus:border-teal-500"
                 placeholder="Hasta"
               />
             </div>
@@ -230,7 +230,7 @@ export function FiltersPanel({ filters, onChange, onClear, onApply }: FiltersPan
               placeholder="Ej: Ministerio de Salud..."
               value={filters.organismo}
               onChange={e => onChange({ ...filters, organismo: e.target.value })}
-              className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-1 focus:ring-blue-500 focus:border-teal-500"
+              className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-1 focus:ring-teal-500 focus:border-teal-500"
             />
           </Section>
 

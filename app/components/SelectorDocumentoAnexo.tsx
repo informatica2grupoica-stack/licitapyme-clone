@@ -106,7 +106,7 @@ export function SelectorDocumentoAnexo({
                 {c.documento_nombre}
               </span>
               {i === 0 && mejorPuntaje > 0 && (
-                <span className="flex-shrink-0 text-[9.5px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">
+                <span className="flex-shrink-0 text-[9.5px] font-medium text-emerald-700">
                   Sugerido
                 </span>
               )}

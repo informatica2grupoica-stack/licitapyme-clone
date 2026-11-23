@@ -293,7 +293,7 @@ export function RelojEntregaCard({ negocioId, esJefeDeVentas, puedeOperar }: { n
 
                 {formEntregado && (
                   <div className="bg-teal-50 border border-teal-200 rounded-lg p-2.5 space-y-1.5">
-                    <p className="text-[10.5px] font-semibold text-teal-700 uppercase">Fecha real de entrega</p>
+                    <p className="text-[10.5px] font-semibold text-teal-700">Fecha real de entrega</p>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
                       <input type="date" value={entregadoForm.fecha} onChange={e => setEntregadoForm(f => ({ ...f, fecha: e.target.value }))}
                         className="text-[11.5px] border border-teal-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-teal-500" />
@@ -309,7 +309,7 @@ export function RelojEntregaCard({ negocioId, esJefeDeVentas, puedeOperar }: { n
 
                 {formProrroga && (
                   <div className="bg-zinc-50 border border-zinc-200 rounded-lg p-2.5 space-y-1.5">
-                    <p className="text-[10.5px] font-semibold text-zinc-500 uppercase">Nueva fecha límite y motivo</p>
+                    <p className="text-[10.5px] font-semibold text-zinc-500">Nueva fecha límite y motivo</p>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
                       <input type="date" value={prorrogaForm.nuevaFechaLimite} onChange={e => setProrrogaForm(f => ({ ...f, nuevaFechaLimite: e.target.value }))}
                         className="text-[11.5px] border border-zinc-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-teal-500" />
@@ -325,7 +325,7 @@ export function RelojEntregaCard({ negocioId, esJefeDeVentas, puedeOperar }: { n
 
                 {formMulta && (
                   <div className="bg-rose-50 border border-rose-200 rounded-lg p-2.5 space-y-1.5">
-                    <p className="text-[10.5px] font-semibold text-rose-700 uppercase">Decisión expresa — nunca por silencio ni por atraso</p>
+                    <p className="text-[10.5px] font-semibold text-rose-700">Decisión expresa — nunca por silencio ni por atraso</p>
                     <textarea rows={2} value={multaMotivo} onChange={e => setMultaMotivo(e.target.value)} placeholder="Motivo para entregar con multa…"
                       className="w-full text-[11.5px] border border-rose-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-rose-500" />
                     <button onClick={guardarMulta} disabled={!multaMotivo.trim() || guardandoMulta}

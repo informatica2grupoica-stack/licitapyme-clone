@@ -123,9 +123,9 @@ export default function MisReportesPage() {
                         {r.url} <ExternalLink size={12} className="flex-shrink-0" />
                       </a>
                       <div className="grid gap-3 md:grid-cols-2 text-[13px] text-slate-700 dark:text-slate-200">
-                        <div><p className="text-[11px] font-semibold uppercase text-slate-400 mb-1">Qué pasó</p><p className="whitespace-pre-wrap">{r.que_paso}</p></div>
-                        <div><p className="text-[11px] font-semibold uppercase text-slate-400 mb-1">Qué esperabas</p><p className="whitespace-pre-wrap">{r.que_esperaba}</p></div>
-                        {r.pasos && <div className="md:col-span-2"><p className="text-[11px] font-semibold uppercase text-slate-400 mb-1">Qué estabas haciendo</p><p className="whitespace-pre-wrap">{r.pasos}</p></div>}
+                        <div><p className="text-[11px] font-semibold text-slate-400 mb-1">Qué pasó</p><p className="whitespace-pre-wrap">{r.que_paso}</p></div>
+                        <div><p className="text-[11px] font-semibold text-slate-400 mb-1">Qué esperabas</p><p className="whitespace-pre-wrap">{r.que_esperaba}</p></div>
+                        {r.pasos && <div className="md:col-span-2"><p className="text-[11px] font-semibold text-slate-400 mb-1">Qué estabas haciendo</p><p className="whitespace-pre-wrap">{r.pasos}</p></div>}
                       </div>
                       {r.imagen_url && (
                         <a href={r.imagen_url} target="_blank" rel="noreferrer" title="Abrir captura en tamaño completo">

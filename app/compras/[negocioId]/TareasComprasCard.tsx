@@ -13,8 +13,8 @@ const SI_NO = ['Sí', 'No'] as const;
 const CATEGORIA_LABEL: Record<string, string> = { VALIDACION: 'Validación', ADMINISTRATIVO: 'Plazos administrativos', ENTREGA: 'Entrega y cierre', MANUAL: 'Tareas propias del proyecto' };
 
 function BadgeEstadoTarea({ estado, vencida }: { estado: Tarea['estado']; vencida: boolean }) {
-  if (estado === 'HECHA') return <span className="inline-flex items-center gap-1 text-[10.5px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-full"><CheckCircle2 size={11} /> Hecha</span>;
-  if (estado === 'EN_CURSO') return <span className="inline-flex items-center gap-1 text-[10.5px] font-semibold text-teal-700 bg-teal-50 border border-teal-200 px-1.5 py-0.5 rounded-full"><PlayCircle size={11} /> En curso</span>;
+  if (estado === 'HECHA') return <span className="inline-flex items-center gap-1 text-[10.5px] font-medium text-emerald-700"><CheckCircle2 size={11} /> Hecha</span>;
+  if (estado === 'EN_CURSO') return <span className="inline-flex items-center gap-1 text-[10.5px] font-medium text-teal-700"><PlayCircle size={11} /> En curso</span>;
   return (
     <span className={`inline-flex items-center gap-1 text-[10.5px] font-semibold px-1.5 py-0.5 rounded-full border ${
       vencida ? 'text-rose-700 bg-rose-50 border-rose-200' : 'text-zinc-500 bg-zinc-50 border-zinc-200'
@@ -193,7 +193,7 @@ export function TareasComprasCard() {
                       <p className={`text-[13px] font-semibold ${t.estado === 'HECHA' ? 'text-zinc-400 line-through' : 'text-zinc-800'}`}>{t.titulo}</p>
                       <BadgeEstadoTarea estado={t.estado} vencida={t.vencida} />
                       {t.hallazgo && (
-                        <span className="inline-flex items-center gap-1 text-[10.5px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded-full">
+                        <span className="inline-flex items-center gap-1 text-[10.5px] font-medium text-amber-700">
                           <Flag size={11} /> Con hallazgo
                         </span>
                       )}

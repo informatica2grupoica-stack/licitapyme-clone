@@ -128,7 +128,7 @@ export default function AvisosWhatsappPage() {
             </div>
             {r.ultimos.length === 0 ? <p className="text-[12.5px] text-slate-400">Aún no se ha enviado ningún aviso.</p> : (
               <table className="w-full text-[12.5px]">
-                <thead><tr className="text-left text-[11px] text-slate-400 uppercase"><th className="py-1.5 font-semibold">Aviso</th><th className="font-semibold">Licitación</th><th className="font-semibold">Para</th><th className="font-semibold">Estado</th></tr></thead>
+                <thead><tr className="text-left text-[11px] text-slate-400"><th className="py-1.5 font-semibold">Aviso</th><th className="font-semibold">Licitación</th><th className="font-semibold">Para</th><th className="font-semibold">Estado</th></tr></thead>
                 <tbody>{r.ultimos.map(f => (
                   <tr key={f.id} className="border-t border-slate-100">
                     <td className="py-1.5">{TIPO[f.tipo] ?? f.tipo}</td>

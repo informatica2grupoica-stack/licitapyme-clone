@@ -84,7 +84,7 @@ export default function ReglasIAPage() {
                     <div className="flex flex-wrap items-center gap-2 text-[11px] mb-2">
                       <span className={`px-2 py-0.5 rounded-full font-semibold ${r.ambito === 'lectura' ? 'bg-cyan-100 text-cyan-700' : 'bg-teal-100 text-teal-700'}`}>{r.ambito === 'lectura' ? 'Lectura' : 'Viabilidad'}</span>
                       <span className={`px-2 py-0.5 rounded-full font-semibold ${r.activa ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-600'}`}>{r.activa ? 'Activa' : 'Inactiva'}</span>
-                      {r.sin_destilar && <span className="px-2 py-0.5 rounded-full font-semibold bg-amber-100 text-amber-700">Sin convertir</span>}
+                      {r.sin_destilar && <span className=" font-medium text-amber-700">Sin convertir</span>}
                       <span className="text-slate-500">{fecha(r.created_at)} · {r.licitacion_codigo}{r.autor ? ` · ${r.autor}` : ''}</span>
                       <span className="ml-auto text-slate-500">Usada en {r.veces_usada} {r.veces_usada === 1 ? 'análisis' : 'análisis'}</span>
                     </div>

@@ -194,7 +194,7 @@ export function CostoRealCard({ negocioId, puedeOperar, permitirCierre = true }:
       <div className="px-4 py-3 border-b border-zinc-100 flex items-center gap-2 flex-wrap">
         <Scale size={15} className="text-zinc-400" />
         <span className="text-[13px] font-semibold text-zinc-700">Costo real del negocio</span>
-        {cierre && <span className="ml-auto inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5"><Lock size={11} /> Resultado cerrado</span>}
+        {cierre && <span className="ml-auto inline-flex items-center gap-1 text-[11px] font-medium text-emerald-700"><Lock size={11} /> Resultado cerrado</span>}
       </div>
 
       <div className="p-4 grid grid-cols-1 lg:grid-cols-2 gap-5">

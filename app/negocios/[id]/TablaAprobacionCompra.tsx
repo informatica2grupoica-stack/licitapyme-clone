@@ -172,7 +172,7 @@ export function TablaAprobacionCompra({ negocioId, refresco, esJefeDeVentas, pue
 
   return (
     <div className="space-y-3" data-testid="tabla-aprobacion">
-      <p className="text-[11px] font-semibold text-zinc-400 uppercase px-0.5">Qué se va a aprobar</p>
+      <p className="text-[11px] font-semibold text-zinc-400 px-0.5">Qué se va a aprobar</p>
 
       {/* Resumen en cuatro números */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
@@ -202,9 +202,9 @@ export function TablaAprobacionCompra({ negocioId, refresco, esJefeDeVentas, pue
       <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
         <div className="flex items-center gap-2 flex-wrap px-3.5 py-2.5 bg-zinc-50 border-b border-zinc-100">
           <p className="text-[12.5px] font-semibold text-zinc-800 mr-1">Detalle por producto</p>
-          <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full border bg-emerald-50 text-emerald-700 border-emerald-200">{conteo.PASA} pasan</span>
-          <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full border bg-amber-50 text-amber-800 border-amber-200">{conteo.REVISAR} por revisar</span>
-          <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full border bg-rose-50 text-rose-700 border-rose-200">{conteo.NO_PASA} no pasan</span>
+          <span className="text-[11px] font-medium text-emerald-700">{conteo.PASA} pasan</span>
+          <span className="text-[11px] font-medium text-amber-800">{conteo.REVISAR} por revisar</span>
+          <span className="text-[11px] font-medium text-rose-700">{conteo.NO_PASA} no pasan</span>
           {esJefeDeVentas && pasanSinDecidir.length > 0 && tablaLineasOk && (
             <button type="button" onClick={() => decidir(pasanSinDecidir, 'APROBAR')} disabled={guardando} data-testid="apr-aprobar-los-que-pasan"
               className="text-[11.5px] font-semibold text-emerald-800 border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 disabled:opacity-50 px-2.5 py-1 rounded-lg">Aprobar los {pasanSinDecidir.length} que pasan</button>
@@ -218,7 +218,7 @@ export function TablaAprobacionCompra({ negocioId, refresco, esJefeDeVentas, pue
         <div className="overflow-x-auto">
           <table className="w-full text-[12px] min-w-[980px]">
             <thead>
-              <tr className="text-left text-[10.5px] font-semibold uppercase text-zinc-400 border-b border-zinc-100">
+              <tr className="text-left text-[10.5px] font-semibold text-zinc-400 border-b border-zinc-100">
                 <th className="px-3 py-2 w-8">#</th>
                 <th className="px-2 py-2">Producto</th>
                 <th className="px-2 py-2 text-right">Cant.</th>
@@ -287,7 +287,7 @@ export function TablaAprobacionCompra({ negocioId, refresco, esJefeDeVentas, pue
                           const r = l.compraRapida;
                           if (r.estado === 'APROBADA') return (
                             <div className="space-y-1">
-                              <span className="inline-flex items-center gap-1 text-[11.5px] font-semibold px-2 py-0.5 rounded-full border bg-emerald-50 text-emerald-700 border-emerald-200">{r.yaComprada ? '✔ Ratificada' : '✔ Aprobada'}</span>
+                              <span className="inline-flex items-center gap-1 text-[11.5px] font-medium text-emerald-700">{r.yaComprada ? '✔ Ratificada' : '✔ Aprobada'}</span>
                               {esJefeDeVentas && rechazando !== l.productoId && (
                                 <button type="button" onClick={() => { setRechazando(l.productoId); setMotivo(''); }} disabled={guardando} data-testid={`apr-deshacer-${l.productoId}`} className="block text-[11px] font-semibold text-rose-700 underline">Deshacer aprobación</button>
                               )}
@@ -304,7 +304,7 @@ export function TablaAprobacionCompra({ negocioId, refresco, esJefeDeVentas, pue
                           );
                           if (r.estado === 'RECHAZADA') return (
                             <div className="space-y-0.5">
-                              <span className="inline-flex items-center gap-1 text-[11.5px] font-semibold px-2 py-0.5 rounded-full border bg-rose-50 text-rose-700 border-rose-300">✖ Rechazada</span>
+                              <span className="inline-flex items-center gap-1 text-[11.5px] font-medium text-rose-700">✖ Rechazada</span>
                               {r.comentario && <span className="block text-[11px] text-rose-700 leading-snug">{r.comentario}</span>}
                               <span className="block text-[11px] text-zinc-500">{puedeOperar ? 'Corrígela y reenvíala desde Costeo → Productos.' : 'El encargado debe corregirla.'}</span>
                             </div>
@@ -329,7 +329,7 @@ export function TablaAprobacionCompra({ negocioId, refresco, esJefeDeVentas, pue
                         const d = decisiones[l.productoId];
                         if (d?.estado === 'CORREGIDA') return (
                           <div className="space-y-1">
-                            <span className="inline-flex items-center gap-1 text-[11.5px] font-semibold px-2 py-0.5 rounded-full border bg-amber-50 text-amber-800 border-amber-300">↻ Corregido: por revisar</span>
+                            <span className="inline-flex items-center gap-1 text-[11.5px] font-medium text-amber-800">↻ Corregido: por revisar</span>
                             {d.comentario && <span className="block text-[11px] text-rose-700 leading-snug">Se rechazó por: {d.comentario}</span>}
                             <span className="block text-[11px] text-zinc-600 leading-snug"><b>{d.corregidoPorNombre || 'El encargado'}</b> dice: {d.notaCorreccion}</span>
                             {!esJefeDeVentas && <span className="block text-[11px] text-zinc-400">Esperando que el jefe de ventas lo revise de nuevo</span>}
@@ -405,7 +405,7 @@ export function TablaAprobacionCompra({ negocioId, refresco, esJefeDeVentas, pue
                 <td className="px-3 py-2" colSpan={3}>Total</td>
                 <td className="px-2 py-2 text-right tabular-nums" title="Lo que paga el cliente">{clp(t.venta)}</td>
                 <td className="px-2 py-2 text-right tabular-nums text-zinc-500" title="Lo costeado">{clp(t.costeado)}</td>
-                <td className="px-2 py-2 text-right text-[10.5px] uppercase text-zinc-400" colSpan={1}>Mercadería</td>
+                <td className="px-2 py-2 text-right text-[10.5px] text-zinc-400" colSpan={1}>Mercadería</td>
                 <td className="px-2 py-2 text-right tabular-nums">{clp(t.compra)}</td>
                 <td className={`px-2 py-2 text-right tabular-nums ${t.compra > t.costeado ? 'text-rose-600' : 'text-emerald-600'}`}>{t.costeado > 0 ? `${t.compra > t.costeado ? '+' : ''}${Math.round(((t.compra - t.costeado) / t.costeado) * 1000) / 10}%` : '—'}</td>
                 <td className="px-2 py-2 text-right tabular-nums">{t.margenCompletoPct != null ? `${t.margenCompletoPct}%` : '—'}</td>
@@ -450,7 +450,7 @@ export function TablaAprobacionCompra({ negocioId, refresco, esJefeDeVentas, pue
 function Cifra({ titulo, valor, sub, alerta, bien }: { titulo: string; valor: string; sub: string; alerta?: string | null; bien?: string | null }) {
   return (
     <div className="bg-white rounded-xl border border-zinc-200 px-3.5 py-3">
-      <p className="text-[10.5px] font-semibold uppercase text-zinc-400">{titulo}</p>
+      <p className="text-[10.5px] font-semibold text-zinc-400">{titulo}</p>
       <p className="text-[19px] font-semibold text-zinc-900 tabular-nums leading-tight mt-0.5">{valor}</p>
       <p className="text-[11px] text-zinc-500 mt-0.5">{sub}</p>
       {alerta && <p className="text-[11px] font-semibold text-rose-600 mt-1">{alerta}</p>}

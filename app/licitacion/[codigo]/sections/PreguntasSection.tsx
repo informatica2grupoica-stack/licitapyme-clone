@@ -74,7 +74,7 @@ export function PreguntasSection({ codigoDecoded, mpUrl }: { codigoDecoded: stri
         title="Preguntas Licitación"
         subtitle="Foro de preguntas y respuestas del proceso — se mantiene al día solo (cron cada hora)"
         badge={foro && foro.preguntas.length > 0
-          ? <span className="px-2 py-0.5 bg-teal-100 text-teal-700 text-xs rounded-full font-semibold">{foro.preguntas.length}</span>
+          ? <span className=" text-teal-700 text-xs font-medium">{foro.preguntas.length}</span>
           : undefined}
         action={estado === 'ok'
           ? <button onClick={actualizar} title="Forzar consulta en vivo (no espera al cron)"

@@ -49,7 +49,7 @@ export function PanelValidador({ validador }: { validador?: { ok?: boolean; hall
         <AlertTriangle size={16} className={hayErrores ? 'text-red-600' : 'text-amber-600'} />
         <p className="flex-1 text-[13px] text-slate-700 leading-snug">
           <span className="font-semibold">Validador automático:</span> {hallazgos.length} {hallazgos.length === 1 ? 'inconsistencia' : 'inconsistencias'}
-          {errores.length > 0 && <span className="ml-2 text-[11.5px] font-semibold text-red-700 bg-red-100 px-2 py-0.5 rounded-full">{errores.length} por revisar antes de confiar en el informe</span>}
+          {errores.length > 0 && <span className="ml-2 text-[11.5px] font-medium text-red-700">{errores.length} por revisar antes de confiar en el informe</span>}
         </p>
         <ChevronDown size={14} className={`text-slate-400 transition-transform ${abierto ? 'rotate-180' : ''}`} />
       </button>

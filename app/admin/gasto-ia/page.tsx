@@ -195,7 +195,7 @@ export default function GastoIAPage() {
                                   <div className="flex items-baseline justify-between gap-2">
                                     <p className="text-[13px] font-semibold text-slate-800 dark:text-slate-100 truncate">
                                       {p.nombre}
-                                      {p.rol === 'admin' && <span className="ml-1.5 text-[10px] font-semibold uppercase text-teal-600">admin</span>}
+                                      {p.rol === 'admin' && <span className="ml-1.5 text-[10px] font-semibold text-teal-600">admin</span>}
                                     </p>
                                     <p className="text-[13px] font-semibold text-slate-900 dark:text-slate-50 tabular-nums">{usd(p.costo)}</p>
                                   </div>

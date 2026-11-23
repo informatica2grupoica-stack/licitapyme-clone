@@ -387,7 +387,7 @@ export default function DescartadasPage() {
               <p className="text-sm text-slate-500 py-6 text-center">Ninguna descartada coincide con el filtro.</p>
             )}
             {itemsFiltrados.map(d => (
-              <div key={d.id} className="bg-white rounded-xl border border-slate-200 border-l-4 border-l-red-500 p-4 shadow-sm">
+              <div key={d.id} className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
@@ -464,7 +464,7 @@ export default function DescartadasPage() {
             </div>
             <div className="space-y-2">
               {radarFiltrados.map(r => (
-                <div key={r.licitacion_codigo} className="bg-white rounded-xl border border-slate-200 border-l-4 border-l-slate-400 p-3.5 shadow-sm">
+                <div key={r.licitacion_codigo} className="bg-white rounded-xl border border-slate-200 p-3.5 shadow-sm">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">

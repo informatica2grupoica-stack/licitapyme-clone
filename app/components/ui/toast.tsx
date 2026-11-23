@@ -47,15 +47,6 @@ function icon(variant: Variant) {
   }
 }
 
-function accent(variant: Variant): string {
-  switch (variant) {
-    case 'success': return 'border-l-emerald-500';
-    case 'error':   return 'border-l-red-500';
-    case 'warning': return 'border-l-amber-500';
-    default:        return 'border-l-sky-500';
-  }
-}
-
 // ── Toast individual ──────────────────────────────────────────────────────────
 
 function Toast({
@@ -89,7 +80,7 @@ function Toast({
       }}
       className={`
         flex items-start gap-3
-        bg-zinc-900 border border-zinc-800 border-l-2 ${accent(toast.variant)}
+        bg-zinc-900 border border-zinc-800
         rounded-xl px-4 py-3.5
         shadow-[0_8px_30px_rgba(0,0,0,0.5)]
         text-white

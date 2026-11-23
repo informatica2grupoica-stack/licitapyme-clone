@@ -208,7 +208,7 @@ export function ResultsGrid({ opportunities, loading = false, onFavoriteToggle, 
                   {/* ¿A quién está asignada? Visible para todos (regla: la asignación se ve en toda la app). */}
                   {asig && (
                     <span
-                      className="inline-flex items-center gap-1 text-[11px] font-semibold text-blue-700 bg-blue-50 border border-blue-200 px-2 py-1 rounded-lg"
+                      className="inline-flex items-center gap-1 text-[11px] font-semibold text-teal-700 bg-blue-50 border border-blue-200 px-2 py-1 rounded-lg"
                       title={`Asignada a ${asig.asignado_nombre || 'un perfil'}`}
                     >
                       <UserCheck size={12} /> {asig.asignado_nombre || 'Asignada'}

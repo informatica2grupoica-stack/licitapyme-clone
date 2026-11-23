@@ -8,22 +8,24 @@ interface BadgeProps {
   variant?: Variant;
   children: React.ReactNode;
   className?: string;
+  /** Se mantiene por compatibilidad: ahora el punto de color siempre se muestra. */
   dot?: boolean;
 }
 
+// licitank-ui: estados con punto de color + texto, sin fondo ni borde (nada de pastillas).
 const variantMap: Record<Variant, string> = {
-  default:         'bg-slate-100 text-slate-600 border border-slate-200',
-  primary:         'bg-teal-50 text-teal-700 border border-teal-200',
-  success:         'bg-emerald-50 text-emerald-700 border border-emerald-200',
-  warning:         'bg-amber-50 text-amber-700 border border-amber-200',
-  danger:          'bg-rose-50 text-rose-700 border border-rose-200',
-  info:            'bg-sky-50 text-sky-700 border border-sky-200',
-  'bases-admin':   'bg-blue-50 text-blue-700 border border-blue-200',
-  'bases-tecnicas':'bg-slate-50 text-slate-700 border border-slate-200',
-  'criterios':     'bg-amber-50 text-amber-700 border border-amber-200',
-  'anexos':        'bg-emerald-50 text-emerald-700 border border-emerald-200',
-  'proceso':       'bg-slate-100 text-slate-600 border border-slate-200',
-  'otros':         'bg-rose-50 text-rose-700 border border-rose-200',
+  default:         'text-tinta-2 dark:text-slate-300',
+  primary:         'text-teal-700 dark:text-teal-300',
+  success:         'text-emerald-700 dark:text-emerald-400',
+  warning:         'text-amber-700 dark:text-amber-400',
+  danger:          'text-red-700 dark:text-red-400',
+  info:            'text-sky-700 dark:text-sky-400',
+  'bases-admin':   'text-teal-700 dark:text-teal-400',
+  'bases-tecnicas':'text-tinta-2 dark:text-slate-300',
+  'criterios':     'text-amber-700 dark:text-amber-400',
+  'anexos':        'text-emerald-700 dark:text-emerald-400',
+  'proceso':       'text-tinta-2 dark:text-slate-300',
+  'otros':         'text-red-700 dark:text-red-400',
 };
 
 const dotMap: Record<Variant, string> = {
@@ -31,24 +33,20 @@ const dotMap: Record<Variant, string> = {
   primary:         'bg-teal-500',
   success:         'bg-emerald-500',
   warning:         'bg-amber-500',
-  danger:          'bg-rose-500',
+  danger:          'bg-red-500',
   info:            'bg-sky-500',
   'bases-admin':   'bg-blue-500',
   'bases-tecnicas':'bg-slate-500',
   'criterios':     'bg-amber-500',
   'anexos':        'bg-emerald-500',
   'proceso':       'bg-slate-400',
-  'otros':         'bg-rose-500',
+  'otros':         'bg-red-500',
 };
 
-export function Badge({ variant = 'default', children, className, dot }: BadgeProps) {
+export function Badge({ variant = 'default', children, className }: BadgeProps) {
   return (
-    <span className={cn(
-      'inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-semibold',
-      variantMap[variant],
-      className,
-    )}>
-      {dot && <span className={cn('w-1.5 h-1.5 rounded-full flex-shrink-0', dotMap[variant])} />}
+    <span className={cn('inline-flex items-center gap-1.5 text-xs font-medium', variantMap[variant], className)}>
+      <span className={cn('w-1.5 h-1.5 rounded-full flex-shrink-0', dotMap[variant])} />
       {children}
     </span>
   );

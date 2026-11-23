@@ -92,7 +92,7 @@ async function buscarOcRealSimilar(
     if (/anulad/i.test(String(oc.compra_oc_estado || ''))) continue;   // una OC anulada no es duplicado (negocio 256: la 3810 anulada hacía saltar el aviso de la 3811)
     const texto = normalizar(`${oc.compra_oc_referencia || ''} ${oc.compra_oc_observacion || ''}`);
     // Si la OC nombra OTRA licitación (código tipo 2494-56-LE26) y no la nuestra, es de otro negocio: una palabra suelta como
-    // «COYHAIQUE» no la vuelve duplicado (negocio 183, 1095439-8-LP26: salía por las OC 3900/3901 de 2494-56-LE26).
+    // «COYHAIQUE» no la vuelve duplicado (negocio 308, 1095439-8-LP26: salía por las OC 3900/3901 de 2494-56-LE26).
     // Regla del dueño: el aviso solo sale si la OC existente nombra ESTA licitación (por eso se escribe el código en la referencia).
     // Una OC sin el código de esta licitación nunca es «posible duplicado», aunque comparta palabras.
     if (licitacionCodigo && !texto.includes(normalizar(licitacionCodigo))) continue;

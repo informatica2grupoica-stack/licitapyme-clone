@@ -48,6 +48,7 @@ import { ResumenAuditorPanel } from './ResumenAuditorPanel';
 import { SelectorLineasOferta } from './SelectorLineasOferta';
 import { tieneInformacionComercial } from '@/app/lib/checklist-comercial';
 import { registrarVerSeccion } from '@/app/lib/actividad-cliente';
+import { ReclamosOrganismo } from '@/app/components/ui/ReclamosOrganismo';
 import { IconArrowLeft as ArrowLeft, IconCalendar as Calendar, IconCurrencyDollar as DollarSign, IconTag as Tag, IconLoader2 as Loader2, IconAlertCircle as AlertCircle, IconFileText as FileText, IconX as X, IconPackage as Package, IconHash as Hash, IconClock as Clock, IconDownload as Download, IconRobot as Bot, IconBrain as Brain, IconRefresh as RefreshCw, IconChartBar as BarChart3, IconBook2 as BookOpen, IconTrendingUp as TrendingUp, IconCircleCheck as CheckCircle, IconUpload as Upload, IconFiles as Files, IconShieldExclamation as ShieldAlert, IconAward as Award, IconTool as Wrench, IconShoppingCart as ShoppingCart, IconArrowUpRight as ArrowUpRight, IconBuilding as Building2, IconCalculator as Calculator } from '@tabler/icons-react';
 
 // ── Tipos ──────────────────────────────────────────────────────────────────────
@@ -340,14 +341,14 @@ function TablaItems({ items }: { items: ItemEspec[] }) {
           <h3 className="text-[12px] font-semibold text-slate-700">
             Ítems / Especificaciones Técnicas
           </h3>
-          <span className="ml-auto text-[11px] bg-teal-100 text-teal-700 px-2 py-0.5 rounded-full font-semibold">
+          <span className="ml-auto text-[11px] text-teal-700 font-medium">
             {items.length} ítems
           </span>
         </div>
         {/* Stats */}
         <div className="flex gap-3 mb-2">
           {conCantidad > 0 && (
-            <span className="text-[10px] text-teal-700 bg-teal-50 border border-teal-200 px-2 py-0.5 rounded-full">
+            <span className="text-[10px] text-teal-700">
               {conCantidad} con cantidad
             </span>
           )}
@@ -387,10 +388,10 @@ function TablaItems({ items }: { items: ItemEspec[] }) {
         <>
           {/* Cabecera de columnas */}
           <div className="grid grid-cols-[2rem_1fr_5rem] sm:grid-cols-[2rem_1fr_6rem_5rem] gap-0 px-4 py-1.5 bg-slate-50 border-b border-slate-100">
-            <span className="text-[10px] font-semibold text-slate-400 uppercase">#</span>
-            <span className="text-[10px] font-semibold text-slate-400 uppercase">Ítem / Descripción</span>
-            <span className="hidden sm:block text-[10px] font-semibold text-slate-400 uppercase text-right">Unidad</span>
-            <span className="text-[10px] font-semibold text-slate-400 uppercase text-right">Cant.</span>
+            <span className="text-[10px] font-semibold text-slate-400">#</span>
+            <span className="text-[10px] font-semibold text-slate-400">Ítem / Descripción</span>
+            <span className="hidden sm:block text-[10px] font-semibold text-slate-400 text-right">Unidad</span>
+            <span className="text-[10px] font-semibold text-slate-400 text-right">Cant.</span>
           </div>
 
           <div className="divide-y divide-slate-50 max-h-[500px] overflow-y-auto">
@@ -428,7 +429,7 @@ function TablaItems({ items }: { items: ItemEspec[] }) {
                       )}
                       {abierto && it.requisitosMinimos && (
                         <div className="mt-1.5 p-2 bg-amber-50 rounded-lg border border-amber-100">
-                          <p className="text-[10px] font-semibold text-amber-600 uppercase mb-0.5">Requisitos mínimos</p>
+                          <p className="text-[10px] font-semibold text-amber-600 mb-0.5">Requisitos mínimos</p>
                           <p className="text-[11px] text-amber-800 leading-relaxed">{it.requisitosMinimos}</p>
                         </div>
                       )}
@@ -918,6 +919,7 @@ function DetalleContent() {
                   <Building2 size={15} className="text-slate-400 flex-shrink-0" />{negocio.licitacion_organismo}
                 </p>
               )}
+              {oportunidad && <ReclamosOrganismo cantidad={oportunidad.reclamos_12m} />}
             </header>
 
             {/* Barra de gestión (2026-11-09): antes era la columna derecha; ahora va arriba y queda

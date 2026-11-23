@@ -284,7 +284,7 @@ function ModalPermisos({ usuario, onGuardado, onCerrar }: {
                       <div className="flex items-start justify-between gap-3 mb-1">
                         <div className="min-w-0">
                           <div className="flex items-center gap-2 text-[15px] font-semibold text-gray-900 dark:text-zinc-100">
-                            <cat.icon size={17} className={destacado ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400 dark:text-zinc-500'} />
+                            <cat.icon size={17} className={destacado ? 'text-teal-600 dark:text-teal-400' : 'text-gray-400 dark:text-zinc-500'} />
                             {cat.label}
                             <span className="text-xs font-medium text-gray-400 dark:text-zinc-500">{activos} de {claves.length}</span>
                           </div>
@@ -293,7 +293,7 @@ function ModalPermisos({ usuario, onGuardado, onCerrar }: {
                         <button type="button" onClick={() => fijarGrupo(cat.key, !todos)}
                           className={`flex-shrink-0 px-3 py-1.5 rounded-lg text-[13px] font-semibold transition-colors ${todos
                             ? 'border border-gray-200 dark:border-white/15 text-gray-600 dark:text-zinc-300 hover:bg-white dark:hover:bg-white/5'
-                            : destacado ? 'bg-blue-600 hover:bg-blue-700 text-white' : 'border border-blue-200 dark:border-blue-500/30 text-blue-700 dark:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-500/10'}`}>
+                            : destacado ? 'bg-teal-600 hover:bg-teal-700 text-white' : 'border border-blue-200 dark:border-blue-500/30 text-teal-700 dark:text-teal-300 hover:bg-blue-50 dark:hover:bg-blue-500/10'}`}>
                           {todos ? 'Quitar todo' : destacado ? 'Dar acceso completo al Auditor' : 'Activar todo'}
                         </button>
                       </div>
@@ -371,7 +371,7 @@ function ModalPermisos({ usuario, onGuardado, onCerrar }: {
         <div className="flex gap-3 px-6 py-4 border-t border-gray-100 dark:border-white/10 flex-shrink-0">
           <button onClick={onCerrar} className="flex-1 py-2 border border-gray-200 dark:border-white/15 text-gray-700 dark:text-zinc-300 rounded-lg text-sm hover:bg-gray-50 dark:hover:bg-white/5 transition-colors">Cancelar</button>
           <button onClick={guardar} disabled={cargando}
-            className="flex-1 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 dark:disabled:bg-zinc-700 text-white rounded-lg text-sm font-semibold flex items-center justify-center gap-1.5 transition-colors">
+            className="flex-1 py-2 bg-teal-600 hover:bg-teal-700 disabled:bg-gray-300 dark:disabled:bg-zinc-700 text-white rounded-lg text-sm font-semibold flex items-center justify-center gap-1.5 transition-colors">
             {cargando ? <Loader2 size={14} className="animate-spin" /> : <ShieldCheck size={14} />} Guardar permisos
           </button>
         </div>
@@ -442,7 +442,7 @@ function ModalNuevoUsuario({
             <div className="relative">
               <User size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-zinc-500" />
               <input type="text" value={form.nombre} onChange={e => setForm(p => ({ ...p, nombre: e.target.value }))}
-                placeholder="Juan Pérez" className="w-full pl-8 pr-3 py-2 border border-gray-200 dark:border-white/15 dark:bg-zinc-800 dark:text-zinc-100 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+                placeholder="Juan Pérez" className="w-full pl-8 pr-3 py-2 border border-gray-200 dark:border-white/15 dark:bg-zinc-800 dark:text-zinc-100 rounded-lg text-sm focus:ring-2 focus:ring-teal-500 outline-none" />
             </div>
           </div>
           <div>
@@ -450,7 +450,7 @@ function ModalNuevoUsuario({
             <div className="relative">
               <Briefcase size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-zinc-500" />
               <input type="text" value={form.empresa} onChange={e => setForm(p => ({ ...p, empresa: e.target.value }))}
-                placeholder="Mi Empresa SpA" className="w-full pl-8 pr-3 py-2 border border-gray-200 dark:border-white/15 dark:bg-zinc-800 dark:text-zinc-100 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+                placeholder="Mi Empresa SpA" className="w-full pl-8 pr-3 py-2 border border-gray-200 dark:border-white/15 dark:bg-zinc-800 dark:text-zinc-100 rounded-lg text-sm focus:ring-2 focus:ring-teal-500 outline-none" />
             </div>
           </div>
           <div>
@@ -458,7 +458,7 @@ function ModalNuevoUsuario({
             <div className="relative">
               <Mail size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-zinc-500" />
               <input type="email" value={form.email} onChange={e => setForm(p => ({ ...p, email: e.target.value }))}
-                placeholder="usuario@empresa.cl" required className="w-full pl-8 pr-3 py-2 border border-gray-200 dark:border-white/15 dark:bg-zinc-800 dark:text-zinc-100 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+                placeholder="usuario@empresa.cl" required className="w-full pl-8 pr-3 py-2 border border-gray-200 dark:border-white/15 dark:bg-zinc-800 dark:text-zinc-100 rounded-lg text-sm focus:ring-2 focus:ring-teal-500 outline-none" />
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
@@ -474,7 +474,7 @@ function ModalNuevoUsuario({
                   <Icon size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-zinc-500" />
                   <input type={type} value={form[k]} onChange={e => setForm(p => ({ ...p, [k]: e.target.value }))}
                     placeholder={ph} maxLength={k === 'cargo' || k === 'area' ? 100 : 20}
-                    className="w-full pl-8 pr-3 py-2 border border-gray-200 dark:border-white/15 dark:bg-zinc-800 dark:text-zinc-100 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+                    className="w-full pl-8 pr-3 py-2 border border-gray-200 dark:border-white/15 dark:bg-zinc-800 dark:text-zinc-100 rounded-lg text-sm focus:ring-2 focus:ring-teal-500 outline-none" />
                 </div>
               </div>
             ))}
@@ -485,7 +485,7 @@ function ModalNuevoUsuario({
               <Lock size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-zinc-500" />
               <input type={mostrarPass ? 'text' : 'password'} value={form.password} onChange={e => setForm(p => ({ ...p, password: e.target.value }))}
                 placeholder="Mín. 8 caracteres" required minLength={8}
-                className="w-full pl-8 pr-9 py-2 border border-gray-200 dark:border-white/15 dark:bg-zinc-800 dark:text-zinc-100 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+                className="w-full pl-8 pr-9 py-2 border border-gray-200 dark:border-white/15 dark:bg-zinc-800 dark:text-zinc-100 rounded-lg text-sm focus:ring-2 focus:ring-teal-500 outline-none" />
               <button type="button" onClick={() => setMostrarPass(!mostrarPass)}
                 className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:text-zinc-500 dark:hover:text-zinc-300">
                 {mostrarPass ? <EyeOff size={14} /> : <Eye size={14} />}
@@ -510,7 +510,7 @@ function ModalNuevoUsuario({
               Cancelar
             </button>
             <button type="submit" disabled={cargando || !form.email || !form.password}
-              className="flex-1 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 dark:disabled:bg-zinc-700 text-white rounded-lg text-sm font-semibold transition-colors flex items-center justify-center gap-1.5">
+              className="flex-1 py-2 bg-teal-600 hover:bg-teal-700 disabled:bg-gray-300 dark:disabled:bg-zinc-700 text-white rounded-lg text-sm font-semibold transition-colors flex items-center justify-center gap-1.5">
               {cargando ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
               Crear usuario
             </button>
@@ -584,7 +584,7 @@ function ModalEditarUsuario({ usuario, onGuardado, onCerrar }: {
             <div className="relative">
               <User size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-zinc-500" />
               <input type="text" value={form.nombre} onChange={e => setForm(p => ({ ...p, nombre: e.target.value }))}
-                placeholder="Juan Pérez" className="w-full pl-8 pr-3 py-2 border border-gray-200 dark:border-white/15 dark:bg-zinc-800 dark:text-zinc-100 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+                placeholder="Juan Pérez" className="w-full pl-8 pr-3 py-2 border border-gray-200 dark:border-white/15 dark:bg-zinc-800 dark:text-zinc-100 rounded-lg text-sm focus:ring-2 focus:ring-teal-500 outline-none" />
             </div>
           </div>
           <div>
@@ -592,7 +592,7 @@ function ModalEditarUsuario({ usuario, onGuardado, onCerrar }: {
             <div className="relative">
               <Briefcase size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-zinc-500" />
               <input type="text" value={form.empresa} onChange={e => setForm(p => ({ ...p, empresa: e.target.value }))}
-                placeholder="Mi Empresa SpA" className="w-full pl-8 pr-3 py-2 border border-gray-200 dark:border-white/15 dark:bg-zinc-800 dark:text-zinc-100 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+                placeholder="Mi Empresa SpA" className="w-full pl-8 pr-3 py-2 border border-gray-200 dark:border-white/15 dark:bg-zinc-800 dark:text-zinc-100 rounded-lg text-sm focus:ring-2 focus:ring-teal-500 outline-none" />
             </div>
           </div>
           <div>
@@ -600,7 +600,7 @@ function ModalEditarUsuario({ usuario, onGuardado, onCerrar }: {
             <div className="relative">
               <Mail size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-zinc-500" />
               <input type="email" value={form.email} onChange={e => setForm(p => ({ ...p, email: e.target.value }))}
-                required className="w-full pl-8 pr-3 py-2 border border-gray-200 dark:border-white/15 dark:bg-zinc-800 dark:text-zinc-100 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+                required className="w-full pl-8 pr-3 py-2 border border-gray-200 dark:border-white/15 dark:bg-zinc-800 dark:text-zinc-100 rounded-lg text-sm focus:ring-2 focus:ring-teal-500 outline-none" />
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
@@ -616,7 +616,7 @@ function ModalEditarUsuario({ usuario, onGuardado, onCerrar }: {
                   <Icon size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-zinc-500" />
                   <input type={type} value={form[k]} onChange={e => setForm(p => ({ ...p, [k]: e.target.value }))}
                     placeholder={ph} maxLength={k === 'cargo' || k === 'area' ? 100 : 20}
-                    className="w-full pl-8 pr-3 py-2 border border-gray-200 dark:border-white/15 dark:bg-zinc-800 dark:text-zinc-100 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+                    className="w-full pl-8 pr-3 py-2 border border-gray-200 dark:border-white/15 dark:bg-zinc-800 dark:text-zinc-100 rounded-lg text-sm focus:ring-2 focus:ring-teal-500 outline-none" />
                 </div>
               </div>
             ))}
@@ -636,7 +636,7 @@ function ModalEditarUsuario({ usuario, onGuardado, onCerrar }: {
               <Lock size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-zinc-500" />
               <input type={mostrarPass ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)}
                 placeholder="Dejar en blanco para no cambiarla" minLength={8}
-                className="w-full pl-8 pr-9 py-2 border border-gray-200 dark:border-white/15 dark:bg-zinc-800 dark:text-zinc-100 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+                className="w-full pl-8 pr-9 py-2 border border-gray-200 dark:border-white/15 dark:bg-zinc-800 dark:text-zinc-100 rounded-lg text-sm focus:ring-2 focus:ring-teal-500 outline-none" />
               <button type="button" onClick={() => setMostrarPass(!mostrarPass)}
                 className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:text-zinc-500 dark:hover:text-zinc-300">
                 {mostrarPass ? <EyeOff size={14} /> : <Eye size={14} />}
@@ -648,7 +648,7 @@ function ModalEditarUsuario({ usuario, onGuardado, onCerrar }: {
             <button type="button" onClick={onCerrar}
               className="flex-1 py-2 border border-gray-200 dark:border-white/15 text-gray-700 dark:text-zinc-300 rounded-lg text-sm hover:bg-gray-50 dark:hover:bg-white/5 transition-colors">Cancelar</button>
             <button type="submit" disabled={cargando || !form.email}
-              className="flex-1 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 dark:disabled:bg-zinc-700 text-white rounded-lg text-sm font-semibold transition-colors flex items-center justify-center gap-1.5">
+              className="flex-1 py-2 bg-teal-600 hover:bg-teal-700 disabled:bg-gray-300 dark:disabled:bg-zinc-700 text-white rounded-lg text-sm font-semibold transition-colors flex items-center justify-center gap-1.5">
               {cargando ? <Loader2 size={14} className="animate-spin" /> : <Edit3 size={14} />} Guardar cambios
             </button>
           </div>
@@ -727,7 +727,7 @@ export default function AdminUsuariosPage() {
         <div className="flex items-center justify-between mb-6">
           <div>
             <h1 className="text-2xl font-semibold text-gray-900 dark:text-zinc-100 flex items-center gap-2">
-              <Users size={24} className="text-blue-600 dark:text-blue-400" />
+              <Users size={24} className="text-teal-600 dark:text-teal-400" />
               Administración de Usuarios
             </h1>
             <p className="text-sm text-gray-500 dark:text-zinc-400 mt-1">
@@ -736,7 +736,7 @@ export default function AdminUsuariosPage() {
           </div>
           <button
             onClick={() => setShowModal(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg text-sm transition-colors"
+            className="flex items-center gap-2 px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white font-semibold rounded-lg text-sm transition-colors"
           >
             <Plus size={16} />
             Nuevo usuario
@@ -747,7 +747,7 @@ export default function AdminUsuariosPage() {
         <div className="bg-white dark:bg-zinc-900 rounded-xl border border-gray-200 dark:border-white/10 shadow-sm overflow-hidden">
           {cargando ? (
             <div className="flex items-center justify-center py-16 gap-2 text-gray-500 dark:text-zinc-400">
-              <Loader2 size={20} className="animate-spin text-blue-500" /> Cargando usuarios...
+              <Loader2 size={20} className="animate-spin text-teal-500" /> Cargando usuarios...
             </div>
           ) : usuarios.length === 0 ? (
             <div className="text-center py-16">
@@ -759,13 +759,13 @@ export default function AdminUsuariosPage() {
               <table className="w-full">
                 <thead>
                   <tr className="bg-gray-50 dark:bg-white/[0.03] border-b border-gray-100 dark:border-white/10">
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-zinc-400 uppercase">Usuario</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-zinc-400 uppercase">Empresa</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-zinc-400 uppercase">Rol</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-zinc-400 uppercase">Estado</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-zinc-400 uppercase">Último acceso</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-zinc-400 uppercase">Registro</th>
-                    <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 dark:text-zinc-400 uppercase">Acciones</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-zinc-400">Usuario</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-zinc-400">Empresa</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-zinc-400">Rol</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-zinc-400">Estado</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-zinc-400">Último acceso</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-zinc-400">Registro</th>
+                    <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 dark:text-zinc-400">Acciones</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50 dark:divide-white/[0.06]">
@@ -802,7 +802,7 @@ export default function AdminUsuariosPage() {
                           {u.rol === 'admin' ? 'Admin' : u.rol === 'externo' ? 'Externo' : 'Usuario'}
                         </span>
                         {u.rol !== 'admin' && parsePermisos(u.permisos).compras_auditor && (
-                          <span className="ml-1 inline-flex items-center text-xs px-2 py-0.5 rounded-full font-medium bg-teal-100 text-teal-700 dark:bg-teal-500/15 dark:text-teal-300">Auditor de Compras</span>
+                          <span className="ml-1 inline-flex items-center text-xs font-medium text-teal-700 dark:bg-teal-500/15 dark:text-teal-300">Auditor de Compras</span>
                         )}
                       </td>
                       <td className="px-4 py-3">
@@ -830,7 +830,7 @@ export default function AdminUsuariosPage() {
                           <button
                             onClick={() => setPermisosUser(u)}
                             title={u.rol === 'admin' ? 'Modo principiante' : 'Editar permisos'}
-                            className="p-1.5 text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-500/10 rounded-lg transition-colors"
+                            className="p-1.5 text-teal-600 hover:bg-blue-50 dark:text-teal-400 dark:hover:bg-blue-500/10 rounded-lg transition-colors"
                           >
                             <ShieldCheck size={14} />
                           </button>

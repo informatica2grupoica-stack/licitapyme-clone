@@ -48,7 +48,7 @@ export function FacturaVisor({ negocioId, dteId, onCerrar }: { negocioId: number
               </div>
               <div className="border-2 border-rose-600 text-rose-700 rounded-md px-5 py-3 text-center min-w-[200px]">
                 <p className="text-[12px] font-semibold">R.U.T.: {f.emisor.rut}</p>
-                <p className="text-[13px] font-semibold uppercase">{f.tipoNombre}</p>
+                <p className="text-[13px] font-semibold">{f.tipoNombre}</p>
                 <p className="text-[13px] font-semibold">N° {f.folio}</p>
               </div>
             </div>

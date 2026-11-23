@@ -114,7 +114,8 @@ const REGLAS: Regla[] = [
   { modulo: 'radar',    re: /^\/(radar|dashboard|alertas|favoritos|descartadas|puente)(\/|$)/ },
   { modulo: 'radar',    re: /^\/api\/(radar|dashboard|alertas|palabras-clave|favorites|search|puente|etiquetas)(\/|$)/ },
   { modulo: 'radar',    re: /^\/api\/documentos\/descargar-pendientes(\/|$)/ },
-  { modulo: 'negocios', re: /^\/(negocios|licitacion|postuladas|adjudicadas|empresas|documentos)(\/|$)/ },
+  // /competencia (2026-11-23): resumen y competidores desde /api/negocios + /api/postuladas/estado (ya de Negocios), sin API propia.
+  { modulo: 'negocios', re: /^\/(negocios|licitacion|postuladas|adjudicadas|competencia|empresas|documentos)(\/|$)/ },
   { modulo: 'negocios', re: /^\/api\/(negocios|licitacion|licitacion-detalle|licitacion-completa|licitacion-comentarios|licitacion-adjudicacion|postuladas|empresas|documentos|ficha-mp|pdf-pagina|proxy|usuarios)(\/|$)/ },
 ];
 

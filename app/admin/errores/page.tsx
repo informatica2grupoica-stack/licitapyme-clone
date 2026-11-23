@@ -119,7 +119,7 @@ export default function ErroresReportadosPage() {
                 <button key={r.id} onClick={() => setSelId(r.id)}
                   className={`w-full text-left px-4 py-3 transition-colors ${sel?.id === r.id ? 'bg-teal-50 dark:bg-teal-500/10' : 'hover:bg-slate-50 dark:hover:bg-white/[0.04]'}`}>
                   <div className="flex items-center gap-1.5 mb-1">
-                    <span className={`text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded ${GRAVEDAD_CLS[r.gravedad]}`}>{r.gravedad}</span>
+                    <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${GRAVEDAD_CLS[r.gravedad]}`}>{r.gravedad}</span>
                     <span className={`text-[10.5px] font-semibold px-1.5 py-0.5 rounded ${estadoInfo(r.estado).cls}`}>{estadoInfo(r.estado).label}</span>
                     <span className="ml-auto text-[10.5px] text-slate-400">#{r.id} · {fecha(r.created_at)}</span>
                   </div>
@@ -189,7 +189,7 @@ function DetalleReporte({ r, onGuardado, toast }: { r: Reporte; onGuardado: () =
       <div className={bloque}>
         <div className="flex items-start gap-2 mb-2">
           <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100 flex-1">{r.titulo}</h2>
-          <span className={`text-[10.5px] font-semibold uppercase px-2 py-1 rounded ${GRAVEDAD_CLS[r.gravedad]}`}>{r.gravedad}</span>
+          <span className={`text-[10.5px] font-semibold px-2 py-1 rounded ${GRAVEDAD_CLS[r.gravedad]}`}>{r.gravedad}</span>
         </div>
         <p className="text-[12px] text-slate-500">
           Reportado por <b className="text-slate-700 dark:text-slate-300">{r.usuario_nombre || r.usuario_email}</b> ({r.usuario_email}) · {fecha(r.created_at)}

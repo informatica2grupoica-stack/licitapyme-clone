@@ -230,7 +230,7 @@ export function OrdenesCompraBloque({ codigo }: { codigo: string }) {
         <span className="text-[13px] font-semibold text-slate-700">Órdenes de compra</span>
         {nuestras.length > 0 && (
           <>
-            <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">{nuestras.length} nuestra{nuestras.length !== 1 ? 's' : ''}</span>
+            <span className="text-[11px] font-medium text-emerald-700">{nuestras.length} nuestra{nuestras.length !== 1 ? 's' : ''}</span>
             <span className="ml-auto text-[12.5px] font-semibold text-slate-800">{fmtCLP(total)}</span>
           </>
         )}

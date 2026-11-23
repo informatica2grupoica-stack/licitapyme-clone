@@ -20,7 +20,7 @@ export function FechasSection({ fechas }: { fechas: FechaItem[] }) {
         title="Fechas"
         subtitle="Cronograma del proceso de licitación"
         badge={fechas.length > 0 && (
-          <span className="px-2 py-0.5 bg-teal-100 text-teal-700 text-xs rounded-full font-semibold">{fechas.length}</span>
+          <span className=" text-teal-700 text-xs font-medium">{fechas.length}</span>
         )}
       />
 
@@ -69,7 +69,7 @@ export function FechasSection({ fechas }: { fechas: FechaItem[] }) {
                           {formatDateTime(f.fecha)}
                         </p>
                         {pasada && (
-                          <span className="inline-flex items-center gap-1 text-[10px] text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-full mt-0.5">
+                          <span className="inline-flex items-center gap-1 text-[10px] text-emerald-600 mt-0.5">
                             <Check size={8} /> Completado
                           </span>
                         )}

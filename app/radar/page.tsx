@@ -7,13 +7,14 @@ import { useToast } from '@/app/components/ui/toast';
 import { useConfirm } from '@/app/components/ui/confirm';
 import { Select } from '@/app/components/ui/Select';
 import { MultiSelect } from '@/app/components/ui/MultiSelect';
-import { StatCard } from '@/app/components/ui/StatCard';
+import { Indicador } from '@/app/components/ui/kit/Indicador';
 import { useSession } from '@/app/lib/session-context';
 import { fechaHoraParaExcel, ordenarPorFecha, hojaDeFilas } from '@/app/lib/exportar-fechas';
 import { IconRadar as Radar, IconPlus as Plus, IconTrash as Trash2, IconExternalLink as ExternalLink, IconTag as Tag, IconChecks as CheckCheck, IconBuilding as Building2, IconCalendar as Calendar, IconCurrencyDollar as DollarSign, IconLoader2 as Loader2, IconBellOff as BellOff, IconX as X, IconClock as Clock, IconSearch as Search, IconBolt as Zap, IconToggleLeft as ToggleLeft, IconToggleRight as ToggleRight, IconWand as Sparkles, IconFilter as Filter, IconChevronDown as ChevronDown, IconFileText as FileText, IconDownload as Download, IconMapPin as MapPin, IconArrowsUpDown as ArrowUpDown, IconEye as Eye, IconEyeOff as EyeOff, IconAlertCircle as AlertCircle, IconFlame as Flame, IconAdjustmentsHorizontal as SlidersHorizontal, IconSquareCheck as CheckSquare, IconSquare as Square, IconUserPlus as UserPlus, IconArrowBackUp as Undo2, IconUserCheck as UserCheck, IconBan as Ban, IconCircleMinus as MinusCircle, IconHistory as History, IconArrowsShuffle as Shuffle } from '@tabler/icons-react';
 import { extractTipoFromCodigo, getTipoLicitacion, TIPO_COLOR_CLASS } from '@/app/lib/tipos-licitacion';
 import { estadoEfectivoNombre } from '@/app/lib/estado-mp';
 import { Resaltar } from '@/app/components/Resaltar';
+import { Estado, Datos, Dato } from '@/app/components/ui/kit/Tarjeta';
 import { PuenteLoader } from '@/app/components/ui/PuenteLoader';
 import { createPortal } from 'react-dom';
 
@@ -77,7 +78,7 @@ interface Etiqueta { id: number; nombre: string; color: string; }
 const ESTADOS_CFG = [
   { key: 'Publicada',  label: 'Publicada',  dot: '#10b981', bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200', pill: 'bg-emerald-500' },
   { key: 'Desierta',  label: 'Desierta',   dot: '#f59e0b', bg: 'bg-amber-50',   text: 'text-amber-700',   border: 'border-amber-200',   pill: 'bg-amber-500'   },
-  { key: 'Suspendida',label: 'Suspendida', dot: '#3b82f6', bg: 'bg-blue-50',    text: 'text-blue-700',    border: 'border-blue-200',    pill: 'bg-blue-500'    },
+  { key: 'Suspendida',label: 'Suspendida', dot: '#3b82f6', bg: 'bg-blue-50',    text: 'text-teal-700',    border: 'border-blue-200',    pill: 'bg-blue-500'    },
   { key: 'Cerrada',   label: 'Cerrada',    dot: '#9ca3af', bg: 'bg-zinc-50',    text: 'text-zinc-500',    border: 'border-zinc-200',    pill: 'bg-zinc-400'    },
   { key: 'Adjudicada',label: 'Adjudicada', dot: '#06b6d4', bg: 'bg-cyan-50',  text: 'text-cyan-700',  border: 'border-cyan-200',  pill: 'bg-cyan-500'  },
   { key: 'Revocada',  label: 'Revocada',   dot: '#f87171', bg: 'bg-red-50',     text: 'text-red-700',     border: 'border-red-200',     pill: 'bg-red-400'     },
@@ -145,7 +146,7 @@ const CATEGORIA_LABEL: Record<string, string> = {
 // ── Colores variados para etiqueta de asesor asignado ─────────────────────────
 const COLORS_ASESOR = [
   { bg: 'bg-cyan-50',  text: 'text-cyan-700',  border: 'border-cyan-200'  },
-  { bg: 'bg-blue-50',    text: 'text-blue-700',    border: 'border-blue-200'    },
+  { bg: 'bg-blue-50',    text: 'text-teal-700',    border: 'border-blue-200'    },
   { bg: 'bg-teal-50',    text: 'text-teal-700',    border: 'border-teal-200'    },
   { bg: 'bg-amber-50',   text: 'text-amber-700',   border: 'border-amber-200'   },
   { bg: 'bg-rose-50',    text: 'text-rose-700',    border: 'border-rose-200'    },
@@ -207,26 +208,22 @@ function dentroRangoPublicacion(fechaIso: string | null, desde: string, hasta: s
   return true;
 }
 
-// ── Badges ────────────────────────────────────────────────────────────────────
+// ── Estados (licitank-ui: punto de color + texto, nunca pastillas) ────────────
+const TXT_ESTADO = 'text-xs font-medium text-tinta-2 dark:text-slate-300';
+
 function EstadoBadge({ estado, cierre }: { estado: string | null; cierre?: string | null }) {
   // Estado EFECTIVO: si figura "Publicada" pero su cierre ya pasó, se muestra "Cerrada".
   const efectivo = estadoEfectivoNombre(estado, cierre);
   if (!efectivo) return null;
   const cfg = ESTADOS_CFG.find(e => e.key.toLowerCase() === efectivo.toLowerCase());
-  const estadoMostrar = efectivo;
-  if (!cfg) return (
-    <span className="text-[10px] px-2 py-0.5 rounded-full bg-zinc-100 text-zinc-500 font-semibold border border-zinc-200">
-      {estadoMostrar}
-    </span>
-  );
+  if (!cfg) return <span className={TXT_ESTADO}><Estado color="#9ca3af">{efectivo}</Estado></span>;
   return (
     <span
       title={estado && estado.toLowerCase() === 'publicada' && efectivo.toLowerCase() === 'cerrada'
         ? 'Mercado Público aún la lista como "Publicada", pero su fecha de cierre ya pasó → se muestra como Cerrada (estado efectivo)'
         : `Estado en Mercado Público: ${cfg.label}`}
-      className={`inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-semibold border ${cfg.bg} ${cfg.text} ${cfg.border}`}>
-      <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: cfg.dot }} />
-      {cfg.label}
+      className={TXT_ESTADO}>
+      <Estado color={cfg.dot}>{cfg.label}</Estado>
     </span>
   );
 }
@@ -235,9 +232,8 @@ function TipoBadge({ codigo }: { codigo: string }) {
   const tipo = extractTipoFromCodigo(codigo);
   if (!tipo) return null;
   const info = getTipoLicitacion(tipo);
-  const bg   = TIPO_COLOR_CLASS[tipo] || 'bg-zinc-400';
   return (
-    <span className={`inline-flex items-center text-white text-[10px] font-semibold px-2 py-0.5 rounded-md flex-shrink-0 ${bg}`} title={info?.label}>
+    <span className="inline-flex items-center flex-shrink-0 text-xs font-semibold text-tinta dark:text-slate-100" title={info?.label}>
       {tipo}
     </span>
   );
@@ -249,28 +245,12 @@ function DiasCountdown({ cierre }: { cierre: string | null }) {
   const titulo = `Días corridos hasta la fecha de cierre de ofertas (${fmtFechaCorta(cierre)}). Rojo ≤3 días, ámbar ≤7.`;
   if (dias <= 0) return (
     <span title={`La fecha de cierre (${fmtFechaCorta(cierre)}) ya pasó: no se pueden presentar ofertas`}
-      className="inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1 rounded-lg bg-zinc-100 text-zinc-500 border border-zinc-200">
-      Vencido
-    </span>
+      className="text-xs font-medium text-tinta-3"><Estado color="#9ca3af">Vencido</Estado></span>
   );
-  if (dias <= 3) return (
-    <span title={titulo} className="inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1 rounded-lg bg-red-50 text-red-700 border border-red-200">
-      <Flame size={11} className="flex-shrink-0" />
-      {dias}d restante{dias !== 1 ? 's' : ''}
-    </span>
-  );
-  if (dias <= 7) return (
-    <span title={titulo} className="inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1 rounded-lg bg-amber-50 text-amber-700 border border-amber-200">
-      <AlertCircle size={11} className="flex-shrink-0" />
-      {dias}d restantes
-    </span>
-  );
-  return (
-    <span title={titulo} className="inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1 rounded-lg bg-teal-50 text-teal-600 border border-teal-100">
-      <Calendar size={10} className="flex-shrink-0" />
-      {dias}d restantes
-    </span>
-  );
+  const texto = dias === 1 ? 'Cierra mañana' : `Cierra en ${dias} días`;
+  if (dias <= 3) return <span title={titulo} className="text-xs font-medium text-urgente"><Estado color="#dc2626">{texto}</Estado></span>;
+  if (dias <= 7) return <span title={titulo} className="text-xs font-medium text-alerta"><Estado color="#d97706">{texto}</Estado></span>;
+  return <span title={titulo} className={TXT_ESTADO}><Estado color="#94a3b8">{texto}</Estado></span>;
 }
 
 function parseInforme(v: Alerta['viabilidad_informe']) {
@@ -278,6 +258,9 @@ function parseInforme(v: Alerta['viabilidad_informe']) {
   if (typeof v === 'string') { try { return JSON.parse(v); } catch { return null; } }
   return v;
 }
+
+const POPOVER = 'invisible opacity-0 transition-opacity duration-150 absolute right-0 top-full mt-1.5 z-30 p-3 rounded-xl '
+  + 'bg-white border border-linea shadow-flotante text-left pointer-events-none dark:bg-slate-900 dark:border-slate-700';
 
 function ViabilidadBadge({ semaforo, score, area, informe }: {
   semaforo?: string | null; score?: number | null; area?: string | null;
@@ -293,28 +276,28 @@ function ViabilidadBadge({ semaforo, score, area, informe }: {
     <span className="relative group/viab inline-flex">
       <span
         title={hayResumen ? undefined : `Viabilidad según el análisis IA de las bases: ${cfg.label}${score != null ? ` (score ${score}/100)` : ''}`}
-        className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-lg border cursor-default ${cfg.bg} ${cfg.text} ${cfg.border}`}
+        className={`${TXT_ESTADO} cursor-default`}
       >
-        <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: cfg.dot }} />
-        {cfg.label}
-        {score != null && <span className="tabular-nums opacity-70">{score}</span>}
+        <Estado color={cfg.dot}>
+          {cfg.label}
+          {score != null && <span className="ml-1 tabular-nums text-tinta-3">{score}</span>}
+        </Estado>
       </span>
 
       {/* Popover con el resumen del análisis (hover) */}
       {hayResumen && (
-        <div className="invisible opacity-0 group-hover/viab:visible group-hover/viab:opacity-100 transition-opacity duration-150
-                        absolute right-0 top-full mt-1.5 z-30 w-72 p-3 rounded-xl bg-white border border-slate-200 shadow-flotante text-left pointer-events-none">
+        <div className={`${POPOVER} group-hover/viab:visible group-hover/viab:opacity-100 w-72`}>
           <div className="flex items-center gap-1.5 mb-1.5">
             <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: cfg.dot }} />
-            <span className={`text-[11px] font-semibold ${cfg.text}`}>{cfg.label}{score != null ? ` · ${score}/100` : ''}</span>
-            {area && <span className="text-[10px] text-slate-400 ml-auto">{area}</span>}
+            <span className="text-xs font-semibold text-tinta dark:text-slate-100">{cfg.label}{score != null ? ` · ${score}/100` : ''}</span>
+            {area && <span className="text-[11px] text-tinta-3 ml-auto">{area}</span>}
           </div>
-          {inf.resumen && <p className="text-[11.5px] text-slate-600 leading-snug mb-2">{inf.resumen}</p>}
+          {inf.resumen && <p className="text-xs text-tinta-2 dark:text-slate-300 leading-snug mb-2">{inf.resumen}</p>}
           {inf.ventaja_competitiva && (
-            <p className="text-[11px] text-emerald-700 leading-snug mb-1.5"><strong>Ventaja:</strong> {inf.ventaja_competitiva}</p>
+            <p className="text-xs text-exito leading-snug mb-1.5"><strong>Ventaja:</strong> {inf.ventaja_competitiva}</p>
           )}
           {inf.recomendacion && (
-            <p className="text-[11px] text-teal-700 leading-snug"><strong>Recomendación:</strong> {inf.recomendacion}</p>
+            <p className="text-xs text-marca leading-snug"><strong>Recomendación:</strong> {inf.recomendacion}</p>
           )}
         </div>
       )}
@@ -333,27 +316,41 @@ function PrefiltroBadge({ decision, categoria, motivo, confianza }: {
 
   return (
     <span className="relative group/pref inline-flex">
-      <span className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-lg border cursor-default ${cfg.bg} ${cfg.text} ${cfg.border}`}>
-        <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: cfg.dot }} />
-        {cfg.label}
-        {decision !== 'PASA' && catLabel && <span className="opacity-70 font-semibold">· {catLabel}</span>}
+      <span className={`${TXT_ESTADO} cursor-default`}>
+        <Estado color={cfg.dot}>
+          {cfg.label}
+          {decision !== 'PASA' && catLabel && <span className="ml-1 text-tinta-3">· {catLabel}</span>}
+        </Estado>
       </span>
 
       {/* Popover con el motivo del prefiltro — también para PASA (antes solo Revisar/Excluida,
           y el usuario no tenía cómo saber POR QUÉ una licitación pasó). */}
       {hayDetalle && (
-        <div className="invisible opacity-0 group-hover/pref:visible group-hover/pref:opacity-100 transition-opacity duration-150
-                        absolute right-0 top-full mt-1.5 z-30 w-64 p-3 rounded-xl bg-white border border-slate-200 shadow-flotante text-left pointer-events-none">
+        <div className={`${POPOVER} group-hover/pref:visible group-hover/pref:opacity-100 w-64`}>
           <div className="flex items-center gap-1.5 mb-1.5">
             <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: cfg.dot }} />
-            <span className={`text-[11px] font-semibold ${cfg.text}`}>Prefiltro: {cfg.label}{catLabel ? ` · ${catLabel}` : ''}</span>
-            {confianza != null && <span className="text-[10px] text-slate-400 ml-auto tabular-nums">conf. {Math.round(confianza * 100)}%</span>}
+            <span className="text-xs font-semibold text-tinta dark:text-slate-100">Prefiltro: {cfg.label}{catLabel ? ` · ${catLabel}` : ''}</span>
+            {confianza != null && <span className="text-[11px] text-tinta-3 ml-auto tabular-nums">conf. {Math.round(confianza * 100)}%</span>}
           </div>
-          {motivo && <p className="text-[11.5px] text-slate-600 leading-snug">{motivo}</p>}
+          {motivo && <p className="text-xs text-tinta-2 dark:text-slate-300 leading-snug">{motivo}</p>}
         </div>
       )}
     </span>
   );
+}
+
+// Botones de acción de la fila / tarjeta (un solo primario por tarjeta: Asignar).
+const BTN = 'inline-flex items-center gap-1.5 h-8 px-3 rounded-lg text-[13px] font-medium whitespace-nowrap transition-colors '
+  + 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marca/60 ';
+const BTN_PRIMARIO = BTN + 'bg-marca text-white hover:bg-marca-fuerte';
+const BTN_SECUNDARIO = BTN + 'bg-white text-tinta border border-linea hover:bg-slate-50 dark:bg-slate-900 dark:text-slate-100 dark:border-slate-700 dark:hover:bg-slate-800';
+const BTN_ELIMINAR = 'w-8 h-8 inline-flex items-center justify-center rounded-lg text-slate-400 hover:text-urgente hover:bg-red-50 '
+  + 'dark:hover:bg-red-950/40 transition-colors opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-marca/60';
+const SUPERFICIE = 'group relative rounded-xl border bg-white shadow-tarjeta transition-[box-shadow,transform] duration-150 ease-lk '
+  + 'hover:shadow-tarjeta-hover hover:-translate-y-px dark:bg-slate-900';
+
+function claseSuperficie(selected: boolean, descartada: boolean) {
+  return `${SUPERFICIE} ${selected ? 'border-marca ring-2 ring-marca/40' : 'border-linea dark:border-slate-800'} ${descartada ? 'opacity-70' : ''}`;
 }
 
 // ── Fila lista compacta ──────────────────────────────────────────────────────
@@ -372,31 +369,25 @@ function LicitacionListItem({
   const noLeida = !alerta.leida;
 
   return (
-    <div
-      onClick={() => noLeida && onMarcarLeida(alerta.id)}
-      className={`group relative rounded-lg px-4 py-3 border transition-all cursor-pointer ${
-        selected
-          ? 'bg-teal-100 border-teal-300'
-          : alerta.descartada
-          ? 'bg-slate-100 border-slate-200'
-          : 'bg-teal-50 border-teal-200 hover:bg-white'
-      }`}>
-
+    <div onClick={() => noLeida && onMarcarLeida(alerta.id)} className={`${claseSuperficie(selected, !!alerta.descartada)} px-4 py-3 cursor-pointer`}>
       <div className="flex items-center gap-3">
         <button
           onClick={(e) => { e.stopPropagation(); onToggleSelect(alerta.id); }}
           title={selected ? 'Quitar de la selección' : 'Seleccionar para acciones en lote (asignar/descartar varias)'}
-          className="flex-shrink-0 text-slate-400 hover:text-teal-600 transition-colors"
+          aria-label={selected ? 'Quitar de la selección' : 'Seleccionar'}
+          className="flex-shrink-0 text-slate-400 hover:text-marca transition-colors"
         >
-          {selected ? <CheckSquare size={16} className="text-teal-600" /> : <Square size={16} />}
+          {selected ? <CheckSquare size={16} className="text-marca" /> : <Square size={16} />}
         </button>
+        <span aria-label={noLeida ? 'No leída' : 'Leída'} title={noLeida ? 'No leída' : 'Leída'}
+          className={`w-2 h-2 rounded-full flex-shrink-0 ${noLeida ? 'bg-marca' : 'bg-slate-200 dark:bg-slate-700'}`} />
 
-        <div className="flex-shrink-0 w-32">
-          <div className="flex items-center gap-1 mb-1">
+        <div className="flex-shrink-0 w-36">
+          <div className="flex items-center gap-2 mb-0.5">
             <TipoBadge codigo={alerta.licitacion_codigo} />
             <EstadoBadge estado={alerta.licitacion_estado} cierre={alerta.licitacion_cierre} />
           </div>
-          <span className="text-[10px] font-mono text-slate-500">{alerta.licitacion_codigo}</span>
+          <span className="text-[11px] font-mono text-tinta-3">{alerta.licitacion_codigo}</span>
         </div>
 
         <Link
@@ -404,46 +395,41 @@ function LicitacionListItem({
           onClick={(e) => e.stopPropagation()}
           className="flex-1 min-w-0"
         >
-          <p className="text-[12px] font-semibold text-slate-900 truncate hover:text-teal-600 transition-colors">
+          <p className={`text-[13px] text-tinta dark:text-slate-100 truncate hover:text-marca transition-colors ${noLeida ? 'font-semibold' : 'font-medium'}`}>
             <Resaltar texto={alerta.licitacion_nombre || alerta.licitacion_codigo} keywords={keywords} />
           </p>
           {alerta.licitacion_organismo && (
-            <p className="text-[10px] text-slate-500 truncate">{alerta.licitacion_organismo}</p>
+            <p className="text-xs text-tinta-2 dark:text-slate-400 truncate">{alerta.licitacion_organismo}</p>
           )}
         </Link>
 
-        <div className="flex-shrink-0 w-32 text-right">
-          {alerta.licitacion_monto && alerta.licitacion_monto > 0 && (
-            <p className="text-[11px] font-semibold text-emerald-700">{fmt(alerta.licitacion_monto)}</p>
+        <div className="flex-shrink-0 w-36 text-right">
+          {(alerta.licitacion_monto ?? 0) > 0 && (
+            <p className="text-[13px] font-semibold text-tinta dark:text-slate-100 tabular-nums">{fmt(alerta.licitacion_monto)}</p>
           )}
-          <div className="mt-0.5">
-            <DiasCountdown cierre={alerta.licitacion_cierre} />
-          </div>
+          <div className="mt-0.5 flex justify-end"><DiasCountdown cierre={alerta.licitacion_cierre} /></div>
         </div>
 
-        <div className="flex-shrink-0 flex items-center gap-1.5">
+        <div className="flex-shrink-0 flex items-center gap-3">
           {alerta.viabilidad_semaforo && (
             <ViabilidadBadge semaforo={alerta.viabilidad_semaforo} score={alerta.viabilidad_score} />
-          )}
-          {alerta.tiene_documentos && (
-            <span title="Las bases y anexos ya están descargados en el sistema"
-              className="inline-flex items-center gap-1 text-[9px] font-semibold text-teal-700 bg-teal-100 px-1.5 py-0.5 rounded-full border border-teal-200">
-              <FileText size={8} /> Docs
-            </span>
           )}
           {alerta.prefiltro_decision && (
             <PrefiltroBadge decision={alerta.prefiltro_decision} categoria={alerta.prefiltro_categoria} motivo={alerta.prefiltro_motivo} confianza={alerta.prefiltro_confianza} />
           )}
+          {alerta.tiene_documentos && (
+            <span title="Las bases y anexos ya están descargados en el sistema" className="inline-flex items-center gap-1 text-xs text-tinta-2">
+              <FileText size={13} strokeWidth={1.75} className="text-slate-400" /> Docs
+            </span>
+          )}
           {alerta.asignada && (
-            <span title={`Asignada a ${alerta.asignado_nombre || 'un perfil del equipo'}`}
-              className="inline-flex items-center gap-0.5 text-[9px] font-semibold text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded-full border border-emerald-200">
-              ✓
+            <span title={`Asignada a ${alerta.asignado_nombre || 'un perfil del equipo'}`} className="inline-flex items-center gap-1 text-xs text-exito">
+              <UserCheck size={13} strokeWidth={1.75} /> Asignada
             </span>
           )}
           {alerta.en_puente && !alerta.asignada && (
-            <span title="Esperando reparto en el puente del radar"
-              className="inline-flex items-center gap-0.5 text-[9px] font-semibold text-teal-700 bg-teal-100 px-1.5 py-0.5 rounded-full border border-teal-200">
-              <Shuffle size={8} /> Puente
+            <span title="Esperando reparto en el puente del radar" className="inline-flex items-center gap-1 text-xs text-tinta-2">
+              <Shuffle size={13} strokeWidth={1.75} className="text-slate-400" /> Puente
             </span>
           )}
         </div>
@@ -452,13 +438,9 @@ function LicitacionListItem({
           <button
             onClick={(e) => { e.stopPropagation(); onDescartar(alerta, !alerta.descartada); }}
             title={alerta.descartada ? 'Volver a mostrarla entre las activas del radar' : 'Sacarla de la vista base del radar (queda en el corte "Descartadas", reversible)'}
-            className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition-colors border ${
-              alerta.descartada
-                ? 'bg-emerald-100 border-emerald-300 text-emerald-700 hover:bg-emerald-200'
-                : 'bg-red-100 border-red-300 text-red-700 hover:bg-red-200'
-            }`}
+            className={BTN_SECUNDARIO}
           >
-            {alerta.descartada ? <Undo2 size={12} /> : <EyeOff size={12} />}
+            {alerta.descartada ? <Undo2 size={14} strokeWidth={1.75} /> : <EyeOff size={14} strokeWidth={1.75} />}
             {alerta.descartada ? 'Restaurar' : 'Descartar'}
           </button>
           <button
@@ -466,21 +448,18 @@ function LicitacionListItem({
             title={alerta.asignada
               ? `Asignada a ${alerta.asignado_nombre || 'un perfil'} — moverla a otro perfil`
               : 'Asignar a un perfil del equipo: descarga sus documentos, corre la viabilidad IA y la marca como revisada'}
-            className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition-colors border ${
-              alerta.asignada
-                ? 'bg-emerald-100 border-emerald-300 text-emerald-700 hover:bg-emerald-200'
-                : 'bg-teal-100 border-teal-300 text-teal-700 hover:bg-teal-200'
-            }`}
+            className={alerta.asignada ? BTN_SECUNDARIO : BTN_PRIMARIO}
           >
-            <UserPlus size={12} />
+            <UserPlus size={14} strokeWidth={1.75} />
             {alerta.asignada ? 'Reasignar' : 'Asignar'}
           </button>
           <button
             onClick={(e) => { e.stopPropagation(); onDelete(alerta.id); }}
-            className="flex-shrink-0 p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors opacity-0 group-hover:opacity-100"
+            className={BTN_ELIMINAR}
+            aria-label="Eliminar alerta"
             title="Eliminar la alerta del radar de forma permanente (no se puede deshacer; para ocultarla usa Descartar)"
           >
-            <Trash2 size={13} />
+            <Trash2 size={15} strokeWidth={1.75} />
           </button>
         </div>
       </div>
@@ -503,212 +482,117 @@ function LicitacionCard({
 }) {
   const noLeida = !alerta.leida;
 
-  // ── Acento dominante por VIABILIDAD (la señal de negocio principal) ───────────
-  // La barra lateral de color fuerte + el tinte de fondo salen del semáforo de
-  // viabilidad IA. Si todavía no hay viabilidad, cae al prefiltro; si no, neutro.
-  // Así cada tarjeta se distingue de un vistazo por su nivel de oportunidad.
-  const VIAB_ACCENT: Record<string, { rail: string; tint: string }> = {
-    VERDE:     { rail: '#10b981', tint: '#ecfdf5' },
-    AMARILLO:  { rail: '#eab308', tint: '#fefce8' },
-    NARANJA:   { rail: '#f97316', tint: '#fff7ed' },
-    ROJO:      { rail: '#ef4444', tint: '#fef2f2' },
-    ROJO_DURO: { rail: '#b91c1c', tint: '#fee2e2' },
-  };
-  const PREF_ACCENT: Record<string, { rail: string; tint: string }> = {
-    PASA:            { rail: '#10b981', tint: '#f0fdf4' },
-    REVISION_HUMANA: { rail: '#f59e0b', tint: '#fffbeb' },
-    EXCLUIDO:        { rail: '#94a3b8', tint: '#f8fafc' },
-  };
-  const accent =
-    (alerta.viabilidad_semaforo && VIAB_ACCENT[alerta.viabilidad_semaforo]) ||
-    (alerta.prefiltro_decision && PREF_ACCENT[alerta.prefiltro_decision]) ||
-    { rail: noLeida ? '#14b8a6' : '#cbd5e1', tint: '#ffffff' };
-
-  const railColor = alerta.descartada ? '#cbd5e1' : alerta.asignada ? '#3b82f6' : accent.rail;
-  const fondo     = alerta.descartada ? '#f8fafc' : alerta.asignada ? '#eff6ff' : accent.tint;
-
   return (
-    <div
-      style={{ background: fondo, borderLeftColor: railColor, borderLeftWidth: '5px' }}
-      className={`
-      group relative rounded-xl border transition-all duration-150
-      hover:shadow-md hover:-translate-y-px
-      ${selected ? 'ring-2 ring-teal-400 border-teal-300' : noLeida ? 'border-teal-200 shadow-sm' : 'border-slate-200'}
-      ${alerta.descartada ? 'opacity-75' : ''}
-    `}>
-      <div className="p-4 pl-[15px]">
-        {/* Row 1: badges + dias */}
-        <div className="flex items-center justify-between gap-2 mb-2.5">
-          <div className="flex items-center gap-1.5 flex-wrap">
-            {/* Checkbox de selección múltiple */}
+    <div className={claseSuperficie(selected, !!alerta.descartada)}>
+      <div className="p-4">
+        {/* Fila 1: tipo, estado, código | prefiltro, viabilidad, plazo */}
+        <div className="flex items-center justify-between gap-3 mb-2.5">
+          <div className="flex items-center gap-2.5 flex-wrap min-w-0">
             <button
               onClick={() => onToggleSelect(alerta.id)}
               title={selected ? 'Quitar de la selección' : 'Seleccionar'}
-              className="flex-shrink-0 text-slate-300 hover:text-teal-600 transition-colors"
+              aria-label={selected ? 'Quitar de la selección' : 'Seleccionar'}
+              className="flex-shrink-0 text-slate-400 hover:text-marca transition-colors"
             >
-              {selected ? <CheckSquare size={16} className="text-teal-600" /> : <Square size={16} />}
+              {selected ? <CheckSquare size={16} className="text-marca" /> : <Square size={16} />}
             </button>
-            {/* Punto no leído */}
             <button
               onClick={() => noLeida && onMarcarLeida(alerta.id)}
               title={noLeida ? 'Marcar como leída' : 'Leída'}
+              aria-label={noLeida ? 'Marcar como leída' : 'Leída'}
               className="flex-shrink-0"
             >
-              {noLeida
-                ? <span className="w-2 h-2 rounded-full bg-teal-500 block hover:bg-teal-400 transition-colors" />
-                : <span className="w-2 h-2 rounded-full bg-slate-200 block" />
-              }
+              <span className={`w-2 h-2 rounded-full block ${noLeida ? 'bg-marca hover:bg-marca-fuerte' : 'bg-slate-200 dark:bg-slate-700'}`} />
             </button>
             <TipoBadge codigo={alerta.licitacion_codigo} />
             <EstadoBadge estado={alerta.licitacion_estado} cierre={alerta.licitacion_cierre} />
-            <span className="text-[10px] font-mono text-slate-400">{alerta.licitacion_codigo}</span>
-            {alerta.asignada && (() => {
-              const c = colorAsesor(alerta.asignado_a);
-              return (
-                <span className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full border ${c.bg} ${c.text} ${c.border}`} title={`Asignada a ${alerta.asignado_nombre || ''}`}>
-                  <UserCheck size={10} /> {alerta.asignado_nombre || 'Asignada'}
-                </span>
-              );
-            })()}
-            {alerta.en_puente && !alerta.asignada && (
-              <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-teal-50 text-teal-700 border border-teal-200"
-                title="Esperando reparto en el puente del radar">
-                <Shuffle size={10} /> En el puente
-              </span>
-            )}
+            <span className="text-[11px] font-mono text-tinta-3">{alerta.licitacion_codigo}</span>
             {alerta.descartada && (
-              <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 border border-slate-300">
-                <EyeOff size={10} /> Descartada
-              </span>
+              <span className="inline-flex items-center gap-1 text-xs text-tinta-3"><EyeOff size={13} strokeWidth={1.75} /> Descartada</span>
             )}
           </div>
-          <div className="flex items-center gap-1.5 flex-shrink-0">
+          <div className="flex items-center gap-3 flex-shrink-0">
             <PrefiltroBadge decision={alerta.prefiltro_decision} categoria={alerta.prefiltro_categoria} motivo={alerta.prefiltro_motivo} confianza={alerta.prefiltro_confianza} />
             <ViabilidadBadge semaforo={alerta.viabilidad_semaforo} score={alerta.viabilidad_score} area={alerta.viabilidad_area} informe={alerta.viabilidad_informe} />
             <DiasCountdown cierre={alerta.licitacion_cierre} />
           </div>
         </div>
 
-        {/* Row 1.5: categoría + palabra clave que hizo match */}
-        {(alerta.categoria_nombre || alerta.keyword_texto) && (
-          <div className="flex items-center gap-1.5 flex-wrap mb-2.5">
-            {alerta.categoria_nombre && (
-              <span
-                style={{
-                  backgroundColor: (alerta.categoria_color || '#64748b') + '18',
-                  color: alerta.categoria_color || '#64748b',
-                  borderColor: (alerta.categoria_color || '#64748b') + '40',
-                }}
-                className="inline-flex items-center gap-1 text-[10.5px] font-semibold px-2 py-0.5 rounded-full border"
-              >
-                <span style={{ backgroundColor: alerta.categoria_color || '#64748b' }} className="w-1.5 h-1.5 rounded-full" />
-                {alerta.categoria_nombre}
-              </span>
-            )}
-            {alerta.keyword_texto && (
-              <span className="inline-flex items-center gap-1 text-[10.5px] font-semibold text-slate-600 bg-slate-100 px-2 py-0.5 rounded-full">
-                <Tag size={9} className="text-slate-400" /> {alerta.keyword_texto}
-                {alerta.match_fuente && <span className="text-slate-400 font-normal">· {alerta.match_fuente}</span>}
-              </span>
-            )}
-          </div>
-        )}
-
-        {/* Row 2: Nombre */}
+        {/* Nombre */}
         <Link
           href={`/licitacion/${encodeURIComponent(alerta.licitacion_codigo)}`}
           onClick={() => noLeida && onMarcarLeida(alerta.id)}
-          className="block text-[15.5px] font-semibold text-slate-900 hover:text-teal-600 transition-colors leading-snug tracking-tight line-clamp-2 mb-2.5"
+          className="block text-[15px] font-semibold text-tinta dark:text-slate-50 hover:text-marca transition-colors leading-snug tracking-tight line-clamp-2"
         >
           {alerta.licitacion_nombre
             ? <Resaltar texto={alerta.licitacion_nombre} keywords={keywords} />
             : alerta.licitacion_codigo}
         </Link>
 
-        {/* Row 3: Organismo + Región */}
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mb-2.5">
-          {alerta.licitacion_organismo && (
-            <span className="flex items-center gap-1.5 text-[12px] text-slate-600">
-              <Building2 size={12} className="text-slate-400 flex-shrink-0" />
-              <span className="line-clamp-1">{alerta.licitacion_organismo}</span>
-            </span>
-          )}
-          {alerta.licitacion_region && (
-            <span className="flex items-center gap-1.5 text-[12px] text-slate-500">
-              <MapPin size={11} className="text-slate-400 flex-shrink-0" />
-              {alerta.licitacion_region}
-            </span>
-          )}
-        </div>
-
-        {/* Row 4: Monto + Publicación + Cierre + Documentos */}
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 mb-3">
-          {alerta.licitacion_monto != null && alerta.licitacion_monto > 0 && (
-            <span className="flex items-center gap-1.5 text-[13px] font-semibold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-100">
-              <DollarSign size={12} className="flex-shrink-0" />
-              {fmt(alerta.licitacion_monto)}
-            </span>
-          )}
-          <span
-            className="flex items-center gap-1.5 text-[12px] text-teal-600 bg-teal-50 px-2 py-0.5 rounded-lg border border-teal-100"
-            title={alerta.licitacion_fecha_publicacion ? 'Fecha de publicación (Mercado Público)' : 'La API no entregó fecha de publicación — se muestra la fecha en que llegó al sistema'}
-          >
-            <Zap size={10} className="flex-shrink-0" />
-            Publicada: <strong className="ml-0.5">{fmtFechaCorta(alerta.licitacion_fecha_publicacion || alerta.created_at)}</strong>
-          </span>
-          {alerta.licitacion_cierre && (
-            <span className="flex items-center gap-1.5 text-[12px] text-slate-500">
-              <Calendar size={11} className="text-slate-400 flex-shrink-0" />
-              Cierre: <strong className="text-slate-700">{fmtFechaCorta(alerta.licitacion_cierre)}</strong>
-            </span>
-          )}
-          {!!alerta.tiene_documentos && (
-            <span className="flex items-center gap-1 text-[11px] text-teal-700 bg-teal-50 border border-teal-100 px-2 py-0.5 rounded-full font-semibold">
-              <FileText size={10} /> Documentos disponibles
-            </span>
-          )}
-        </div>
-
-        {/* Footer: acciones */}
-        <div className="flex items-center justify-between pt-2.5 border-t border-slate-100">
-          <div title={`Hace cuánto llegó esta licitación al radar (${fmtFechaCorta(alerta.created_at)})`}
-            className="flex items-center gap-1 text-[10px] text-slate-400">
-            <Clock size={9} /> Detectada {tiempoRelativo(alerta.created_at)}
+        {/* Categoría y palabra clave que hizo match */}
+        {(alerta.categoria_nombre || alerta.keyword_texto) && (
+          <div className="flex items-center gap-3 flex-wrap mt-2 text-xs text-tinta-2 dark:text-slate-400">
+            {alerta.categoria_nombre && (
+              <Estado color={alerta.categoria_color || '#64748b'}>{alerta.categoria_nombre}</Estado>
+            )}
+            {alerta.keyword_texto && (
+              <span className="inline-flex items-center gap-1">
+                <Tag size={12} strokeWidth={1.75} className="text-slate-400" /> {alerta.keyword_texto}
+                {alerta.match_fuente && <span className="text-tinta-3">· {alerta.match_fuente}</span>}
+              </span>
+            )}
           </div>
-          <div className="flex items-center gap-1">
-            <Link
-              href={`/licitacion/${encodeURIComponent(alerta.licitacion_codigo)}`}
-              onClick={() => noLeida && onMarcarLeida(alerta.id)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-teal-600 hover:bg-teal-700 text-white text-[12px] font-semibold rounded-lg transition-colors"
-            >
-              Ver detalle <ExternalLink size={11} />
-            </Link>
+        )}
+
+        {/* Datos rotulados */}
+        <Datos columnas={4}>
+          <Dato rotulo="Organismo"><span title={alerta.licitacion_organismo || undefined}>{alerta.licitacion_organismo}</span></Dato>
+          <Dato rotulo="Región">{alerta.licitacion_region}</Dato>
+          <Dato rotulo="Monto estimado">{alerta.licitacion_monto != null && alerta.licitacion_monto > 0 ? fmt(alerta.licitacion_monto) : undefined}</Dato>
+          <Dato rotulo={alerta.licitacion_fecha_publicacion ? 'Publicada' : 'Llegó al sistema'}>
+            <span title={alerta.licitacion_fecha_publicacion ? 'Fecha de publicación (Mercado Público)' : 'La API no entregó fecha de publicación — se muestra la fecha en que llegó al sistema'}>
+              {fmtFechaCorta(alerta.licitacion_fecha_publicacion || alerta.created_at)}
+            </span>
+          </Dato>
+          <Dato rotulo="Cierre">{alerta.licitacion_cierre ? fmtFechaCorta(alerta.licitacion_cierre) : undefined}</Dato>
+          <Dato rotulo="Asignada a">{alerta.asignada ? (alerta.asignado_nombre || 'Perfil del equipo') : undefined}</Dato>
+          <Dato rotulo="Documentos">{alerta.tiene_documentos ? 'Disponibles' : undefined}</Dato>
+          <Dato rotulo="Reparto">{alerta.en_puente && !alerta.asignada ? 'Esperando en el puente' : undefined}</Dato>
+        </Datos>
+
+        {/* Pie: acciones */}
+        <div className="flex items-center justify-between pt-3 mt-3 border-t border-linea/80 dark:border-slate-800">
+          <div title={`Hace cuánto llegó esta licitación al radar (${fmtFechaCorta(alerta.created_at)})`}
+            className="flex items-center gap-1.5 text-xs text-tinta-3">
+            <Clock size={13} strokeWidth={1.75} /> Detectada {tiempoRelativo(alerta.created_at)}
+          </div>
+          <div className="flex items-center gap-2">
             <button
               onClick={() => onDescartar(alerta, !alerta.descartada)}
-              className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[12px] font-semibold rounded-lg border transition-colors ${alerta.descartada
-                ? 'bg-emerald-600 border-emerald-600 text-white hover:bg-emerald-700'
-                : 'bg-white border-slate-200 text-slate-500 hover:bg-red-50 hover:border-red-200 hover:text-red-600'}`}
+              className={BTN_SECUNDARIO}
               title={alerta.descartada ? 'Volver a mostrarla entre las activas del radar' : 'Sacarla de la vista base del radar (queda en el corte "Descartadas", reversible)'}
             >
-              {alerta.descartada ? <><Undo2 size={12} /> Restaurar</> : <><EyeOff size={12} /> Descartar</>}
+              {alerta.descartada ? <><Undo2 size={14} strokeWidth={1.75} /> Restaurar</> : <><EyeOff size={14} strokeWidth={1.75} /> Descartar</>}
             </button>
             <button
               onClick={() => onAsignar(alerta)}
-              className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[12px] font-semibold rounded-lg border transition-colors ${alerta.asignada
-                ? 'bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100'
-                : 'bg-white border-slate-200 text-slate-500 hover:bg-emerald-50 hover:border-emerald-200 hover:text-emerald-600'}`}
+              className={alerta.asignada ? BTN_SECUNDARIO : BTN_PRIMARIO}
               title={alerta.asignada
                 ? `Asignada a ${alerta.asignado_nombre || 'un perfil'} — moverla a otro perfil`
                 : 'Asignar a un perfil del equipo: descarga sus documentos, corre la viabilidad IA y la marca como revisada'}
             >
-              <UserPlus size={12} /> {alerta.asignada ? 'Reasignar' : 'Asignar'}
+              <UserPlus size={14} strokeWidth={1.75} /> {alerta.asignada ? 'Reasignar' : 'Asignar'}
             </button>
-            <button
-              onClick={() => onDelete(alerta.id)}
-              className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-300 hover:text-red-500 hover:bg-red-50 transition-colors opacity-0 group-hover:opacity-100"
-              title="Eliminar la alerta del radar de forma permanente (no se puede deshacer; para ocultarla usa Descartar)"
+            <Link
+              href={`/licitacion/${encodeURIComponent(alerta.licitacion_codigo)}`}
+              onClick={() => noLeida && onMarcarLeida(alerta.id)}
+              className={BTN_SECUNDARIO}
             >
-              <Trash2 size={13} />
+              Ver detalle <ExternalLink size={13} strokeWidth={1.75} />
+            </Link>
+            <button onClick={() => onDelete(alerta.id)} className={BTN_ELIMINAR} aria-label="Eliminar alerta"
+              title="Eliminar la alerta del radar de forma permanente (no se puede deshacer; para ocultarla usa Descartar)">
+              <Trash2 size={15} strokeWidth={1.75} />
             </button>
           </div>
         </div>
@@ -725,7 +609,7 @@ const LicitacionCardMemo = memo(LicitacionCard);
 // ── Skeleton card ──────────────────────────────────────────────────────────────
 function CardSkeleton() {
   return (
-    <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-3 animate-pulse">
+    <div className="bg-white rounded-xl border border-linea shadow-tarjeta p-4 space-y-3 dark:bg-slate-900 dark:border-slate-800">
       <div className="flex items-center justify-between">
         <div className="flex gap-2">
           <div className="w-2 h-2 rounded-full bg-slate-200" />
@@ -902,8 +786,8 @@ function KpiFiltro({ activo, onClick, icon, label, value, sub, color, hint }: {
 }) {
   return (
     <button onClick={onClick} title={hint}
-      className={`text-left w-full h-full rounded-2xl transition-all ${activo ? 'ring-2 ring-teal-500 ring-offset-2' : ''}`}>
-      <StatCard icon={icon} label={label} value={value} sub={sub} color={color} />
+      className={`text-left w-full h-full rounded-xl transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marca/60 ${activo ? 'ring-2 ring-marca ring-offset-2 dark:ring-offset-slate-950' : ''}`}>
+      <Indicador rotulo={label} valor={value} detalle={sub} />
     </button>
   );
 }
@@ -1846,21 +1730,18 @@ export default function RadarPage() {
         {/* ── Header ── */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-teal-600 flex items-center justify-center shadow-lg shadow-teal-600/25 flex-shrink-0">
-              <Radar size={18} className="text-white" />
-            </div>
             <div>
               <div className="flex items-center gap-2">
-                <h1 className="text-xl font-semibold text-slate-900">Radar</h1>
+                <h1 className="text-[22px] leading-tight font-semibold tracking-tight text-tinta dark:text-slate-50">Radar</h1>
                 {noLeidas > 0 && (
                   <>
-                    <span className="bg-teal-600 text-white text-[11px] font-semibold px-2 py-0.5 rounded-full tabular-nums"
+                    <span className="text-xs font-semibold tabular-nums text-tinta-2 dark:text-slate-400"
                       title={`${noLeidas.toLocaleString('es-CL')} licitaciones sin revisar`}>{noLeidas}</span>
                     <InfoHint texto={`Ojo: aquí hay DOS números distintos que cambian con cada actualización. El ${noLeidas.toLocaleString('es-CL')} de esta burbuja son las licitaciones VIGENTES que nadie ha revisado aún: baja al abrirlas, al asignarlas a un perfil o con "Marcar todas leídas", y las que vencen dejan de contar solas. El ${alertas.length.toLocaleString('es-CL')} de la pestaña "Licitaciones" es TODO lo detectado por tus palabras clave, incluidas cerradas, descartadas y excluidas; la lista de abajo muestra solo las trabajables hoy.`} />
                   </>
                 )}
               </div>
-              <p className="text-[12px] text-slate-400 mt-px flex items-center gap-1.5">
+              <p className="text-xs text-tinta-2 dark:text-slate-400 mt-0.5 flex items-center gap-1.5">
                 <span>{activeKws} palabra{activeKws !== 1 ? 's' : ''} activa{activeKws !== 1 ? 's' : ''}</span>
                 {ultimaAct && (
                   <span className="flex items-center gap-0.5">· <Clock size={9} className="mx-0.5" /> {tiempoRelativo(ultimaAct)}</span>
@@ -1907,16 +1788,12 @@ export default function RadarPage() {
                 title={totalPuente > 0
                   ? `${totalPuente} licitación(es) esperando reparto en el puente — ábrelo para repartirlas entre los perfiles`
                   : 'Puente del radar: selecciona licitaciones, mándalas "Al puente" y repártelas entre varios perfiles'}
-                className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-[13px] font-semibold transition-all ${
-                  totalPuente > 0
-                    ? 'bg-teal-600 hover:bg-teal-500 text-white shadow-sm shadow-teal-600/30 hover:-translate-y-px'
-                    : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
-                }`}
+                className={`${BTN} h-9 ${totalPuente > 0 ? 'bg-marca text-white hover:bg-marca-fuerte' : 'bg-white text-tinta border border-linea hover:bg-slate-50 dark:bg-slate-900 dark:text-slate-100 dark:border-slate-700'}`}
               >
                 <Shuffle size={14} />
                 <span className="hidden sm:inline">Puente</span>
                 {totalPuente > 0 && (
-                  <span className="bg-white/20 text-white text-[11px] font-semibold px-1.5 py-0.5 rounded-full tabular-nums">
+                  <span className="text-xs font-semibold tabular-nums">
                     {totalPuente}
                   </span>
                 )}
@@ -1928,11 +1805,7 @@ export default function RadarPage() {
               onClick={exportarExcel}
               disabled={exportando || alertasFiltradas.length === 0}
               title={`Exportar a Excel las ${alertasFiltradas.length.toLocaleString('es-CL')} licitaciones de la vista actual (con los filtros aplicados)`}
-              className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-[13px] font-semibold transition-all ${
-                exportando || alertasFiltradas.length === 0
-                  ? 'bg-zinc-100 text-zinc-400 cursor-not-allowed'
-                  : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm shadow-emerald-600/30 hover:-translate-y-px'
-              }`}
+              className={`${BTN} h-9 bg-white text-tinta border border-linea hover:bg-slate-50 dark:bg-slate-900 dark:text-slate-100 dark:border-slate-700 disabled:opacity-50 disabled:pointer-events-none`}
             >
               {exportando ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
               <span className="hidden sm:inline">Exportar Excel</span>
@@ -1945,11 +1818,7 @@ export default function RadarPage() {
               onClick={actualizarAhora}
               disabled={actualizando}
               title="Corre el ciclo completo a demanda: 1) baja licitaciones nuevas de MP y matchea tus palabras clave, 2) enriquece cada una (ítems, categoría, fechas), 3) corre el prefiltro IA. Es lo mismo que hace el automático cada 4 horas."
-              className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-[13px] font-semibold transition-all ${
-                actualizando
-                  ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
-                  : 'bg-teal-600 hover:bg-teal-500 text-white shadow-sm shadow-teal-600/30 hover:-translate-y-px'
-              }`}
+              className={`${BTN} h-9 bg-marca text-white hover:bg-marca-fuerte disabled:opacity-50 disabled:pointer-events-none`}
             >
               {actualizando ? <Loader2 size={14} className="animate-spin" /> : <Zap size={14} />}
               {actualizando ? (faseActual || 'Actualizando…') : 'Actualizar ahora'}
@@ -1968,8 +1837,8 @@ export default function RadarPage() {
               title={t.key === 'radar'
                 ? `${alertas.length.toLocaleString('es-CL')} licitaciones detectadas en total por tus palabras clave (incluye cerradas, vencidas, descartadas y excluidas). La burbuja junto al título "Radar" es otro número: las nuevas sin revisar.`
                 : `${keywords.length} palabras clave configuradas (positivas + de exclusión). Aquí se administran y se ve cuántas licitaciones encontró cada una.`}
-              className={`relative flex items-center gap-2 px-4 py-2.5 text-[13px] font-semibold transition-colors pb-[11px] ${
-                tab === t.key ? 'text-slate-900' : 'text-slate-400 hover:text-slate-600'
+              className={`relative flex items-center gap-2 px-4 py-2.5 text-[13px] font-medium transition-colors pb-[11px] ${
+                tab === t.key ? 'text-tinta dark:text-slate-50' : 'text-tinta-2 hover:text-tinta dark:text-slate-400'
               }`}
             >
               {t.label}
@@ -2230,19 +2099,19 @@ export default function RadarPage() {
                       <span className="text-[11px] text-slate-400">Filtrando:</span>
                       {filtros.texto && (
                         <button onClick={() => setFiltro('texto', '')}
-                          className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full border bg-amber-50 text-amber-700 border-amber-200 hover:opacity-75">
+                          className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-700 hover:opacity-75">
                           <Search size={10} /> “{filtros.texto}” <X size={11} />
                         </button>
                       )}
                       {!estadosEsDefault && (
                         <button onClick={() => setFiltro('estados', ESTADOS_ACTIVOS_DEFAULT)}
-                          className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full border bg-slate-50 text-slate-600 border-slate-200 hover:opacity-75">
+                          className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-600 hover:opacity-75">
                           Estado: {filtros.estados.length ? filtros.estados.join(', ') : 'todos'} <X size={11} />
                         </button>
                       )}
                       {!tiposEsDefault && (
                         <button onClick={() => setFiltro('tipos', FILTROS_DEFAULT.tipos)}
-                          className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full border bg-slate-50 text-slate-600 border-slate-200 hover:opacity-75">
+                          className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-600 hover:opacity-75">
                           Tipo: {filtros.tipos.length ? filtros.tipos.join(', ') : 'todos'} <X size={11} />
                         </button>
                       )}
@@ -2260,49 +2129,49 @@ export default function RadarPage() {
                       ))}
                       {filtros.dias && (
                         <button onClick={() => setFiltro('dias', '')}
-                          className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full border bg-slate-50 text-slate-600 border-slate-200 hover:opacity-75">
+                          className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-600 hover:opacity-75">
                           {RANGOS_DIAS.find(r => r.key === filtros.dias)?.label} <X size={11} />
                         </button>
                       )}
                       {filtros.monto && (
                         <button onClick={() => setFiltro('monto', '')}
-                          className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full border bg-emerald-50 text-emerald-700 border-emerald-200 hover:opacity-75">
+                          className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-700 hover:opacity-75">
                           {RANGOS_MONTO.find(r => r.key === filtros.monto)?.label} <X size={11} />
                         </button>
                       )}
                       {filtros.region && (
                         <button onClick={() => setFiltro('region', '')}
-                          className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full border bg-slate-50 text-slate-600 border-slate-200 hover:opacity-75 max-w-[220px]">
+                          className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-600 hover:opacity-75 max-w-[220px]">
                           <MapPin size={10} /> <span className="truncate">{filtros.region}</span> <X size={11} />
                         </button>
                       )}
                       {filtros.keyword && (
                         <button onClick={() => setFiltro('keyword', '')}
-                          className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full border bg-slate-50 text-slate-600 border-slate-200 hover:opacity-75">
+                          className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-600 hover:opacity-75">
                           <Tag size={10} /> {filtros.keyword} <X size={11} />
                         </button>
                       )}
                       {(filtros.fechaDesde || filtros.fechaHasta) && (
                         <button onClick={() => { setFiltro('fechaDesde', ''); setFiltro('fechaHasta', ''); }}
-                          className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full border bg-teal-50 text-teal-700 border-teal-200 hover:opacity-75">
+                          className="inline-flex items-center gap-1 text-[11px] font-medium text-teal-700 hover:opacity-75">
                           <Calendar size={10} /> Publicación: {filtros.fechaDesde || '…'} → {filtros.fechaHasta || '…'} <X size={11} />
                         </button>
                       )}
                       {filtros.conDocumentos && (
                         <button onClick={() => setFiltro('conDocumentos', false)}
-                          className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full border bg-teal-50 text-teal-700 border-teal-200 hover:opacity-75">
+                          className="inline-flex items-center gap-1 text-[11px] font-medium text-teal-700 hover:opacity-75">
                           <FileText size={10} /> Con documentos <X size={11} />
                         </button>
                       )}
                       {filtros.soloNoLeidas && (
                         <button onClick={() => setFiltro('soloNoLeidas', false)}
-                          className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full border bg-cyan-50 text-cyan-700 border-cyan-200 hover:opacity-75">
+                          className="inline-flex items-center gap-1 text-[11px] font-medium text-cyan-700 hover:opacity-75">
                           Solo no leídas <X size={11} />
                         </button>
                       )}
                       {filtros.ocultarExcluidas && (
                         <button onClick={() => setFiltro('ocultarExcluidas', false)}
-                          className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full border bg-slate-50 text-slate-600 border-slate-200 hover:opacity-75">
+                          className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-600 hover:opacity-75">
                           Ocultar excluidas <X size={11} />
                         </button>
                       )}
@@ -2478,7 +2347,7 @@ export default function RadarPage() {
             )}
 
             <div className="flex items-start gap-3 bg-teal-50 border border-blue-200/60 rounded-xl px-4 py-3.5 mb-5">
-              <Sparkles size={15} className="text-blue-500 flex-shrink-0 mt-0.5" />
+              <Sparkles size={15} className="text-teal-500 flex-shrink-0 mt-0.5" />
               <div className="text-[12.5px] text-blue-800 leading-relaxed space-y-1">
                 <p><strong className="font-semibold">¿Cómo funciona el Radar?</strong></p>
                 <p>Descarga licitaciones activas desde Mercado Público y busca tus palabras clave en el <strong>título</strong> y la <strong>descripción</strong>. Se ejecuta automáticamente cada 4 horas y los resultados se acumulan.</p>

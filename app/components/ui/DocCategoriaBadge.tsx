@@ -19,37 +19,37 @@ const CONFIG: Record<DocCategoria, { label: string; shortLabel: string; classNam
   BASES_ADMINISTRATIVAS: {
     label: 'Bases Administrativas',
     shortLabel: 'Bases Admin',
-    className: 'bg-blue-50 text-blue-700 border border-blue-200',
+    className: 'text-teal-700 dark:text-teal-400',
     icon: <BookOpen size={10} />,
   },
   BASES_TECNICAS: {
     label: 'Bases Técnicas',
     shortLabel: 'Bases Téc.',
-    className: 'bg-slate-50 text-slate-700 border border-slate-200',
+    className: 'text-tinta-2 dark:text-slate-300',
     icon: <FileText size={10} />,
   },
   CRITERIOS_EVALUACION: {
     label: 'Criterios de Evaluación',
     shortLabel: 'Criterios',
-    className: 'bg-amber-50 text-amber-700 border border-amber-200',
+    className: 'text-amber-700 dark:text-amber-400',
     icon: <BarChart2 size={10} />,
   },
   ANEXOS_OFERENTE: {
     label: 'Anexos Oferente',
     shortLabel: 'Anexos',
-    className: 'bg-emerald-50 text-emerald-700 border border-emerald-200',
+    className: 'text-emerald-700 dark:text-emerald-400',
     icon: <ClipboardList size={10} />,
   },
   DOCUMENTOS_PROCESO: {
     label: 'Documentos de Proceso',
     shortLabel: 'Proceso',
-    className: 'bg-slate-100 text-slate-600 border border-slate-200',
+    className: 'text-tinta-2 dark:text-slate-300',
     icon: <FileCheck size={10} />,
   },
   OTROS: {
     label: 'Otros',
     shortLabel: 'Otros',
-    className: 'bg-rose-50 text-rose-700 border border-rose-200',
+    className: 'text-red-700 dark:text-red-400',
     icon: <HelpCircle size={10} />,
   },
 };
@@ -59,15 +59,15 @@ export function DocCategoriaBadge({ categoria, className, size = 'sm' }: DocCate
   const cfg = CONFIG[categoria as DocCategoria] || {
     label: categoria,
     shortLabel: categoria,
-    className: 'bg-slate-100 text-slate-600 border border-slate-200',
+    className: 'text-tinta-2 dark:text-slate-300',
     icon: <FileText size={10} />,
   };
 
   return (
     <span
       className={cn(
-        'inline-flex items-center gap-1 rounded-md font-semibold',
-        size === 'sm' ? 'px-1.5 py-0.5 text-[10px]' : 'px-2 py-1 text-[11px]',
+        'inline-flex items-center gap-1 font-medium',
+        'text-xs',
         cfg.className,
         className,
       )}

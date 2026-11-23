@@ -2,6 +2,22 @@
 
 Traspasado desde la memoria personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-11-23 — «Requisitos generales de los productos»: 227 citas en 3708-49-LE26 (obra vial, Pitrufquén)
+La segunda pasada (`completarCaracteristicasLiterales`) corre una vez por ítem y las EETT se remiten entre sí («Ídem Ítem 1.0.1»):
+el mismo párrafo llegaba N veces, mezclado con detalles constructivos (curado de hormigón, riego de liga), y la «Cita» era el propio
+texto (solo prueba que existe en el PDF). **Regla:** `depurarRequisitosGenerales` (`viabilidad-v4/productos.ts`) quita los no hallados
+literales, deja de la segunda pasada solo lo que habla de garantía/capacitación/manuales/certificados/mantención/documentación/
+entrega/ensayes, y junta repetidos (si venía de varios productos pasa a general). Sobre el informe guardado: 227 → 42.
+**Segunda vuelta (mismo día):** re-analizada, la IA devolvió solo 2 (la lista del modelo cambia entre corridas con las mismas bases).
+Se agregó `extraerRequisitosGeneralesDeBases` (barrido SIN IA de las BASES_TECNICAS: frases con verbo de obligación + garantía/
+capacitación/manual/certificado/ensaye/mantención/libro de obras…; excluye garantías de la oferta; literal, siempre verificable) que se
+une a lo del modelo: 3708-49-LE26 quedó en 15, todos con página (BD de producción re-analizada). El piso ya no depende del modelo.
+**Misma regla para los clientes (dueño: «para toda la plataforma y las empresas que compren el sistema»):** copiado a
+`cv/v4/productos.ts` y conectado en `cv/viabilidad-ia.ts` (motor de clientes); tsc OK, sin probar con un cliente real.
+**Pendiente:** sin desplegar; el barrido no capta frases sin
+punto final ni listas sueltas («Mantener PROFESIONAL…», «Pagos de derechos Municipales…»: esas dependen del modelo). Sin decidir (dueño): excluir/bajar obras civiles con mano de obra para empresas que solo venden productos (hoy
+OBRA_CIVIL «no excluye en esta versión») y la tarjeta «OPORTUNIDAD DE PRECIO» que contradice el MEDIO_BAJO.
+
 ## 2026-11-13 — «La o las propuestas» y una tabla de acopio se leían como «por línea»; la confirmación ya no se pierde
 Caso real: 1024-61-LP26 (Vialidad Tarapacá, 466 barreras tipo F + 466 captafaros). El informe la daba POR_LINEAS
 (regla 3) con la frase tipo de las bases MOP «Se adjudicará a la o las propuestas más ventajosas», etiquetada

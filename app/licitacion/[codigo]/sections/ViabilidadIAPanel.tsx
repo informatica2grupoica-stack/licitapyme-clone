@@ -352,7 +352,7 @@ function TarjetaAdjudicacion({ informe }: { informe: InformeIA }) {
 
   return (
     <div className="bg-white border border-slate-200 rounded-xl p-3">
-      <p className="text-[10px] font-semibold text-slate-400 uppercase">Cómo se adjudica</p>
+      <p className="text-[10px] font-semibold text-slate-400">Cómo se adjudica</p>
       <p className="text-[14px] font-semibold text-slate-800 leading-tight">
         {cap(como) || cap(mod.tipo) || '—'}
         {revision ? <span title="El análisis no lo determinó con certeza: confírmalo en las bases"> ⚠</span> : null}
@@ -383,13 +383,13 @@ function TarjetaAdjudicacion({ informe }: { informe: InformeIA }) {
         <div className="mt-1.5 space-y-1.5 border-t border-slate-100 pt-1.5">
           {evidencia && (
             <div>
-              <p className="text-[9px] font-semibold text-slate-400 uppercase">Razonamiento</p>
+              <p className="text-[9px] font-semibold text-slate-400">Razonamiento</p>
               <p className="text-[10.5px] text-slate-600 leading-snug">{evidencia}</p>
             </div>
           )}
           {cotizacion && (
             <div>
-              <p className="text-[9px] font-semibold text-slate-400 uppercase">Cómo se cotiza (eje aparte)</p>
+              <p className="text-[9px] font-semibold text-slate-400">Cómo se cotiza (eje aparte)</p>
               <p className="text-[10.5px] text-slate-600">{cap(cotizacion)}</p>
             </div>
           )}
@@ -683,10 +683,10 @@ function VistaV3({ informe, feedbackPanel }: { informe: any; feedbackPanel?: Rea
           <div className="mt-3 space-y-2.5">
             {t.se_gana_en && <div className="text-[13px]"><span className="font-semibold text-slate-700">SE GANA EN: </span><span className="text-slate-600">{t.se_gana_en}</span></div>}
             {(t.para_ganar?.length ?? 0) > 0 && (
-              <div><p className="text-[11px] font-semibold text-slate-400 uppercase mb-1">Para ganar</p><ol className="text-[13px] text-slate-700 space-y-1 list-decimal pl-5">{t.para_ganar.map((x: string, i: number) => <li key={i}>{x}</li>)}</ol></div>
+              <div><p className="text-[11px] font-semibold text-slate-400 mb-1">Para ganar</p><ol className="text-[13px] text-slate-700 space-y-1 list-decimal pl-5">{t.para_ganar.map((x: string, i: number) => <li key={i}>{x}</li>)}</ol></div>
             )}
             {(t.no_quedes_fuera?.length ?? 0) > 0 && (
-              <div><p className="text-[11px] font-semibold text-red-500 uppercase mb-1">No quedes fuera</p><ul className="text-[13px] text-slate-700 space-y-1 list-disc pl-5">{t.no_quedes_fuera.map((x: string, i: number) => <li key={i}>{x}</li>)}</ul></div>
+              <div><p className="text-[11px] font-semibold text-red-500 mb-1">No quedes fuera</p><ul className="text-[13px] text-slate-700 space-y-1 list-disc pl-5">{t.no_quedes_fuera.map((x: string, i: number) => <li key={i}>{x}</li>)}</ul></div>
             )}
             {t.antes_de_ir && <div className="text-[12px] text-slate-500"><span className="font-semibold">ANTES DE IR: </span>{t.antes_de_ir}</div>}
           </div>
@@ -699,7 +699,7 @@ function VistaV3({ informe, feedbackPanel }: { informe: any; feedbackPanel?: Rea
       {/* Datos clave */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
         <div className="bg-white border border-slate-200 rounded-xl p-3">
-          <p className="text-[10px] font-semibold text-slate-400 uppercase">Presupuesto</p>
+          <p className="text-[10px] font-semibold text-slate-400">Presupuesto</p>
           {/* Se muestra CON IVA (bruto) desde el dato estructurado — no del string cacheado del
               modelo (los informes viejos traían "$__ neto"); así se ve con IVA sin re-analizar. */}
           <p className="text-[15px] font-semibold text-emerald-700 leading-tight">{fmt(informe.presupuesto?.bruto ?? informe.presupuesto?.neto)}{informe.presupuesto?.bruto && !informe.presupuesto?.regimen_fora ? <span className="text-[10px] font-semibold text-slate-400"> IVA incl.</span> : null}</p>
@@ -715,7 +715,7 @@ function VistaV3({ informe, feedbackPanel }: { informe: any; feedbackPanel?: Rea
           )}
         </div>
         <div className={`border rounded-xl p-3 ${adj.estado === 'REVISION_HUMANA' ? 'bg-amber-50 border-amber-200' : 'bg-white border-slate-200'}`}>
-          <p className={`text-[10px] font-semibold uppercase ${adj.estado === 'REVISION_HUMANA' ? 'text-amber-600' : 'text-slate-400'}`}>Cómo se adjudica</p>
+          <p className={`text-[10px] font-semibold ${adj.estado === 'REVISION_HUMANA' ? 'text-amber-600' : 'text-slate-400'}`}>Cómo se adjudica</p>
           {/* REVISION_HUMANA = la IA no encontró evidencia objetiva y usó un DEFAULT (ver
               veredictoAdjudicacionDeterminista en viabilidad-ia.ts), no un dato leído de las bases.
               Antes se mostraba con el mismo estilo bold que un dato confirmado (solo un ⚠ chico
@@ -727,14 +727,14 @@ function VistaV3({ informe, feedbackPanel }: { informe: any; feedbackPanel?: Rea
           {adj.cotizar_100_obligatorio && <span title="Hay que ofertar TODOS los ítems: si falta uno, la oferta completa queda fuera" className="text-[9px] font-semibold px-1 py-0.5 rounded bg-red-100 text-red-700 cursor-help">COTIZAR 100%</span>}
         </div>
         <div className="bg-white border border-slate-200 rounded-xl p-3" title="Días “gratis” entre la adjudicación y el inicio del plazo de entrega: la holgura administrativa para conseguir los productos">
-          <p className="text-[10px] font-semibold text-slate-400 uppercase cursor-help">Colchón de tiempo</p>
+          <p className="text-[10px] font-semibold text-slate-400 cursor-help">Colchón de tiempo</p>
           <p className="text-[15px] font-semibold text-slate-800 leading-tight">{plz.colchon_dias_corridos != null ? `${plz.colchon_dias_corridos} días` : '—'}</p>
           {plz.ventana_importacion
             ? <span title="La holgura alcanza para importar productos desde el extranjero" className="text-[9px] font-semibold px-1 py-0.5 rounded bg-sky-100 text-sky-700 inline-flex items-center gap-0.5 cursor-help"><Ship size={9} /> alcanza a importar</span>
             : <span title="La holgura NO alcanza para importar: hay que tener stock local" className="text-[10px] text-slate-400 cursor-help">no alcanza a importar</span>}
         </div>
         <div className="bg-white border border-slate-200 rounded-xl p-3" title="Qué tan atractivo es el negocio según presupuesto, cantidad de ítems, complejidad y ejecución">
-          <p className="text-[10px] font-semibold text-slate-400 uppercase cursor-help">Atractivo</p>
+          <p className="text-[10px] font-semibold text-slate-400 cursor-help">Atractivo</p>
           <p className="text-[14px] font-semibold text-slate-800 leading-tight">{cap(atr.nivel || atr.veredicto) || '—'}</p>
         </div>
       </div>
@@ -821,7 +821,7 @@ function VistaV3({ informe, feedbackPanel }: { informe: any; feedbackPanel?: Rea
               <div key={i} className="bg-slate-50 rounded-lg p-2">
                 <p className="font-semibold text-slate-700">{JUGADA_ICON[j.etiqueta] || '•'} {j.criterio}{TIPO_BADGE[j.clase ?? j.tipo_aplicacion] ? ` · ${TIPO_BADGE[j.clase ?? j.tipo_aplicacion].label}` : ''}{j.exige_respaldo ? ' · ⚠ EXIGE STOCK/RESPALDO' : ''}</p>
                 {j.lectura && <p className="text-slate-500 mt-0.5 leading-snug">{j.lectura}</p>}
-                {j.orden && <p className="text-slate-800 mt-0.5 font-semibold uppercase text-[11.5px]">▸ {j.orden}{j.valor_a_ofertar ? ` (${j.valor_a_ofertar})` : ''}</p>}
+                {j.orden && <p className="text-slate-800 mt-0.5 font-semibold text-[11.5px]">▸ {j.orden}{j.valor_a_ofertar ? ` (${j.valor_a_ofertar})` : ''}</p>}
                 {j.fuente && <div className="mt-0.5"><Fuente destacar={j.criterio}>{j.fuente}</Fuente></div>}
               </div>
             ))}
@@ -934,7 +934,7 @@ function VistaV3({ informe, feedbackPanel }: { informe: any; feedbackPanel?: Rea
           <div className="overflow-x-auto">
             <table className="w-full text-[13px]">
               <thead>
-                <tr className="text-left text-[10.5px] text-slate-400 uppercase">
+                <tr className="text-left text-[10.5px] text-slate-400">
                   <th className="py-1.5 pr-2 font-semibold w-10">L</th>
                   <th className="py-1.5 pr-2 font-semibold">Descripción</th>
                   <th className="py-1.5 pr-2 font-semibold text-right w-20 whitespace-nowrap">Cant.</th>
@@ -1015,8 +1015,8 @@ function VistaV3({ informe, feedbackPanel }: { informe: any; feedbackPanel?: Rea
       {/* Acciones y advertencias */}
       {tab === 'preparacion' && ((acc.acciones?.length ?? 0) > 0 || (acc.advertencias?.length ?? 0) > 0) && (
         <Seccion icon={<Target size={14} className="text-teal-600" />} titulo="Acciones y advertencias" defaultOpen>
-          {(acc.acciones?.length ?? 0) > 0 && <><p className="text-[11px] font-semibold text-slate-400 uppercase mb-1">Para postular</p><ul className="text-[12px] text-slate-700 space-y-1 list-decimal pl-4 mb-2">{acc.acciones.map((a: any, i: number) => <li key={i}><span className="font-semibold">{a.orden}</span>{a.por_que ? ` — ${a.por_que}` : ''} <Fuente>{a.fuente}</Fuente></li>)}</ul></>}
-          {(acc.advertencias?.length ?? 0) > 0 && <><p className="text-[11px] font-semibold text-red-500 uppercase mb-1">Advertencias</p><ul className="text-[12px] text-amber-700 space-y-1 list-disc pl-4">{acc.advertencias.map((a: any, i: number) => <li key={i}>⚠ {a.riesgo}{a.consecuencia ? ` — ${a.consecuencia}` : ''} <Fuente>{a.fuente}</Fuente></li>)}</ul></>}
+          {(acc.acciones?.length ?? 0) > 0 && <><p className="text-[11px] font-semibold text-slate-400 mb-1">Para postular</p><ul className="text-[12px] text-slate-700 space-y-1 list-decimal pl-4 mb-2">{acc.acciones.map((a: any, i: number) => <li key={i}><span className="font-semibold">{a.orden}</span>{a.por_que ? ` — ${a.por_que}` : ''} <Fuente>{a.fuente}</Fuente></li>)}</ul></>}
+          {(acc.advertencias?.length ?? 0) > 0 && <><p className="text-[11px] font-semibold text-red-500 mb-1">Advertencias</p><ul className="text-[12px] text-amber-700 space-y-1 list-disc pl-4">{acc.advertencias.map((a: any, i: number) => <li key={i}>⚠ {a.riesgo}{a.consecuencia ? ` — ${a.consecuencia}` : ''} <Fuente>{a.fuente}</Fuente></li>)}</ul></>}
         </Seccion>
       )}
 
@@ -1404,7 +1404,7 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
 
         {feedback.length > 0 && (
           <div className="mt-3 pt-3 border-t border-teal-100 space-y-2">
-            <p className="text-[11px] font-semibold text-slate-400 uppercase">Lecciones registradas ({feedback.length})</p>
+            <p className="text-[11px] font-semibold text-slate-400">Lecciones registradas ({feedback.length})</p>
             {feedback.map(f => (
               <div key={f.id} className="flex items-start gap-2 text-[12px] bg-white rounded-lg border border-slate-200 p-2">
                 <GraduationCap size={13} className="text-teal-600 mt-0.5 flex-shrink-0" />
@@ -1559,7 +1559,7 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
           {/* Datos clave (chips) */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
             <div className="bg-white border border-slate-200 rounded-xl p-3">
-              <p className="text-[10px] font-semibold text-slate-400 uppercase">Presupuesto</p>
+              <p className="text-[10px] font-semibold text-slate-400">Presupuesto</p>
               <p className="text-[15px] font-semibold text-emerald-700 leading-tight">{fmt(informe.presupuesto?.bruto ?? informe.presupuesto?.neto)}{informe.presupuesto?.bruto && !informe.presupuesto?.regimen_fora ? <span className="text-[10px] font-semibold text-slate-400"> IVA incl.</span> : null}</p>
               <div className="flex items-center gap-1 flex-wrap mt-0.5">
                 {informe.presupuesto?.es_excluyente
@@ -1580,7 +1580,7 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
             </div>
             <TarjetaAdjudicacion informe={informe} />
             <div className="bg-white border border-slate-200 rounded-xl p-3">
-              <p className="text-[10px] font-semibold text-slate-400 uppercase">Colchón administrativo</p>
+              <p className="text-[10px] font-semibold text-slate-400">Colchón administrativo</p>
               <p className="text-[15px] font-semibold text-slate-800 leading-tight">{lt?.colchon_dias_corridos != null ? `${lt.colchon_dias_corridos} días corr.` : lt?.colchon_dias_habiles != null ? `${lt.colchon_dias_habiles} días háb.` : '—'}</p>
               <div className="flex items-center gap-1 flex-wrap mt-0.5">
                 {lt?.ventana_importacion
@@ -1589,7 +1589,7 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
               </div>
             </div>
             <div className="bg-white border border-slate-200 rounded-xl p-3">
-              <p className="text-[10px] font-semibold text-slate-400 uppercase">Líneas</p>
+              <p className="text-[10px] font-semibold text-slate-400">Líneas</p>
               <p className="text-[15px] font-semibold text-slate-800 leading-tight">{nProd || informe.capa_a?.cantidad_items?.n_items || '—'}</p>
               <p className="text-[10px] text-slate-400">productos</p>
             </div>
@@ -1640,9 +1640,9 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
           {(lt?.hitos?.length ?? 0) > 0 && (
             <Seccion icon={<Gavel size={14} className="text-teal-600" />} titulo="Módulo plazos (colchón + entrega)" badge={lt?.colchon_dias_corridos != null ? `colchón ${lt.colchon_dias_corridos} días corr.` : lt?.colchon_dias_habiles != null ? `colchón ${lt.colchon_dias_habiles} días háb.` : undefined} defaultOpen>
               <div className="grid grid-cols-3 gap-2 mb-3">
-                <div className="bg-emerald-50 rounded-lg p-2"><p className="text-[10px] text-emerald-500 uppercase font-semibold">Colchón admin.</p><p className="text-[13px] font-semibold text-emerald-700">{lt?.colchon_dias_corridos != null ? `${lt.colchon_dias_corridos} corr.` : lt?.colchon_dias_habiles != null ? `${lt.colchon_dias_habiles} háb.` : '—'}</p><p className="text-[9px] text-emerald-600">tiempo gratis pre-entrega</p></div>
-                <div className="bg-slate-50 rounded-lg p-2"><p className="text-[10px] text-slate-400 uppercase font-semibold">Ofertable (puntaje)</p><p className="text-[13px] font-semibold text-slate-800">{lt?.plazo_ofertable_puntaje || '—'}</p><p className="text-[9px] text-slate-400">no es colchón</p></div>
-                <div className={`rounded-lg p-2 ${lt?.ventana_importacion ? 'bg-sky-50' : 'bg-slate-50'}`}><p className={`text-[10px] uppercase font-semibold ${lt?.ventana_importacion ? 'text-sky-500' : 'text-slate-400'}`}>Importación</p><p className={`text-[13px] font-semibold ${lt?.ventana_importacion ? 'text-sky-700' : 'text-slate-500'}`}>{lt?.ventana_importacion ? 'ventana ✓' : 'sin ventana'}</p><p className="text-[9px] text-slate-400">{lt?.ventana_importacion ? 'hay margen' : '≤10d o no import.'}</p></div>
+                <div className="bg-emerald-50 rounded-lg p-2"><p className="text-[10px] text-emerald-500 font-semibold">Colchón admin.</p><p className="text-[13px] font-semibold text-emerald-700">{lt?.colchon_dias_corridos != null ? `${lt.colchon_dias_corridos} corr.` : lt?.colchon_dias_habiles != null ? `${lt.colchon_dias_habiles} háb.` : '—'}</p><p className="text-[9px] text-emerald-600">tiempo gratis pre-entrega</p></div>
+                <div className="bg-slate-50 rounded-lg p-2"><p className="text-[10px] text-slate-400 font-semibold">Ofertable (puntaje)</p><p className="text-[13px] font-semibold text-slate-800">{lt?.plazo_ofertable_puntaje || '—'}</p><p className="text-[9px] text-slate-400">no es colchón</p></div>
+                <div className={`rounded-lg p-2 ${lt?.ventana_importacion ? 'bg-sky-50' : 'bg-slate-50'}`}><p className={`text-[10px] font-semibold ${lt?.ventana_importacion ? 'text-sky-500' : 'text-slate-400'}`}>Importación</p><p className={`text-[13px] font-semibold ${lt?.ventana_importacion ? 'text-sky-700' : 'text-slate-500'}`}>{lt?.ventana_importacion ? 'ventana ✓' : 'sin ventana'}</p><p className="text-[9px] text-slate-400">{lt?.ventana_importacion ? 'hay margen' : '≤10d o no import.'}</p></div>
               </div>
               {lt?.frontera_inicio_computo?.descripcion && (
                 <div className="text-[12px] text-slate-600 mb-2 bg-slate-50 rounded-lg p-2">
@@ -1802,8 +1802,8 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
 
           {((v?.acciones_AC?.length ?? 0) > 0 || (v?.advertencias?.length ?? 0) > 0) && (
             <Seccion icon={<Target size={14} className="text-teal-600" />} titulo="Acciones y advertencias" defaultOpen>
-              {(v?.acciones_AC?.length ?? 0) > 0 && <><p className="text-[11px] font-semibold text-slate-400 uppercase mb-1">Para postular</p><ul className="text-[12px] text-slate-700 space-y-1 list-disc pl-4 mb-2">{v!.acciones_AC!.map((a, i) => <li key={i}>{a}</li>)}</ul></>}
-              {(v?.advertencias?.length ?? 0) > 0 && <><p className="text-[11px] font-semibold text-slate-400 uppercase mb-1">Advertencias</p><ul className="text-[12px] text-amber-700 space-y-1 list-disc pl-4">{v!.advertencias!.map((a, i) => <li key={i}>{a}</li>)}</ul></>}
+              {(v?.acciones_AC?.length ?? 0) > 0 && <><p className="text-[11px] font-semibold text-slate-400 mb-1">Para postular</p><ul className="text-[12px] text-slate-700 space-y-1 list-disc pl-4 mb-2">{v!.acciones_AC!.map((a, i) => <li key={i}>{a}</li>)}</ul></>}
+              {(v?.advertencias?.length ?? 0) > 0 && <><p className="text-[11px] font-semibold text-slate-400 mb-1">Advertencias</p><ul className="text-[12px] text-amber-700 space-y-1 list-disc pl-4">{v!.advertencias!.map((a, i) => <li key={i}>{a}</li>)}</ul></>}
             </Seccion>
           )}
 

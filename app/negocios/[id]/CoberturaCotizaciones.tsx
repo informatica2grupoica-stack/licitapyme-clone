@@ -35,8 +35,8 @@ export function CoberturaCotizaciones({ productos, cotizaciones, costeado, links
       <div className="flex items-center gap-2 flex-wrap px-4 py-3 bg-zinc-50 border-b border-zinc-100">
         <p className="text-[13.5px] font-semibold text-zinc-700">Productos y su cotización</p>
         {sin.length > 0
-          ? <span className="text-[11.5px] font-semibold px-2 py-0.5 rounded-full border bg-rose-50 text-rose-700 border-rose-200">{sin.length} sin cotización con documento</span>
-          : <span className="text-[11.5px] font-semibold px-2 py-0.5 rounded-full border bg-emerald-50 text-emerald-700 border-emerald-200">Todos cotizados</span>}
+          ? <span className="text-[11.5px] font-medium text-rose-700">{sin.length} sin cotización con documento</span>
+          : <span className="text-[11.5px] font-medium text-emerald-700">Todos cotizados</span>}
         <span className="text-[11.5px] text-zinc-500">{productos.length - sin.length} de {productos.length} con al menos una cotización con documento</span>
         {sin.length > 0 && sin.length < productos.length && (
           <button type="button" onClick={() => setSoloFaltan(v => !v)} className="ml-auto text-[11.5px] font-semibold text-teal-700 hover:text-teal-900">{soloFaltan ? 'Ver todos' : 'Ver solo los que faltan'}</button>
@@ -45,7 +45,7 @@ export function CoberturaCotizaciones({ productos, cotizaciones, costeado, links
       <div className="overflow-x-auto">
         <table className="w-full text-[12px] min-w-[900px]">
           <thead>
-            <tr className="text-left text-[10.5px] font-semibold uppercase text-zinc-400 border-b border-zinc-100">
+            <tr className="text-left text-[10.5px] font-semibold text-zinc-400 border-b border-zinc-100">
               <th className="px-4 py-2 w-8">#</th><th className="px-2 py-2">Producto</th><th className="px-2 py-2 text-right">Cant.</th>
               <th className="px-2 py-2">1 · Cotización por link</th><th className="px-2 py-2">2 · Cotización con documento</th><th className="px-2 py-2 text-right">Mejor precio (documento)</th>
             </tr>

@@ -231,7 +231,7 @@ export function DocumentoIAModal({
                   key={p.label}
                   onClick={() => enviar(p.pregunta)}
                   disabled={cargando}
-                  className="flex items-center gap-1 text-xs px-2.5 py-1 bg-slate-100 hover:bg-slate-100 hover:text-slate-700 text-slate-600 rounded-full transition-colors disabled:opacity-50"
+                  className="flex items-center gap-1 text-xs hover:bg-slate-100 hover:text-slate-700 text-slate-600 transition-colors disabled:opacity-50"
                 >
                   <Sparkles size={10} /> {p.label}
                 </button>
@@ -255,7 +255,7 @@ export function DocumentoIAModal({
               {mensajes.map(msg => (
                 <div key={msg.id} className={`flex gap-2 ${msg.tipo === 'pregunta' ? 'flex-row-reverse' : 'flex-row'}`}>
                   {msg.tipo === 'pregunta' ? (
-                    <div className="flex-shrink-0 w-7 h-7 bg-blue-600 rounded-full flex items-center justify-center">
+                    <div className="flex-shrink-0 w-7 h-7 bg-teal-600 rounded-full flex items-center justify-center">
                       <User size={13} className="text-white" />
                     </div>
                   ) : (
@@ -264,7 +264,7 @@ export function DocumentoIAModal({
                     </div>
                   )}
                   {msg.tipo === 'pregunta' ? (
-                    <div className="max-w-[85%] bg-blue-600 text-white text-sm px-3 py-2 rounded-xl rounded-tr-sm">{msg.texto}</div>
+                    <div className="max-w-[85%] bg-teal-600 text-white text-sm px-3 py-2 rounded-xl rounded-tr-sm">{msg.texto}</div>
                   ) : msg.tipo === 'error' ? (
                     <div className="max-w-[85%] bg-red-50 border border-red-100 text-red-700 text-[13px] px-3 py-2 rounded-xl rounded-tl-sm flex items-start gap-1.5">
                       <AlertCircle size={12} className="flex-shrink-0 mt-0.5" /> {msg.texto}

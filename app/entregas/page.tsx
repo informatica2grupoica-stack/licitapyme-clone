@@ -317,11 +317,11 @@ export default function EntregasPage() {
                     </div>
                     <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
                       {e.miAcuse ? (
-                        <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5">
+                        <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-700">
                           <CheckCircle2 size={11} /> Recibido
                         </span>
                       ) : (
-                        <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-2 py-0.5">
+                        <span className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-700">
                           <Clock size={11} /> Falta tu acuse
                         </span>
                       )}

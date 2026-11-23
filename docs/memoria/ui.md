@@ -2,6 +2,28 @@
 
 Traspasado desde la memoria personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## RELEVO (2026-11-23): lee esto primero si sigues desde otra cuenta
+
+Estado de «aplicar licitank-ui a todo el sistema» (pedido del dueño). Todo está SIN COMMIT hasta que el dueño lo suba.
+- **Hecho (barrido mecánico + capa dark):** paleta sin índigo/violeta/morado en toda `app/`, `font-black/bold`→`semibold`,
+  sin `uppercase`/`tracking-wide`, sin degradados de UI ni barras laterales de color, `shadow-flotante` en modales,
+  colores de etapa nuevos, `Badge`/`DocCategoriaBadge` como punto + texto, azules → teal, capa de modo oscuro de
+  compatibilidad al final de `globals.css`. Detalle en las entradas «licitank-ui aplicada de forma masiva» (más abajo).
+- **Rediseñadas con el kit y vistas en Chrome (1366 px, claro y oscuro):** Radar (`/radar`) y Análisis de licitación
+  (`/analisis-licitacion`), además de las ya listadas arriba. `ChartCard` compartido ya usa la superficie del kit.
+- **Siguiente, en este orden:** Empresas (`/empresas`), Perfil (`/perfil`), Puente (`/puente`), Favoritos (`/favoritos`),
+  Negocios vistas Lista y Mes, panel de Filtros y pestaña Palabras clave del Radar, filtros y lista inferior de Análisis.
+- **Pendientes no mecánicos:** grillas `sm:/md:/lg:grid-cols` → `@container` (~177 usos); `animate-pulse` de esqueletos →
+  `Esqueleto`; ver 800 px (el cambio de tamaño de ventana de Chrome no se reflejó); `/licitacion/<código>` se quedó
+  cargando al revisarla.
+- **Cómo verlo:** servidor local en `localhost:3000` (si el puerto está ocupado, `preview_start` usa 3001) y Claude en
+  Chrome; la sesión del dueño ya estaba iniciada. Cambiar a modo oscuro con la luna de la barra superior (volver a claro al
+  terminar). Cuidado: aparecen avisos modales («Te aprobaron…»); cerrar con «Más tarde» / «Ahora no», no con acciones reales.
+- **Trampas aprendidas:** (1) `perl`/`sed` por Bash sí funcionan, `python` no existe; si un `perl` falla puede dejar el
+  archivo vacío al hacer `cp` — usar `if [ -s salida ]` antes de copiar; (2) los heredocs largos con comillas fallaron:
+  crear el archivo con la herramienta Write y luego empalmarlo; (3) `tsc` limpio; `eslint` marca errores viejos
+  (`any`, `set-state-in-effect`) que no son de esta tarea.
+
 ## Próxima sesión: empieza aquí (2026-11-20)
 
 - **Ya aplicadas con `licitank-ui` y dadas por realizadas por el dueño:** `/postuladas` (torta + tarjetas), `/dashboard`
@@ -25,6 +47,27 @@ Traspasado desde la memoria personal el 2026-10-27; las fechas son de cuando se 
 
 ## Decisiones vigentes del dueño
 
+- **«Competencia» fase 1 programada (2026-11-23, aprobada por el dueño; SIN VER en navegador, sin aprobar).** Pantalla
+  `/competencia` (menú ANÁLISIS → «Competencia», solo admin; ruta clasificada en `modulos.ts` como `negocios`, igual que
+  `/adjudicadas`, porque lee `/api/negocios` + `/api/postuladas/estado`, sin API nueva). Pestañas **Resumen** (4 `Indicador`:
+  efectividad, competidores que nos ganaron, adjudicado a terceros, oferentes por licitación [mediana]; `Dona` «Cuánta plata se
+  llevaron»; «Quién nos ganó más veces»; «¿Qué tan seguido gana cada empresa?») y **Competidores** (lista completa, orden «Más veces /
+  Más plata», buscador por nombre o RUT, fila que se abre con las licitaciones). Cálculo puro en `app/lib/competencia-core.ts`
+  (mismo criterio que `/adjudicadas`, que NO se tocó y conserva su propia copia: si cambia la regla, cambiarla en las dos o
+  unificarlas). Prueba: `npx tsx --test app/lib/__tests__/competencia-core.test.mts` (6 pasan, datos a mano). `tsc` y `eslint`
+  de lo nuevo limpios. **Falta:** cruzar las cifras con la BD (la BD dev Docker :3308 estaba apagada; modelo
+  `scripts/scratch/_adjudicadas_competidores.mjs dev`, esperado según la nota de 20-nov: 192 perdidas, 206 competidores,
+  $7.119 MM), ver a 1366/800 px claro y oscuro (el servidor del dueño en :3000 pide login), decidir si «Competidores que nos
+  ganaron» sale de `/adjudicadas`, y el KPI «nos ganaron por X % de precio» (queda para la fase Precios). Las pestañas
+  Productos, Organismos y Precios NO existen aún.
+- **Reclamos del organismo bajo el título (2026-11-23, pedido del dueño).** Pieza nueva `app/components/ui/ReclamosOrganismo.tsx`
+  (punto + texto con `Estado`): verde «Sin reclamos en 12 meses», ámbar 1–4, rojo 5 o más (umbrales PROPUESTOS por mí, el dueño
+  no los fijó), gris «Reclamos: sin dato» (sin dato ≠ sin reclamos). Dato = `reclamos_12m` (API `CantidadReclamos`, sin
+  migración ni llamadas nuevas). Puesta bajo el organismo en `/licitacion/[codigo]` y en la cabecera de `/negocios/[id]`
+  (solo si `oportunidad` ya cargó). `tsc` limpio; **sin ver en navegador** (el servidor del dueño en :3000 pide login).
+  Falta: ver a 1366/800 px claro y oscuro, comprobar cuántas licitaciones traen el dato y que el dueño fije los umbrales.
+  `eslint` de esas dos páginas ya traía errores (any, memoización) ajenos a este cambio.
+
 - **licitank-ui aplicada de forma masiva a todo el sistema (2026-11-23, pedido del dueño; SIN VER en navegador, sin aprobar).**
   Barrido mecánico en ~140 archivos de `app/`: índigo→teal, violeta→cian, morado→pizarra, fucsia→naranja (clases y hex);
   `font-black`/`font-bold`/`font-extrabold`→`font-semibold`; fuera `uppercase tracking-wide/wider/widest`; ícono
@@ -34,7 +77,27 @@ Traspasado desde la memoria personal el 2026-10-27; las fechas son de cuando se 
   Posible adj. verde oliva). `tsc` y `eslint` limpios. **Falta:** mirar pantalla por pantalla a 1366 y 800 px, claro y
   oscuro (el navegador del panel estaba oculto); rediseño estructural (Tarjeta/Estado/Indicador) de Radar, Análisis,
   Empresas, Perfil, Puente, Favoritos y Órdenes de compra; `Badge`/`DocCategoriaBadge` siguen como pastillas;
-  `animate-pulse` de esqueletos sin cambiar. Series de gráficos que usaban índigo y teal a la vez pueden haber quedado con
+  `animate-pulse` de esqueletos sin cambiar. **Segunda tanda (mismo día, vista en Chrome a 1366 px, claro):** menú lateral
+  sin la «pestaña» con muescas (ítem activo = `bg-white/[0.09]` + ícono teal, rótulos de grupo en minúscula; se borró el CSS
+  `.sidebar-tab-active`); `Badge` y `DocCategoriaBadge` ahora son punto + texto (sin fondo ni borde); `uppercase` y
+  `tracking-wide` fuera de toda la app salvo Landing/login/`ui-kit`; `/ordenes-compra` con `Estado` en vez de pastillas.
+  **Tercera tanda (mismo día):** capa de compatibilidad de modo oscuro al final de `globals.css` (`.dark .bg-white:not([class*="dark:bg-"])`
+  y similares para fondos, textos, bordes, tintes `bg-X-50/100` y fondos con opacidad): las pantallas viejas sin `dark:` ya
+  se ven oscuras (vistas Radar, Negocios, Compras, Dashboard); al migrar una pantalla al kit esas reglas dejan de hacer falta.
+  Pastillas de texto (`rounded-full px py bg-X-100 text-X-700`) → solo texto de color (41 archivos); botones/enlaces/spinners
+  azules → teal; fuera la barra de color lateral de `/descartadas` y de los toasts. **Sigue pendiente (no es mecánico):**
+  grillas `sm:/md:/lg:grid-cols` → `@container` (177 usos), rediseño con `Tarjeta`/`Estado`/`Indicador` de Radar, Análisis,
+  Perfil, Puente, Favoritos, Negocios Lista/Mes, y `animate-pulse` de esqueletos → `Esqueleto`.
+  **Radar rediseñado (`/radar`, mismo día, sin aprobar):** encabezado de 22 px sin cuadro de ícono; contador sin círculo;
+  botones Puente / Exportar Excel / Actualizar ahora con el estilo del kit (solo «Actualizar ahora» o «Asignar» van en
+  teal sólido); los 5 KPI usan `Indicador` (sin íconos de color) y siguen filtrando al hacer clic; filas y tarjetas con
+  superficie blanca única (sin barra lateral ni tinte por semáforo), estados con `Estado` (tipo, estado MP, prefiltro,
+  viabilidad, «Cierra en N días / mañana» en rojo ≤3 y ámbar ≤7), tarjeta con `Datos`/`Dato` rotulados (organismo, región,
+  monto, publicada, cierre, asignada a, documentos, reparto), no leída = punto teal + título en semibold, acciones
+  Descartar / Asignar / Ver detalle. Se arregló un «0» suelto cuando el monto era 0. No se tocó el panel de Filtros ni la
+  pestaña Palabras clave. Visto en Chrome a 1366 px, claro y oscuro, vistas Lista y Tarjetas.
+  Vistas: Radar, Análisis, Perfil, Favoritos, Empresas, Órdenes de compra, Negocios. Sin ver: 800 px, modo oscuro
+  (Negocios semana tiene tarjetas claras sobre fondo oscuro: falta `dark:`). Series de gráficos que usaban índigo y teal a la vez pueden haber quedado con
   dos series del mismo color: revisar.
 
 - **licitank-ui aplicada a Ganadas/Perdidas (`/adjudicadas`) (2026-11-20, pedido del dueño; sin aprobar aún).** El menú
@@ -408,3 +471,11 @@ Traspasado desde la memoria personal el 2026-10-27; las fechas son de cuando se 
 - **Compras → «Compara y elige» con licitank-ui (2026-11-19, pedido del dueño):** filas por columnas, ofertas de los 3 proveedores más baratos visibles con el producto plegado, estados con punto (sin pastillas). Detalle en `compras.md` (11). Sin ver en navegador; falta que el dueño lo apruebe.
 
 - **Compras → «Emparejar a mano» (2026-11-19, pedido del dueño, maqueta aprobada):** panel lateral licitank-ui con candidatas ordenadas, qué revisar con puntos de color, «Ver cotización» y vista previa de cómo quedaría. Detalle en `compras.md` (12). Sin ver en navegador.
+
+- **Análisis de licitación (`/analisis-licitacion`) con licitank-ui (2026-11-23, sin aprobar aún).** Antes de tocarla se
+  revisó que estuviera al día: cifras cruzadas con Ganadas/Perdidas (77 ganadas, 281 resueltas, 27 %, $2.398.150.354
+  adjudicado) y con el Dashboard (336 postuladas, 20 vigentes); cuentan por el acta de MP, igual que dice la memoria de
+  negocios-dashboard. Front: `Encabezado` del kit, 6 KPI sin cuadrito de ícono de color, las 3 bolsas de monto como
+  tarjetas blancas (antes celeste/teal/verde), `ChartCard` con la superficie del kit, gráfico de área sin degradado y
+  textos de procedencia mínimo `text-xs`. Visto en Chrome a 1366 px, claro y oscuro. Sin ver: 800 px; los filtros y el
+  detalle de la lista inferior no se rediseñaron.

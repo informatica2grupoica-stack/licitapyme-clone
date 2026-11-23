@@ -342,7 +342,7 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
               {licitacionNombre || `Negocio #${negocioId}`}
             </h2>
             {asignacion.urgente && (
-              <span className="inline-flex items-center gap-1 text-[10.5px] font-semibold text-rose-700 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded-full">
+              <span className="inline-flex items-center gap-1 text-[10.5px] font-medium text-rose-700">
                 <AlertTriangle size={11} /> Cadena de Urgencia
               </span>
             )}

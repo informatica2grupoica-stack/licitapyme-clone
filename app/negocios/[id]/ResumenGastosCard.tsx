@@ -198,7 +198,7 @@ export function ResumenGastosCard({ negocioId }: { negocioId: number }) {
       <section className="bg-white rounded-xl border border-zinc-200 overflow-hidden" data-testid="resumen-documentos" aria-label="Órdenes de compra">
         <div className="px-4 py-3 border-b border-zinc-100 flex items-center gap-2 flex-wrap">
           <p className="text-[13.5px] font-semibold text-zinc-800">Órdenes de compra</p>
-          <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-zinc-100 text-zinc-600">{nOc}</span>
+          <span className="text-[11px] font-medium text-zinc-600">{nOc}</span>
           <p className="text-[11.5px] text-zinc-400 flex-1 min-w-[200px]">Las emitidas desde Licitank y las hechas directo en Obuma. Toca una fila para ver sus productos.</p>
         </div>
         {nOc === 0 ? (
@@ -207,7 +207,7 @@ export function ResumenGastosCard({ negocioId }: { negocioId: number }) {
           <div className="overflow-x-auto" data-testid="resumen-oc-obuma">
             <table className="w-full text-[12.5px] min-w-[860px]">
               <thead>
-                <tr className="text-left text-[10.5px] font-semibold uppercase text-zinc-400 border-b border-zinc-100 bg-zinc-50/60">
+                <tr className="text-left text-[10.5px] font-semibold text-zinc-400 border-b border-zinc-100 bg-zinc-50/60">
                   <th className="px-3 py-2 w-7" />
                   <th className="px-2 py-2">OC</th>
                   <th className="px-2 py-2">Proveedor</th>
@@ -246,7 +246,7 @@ export function ResumenGastosCard({ negocioId }: { negocioId: number }) {
       <section className="bg-white rounded-xl border border-zinc-200 overflow-hidden" aria-label="Facturas de compra">
         <div className="px-4 py-3 border-b border-zinc-100 flex items-center gap-2 flex-wrap">
           <p className="text-[13.5px] font-semibold text-zinc-800">Facturas de compra</p>
-          <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-zinc-100 text-zinc-600">{nFac}</span>
+          <span className="text-[11px] font-medium text-zinc-600">{nFac}</span>
         </div>
         {(resumen.facturas.descartadas?.length ?? 0) > 0 && (
           <div className="mx-4 mt-3 rounded-lg border border-amber-200 bg-amber-50/70 px-3 py-2" data-testid="resumen-facturas-descartadas">
@@ -264,7 +264,7 @@ export function ResumenGastosCard({ negocioId }: { negocioId: number }) {
           <div className="overflow-x-auto">
             <table className="w-full text-[12.5px] min-w-[720px]" data-testid="resumen-facturas-tabla">
               <thead>
-                <tr className="text-left text-[10.5px] font-semibold uppercase text-zinc-400 border-b border-zinc-100 bg-zinc-50/60">
+                <tr className="text-left text-[10.5px] font-semibold text-zinc-400 border-b border-zinc-100 bg-zinc-50/60">
                   <th className="px-4 py-2">Proveedor</th>
                   <th className="px-2 py-2">Folio</th>
                   <th className="px-2 py-2">Fecha</th>
@@ -408,7 +408,7 @@ function FilaOrden({ f, abierta, anulada, facturas, onAlternar, negocioId, onGua
             ) : (
               <table className="w-full text-[12px] bg-white rounded-lg border border-zinc-100">
                 <thead>
-                  <tr className="text-left text-[10px] font-semibold uppercase text-zinc-400">
+                  <tr className="text-left text-[10px] font-semibold text-zinc-400">
                     <th className="px-3 py-1.5">Producto</th><th className="px-2 py-1.5">SKU</th><th className="px-2 py-1.5 text-right">Cant.</th>
                     <th className="px-2 py-1.5 text-right" title="Cuántas unidades de esta línea son de ESTE negocio. Las que sobran no suman a su costo (quedan de inventario u otro uso).">Para este negocio</th>
                     <th className="px-2 py-1.5 text-right">Precio neto c/u</th><th className="px-2 py-1.5 text-right">Subtotal neto</th>

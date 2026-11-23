@@ -106,7 +106,7 @@ export function AuditoriaAgenteNegocioCard({ negocioId }: { negocioId: number })
                 )}
                 {[...porArea.entries()].map(([area, alertas]) => (
                   <div key={area}>
-                    <p className="text-[10px] font-semibold text-zinc-400 uppercase mb-1">{AREA_LABEL[area]}</p>
+                    <p className="text-[10px] font-semibold text-zinc-400 mb-1">{AREA_LABEL[area]}</p>
                     <div className="space-y-1">
                       {alertas.map((a, i) => {
                         const url = urlDeFuente(a.documento, estado.fuentes);

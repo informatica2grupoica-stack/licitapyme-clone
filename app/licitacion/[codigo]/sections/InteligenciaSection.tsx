@@ -108,7 +108,7 @@ export function InteligenciaSection({ codigo, documentosAnalizables, nombreLicit
             <span className="text-sm font-semibold text-zinc-800">ankIA · Licitación</span>
             <span className="text-xs text-zinc-400 truncate hidden sm:inline">{nombreLicitacion}</span>
             {hayDocs && (
-              <span className="ml-auto text-xs bg-slate-100 text-slate-700 px-2 py-0.5 rounded-full font-medium flex-shrink-0">
+              <span className="ml-auto text-xs text-slate-700 font-medium flex-shrink-0">
                 {documentosAnalizables.length} doc{documentosAnalizables.length > 1 ? 's' : ''}
               </span>
             )}
@@ -152,7 +152,7 @@ export function InteligenciaSection({ codigo, documentosAnalizables, nombreLicit
               {mensajes.map(msg => (
                 <div key={msg.id} className={`flex gap-2 mb-3 ${msg.tipo === 'pregunta' ? 'flex-row-reverse' : 'flex-row'}`}>
                   {msg.tipo === 'pregunta' ? (
-                    <div className="flex-shrink-0 w-7 h-7 bg-blue-600 rounded-full flex items-center justify-center">
+                    <div className="flex-shrink-0 w-7 h-7 bg-teal-600 rounded-full flex items-center justify-center">
                       <User size={13} className="text-white" />
                     </div>
                   ) : (
@@ -161,7 +161,7 @@ export function InteligenciaSection({ codigo, documentosAnalizables, nombreLicit
                     </div>
                   )}
                   {msg.tipo === 'pregunta' ? (
-                    <div className="max-w-[85%] bg-blue-600 text-white text-sm px-3 py-2 rounded-xl rounded-tr-sm">{msg.texto}</div>
+                    <div className="max-w-[85%] bg-teal-600 text-white text-sm px-3 py-2 rounded-xl rounded-tr-sm">{msg.texto}</div>
                   ) : msg.tipo === 'error' ? (
                     <div className="max-w-[85%] bg-red-50 border border-red-100 text-red-700 text-xs px-3 py-2 rounded-xl rounded-tl-sm flex items-start gap-1.5">
                       <AlertCircle size={12} className="flex-shrink-0 mt-0.5" /> {msg.texto}
@@ -201,7 +201,7 @@ export function InteligenciaSection({ codigo, documentosAnalizables, nombreLicit
                 <div className="flex gap-1 mb-2 flex-wrap">
                   {PREGUNTAS_RAPIDAS.slice(0, 4).map(p => (
                     <button key={p.label} onClick={() => enviar(p.pregunta)} disabled={cargando}
-                      className="text-xs px-2.5 py-1 bg-zinc-100 hover:bg-slate-100 hover:text-slate-700 text-zinc-600 rounded-full transition-colors disabled:opacity-50 flex items-center gap-1">
+                      className="text-xs hover:bg-slate-100 hover:text-slate-700 text-zinc-600 transition-colors disabled:opacity-50 flex items-center gap-1">
                       {p.icon}<span className="hidden sm:inline">{p.label}</span>
                     </button>
                   ))}

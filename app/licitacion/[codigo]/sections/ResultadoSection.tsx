@@ -222,7 +222,7 @@ export function ResultadoSection({ codigo, mpUrl }: { codigo: string; mpUrl: str
                     </p>
                   </div>
                   <div className="text-right whitespace-nowrap">
-                    {l.esNuestra && <span className="block text-[9px] font-semibold tracking-wide text-emerald-600 uppercase">Nosotros</span>}
+                    {l.esNuestra && <span className="block text-[9px] font-semibold text-emerald-600">Nosotros</span>}
                     <span className="text-[12.5px] font-semibold text-slate-800">{fmtCLP(l.montoUnitario)}</span>
                   </div>
                 </div>

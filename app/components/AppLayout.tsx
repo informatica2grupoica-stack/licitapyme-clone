@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { IconLayoutDashboard as LayoutDashboard, IconSearch as Search, IconUsers as Users, IconLogout as LogOut, IconUser as User, IconMenu as MenuIcon, IconX as X, IconRadar as Radar, IconChevronRight as ChevronRight, IconBriefcase as Briefcase, IconBell as Bell, IconTag as Tag, IconStack2 as Layers, IconHistory as History, IconSettings as Settings, IconCommand as Command, IconBan as Ban, IconActivity as Activity, IconSend as Send, IconBuilding as Building2, IconTrophy as Trophy, IconLayoutSidebarLeftCollapse as PanelLeftClose, IconLayoutSidebarLeftExpand as PanelLeftOpen, IconClipboardCheck as ClipboardCheck, IconShoppingCart as ShoppingCart, IconPackage as PackageCheck, IconLibrary as Library, IconStar as Star, IconFolderOpen as FolderOpen, IconReceipt as Receipt, IconFileInvoice as FileInvoice,IconArrowsShuffle as Shuffle, IconSun as Sun, IconMoon as Moon, IconTruck as Truck, IconFolders as Folders, IconBug as Bug, IconCoin as Coin, IconBrain as Brain, IconLock as Lock, IconBrandWhatsapp as Whatsapp } from '@tabler/icons-react';
+import { IconLayoutDashboard as LayoutDashboard, IconSearch as Search, IconUsers as Users, IconLogout as LogOut, IconUser as User, IconMenu as MenuIcon, IconX as X, IconRadar as Radar, IconChevronRight as ChevronRight, IconBriefcase as Briefcase, IconBell as Bell, IconTag as Tag, IconStack2 as Layers, IconHistory as History, IconSettings as Settings, IconCommand as Command, IconBan as Ban, IconActivity as Activity, IconSend as Send, IconBuilding as Building2, IconTrophy as Trophy, IconLayoutSidebarLeftCollapse as PanelLeftClose, IconLayoutSidebarLeftExpand as PanelLeftOpen, IconClipboardCheck as ClipboardCheck, IconShoppingCart as ShoppingCart, IconPackage as PackageCheck, IconLibrary as Library, IconStar as Star, IconFolderOpen as FolderOpen, IconReceipt as Receipt, IconFileInvoice as FileInvoice,IconArrowsShuffle as Shuffle, IconSun as Sun, IconMoon as Moon, IconTruck as Truck, IconFolders as Folders, IconBug as Bug, IconCoin as Coin, IconBrain as Brain, IconLock as Lock, IconBrandWhatsapp as Whatsapp, IconChartDots3 as ChartDots } from '@tabler/icons-react';
 import { LicitankIcon } from '@/app/components/LicitankLogo';
 import { Tooltip } from '@/app/components/ui/Tooltip';
 import { suscribirRealtime } from '@/app/lib/use-realtime';
@@ -103,6 +103,8 @@ const NAV_GROUPS: NavGroup[] = [
     label: 'ANÁLISIS',
     items: [
       { label: 'Análisis de licitación', href: '/analisis-licitacion', icon: <Activity size={17} />, adminOnly: true },
+      // Competencia y mercado (2026-11-23): quién nos ganó y cuánto se llevó. Lee lo mismo que Ganadas/Perdidas, por eso va con Negocios.
+      { label: 'Competencia', href: '/competencia', icon: <ChartDots size={17} />, adminOnly: true },
       // Memoria (F.3): visible para todo perfil interno — orienta el trabajo de cualquiera que
       // cotice o postule, no solo del admin. Cargar experiencia sí es admin (lo bloquea la API).
       { label: 'Memoria', href: '/memoria', icon: <Library size={17} /> },
@@ -155,7 +157,7 @@ const PAGINAS_SOLO_COMPRAS = ['/compras', '/logistica', '/ordenes-compra', '/ent
 
 const AVATAR_BG: Record<string, string> = {
   indigo: 'bg-teal-600', violet: 'bg-cyan-600', cyan: 'bg-cyan-600',
-  teal: 'bg-teal-600', grape: 'bg-slate-600', blue: 'bg-blue-600',
+  teal: 'bg-teal-600', grape: 'bg-slate-600', blue: 'bg-teal-600',
 };
 const AVATAR_SEEDS = ['indigo', 'violet', 'cyan', 'teal', 'grape', 'blue'];
 function colorDe(seed: string) { return AVATAR_SEEDS[(seed?.charCodeAt(0) || 0) % AVATAR_SEEDS.length]; }
@@ -520,8 +522,8 @@ function Sidebar({ mobileOpen, onCloseMobile }: { mobileOpen: boolean; onCloseMo
               <div key={group.label}>
                 {/* Colapsado, el título del grupo cede su sitio a un separador: la agrupación
                     se sigue leyendo sin gastar los 76px de ancho en texto. */}
-                <p className={`px-2 mb-1.5 text-[9.5px] font-semibold text-slate-600
-                  ${angosto ? 'lg:hidden' : ''}`}>{group.label}</p>
+                <p className={`px-2 mb-1.5 text-[11px] font-medium text-slate-500
+                  ${angosto ? 'lg:hidden' : ''}`}>{group.label.charAt(0) + group.label.slice(1).toLowerCase()}</p>
                 {angosto && <div className="hidden lg:block h-px bg-white/[0.07] mx-2 mb-2" />}
                 <div className="space-y-0.5">
                   {group.items.map(item => {
@@ -554,9 +556,9 @@ function Sidebar({ mobileOpen, onCloseMobile }: { mobileOpen: boolean; onCloseMo
                             transition-[color,background-color,padding,gap] duration-150
                             ${angosto ? 'px-3 lg:px-0 lg:justify-center lg:gap-0' : 'px-3'}
                             ${active
-                              ? 'sidebar-tab-active -mr-3 rounded-l-2xl bg-slate-50 text-slate-900 font-semibold'
-                              : 'rounded-xl font-medium text-slate-400 hover:text-slate-100 hover:bg-white/[0.05]'}`}>
-                          <span className={`relative flex-shrink-0 ${active ? 'text-teal-600' : 'text-slate-500 group-hover:text-slate-300'}`}>
+                              ? 'rounded-lg bg-white/[0.09] text-white font-semibold'
+                              : 'rounded-lg font-medium text-slate-400 hover:text-slate-100 hover:bg-white/[0.05]'}`}>
+                          <span className={`relative flex-shrink-0 ${active ? 'text-teal-400' : 'text-slate-500 group-hover:text-slate-300'}`}>
                             {item.icon}
                             {/* Colapsado no cabe el número: queda un punto sobre el icono para
                                 que la alerta no desaparezca al angostar. */}

@@ -84,7 +84,7 @@ export function ActividadComprasCard({ negocioId }: { negocioId: number }) {
     <div className="bg-white rounded-xl border border-zinc-200 p-4 sm:p-5 space-y-5">
       {personas.length > 1 && (
         <div className="flex items-center gap-1.5 flex-wrap" data-testid="filtro-personas">
-          <span className="text-[11px] font-semibold text-zinc-400 uppercase mr-1">Quién</span>
+          <span className="text-[11px] font-semibold text-zinc-400 mr-1">Quién</span>
           {[null, ...personas].map(p => (
             <button key={p ?? 'todos'} type="button" onClick={() => setPersona(p)}
               className={`text-[11.5px] font-semibold px-2.5 py-1 rounded-full border transition-colors ${persona === p ? 'bg-teal-600 text-white border-teal-600' : 'bg-white text-zinc-600 border-zinc-200 hover:bg-zinc-50'}`}>{p ?? 'Todos'}</button>
@@ -97,7 +97,7 @@ export function ActividadComprasCard({ negocioId }: { negocioId: number }) {
         return (
           <div key={dia}>
             <div className="flex items-center gap-2 mb-2.5">
-              <span className="text-[11px] font-semibold text-teal-700 bg-teal-50 border border-teal-100 px-2 py-0.5 rounded-full flex-shrink-0">Día {numeroDia}</span>
+              <span className="text-[11px] font-medium text-teal-700 flex-shrink-0">Día {numeroDia}</span>
               <p className="text-[11.5px] font-semibold text-zinc-500 capitalize">{fmtDia(dia)}</p>
               <div className="flex-1 h-px bg-zinc-100" />
             </div>

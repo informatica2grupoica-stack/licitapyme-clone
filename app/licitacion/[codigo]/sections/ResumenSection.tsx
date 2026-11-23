@@ -216,12 +216,12 @@ export function ResumenSection({ licitacion, tipoLabel, diasRestantes, analisisI
           <div className="flex items-center gap-2 mb-3 flex-wrap">
             <IABadge />
             {experto.complejidad && (
-              <span className="px-2 py-0.5 bg-slate-100 text-slate-600 text-xs rounded-full font-medium">
+              <span className=" text-slate-600 text-xs font-medium">
                 Complejidad: {experto.complejidad}
               </span>
             )}
             {experto.atractivo && (
-              <span className="px-2 py-0.5 bg-slate-100 text-slate-600 text-xs rounded-full font-medium">
+              <span className=" text-slate-600 text-xs font-medium">
                 Atractivo: {experto.atractivo}
               </span>
             )}

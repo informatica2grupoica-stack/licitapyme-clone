@@ -34,6 +34,7 @@ import { useRealtime } from '@/app/lib/use-realtime';
 import { MultiSelect } from '@/app/components/ui/MultiSelect';
 import { Select } from '@/app/components/ui/Select';
 import { ChartCard } from '@/app/components/ui/ChartCard';
+import { Encabezado } from '@/app/components/ui/kit/Estructura';
 import { colorUsuario, inicialesUsuario } from '@/app/lib/user-color';
 import { ESTADOS_PIPELINE, getEstadoPipeline } from '@/app/lib/pipeline';
 import { extractTipoFromCodigo, getTipoLicitacion } from '@/app/lib/tipos-licitacion';
@@ -412,21 +413,13 @@ export default function AnalisisLicitacionPage() {
           quedaba pegado al sidebar. Mismo espaciado que Postuladas/Adjudicadas. */}
       <div className="p-4 sm:p-6 lg:p-8 space-y-5">
         {/* Encabezado */}
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-teal-50 flex items-center justify-center text-teal-600">
-              <Activity size={18} />
-            </div>
-            <div>
-              <h1 className="text-[16px] font-semibold text-slate-900">Análisis de licitación</h1>
-              <p className="text-xs text-slate-500">Estadísticas y gráficos por perfil</p>
-            </div>
-          </div>
-          <button onClick={() => cargar()} disabled={cargando}
-            className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors">
-            <RefreshCw size={15} className={cargando ? 'animate-spin' : ''} />
-          </button>
-        </div>
+        <Encabezado titulo="Análisis de licitación" descripcion="Estadísticas y gráficos por perfil"
+          acciones={
+            <button onClick={() => cargar()} disabled={cargando} aria-label="Actualizar" title="Actualizar"
+              className="h-8 w-8 inline-flex items-center justify-center text-slate-400 hover:text-tinta hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors focus-visible:ring-2 focus-visible:ring-marca/60">
+              <RefreshCw size={16} strokeWidth={1.75} className={cargando ? 'animate-spin' : ''} />
+            </button>
+          } />
 
         {error && <div className="px-4 py-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">{error}</div>}
 
@@ -511,13 +504,13 @@ export default function AnalisisLicitacionPage() {
               })}
               {organismosSel.map(o => (
                 <button key={o} onClick={() => setOrganismosSel(a => a.filter(x => x !== o))}
-                  className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full border bg-slate-50 text-slate-600 border-slate-200 hover:opacity-75 max-w-[220px]">
+                  className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-600 hover:opacity-75 max-w-[220px]">
                   <span className="truncate">{o}</span> <X size={11} className="flex-shrink-0" />
                 </button>
               ))}
               {busqueda && (
                 <button onClick={() => setBusqueda('')}
-                  className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full border bg-amber-50 text-amber-700 border-amber-200 hover:opacity-75">
+                  className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-700 hover:opacity-75">
                   <Search size={10} /> “{busqueda}” <X size={11} />
                 </button>
               )}
@@ -540,28 +533,28 @@ export default function AnalisisLicitacionPage() {
             {/* Montos — TRES bolsas separadas y no comparables entre sí salvo ofertado→adjudicado,
                 que ahora sí es una tasa de conversión legítima (misma población: lo que se ofertó). */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div className="bg-sky-50 rounded-xl border border-sky-100 p-4 flex items-center gap-3">
-                <div className="w-11 h-11 rounded-xl bg-sky-100 text-sky-600 flex items-center justify-center flex-shrink-0"><Briefcase size={20} /></div>
+              <div className="bg-white rounded-xl border border-linea shadow-tarjeta p-4 flex items-center gap-3 dark:bg-slate-900 dark:border-slate-800">
+                <div className="w-9 h-9 rounded-lg bg-slate-100 text-slate-500 dark:bg-slate-800 flex items-center justify-center flex-shrink-0"><Briefcase size={20} /></div>
                 <div>
-                  <p className="text-[11px] text-sky-700 font-semibold">Presupuesto en cartera</p>
-                  <p className="text-[22px] font-semibold text-slate-900 tabular-nums leading-tight">{fmtMonto(stats.montoCartera)}</p>
-                  <p className="text-[10px] text-slate-400">suma de <span className="font-semibold">licitacion_monto</span> (presupuesto MP) de las {stats.vigentes} vigentes</p>
+                  <p className="text-[13px] text-tinta-2 dark:text-slate-400">Presupuesto en cartera</p>
+                  <p className="text-[24px] font-semibold tracking-tight text-tinta dark:text-slate-50 tabular-nums leading-tight">{fmtMonto(stats.montoCartera)}</p>
+                  <p className="text-xs text-slate-400">suma de <span className="font-semibold">licitacion_monto</span> (presupuesto MP) de las {stats.vigentes} vigentes</p>
                 </div>
               </div>
-              <div className="bg-teal-50 rounded-xl border border-teal-100 p-4 flex items-center gap-3">
-                <div className="w-11 h-11 rounded-xl bg-teal-100 text-teal-600 flex items-center justify-center flex-shrink-0"><DollarSign size={20} /></div>
+              <div className="bg-white rounded-xl border border-linea shadow-tarjeta p-4 flex items-center gap-3 dark:bg-slate-900 dark:border-slate-800">
+                <div className="w-9 h-9 rounded-lg bg-slate-100 text-slate-500 dark:bg-slate-800 flex items-center justify-center flex-shrink-0"><DollarSign size={20} /></div>
                 <div>
-                  <p className="text-[11px] text-teal-700 font-semibold">Ofertado real</p>
-                  <p className="text-[22px] font-semibold text-slate-900 tabular-nums leading-tight">{fmtMonto(stats.montoOfertado)}</p>
-                  <p className="text-[10px] text-slate-400">suma de <span className="font-semibold">monto_ofertado</span> de las {stats.postuladas} que se presentaron. No incluye descartadas ni presupuesto estimado.</p>
+                  <p className="text-[13px] text-tinta-2 dark:text-slate-400">Ofertado real</p>
+                  <p className="text-[24px] font-semibold tracking-tight text-tinta dark:text-slate-50 tabular-nums leading-tight">{fmtMonto(stats.montoOfertado)}</p>
+                  <p className="text-xs text-slate-400">suma de <span className="font-semibold">monto_ofertado</span> de las {stats.postuladas} que se presentaron. No incluye descartadas ni presupuesto estimado.</p>
                 </div>
               </div>
-              <div className="bg-emerald-50 rounded-xl border border-emerald-100 p-4 flex items-center gap-3">
-                <div className="w-11 h-11 rounded-xl bg-emerald-100 text-emerald-600 flex items-center justify-center flex-shrink-0"><Trophy size={20} /></div>
+              <div className="bg-white rounded-xl border border-linea shadow-tarjeta p-4 flex items-center gap-3 dark:bg-slate-900 dark:border-slate-800">
+                <div className="w-9 h-9 rounded-lg bg-slate-100 text-slate-500 dark:bg-slate-800 flex items-center justify-center flex-shrink-0"><Trophy size={20} /></div>
                 <div>
-                  <p className="text-[11px] text-emerald-700 font-semibold">Monto adjudicado</p>
-                  <p className="text-[22px] font-semibold text-slate-900 tabular-nums leading-tight">{fmtMonto(stats.montoAdjudicado)}</p>
-                  <p className="text-[10px] text-slate-400">
+                  <p className="text-[13px] text-tinta-2 dark:text-slate-400">Monto adjudicado</p>
+                  <p className="text-[24px] font-semibold tracking-tight text-tinta dark:text-slate-50 tabular-nums leading-tight">{fmtMonto(stats.montoAdjudicado)}</p>
+                  <p className="text-xs text-slate-400">
                     <span className="font-semibold">montoNuestro</span> del acta de Mercado Público en las {stats.ganadas} ganadas
                     {stats.montoOfertado > 0 && <> · convierte el <span className="font-semibold">{Math.round((stats.montoAdjudicado / stats.montoOfertado) * 100)}%</span> de lo ofertado</>}
                   </p>
@@ -620,7 +613,7 @@ export default function AnalisisLicitacionPage() {
                     </ResponsiveContainer>
                     <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
                       <span className="text-[30px] font-semibold text-cyan-700 leading-none tabular-nums">{stats.tasaExito}%</span>
-                      <span className="text-[10px] text-slate-400 font-semibold">éxito</span>
+                      <span className="text-xs text-slate-400 font-semibold">éxito</span>
                     </div>
                   </div>
                   {/* Las 3 primeras son el desglose de "Ofertas presentadas": suman exactamente
@@ -679,17 +672,11 @@ export default function AnalisisLicitacionPage() {
                   <>
                   <ResponsiveContainer width="100%" height={210}>
                     <AreaChart data={stats.porMes} margin={{ left: -18, right: 12, top: 8, bottom: 4 }}>
-                      <defs>
-                        <linearGradient id="gradArea" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="#14b8a6" stopOpacity={0.35} />
-                          <stop offset="100%" stopColor="#14b8a6" stopOpacity={0} />
-                        </linearGradient>
-                      </defs>
                       <CartesianGrid vertical={false} stroke="#f1f5f9" />
                       <XAxis dataKey="mes" tick={{ fontSize: 11, fill: '#94a3b8' }} />
                       <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} allowDecimals={false} width={30} />
                       <RTooltip content={<ChartTooltip sufijo="cierran" />} />
-                      <Area type="monotone" dataKey="value" stroke="#14b8a6" strokeWidth={2} fill="url(#gradArea)" />
+                      <Area type="monotone" dataKey="value" stroke="#14b8a6" strokeWidth={2} fill="#14b8a6" fillOpacity={0.12} />
                     </AreaChart>
                   </ResponsiveContainer>
                   <Procedencia
@@ -732,7 +719,7 @@ export default function AnalisisLicitacionPage() {
                 <span className="text-[11px] font-semibold text-slate-500">Lista de licitaciones</span>
                 <span className="text-[11px] text-slate-400">({lista.length})</span>
                 <div className="inline-flex items-center gap-1.5 ml-2">
-                  <span className="inline-flex items-center gap-1 text-[10.5px] font-semibold text-slate-400">
+                  <span className="inline-flex items-center gap-1 text-xs font-semibold text-slate-400">
                     <ArrowUpDown size={11} /> Orden
                   </span>
                   <Select value={ordenLista} onChange={v => setOrdenLista(v as typeof ordenLista)}
@@ -745,11 +732,11 @@ export default function AnalisisLicitacionPage() {
                 {/* Filtro por estado — es el MISMO estado que la dona: los dos se reflejan. */}
                 <div className="ml-auto flex flex-wrap gap-1">
                   <button onClick={() => setEstadosSel([])}
-                    className={`text-[10.5px] font-semibold px-2 py-0.5 rounded-md border ${estadosSel.length === 0 ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50'}`}>Todas</button>
+                    className={`text-xs font-semibold px-2 py-0.5 rounded-md border ${estadosSel.length === 0 ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50'}`}>Todas</button>
                   {selectores.porEstado.map(e => (
                     <button key={e.id} onClick={() => toggleEstado(e.id)}
                       style={estadosSel.includes(e.id) ? { backgroundColor: e.color, borderColor: e.color, color: '#fff' } : { borderColor: e.color + '55', color: e.color }}
-                      className="text-[10.5px] font-semibold px-2 py-0.5 rounded-md border bg-white hover:bg-slate-50">
+                      className="text-xs font-semibold px-2 py-0.5 rounded-md border bg-white hover:bg-slate-50">
                       {e.name} {e.value}
                     </button>
                   ))}
@@ -767,7 +754,7 @@ export default function AnalisisLicitacionPage() {
                   return (
                     <Link key={n.id} href={`/negocios/${n.id}`}
                       className="flex items-center gap-3 px-4 py-2.5 hover:bg-slate-50 transition-colors group">
-                      <span className="text-[10.5px] font-mono font-semibold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded flex-shrink-0 w-[130px] truncate">{n.licitacion_codigo}</span>
+                      <span className="text-xs font-mono font-semibold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded flex-shrink-0 w-[130px] truncate">{n.licitacion_codigo}</span>
                       <div className="min-w-0 flex-1">
                         <p className="text-[13px] font-semibold text-slate-800 truncate group-hover:text-teal-700 transition-colors">{n.licitacion_nombre || '(sin nombre)'}</p>
                         {n.licitacion_organismo && <p className="text-[11px] text-slate-400 truncate flex items-center gap-1"><Building2 size={9} /> {n.licitacion_organismo}</p>}
@@ -778,7 +765,7 @@ export default function AnalisisLicitacionPage() {
                           {inicialesUsuario(n.usuario_nombre, n.usuario_email)}
                         </span>
                       )}
-                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full border flex-shrink-0 whitespace-nowrap"
+                      <span className="text-xs font-semibold px-2 py-0.5 rounded-full border flex-shrink-0 whitespace-nowrap"
                         style={{ background: col + '18', color: col, borderColor: col + '40' }}>{cfg?.label || n.estado_pipeline}</span>
                       <span className="text-[12px] font-semibold text-slate-700 tabular-nums w-16 text-right flex-shrink-0">{fmtMontoCorto(n.monto_ofertado || n.licitacion_monto || 0)}</span>
                       <span className="inline-flex items-center gap-1 text-[11px] font-medium tabular-nums w-20 justify-end flex-shrink-0" style={{ color: cierreTint }}>
@@ -807,15 +794,12 @@ export default function AnalisisLicitacionPage() {
 }
 
 // ── Sub-componentes ────────────────────────────────────────────────────────────
-function KPI({ icon, label, value, tint, sub }: { icon: React.ReactNode; label: string; value: string; tint: string; sub?: string }) {
+function KPI({ label, value, sub }: { icon?: React.ReactNode; label: string; value: string; tint?: string; sub?: string }) {
   return (
-    <div className="bg-white rounded-xl border border-slate-200 shadow-sm px-3.5 py-3">
-      <div className="flex items-center gap-2 mb-1.5">
-        <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: `${tint}14`, color: tint }}>{icon}</div>
-        <p className="text-[10.5px] text-slate-400 font-semibold leading-tight">{label}</p>
-      </div>
-      <p className="text-[24px] font-semibold text-slate-900 leading-none tabular-nums">{value}</p>
-      {sub && <p className="text-[10px] text-slate-400 mt-1">{sub}</p>}
+    <div className="bg-white rounded-xl border border-linea shadow-tarjeta px-4 py-3.5 dark:bg-slate-900 dark:border-slate-800">
+      <p className="text-[13px] text-tinta-2 dark:text-slate-400">{label}</p>
+      <p className="mt-1.5 text-[26px] font-semibold tracking-tight text-tinta dark:text-slate-50 leading-none tabular-nums">{value}</p>
+      {sub && <p className="text-xs text-tinta-2 dark:text-slate-400 mt-2">{sub}</p>}
     </div>
   );
 }
@@ -837,7 +821,7 @@ function Procedencia({ fuente, universo, calculo, ojo }: {
   fuente: string; universo: string; calculo: string; ojo?: string;
 }) {
   return (
-    <div className="mt-3 pt-2.5 border-t border-slate-100 space-y-1 text-[10.5px] leading-snug text-slate-500">
+    <div className="mt-3 pt-2.5 border-t border-slate-100 space-y-1 text-xs leading-snug text-slate-500">
       <p><span className="font-semibold text-slate-600">Fuente</span> · {fuente}</p>
       <p><span className="font-semibold text-slate-600">Mide</span> · {universo}</p>
       <p><span className="font-semibold text-slate-600">Cálculo</span> · {calculo}</p>
@@ -879,7 +863,7 @@ function DonaEstados({ data, total, centroLabel, seleccion = [], onSelect }: {
         </ResponsiveContainer>
         <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
           <span className="text-[26px] font-semibold text-slate-900 leading-none tabular-nums">{total}</span>
-          <span className="text-[10px] text-slate-400 font-semibold">{centroLabel}</span>
+          <span className="text-xs text-slate-400 font-semibold">{centroLabel}</span>
         </div>
       </div>
       <div className="flex-1 space-y-1.5 min-w-0">

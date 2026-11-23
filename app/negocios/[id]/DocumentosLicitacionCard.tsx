@@ -231,7 +231,7 @@ export function DocumentosLicitacionCard({ licitacionCodigo }: { licitacionCodig
             <div className="divide-y divide-zinc-100 max-h-64 overflow-y-auto">
               {[...CATS_BASES, 'ACTA'].map(cat => (porCategoria[cat]?.length ? (
                 <div key={cat}>
-                  <p className="px-4 py-1.5 text-[10px] font-semibold text-zinc-400 uppercase bg-zinc-50/60">{CATEGORIA_LABEL[cat]}</p>
+                  <p className="px-4 py-1.5 text-[10px] font-semibold text-zinc-400 bg-zinc-50/60">{CATEGORIA_LABEL[cat]}</p>
                   {porCategoria[cat].map((d, i) => (
                     <a key={i} href={d.url} target="_blank" rel="noopener noreferrer"
                       className="flex items-center justify-between gap-2 px-4 py-2 hover:bg-zinc-50 transition-colors">
@@ -248,7 +248,7 @@ export function DocumentosLicitacionCard({ licitacionCodigo }: { licitacionCodig
 
           <div className="px-4 py-3 border-t border-zinc-100 space-y-2">
             <div className="flex items-center justify-between gap-2">
-              <p className="text-[10px] font-semibold text-zinc-400 uppercase">{CATEGORIA_LABEL.DOCUMENTOS_PROPIOS}</p>
+              <p className="text-[10px] font-semibold text-zinc-400">{CATEGORIA_LABEL.DOCUMENTOS_PROPIOS}</p>
               <button type="button" onClick={() => fileRef.current?.click()} disabled={!!subiendo}
                 className="inline-flex items-center gap-1.5 text-[11.5px] font-semibold text-white bg-teal-600 hover:bg-teal-700 disabled:bg-zinc-300 px-2.5 py-1.5 rounded-lg transition-colors">
                 {subiendo ? <><Loader2 size={12} className="animate-spin" /> Subiendo {subiendo.actual}/{subiendo.total}…</> : <><Upload size={12} /> Subir documento(s)</>}

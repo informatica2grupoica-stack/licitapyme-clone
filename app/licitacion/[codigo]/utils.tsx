@@ -69,7 +69,7 @@ export interface AnalisisIA {
 
 export function IABadge() {
   return (
-    <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-slate-50 text-slate-600 border border-slate-200 text-xs rounded-full font-medium">
+    <span className="inline-flex items-center gap-1 text-slate-600 text-xs font-medium">
       <Sparkles size={10} /> Extraído automáticamente
     </span>
   );
@@ -186,7 +186,7 @@ export const ESTADO_CONFIG: Record<string, { label: string; icon: React.ReactNod
   '5':  { label: 'Publicada',   icon: <CheckCircle size={13} />, badge: 'bg-emerald-50 border-emerald-200 text-emerald-700' },
   '6':  { label: 'Cerrada',     icon: <XCircle     size={13} />, badge: 'bg-zinc-100 border-zinc-300 text-zinc-600' },
   '7':  { label: 'Desierta',    icon: <AlertCircle size={13} />, badge: 'bg-orange-50 border-orange-200 text-orange-700' },
-  '8':  { label: 'Adjudicada',  icon: <CheckCircle size={13} />, badge: 'bg-blue-50 border-blue-200 text-blue-700' },
+  '8':  { label: 'Adjudicada',  icon: <CheckCircle size={13} />, badge: 'bg-blue-50 border-blue-200 text-teal-700' },
   '18': { label: 'Revocada',    icon: <XCircle     size={13} />, badge: 'bg-red-50 border-red-200 text-red-700' },
   '19': { label: 'Suspendida',  icon: <AlertCircle size={13} />, badge: 'bg-yellow-50 border-yellow-200 text-yellow-700' },
 };
@@ -246,7 +246,7 @@ export function InfoRow({ label, value }: { label: string; value?: string | numb
 // ======================================================
 
 const ALERT_STYLES: Record<'info' | 'warning' | 'danger' | 'success', { bg: string; icon: React.ReactNode }> = {
-  info:    { bg: 'bg-blue-50 border-blue-200 text-blue-800',       icon: <Info size={16} className="text-blue-500" /> },
+  info:    { bg: 'bg-blue-50 border-blue-200 text-blue-800',       icon: <Info size={16} className="text-teal-500" /> },
   warning: { bg: 'bg-amber-50 border-amber-200 text-amber-800',    icon: <AlertCircle size={16} className="text-amber-500" /> },
   danger:  { bg: 'bg-red-50 border-red-200 text-red-800',          icon: <AlertCircle size={16} className="text-red-500" /> },
   success: { bg: 'bg-emerald-50 border-emerald-200 text-emerald-800', icon: <CheckCircle size={16} className="text-emerald-500" /> },

@@ -67,7 +67,7 @@ function Lista({ items, tipo }: { items?: string[]; tipo: 'riesgo' | 'alerta' | 
   if (!items || items.length === 0) return null;
   const cfg = {
     riesgo: { icon: <AlertTriangle size={13} className="text-amber-500" />, },
-    alerta: { icon: <Info size={13} className="text-blue-500" />, },
+    alerta: { icon: <Info size={13} className="text-teal-500" />, },
     falta:  { icon: <XCircle size={13} className="text-slate-400" />, },
   }[tipo];
   return (
@@ -737,7 +737,7 @@ export function ViabilidadSection({
                     </span>
                   )}
                   {exp!.atractivo && (
-                    <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full border bg-teal-50 text-teal-700 border-teal-200">
+                    <span className="text-[11px] font-medium text-teal-700">
                       Atractivo: {exp!.atractivo}
                     </span>
                   )}

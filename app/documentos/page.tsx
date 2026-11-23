@@ -93,7 +93,7 @@ export default function DocumentosPage() {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
           <div>
             <h1 className="text-2xl font-semibold text-gray-900 flex items-center gap-2">
-              <FolderOpen size={24} className="text-blue-600" />
+              <FolderOpen size={24} className="text-teal-600" />
               Mis documentos
             </h1>
             <p className="text-sm text-gray-500 mt-0.5">
@@ -114,10 +114,10 @@ export default function DocumentosPage() {
 
         {/* Info de cómo subir docs */}
         <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-5 flex items-start gap-3">
-          <Paperclip size={18} className="text-blue-600 flex-shrink-0 mt-0.5" />
+          <Paperclip size={18} className="text-teal-600 flex-shrink-0 mt-0.5" />
           <div className="text-sm text-blue-800">
             <p className="font-semibold mb-0.5">¿Cómo agregar documentos?</p>
-            <p className="text-blue-700">
+            <p className="text-teal-700">
               Abre el detalle de cualquier licitación → sección &quot;Documentos&quot; → arrastra o selecciona archivos PDF/Word descargados desde Mercado Público.
             </p>
           </div>
@@ -132,7 +132,7 @@ export default function DocumentosPage() {
               value={search}
               onChange={e => setSearch(e.target.value)}
               placeholder="Buscar por código o nombre de archivo..."
-              className="w-full max-w-md pl-9 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+              className="w-full max-w-md pl-9 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-teal-500 outline-none"
             />
           </div>
         )}
@@ -177,7 +177,7 @@ export default function DocumentosPage() {
                 {!search && (
                   <Link
                     href="/"
-                    className="inline-flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors"
+                    className="inline-flex items-center gap-2 px-5 py-2.5 bg-teal-600 text-white rounded-lg text-sm font-medium hover:bg-teal-700 transition-colors"
                   >
                     <Search size={15} /> Buscar licitaciones
                   </Link>
@@ -198,12 +198,12 @@ export default function DocumentosPage() {
                         className="w-full flex items-center gap-4 p-4 sm:p-5 hover:bg-gray-50 transition-colors text-left"
                       >
                         <div className="w-11 h-11 bg-blue-50 rounded-xl flex items-center justify-center flex-shrink-0">
-                          <FolderOpen size={20} className={`transition-colors ${abierto ? 'text-blue-600' : 'text-blue-400'}`} />
+                          <FolderOpen size={20} className={`transition-colors ${abierto ? 'text-teal-600' : 'text-blue-400'}`} />
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2">
                             <p className="text-sm font-semibold text-gray-800 font-mono">{proyecto.codigo}</p>
-                            <span className="text-xs px-2 py-0.5 bg-blue-100 text-blue-700 rounded-full">
+                            <span className="text-xs text-teal-700">
                               {proyecto.documentos.length} archivo{proyecto.documentos.length !== 1 ? 's' : ''}
                             </span>
                           </div>
@@ -215,7 +215,7 @@ export default function DocumentosPage() {
                           <Link
                             href={`/licitacion/${encodeURIComponent(proyecto.codigo)}`}
                             onClick={e => e.stopPropagation()}
-                            className="flex items-center gap-1 px-3 py-1.5 text-xs text-blue-600 hover:bg-blue-50 rounded-lg transition-colors font-medium"
+                            className="flex items-center gap-1 px-3 py-1.5 text-xs text-teal-600 hover:bg-blue-50 rounded-lg transition-colors font-medium"
                           >
                             <ExternalLink size={12} /> Ver licitación
                           </Link>
@@ -241,7 +241,7 @@ export default function DocumentosPage() {
                                 href={doc.documento_url_local}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-blue-600 hover:bg-blue-50 rounded-lg transition-colors font-medium flex-shrink-0"
+                                className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-teal-600 hover:bg-blue-50 rounded-lg transition-colors font-medium flex-shrink-0"
                               >
                                 <Download size={12} /> Descargar
                               </a>

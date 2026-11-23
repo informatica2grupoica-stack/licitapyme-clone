@@ -228,7 +228,7 @@ export function GastosCard({ negocioId, puedeOperar }: { negocioId: number; pued
                 <p className="text-[12px] text-zinc-800">
                   {g.categoriaEtiqueta && <span className="text-[9.5px] font-semibold text-zinc-500 bg-zinc-100 border border-zinc-200 px-1.5 py-0.5 rounded-full mr-1.5">{g.categoriaEtiqueta}</span>}
                   {g.descripcion}
-                  {g.ocObumaFolio && <span className="text-[9.5px] font-semibold text-teal-700 bg-teal-50 border border-teal-200 px-1.5 py-0.5 rounded-full ml-1.5">OC Obuma {g.ocObumaFolio}</span>}
+                  {g.ocObumaFolio && <span className="text-[9.5px] font-medium text-teal-700 ml-1.5">OC Obuma {g.ocObumaFolio}</span>}
                 </p>
                 <p className="text-[10.5px] text-zinc-400">
                   {g.fechaGasto || g.createdAt.slice(0, 10)}{g.registradoPorNombre && ` · ${g.registradoPorNombre}`}

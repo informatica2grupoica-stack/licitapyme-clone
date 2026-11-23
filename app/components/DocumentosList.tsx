@@ -38,7 +38,7 @@ export function DocumentosList({ documentos, codigoLicitacion, loading = false }
       case 'pdf': return <FileText size={18} className="text-red-500" />;
       case 'zip': case 'rar': return <FileArchive size={18} className="text-yellow-600" />;
       case 'jpg': case 'png': case 'gif': return <FileImage size={18} className="text-green-500" />;
-      case 'json': return <FileJson size={18} className="text-blue-500" />;
+      case 'json': return <FileJson size={18} className="text-teal-500" />;
       default: return <File size={18} className="text-gray-500" />;
     }
   };
@@ -112,7 +112,7 @@ export function DocumentosList({ documentos, codigoLicitacion, loading = false }
             <button
               onClick={handleDescargarTodos}
               disabled={descargandoTodos}
-              className="mb-4 flex items-center gap-2 px-3 py-1.5 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+              className="mb-4 flex items-center gap-2 px-3 py-1.5 bg-teal-600 text-white text-sm rounded-lg hover:bg-teal-700 transition-colors disabled:opacity-50"
             >
               {descargandoTodos ? (
                 <Loader2 size={16} className="animate-spin" />
@@ -144,7 +144,7 @@ export function DocumentosList({ documentos, codigoLicitacion, loading = false }
                 <button
                   onClick={() => handleDescargar(doc)}
                   disabled={descargando === doc.nombre}
-                  className="p-2 text-blue-600 hover:bg-blue-100 rounded-lg transition-colors disabled:opacity-50"
+                  className="p-2 text-teal-600 hover:bg-blue-100 rounded-lg transition-colors disabled:opacity-50"
                   title="Descargar"
                 >
                   {descargando === doc.nombre ? (

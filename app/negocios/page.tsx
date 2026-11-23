@@ -884,7 +884,7 @@ function NegocioMiniCard({ neg, onClick }: { neg: Negocio; onClick: () => void }
       onClick={onClick}
       aria-label={`Ver detalle de ${neg.licitacion_codigo}: ${neg.licitacion_nombre || ''}`}
       style={{ '--etapa': colorEtapa } as React.CSSProperties}
-      className="group w-full text-left rounded-xl border px-3.5 py-3 shadow-sm transition-all duration-150 hover:shadow-md hover:-translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 bg-[color-mix(in_srgb,var(--etapa)_8%,white)] border-[color-mix(in_srgb,var(--etapa)_28%,white)] hover:bg-[color-mix(in_srgb,var(--etapa)_12%,white)] hover:border-[color-mix(in_srgb,var(--etapa)_45%,white)]"
+      className="group w-full text-left rounded-xl border px-3.5 py-3 shadow-sm transition-all duration-150 hover:shadow-md hover:-translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 dark:bg-[color-mix(in_srgb,var(--etapa)_12%,#17191f)] dark:border-[color-mix(in_srgb,var(--etapa)_32%,#17191f)] bg-[color-mix(in_srgb,var(--etapa)_8%,white)] border-[color-mix(in_srgb,var(--etapa)_28%,white)] hover:bg-[color-mix(in_srgb,var(--etapa)_12%,white)] hover:border-[color-mix(in_srgb,var(--etapa)_45%,white)]"
     >
       {/* Cierre: hora + urgencia; responsable (único color de identidad) a la derecha */}
       <div className="flex items-center justify-between gap-2">
@@ -1604,7 +1604,7 @@ function NegociosContent() {
 
   const ESTADO_COLOR: Record<string, string> = {
     'Publicada': 'bg-green-100 text-green-700',
-    'Adjudicada': 'bg-blue-100 text-blue-700',
+    'Adjudicada': 'bg-blue-100 text-teal-700',
     'Cerrada': 'bg-slate-100 text-gray-500',
   };
 

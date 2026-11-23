@@ -384,7 +384,7 @@ export default function PuentePage() {
                             )}
                             <span className="font-mono text-[11px] text-slate-400">{l.licitacion_codigo}</span>
                             {l.categoria_nombre && (
-                              <span className="inline-flex items-center gap-1 text-[10.5px] font-semibold px-1.5 py-0.5 rounded-full bg-cyan-50 text-cyan-700 border border-cyan-200">
+                              <span className="inline-flex items-center gap-1 text-[10.5px] font-medium text-cyan-700">
                                 <Tag size={9} /> {l.categoria_nombre}
                               </span>
                             )}
@@ -561,7 +561,7 @@ export default function PuentePage() {
                 <h2 className="text-[15px] font-semibold text-slate-800 flex items-center gap-2">
                   <Hand size={15} className="text-teal-600" /> Vista previa
                   {ajustadaAMano && (
-                    <span className="text-[10.5px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200">
+                    <span className="text-[10.5px] font-medium text-amber-800">
                       ajustada a mano
                     </span>
                   )}
@@ -607,7 +607,7 @@ export default function PuentePage() {
                           <AlertTriangle size={13} /> Se quedan en el puente
                         </span>
                       )}
-                      <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-600">
+                      <span className="text-[11px] font-medium text-slate-600">
                         {col.items.length}
                       </span>
                     </div>

@@ -948,7 +948,7 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
                       )}
 
                       <div className="bg-white border border-teal-100 rounded-lg px-2.5 py-2 space-y-1">
-                        <p className="text-[10px] font-semibold text-teal-600 uppercase">Esto es lo que se va a mandar a Obuma</p>
+                        <p className="text-[10px] font-semibold text-teal-600">Esto es lo que se va a mandar a Obuma</p>
                         <p className="text-[11px] text-zinc-700"><span className="text-zinc-400">Proveedor: </span><b>{p.proveedorNombre}</b>{p.proveedorRut && ` (${p.proveedorRut})`}</p>
                         <p className="text-[11px] text-zinc-700"><span className="text-zinc-400">Tipo: </span>{ocInternacional ? `Internacional (${monedasObuma.find(m => m.id === monedaOcId)?.codigo ?? 'falta moneda'})` : 'Nacional'} · Inventario</p>
                         <p className="text-[11px] text-zinc-700"><span className="text-zinc-400">Entrega: </span>{fechaEntrega ? fechaEntrega.split('-').reverse().join('-') : <span className="text-rose-500">falta fecha</span>} · {metodoDespacho || <span className="text-rose-500">falta método de despacho</span>}</p>

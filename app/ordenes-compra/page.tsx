@@ -17,6 +17,7 @@ import { useSession } from '@/app/lib/session-context';
 import { useToast } from '@/app/components/ui/toast';
 import { Banner } from '@/app/components/ui/Banner';
 import { Select } from '@/app/components/ui/Select';
+import { Estado } from '@/app/components/ui/kit/Tarjeta';
 import { DocumentViewerModal, type VisorDoc } from '@/app/components/DocumentViewerModal';
 import { IconReceipt as Receipt, IconLoader2 as Loader2, IconSearch as Search, IconFilter as Filter, IconX as X, IconCalendar as Calendar, IconBuilding as Building2, IconPackage as Package, IconChevronDown as ChevronDown, IconChevronUp as ChevronUp, IconExternalLink as ExternalLink, IconEye as Eye, IconDownload as Download, IconArrowUpRight as ArrowUpRight, IconFolderSymlink as FolderInput, IconCheck as Check } from '@tabler/icons-react';
 
@@ -62,6 +63,14 @@ const ESTADOS_OC: Array<{ value: string; label: string }> = [
 ];
 
 const PAGE_SIZE = 30;
+
+// licitank-ui: el color del estado va en el punto del texto (no en pastillas); se deduce del nombre de la clase.
+function colorDeClase(clase: string): string {
+  if (/rose|red/.test(clase)) return '#dc2626';
+  if (/amber/.test(clase)) return '#d97706';
+  if (/emerald|green/.test(clase)) return '#16a34a';
+  return '#64748b';
+}
 
 function colorEstado(codigo: number | null): { fondo: string; texto: string; borde: string } {
   if (codigo === 9) return { fondo: 'bg-rose-50', texto: 'text-rose-700', borde: 'border-rose-200' };
@@ -266,13 +275,13 @@ function FilaOrden({ oc, onVer, onEnviarExperiencia, etiqueta }: { oc: OrdenComp
   return (
     <div className="rounded-xl border border-slate-200 overflow-hidden bg-white">
       <div className="flex items-start gap-3 px-4 py-3">
-        <span className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${c.fondo} ${c.texto}`}><Receipt size={16} /></span>
+        <span className={`w-9 h-9 rounded-lg bg-slate-100 text-slate-500 dark:bg-slate-800 flex items-center justify-center flex-shrink-0`}><Receipt size={16} /></span>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-[13px] font-semibold text-slate-800 font-mono">{oc.codigo}</span>
-            {etiqueta && <span className={`text-[10.5px] font-semibold px-2 py-0.5 rounded-full border ${etiqueta.clase}`}>{etiqueta.texto}</span>}
-            {oc.estado && <span className={`text-[10.5px] font-semibold px-2 py-0.5 rounded-full border ${c.fondo} ${c.texto} ${c.borde}`}>{oc.estado}</span>}
-            {oc.empresaNombre && <span className="text-[10.5px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">{oc.empresaNombre}</span>}
+            {etiqueta && <span className="text-xs font-medium text-tinta-2 dark:text-slate-300"><Estado color={colorDeClase(etiqueta.clase)}>{etiqueta.texto}</Estado></span>}
+            {oc.estado && <span className="text-xs font-medium text-tinta-2 dark:text-slate-300"><Estado color={colorDeClase(c.texto)}>{oc.estado}</Estado></span>}
+            {oc.empresaNombre && <span className="text-xs text-tinta-3">· {oc.empresaNombre}</span>}
             {fecha && <span className="text-[10.5px] text-slate-400">{fecha}</span>}
           </div>
           {oc.compradorOrganismo && (

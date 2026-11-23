@@ -51,7 +51,7 @@ export function SearchBar({ onSearch, loading = false, placeholder, initialValue
         <button
           type="submit"
           disabled={loading}
-          className="m-1.5 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-lg transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-2 flex-shrink-0"
+          className="m-1.5 px-5 py-2.5 bg-teal-600 hover:bg-teal-700 text-white text-sm font-semibold rounded-lg transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-2 flex-shrink-0"
         >
           {loading ? (
             <><Loader2 size={15} className="animate-spin" />Buscando</>

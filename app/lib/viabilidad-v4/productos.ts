@@ -210,3 +210,61 @@ export function descartarItemsInventados(items: any[], textosBases: string[], no
   }
   return descartados.reverse();
 }
+
+// REQUISITOS GENERALES: la segunda pasada corre una vez por ítem y las EETT se remiten entre sí («Ídem Ítem 1.0.1»), así que el mismo
+// párrafo llegaba N veces y mezclado con detalles constructivos (3708-49-LE26: 227, ~36 reales). Aquí se depura:
+//  1. fuera los que no se hallaron literales en las bases;
+//  2. los de la segunda pasada (traen `producto`) solo si hablan de lo que el bloque promete (garantía, capacitación, manuales, certificados…);
+//  3. un mismo texto repetido se junta en uno, y si venía de varios productos pasa a general (sin `producto`).
+const TEMA_REQUISITO_GENERAL = /garant|capacit|manual|certific|mantenc|mantenim|document|servicio t[eé]cnico|inscrip|\blogo|entrega|ensay|ficha t[eé]cnica|post.?venta/i;
+export function depurarRequisitosGenerales(reqs: any[]): any[] {
+  const claveDe = (t: string) => t.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+  const porTexto = new Map<string, { req: any; productos: Set<string> }>();
+  for (const r of Array.isArray(reqs) ? reqs : []) {
+    const texto = String(r?.texto ?? '').trim();
+    if (!texto || r?.cita?.verificada === false) continue;
+    if (r?.producto && !TEMA_REQUISITO_GENERAL.test(texto)) continue;
+    const k = claveDe(texto);
+    // misma frase con otro recorte (el barrido y el modelo no cortan igual): una contiene a la otra
+    const previo = porTexto.get(k) ?? (k.length >= 40 ? [...porTexto].find(([kk]) => kk.length >= 40 && (kk.includes(k) || k.includes(kk)))?.[1] : undefined);
+    if (previo) { if (r?.producto) previo.productos.add(String(r.producto)); else previo.productos.add(''); continue; }
+    porTexto.set(k, { req: r, productos: new Set([String(r?.producto ?? '')]) });
+  }
+  return [...porTexto.values()].map(({ req, productos }) => {
+    if (productos.size <= 1) return req;
+    const { producto: _omitido, ...general } = req;
+    return general;
+  });
+}
+
+// BARRIDO DETERMINISTA de requisitos generales (sin IA): la lista que devuelve el modelo cambia de una corrida a otra (3708-49-LE26: 227,
+// luego 2, con las mismas bases). Esto recorre las BASES TÉCNICAS y toma las frases que EXIGEN algo (verbo de obligación) sobre garantía,
+// capacitación, manuales, certificados, ensayes, mantención, libro de obras, etc. Es literal, por lo tanto siempre verificable, y se une
+// a lo que traiga el modelo. Las garantías de la oferta/contrato (seriedad, fiel cumplimiento) son de admisibilidad y no entran aquí.
+const RE_OBLIGA = /deber[aá]n?\b|ser[aá]\s+(?:obligaci[oó]n|obligatori[oa]s?|exigid)|obligaci[oó]n|obligatori[oa]s?|se\s+exigir[aá]|se\s+requiere|exig(?:e|en|ir[aá]|ido|idos|idas)\b|entregar|presentar|contar\s+con|mantener|disponer/i;
+const RE_ENTREGABLE = /certificad|garant[ií]a|capacitaci|manual(?:es)?\s+de\s+(?:uso|operaci|instrucc|mantenc|usuario)|mantenci[oó]n|mantenimiento|servicio\s+t[eé]cnico|post.?venta|ensayes?|ensayos?|libro\s+de\s+obra|inscripci[oó]n|ficha\s+t[eé]cnica|as.?built|recepci[oó]n\s+(?:provisoria|definitiva)|profesional\s+(?:ingeniero|constructor|a\s+cargo)|derechos\s+municipales|aseo\s+(?:de\s+)?obra/i;
+const RE_ADMIN_OFERTA = /garant[ií]a\s+(?:de\s+)?(?:seriedad|fiel\s+cumplimiento|de\s+la\s+oferta)|boleta\s+de\s+garant|vale\s+vista|p[oó]liza\s+de\s+garant/i;
+const TOPE_REQUISITOS_BARRIDO = 80;
+
+export function extraerRequisitosGeneralesDeBases(docs: Array<{ nombre: string; categoria?: string | null; texto?: string; ok?: boolean }>): any[] {
+  const out: any[] = [];
+  const vistos = new Set<string>();
+  for (const d of docs) {
+    if (d.ok === false || !d.texto) continue;
+    if (!/BASES_TECNICAS/i.test(d.categoria || '') && !/t[eé]cnic|eett|ttr|especificac/i.test(d.nombre)) continue;
+    if (/^COSTEO_/i.test(d.nombre) || /DOCUMENTOS_PROPIOS/i.test(d.categoria || '')) continue;
+    // párrafos = bloques separados por línea en blanco; dentro, las líneas del PDF se unen y se parte por oración
+    const frases = d.texto.split(/\n\s*\n/).flatMap(p => p.replace(/\s+/g, ' ').trim().split(/(?<=[.;])\s+(?=[A-ZÁÉÍÓÚÑ¿¡“"(])/));
+    for (const f of frases) {
+      const t = f.replace(/(?:[A-ZÁÉÍÓÚÑ] ){5,}[A-ZÁÉÍÓÚÑ]\s*(?:\d{1,3}\s+)?/g, '').replace(/^\d{1,3}\s+(?=[A-ZÁÉÍÓÚÑ])/, '').trim();
+      if (t.length < 25 || t.length > 420) continue;
+      if (!RE_OBLIGA.test(t) || !RE_ENTREGABLE.test(t) || RE_ADMIN_OFERTA.test(t)) continue;
+      const k = t.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+      if (vistos.has(k)) continue;
+      vistos.add(k);
+      out.push({ texto: t, cita: { documento: d.nombre, numeral: '', frase: t }, origen: 'barrido' });
+      if (out.length >= TOPE_REQUISITOS_BARRIDO) return out;
+    }
+  }
+  return out;
+}

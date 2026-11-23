@@ -35,7 +35,7 @@ export function CoencargadosCompras({ negocioId, principalId, coencargados, cand
   const opciones = candidatos.filter(c => c.id !== principalId);
   return (
     <div className="flex items-center gap-1.5 flex-wrap" data-testid="coencargados">
-      {coencargados.map(c => <span key={c.id} className="font-semibold text-zinc-700 bg-zinc-100 border border-zinc-200 rounded-full px-2 py-0.5 text-[11.5px]">{c.nombre || `Usuario ${c.id}`}</span>)}
+      {coencargados.map(c => <span key={c.id} className="font-medium text-zinc-700 text-[11.5px]">{c.nombre || `Usuario ${c.id}`}</span>)}
       {puedeEditar && !abierto && (
         <button type="button" onClick={abrir} className="inline-flex items-center gap-1 text-[11px] font-semibold text-teal-700 hover:text-teal-900">
           <UserPlus size={12} /> {coencargados.length ? 'Cambiar otros encargados' : 'Sumar otro encargado'}

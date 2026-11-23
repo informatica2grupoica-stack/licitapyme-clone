@@ -219,7 +219,7 @@ export function AuditorCosteoCard({ negocioId, puedeOperar }: { negocioId: numbe
                 </span>
                 {lp.auditando ? <span className="flex items-center gap-1 text-[11px] text-teal-700"><Loader2 size={12} className="animate-spin" /> Auditando…</span>
                   : panel.programadas.includes(lp.linea.id) ? <span className="flex items-center gap-1 text-[11px] text-teal-700"><Loader2 size={12} className="animate-spin" /> Cambió algo: se re-audita sola…</span>
-                  : v && lp.desactualizada ? <span title="Se cargó o cambió una cotización de esta línea después de la última auditoría: este veredicto es de antes. Vuelve a auditarla." className="text-[10.5px] font-semibold px-2 py-0.5 rounded-full border bg-amber-50 text-amber-800 border-amber-300">Desactualizada · volver a auditar</span>
+                  : v && lp.desactualizada ? <span title="Se cargó o cambió una cotización de esta línea después de la última auditoría: este veredicto es de antes. Vuelve a auditarla." className="text-[10.5px] font-medium text-amber-800">Desactualizada · volver a auditar</span>
                   : v ? <span className={`text-[10.5px] font-semibold px-2 py-0.5 rounded-full border ${VER[v].cls}`}>{VER[v].txt}{lp.derivada!.bloqueos.length ? ` · ${lp.derivada!.bloqueos.length} bloqueo(s)` : ''}</span>
                   : <span className="text-[10.5px] font-semibold px-2 py-0.5 rounded-full border bg-zinc-50 text-zinc-500 border-zinc-200">Sin auditar</span>}
                 {abiertaEsta ? <ChevronUp size={14} className="text-zinc-400" /> : <ChevronDown size={14} className="text-zinc-400" />}
@@ -418,7 +418,7 @@ function PreparacionCard({ prep }: { prep: Preparacion }) {
           <p className="text-[11px] text-zinc-500">Se revisa sola cada vez que subes o cambias algo. Lo de «falta» impide auditar bien; lo de «aviso» se puede auditar igual, pero con menos certeza.</p>
           {[...faltas, ...avisos].map((i, k) => (
             <div key={k} className={`rounded-lg border px-2.5 py-1.5 text-[11.5px] ${i.nivel === 'falta' ? 'border-rose-200 bg-white' : 'border-amber-200 bg-white'}`}>
-              <p className="font-semibold text-zinc-800">{i.nivel === 'falta' ? '🔴' : '🟡'} {i.texto}{i.donde && <span className="ml-1.5 text-[10px] font-semibold text-zinc-400 uppercase">{i.donde}</span>}</p>
+              <p className="font-semibold text-zinc-800">{i.nivel === 'falta' ? '🔴' : '🟡'} {i.texto}{i.donde && <span className="ml-1.5 text-[10px] font-semibold text-zinc-400">{i.donde}</span>}</p>
               <p className="text-zinc-600">↳ Cómo se arregla: {i.comoSolucionar}</p>
             </div>
           ))}
@@ -494,7 +494,7 @@ function EvidenciaModal({ negocioId, filaId, cita, titulo, respaldoId, onClose }
           {data && [...data.respaldos].sort((a, b) => Number(b.id === respaldoId) - Number(a.id === respaldoId)).map(r => (
             <div key={r.id} className={`rounded-lg border ${r.contieneCita ? 'border-yellow-300 ring-1 ring-yellow-200' : 'border-zinc-200'}`}>
               <div className="flex items-center justify-between gap-2 px-3 py-2 bg-zinc-50 rounded-t-lg">
-                <p className="text-[12px] font-semibold text-zinc-800">{r.titulo}{r.contieneCita && <span className="ml-2 text-[10px] font-semibold text-yellow-800 bg-yellow-100 px-1.5 py-0.5 rounded-full">contiene la cita</span>}</p>
+                <p className="text-[12px] font-semibold text-zinc-800">{r.titulo}{r.contieneCita && <span className="ml-2 text-[10px] font-medium text-yellow-800">contiene la cita</span>}</p>
                 <span className="flex gap-2 text-[11px]">
                   {r.archivoUrl && <a href={r.archivoUrl} target="_blank" rel="noreferrer" className="font-semibold text-teal-700 inline-flex items-center gap-1"><ExternalLink size={12} /> {r.tipo === 'COTIZACION' ? 'Abrir el documento original' : 'Abrir el link'}</a>}
                   {r.capturaId && <a href={`/api/compras/${negocioId}/auditor-costeo/captura/${r.capturaId}`} target="_blank" rel="noreferrer" className="font-semibold text-teal-700 inline-flex items-center gap-1"><Photo size={12} /> Ver la captura</a>}

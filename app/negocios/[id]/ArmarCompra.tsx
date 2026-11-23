@@ -297,7 +297,7 @@ export function CargarCompraAlCosteo({ negocioId, proveedores, costoTotal, refre
           {plan.lineas.length > 0 && (
             <div className="overflow-x-auto">
               <table className="w-full text-[12.5px]">
-                <thead><tr className="text-left text-zinc-400 text-[11px] uppercase"><th className="py-1 pr-3">Producto</th><th className="py-1 pr-3">Proveedor</th><th className="py-1 pr-3">Hoy en el costeo</th><th className="py-1 pr-3">Se carga</th><th className="py-1">Estado</th></tr></thead>
+                <thead><tr className="text-left text-zinc-400 text-[11px]"><th className="py-1 pr-3">Producto</th><th className="py-1 pr-3">Proveedor</th><th className="py-1 pr-3">Hoy en el costeo</th><th className="py-1 pr-3">Se carga</th><th className="py-1">Estado</th></tr></thead>
                 <tbody>
                   {plan.lineas.map(l => (
                     <Fragment key={l.productoId}>

@@ -156,7 +156,7 @@ function CuadroOferente({ o, onVer }: { o: OferenteVista; onVer: (d: VisorDoc) =
           </p>
           <p className="text-[11px] text-zinc-400 truncate"><span className="font-mono">{o.proveedorRut}</span>{o.nombreOferta ? ` · ${o.nombreOferta}` : ''}</p>
         </div>
-        {o.estado && <span className="text-[10.5px] font-semibold rounded-full px-2 py-0.5 border text-emerald-700 bg-emerald-50 border-emerald-200">{o.estado}</span>}
+        {o.estado && <span className="text-[10.5px] font-medium text-emerald-700">{o.estado}</span>}
         <span className="text-[13.5px] font-semibold tabular-nums text-zinc-800">{fmtMonto(o.monto, o.moneda)}</span>
       </header>
 

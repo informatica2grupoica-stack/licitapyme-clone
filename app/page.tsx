@@ -354,7 +354,7 @@ function HomeContent() {
                     <button
                       key={q}
                       onClick={() => handleSearch(q)}
-                      className="px-3 py-1.5 rounded-full bg-slate-100 hover:bg-teal-100 hover:text-teal-700 text-[12px] font-medium text-slate-600 transition-colors border border-slate-200 hover:border-teal-200 dark:bg-white/5 dark:text-zinc-300 dark:border-zinc-800 dark:hover:bg-teal-500/15 dark:hover:text-teal-300 dark:hover:border-teal-500/30"
+                      className=" hover:bg-teal-100 hover:text-teal-700 text-[12px] font-medium text-slate-600 transition-colors hover:border-teal-200 dark:bg-white/5 dark:text-zinc-300 dark:border-zinc-800 dark:hover:bg-teal-500/15 dark:hover:text-teal-300 dark:hover:border-teal-500/30"
                     >
                       {q}
                     </button>

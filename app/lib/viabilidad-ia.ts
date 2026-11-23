@@ -58,7 +58,7 @@ import { extraerPasajesPlazosMultas, necesitaLecturaDirigida, aplicarLecturaDiri
 import { NOTA_ART_32, brutoDesdeTexto, detectarPresupuestoExcluyente, escalarLineasEnMiles, interpretarPorLinea, totalPorEscalaDeLineas, normalizarCaracter, sumaLineasCuadra } from '@/app/lib/viabilidad-v4/presupuesto';
 import { barridoConsecuencias, consolidarVisitaYMuestras, decidirSuministro, detectarSenalesSuministro, esObviedad } from '@/app/lib/viabilidad-v4/admisibilidad';
 import { normalizarTextosInforme } from '@/app/lib/viabilidad-v4/textos';
-import { descartarItemsInventados, reasignarLineasPorTablaDeMontos, construirListaUnica, conteoCruzado, problemasCalidadManifiesto, verificarCaracteristicasLiterales } from '@/app/lib/viabilidad-v4/productos';
+import { descartarItemsInventados, reasignarLineasPorTablaDeMontos, construirListaUnica, conteoCruzado, depurarRequisitosGenerales, extraerRequisitosGeneralesDeBases, problemasCalidadManifiesto, verificarCaracteristicasLiterales } from '@/app/lib/viabilidad-v4/productos';
 import { verificarSemantica, type ParSemantico } from '@/app/lib/viabilidad-v4/verificador-semantico';
 
 const GEMINI_MODEL = 'gemini-2.5-flash';
@@ -1785,8 +1785,10 @@ async function _analizarViabilidadIAV4Intento(codigo: string, onFase?: (fase: Fa
   const itemsFuenteCrudos: any[] = Array.isArray(prod.items) ? prod.items : [];
   const reqGenerales: any[] = Array.isArray(prod.requisitos_generales) ? prod.requisitos_generales : [];
   await completarCaracteristicasLiterales(itemsFuenteCrudos, docs, codigo, reqGenerales);
+  // Barrido sin IA de las bases técnicas: la lista del modelo varía entre corridas (3708-49-LE26: 227 → 2); esta no.
+  reqGenerales.push(...extraerRequisitosGeneralesDeBases(docs));
   for (const r of reqGenerales) if (r?.cita && typeof r.cita === 'object' && r.cita.verificada === undefined) loc.localizar(r.cita);
-  prod.requisitos_generales = reqGenerales;
+  prod.requisitos_generales = depurarRequisitosGenerales(reqGenerales);
   // Cada característica debe existir LITERAL en las bases; las demás no pasan al AUDITOR.
   const lit = verificarCaracteristicasLiterales(itemsFuenteCrudos, loc);
   if (lit.no_encontradas) console.warn(`[viabilidad-ia-v4] ${codigo}: ${lit.no_encontradas}/${lit.revisadas} característica(s) no se encontraron literales en las bases — quedan marcadas y fuera del AUDITOR hasta revisarlas.`);

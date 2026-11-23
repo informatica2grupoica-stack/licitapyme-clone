@@ -32,6 +32,7 @@ import { InteligenciaSection } from './sections/InteligenciaSection';
 import OfertasCompetencia from '@/app/components/OfertasCompetencia';
 import { ResultadoSection } from './sections/ResultadoSection';
 import { Resaltar } from '@/app/components/Resaltar';
+import { ReclamosOrganismo } from '@/app/components/ui/ReclamosOrganismo';
 import { MenuNegocioLateral, construirNavSeccionesNegocio, useFlujoNegocio, SeccionTabs } from '@/app/components/MenuNegocioLateral';
 import { tieneResultado } from '@/app/lib/pipeline';
 
@@ -464,7 +465,7 @@ export default function LicitacionDetallePage() {
       <AppLayout>
         <div className="flex-1 flex items-center justify-center py-24">
           <div className="text-center">
-            <Loader2 size={36} className="animate-spin text-blue-600 mx-auto mb-3" />
+            <Loader2 size={36} className="animate-spin text-teal-600 mx-auto mb-3" />
             <p className="text-zinc-500 text-sm">Consultando Mercado Público...</p>
             <p className="text-zinc-400 text-xs mt-1">{codigoDecoded}</p>
           </div>
@@ -500,7 +501,7 @@ export default function LicitacionDetallePage() {
               </button>
               {!sinAcceso && (
                 <button onClick={fetchLicitacion}
-                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl hover:bg-blue-700 text-sm transition-colors">
+                  className="flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-xl hover:bg-teal-700 text-sm transition-colors">
                   <RefreshCw size={15} /> Reintentar
                 </button>
               )}
@@ -585,7 +586,7 @@ export default function LicitacionDetallePage() {
 
               <div className="flex items-start gap-2 flex-wrap mb-1.5">
                 {tipoLabel && (
-                  <span className="flex items-center gap-1 text-[11px] text-teal-700 bg-teal-50 border border-teal-200 px-2 py-0.5 rounded-full font-semibold">
+                  <span className="flex items-center gap-1 text-[11px] text-teal-700 font-medium">
                     <Tag size={10} /> {licitacion.tipo_licitacion} · {tipoLabel}
                   </span>
                 )}
@@ -600,6 +601,7 @@ export default function LicitacionDetallePage() {
               <p className="text-[12px] text-zinc-400 mt-0.5">
                 {licitacion.organismo}
               </p>
+              <ReclamosOrganismo cantidad={licitacion.reclamos_12m} />
 
               {/* Fila de acciones — antes vivían en la tab "Gestión" (eliminada) */}
               <div className="flex items-center gap-2 flex-wrap mt-3">
@@ -624,7 +626,7 @@ export default function LicitacionDetallePage() {
                 </button>
 
                 {asignadoNombre && (
-                  <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-blue-700 bg-blue-50 border border-blue-200 px-2.5 py-1 rounded-lg" title={`Asignada a ${asignadoNombre}`}>
+                  <span className="inline-flex items-center gap-1.5 text-xs font-medium text-tinta-2" title={`Asignada a ${asignadoNombre}`}>
                     <UserCheck size={11} /> {asignadoNombre}
                   </span>
                 )}

@@ -3,7 +3,7 @@
 Pantalla principal: `/compras/[negocioId]` (`ComprasChrome.tsx`). Traspasado desde la memoria
 personal el 2026-10-27; las fechas son de cuando se decidió.
 
-## 2026-11-23 (4) — «Posible duplicado» falso en 1095439-8-LP26 (negocio 183): OC de otra licitación (tsc ok; SIN desplegar)
+## 2026-11-23 (4) — «Posible duplicado» falso en 1095439-8-LP26 (negocio 308; «183» era el PR de Obuma): OC de otra licitación (tsc ok; SIN desplegar)
 **Causa:** `buscarOcRealSimilar` marca duplicado si UNA palabra de 4+ letras del producto aparece en la referencia de cualquier OC del proveedor. El flete «Transporte … Santiago a Coyhaique» (Marcos Navarrete, 201227) calzaba con las OC 3900/3901, que son de 2494-56-LE26 (PR-169) y solo dicen «COYHAIQUE». No había duplicado real.
 **Regla del dueño:** el aviso solo sale si la OC existente (referencia u observación) nombra el código de ESTA licitación; una OC sin ese código nunca es «posible duplicado», aunque comparta palabras. Por eso se escribe el código en la referencia de las OC hechas a mano.
 **Pendiente:** desplegar.

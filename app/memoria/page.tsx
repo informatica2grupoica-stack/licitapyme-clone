@@ -217,7 +217,7 @@ export default function MemoriaPage() {
 
           {resPrecios && (
             <div className="mt-3 flex flex-wrap items-center gap-2 text-[12px]">
-              <span className="inline-flex items-center gap-1 font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-2.5 py-1">
+              <span className="inline-flex items-center gap-1 font-medium text-emerald-700">
                 Ya lo vendimos {resPrecios.veces} vez{resPrecios.veces === 1 ? '' : 'es'}
               </span>
               <span className="text-slate-600">
@@ -394,7 +394,7 @@ export default function MemoriaPage() {
                         {c.origen && c.origen !== 'MANUAL' && (
                           <span
                             title={`Cargado automático desde ${c.origen}`}
-                            className="inline-flex items-center gap-0.5 text-[9.5px] font-semibold px-1.5 py-0.5 rounded-full bg-cyan-100 text-cyan-700 font-sans">
+                            className="inline-flex items-center gap-0.5 text-[9.5px] font-medium text-cyan-700 font-sans">
                             <Zap size={9} /> {c.origen}
                           </span>
                         )}

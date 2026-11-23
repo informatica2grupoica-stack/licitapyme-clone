@@ -105,7 +105,7 @@ export default function EtiquetasAdminPage() {
       <div className="p-4 sm:p-6 lg:p-8 max-w-3xl">
         <div className="mb-6">
           <h1 className="text-2xl font-semibold text-gray-900 flex items-center gap-2">
-            <Tag size={24} className="text-blue-600" />
+            <Tag size={24} className="text-teal-600" />
             Etiquetas / Líneas de negocio
           </h1>
           <p className="text-sm text-gray-500 mt-0.5">
@@ -130,7 +130,7 @@ export default function EtiquetasAdminPage() {
                 value={nueva.nombre}
                 onChange={e => setNueva(p => ({ ...p, nombre: e.target.value.toUpperCase() }))}
                 placeholder="ej: EQUIPAMIENTO"
-                className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none uppercase font-semibold"
+                className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-teal-500 outline-none font-semibold"
                 maxLength={50}
               />
             </div>
@@ -162,13 +162,13 @@ export default function EtiquetasAdminPage() {
                 value={nueva.descripcion}
                 onChange={e => setNueva(p => ({ ...p, descripcion: e.target.value }))}
                 placeholder="Descripción..."
-                className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-teal-500 outline-none"
               />
             </div>
             <button
               type="submit"
               disabled={agregando || !nueva.nombre.trim()}
-              className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:bg-gray-300 transition-colors"
+              className="flex items-center gap-2 px-4 py-2.5 bg-teal-600 text-white rounded-lg text-sm font-medium hover:bg-teal-700 disabled:bg-gray-300 transition-colors"
             >
               {agregando ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
               Agregar
@@ -201,7 +201,7 @@ export default function EtiquetasAdminPage() {
                       <input
                         value={editForm.nombre}
                         onChange={e => setEditForm(p => ({ ...p, nombre: e.target.value.toUpperCase() }))}
-                        className="px-2 py-1.5 border border-blue-300 rounded-lg text-sm font-semibold w-36 outline-none focus:ring-2 focus:ring-blue-400 uppercase"
+                        className="px-2 py-1.5 border border-blue-300 rounded-lg text-sm font-semibold w-36 outline-none focus:ring-2 focus:ring-teal-400"
                       />
                       <input
                         type="color"
@@ -213,7 +213,7 @@ export default function EtiquetasAdminPage() {
                         value={editForm.descripcion}
                         onChange={e => setEditForm(p => ({ ...p, descripcion: e.target.value }))}
                         placeholder="Descripción..."
-                        className="flex-1 px-2 py-1.5 border border-gray-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-400"
+                        className="flex-1 px-2 py-1.5 border border-gray-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-teal-400"
                       />
                       <button onClick={() => guardarEdit(et.id)} className="p-1.5 text-green-600 hover:bg-green-50 rounded-lg">
                         <Check size={15} />

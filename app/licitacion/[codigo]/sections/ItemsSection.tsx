@@ -16,7 +16,7 @@ export function ItemsSection({ items, keywords = [] }: { items?: ItemProducto[];
         title="Ítems y Cantidades"
         subtitle="Productos y servicios requeridos en el proceso"
         badge={hayItems && (
-          <span className="px-2 py-0.5 bg-teal-100 text-teal-700 text-xs rounded-full font-semibold">{items!.length}</span>
+          <span className=" text-teal-700 text-xs font-medium">{items!.length}</span>
         )}
       />
 

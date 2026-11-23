@@ -152,7 +152,7 @@ export function AnexoRellenoExcelModal({
           {!cargando && !error && filas.length > 0 && (
             <div className="border border-slate-200 rounded-lg overflow-hidden">
               <table className="w-full text-sm">
-                <thead className="bg-slate-50 text-slate-500 text-xs uppercase">
+                <thead className="bg-slate-50 text-slate-500 text-xs">
                   <tr>
                     <th className="text-left px-3 py-2 font-medium">Producto</th>
                     <th className="text-right px-3 py-2 font-medium">{analisis?.tabla?.encabezadoPrecio}</th>

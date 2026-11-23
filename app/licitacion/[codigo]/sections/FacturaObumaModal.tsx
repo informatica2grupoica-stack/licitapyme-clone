@@ -170,7 +170,7 @@ export function FacturaObumaModal({ codigo, compraOcId, dteId, onClose }: {
                   <p className="text-[10.5px] font-semibold text-slate-400 mb-1.5">Referencias</p>
                   <div className="flex flex-wrap gap-1.5">
                     {factura.referencias.map((r, i) => (
-                      <span key={i} className="inline-flex items-center gap-1 text-[11.5px] text-slate-600 bg-slate-100 rounded-full px-2.5 py-1">
+                      <span key={i} className="inline-flex items-center gap-1 text-[11.5px] text-slate-600">
                         <ArrowRight size={10} /> {r.razon || r.tipo} N° {r.folio}{fmtFecha(r.fecha) ? ` · ${fmtFecha(r.fecha)}` : ''}
                       </span>
                     ))}
