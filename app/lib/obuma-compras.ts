@@ -14,7 +14,7 @@
 // ERP completo (~16.700 compras en la cuenta), es la vista cruzada que pidió el usuario.
 import pool from '@/app/lib/db';
 import { CLIENTE_ICA } from '@/app/lib/tenant';
-import { listarComprasOc, listarComprasOcItems, listarComprasDte, proveedorPorId, centrosDeCostoCompleto, proyectosExtCompleto, type ObumaCompraOc } from '@/app/lib/obuma';
+import { listarComprasOc, listarComprasOcItems, listarComprasDte, comprasCompleto, proveedorPorId, centrosDeCostoCompleto, proyectosExtCompleto, type ObumaCompraOc } from '@/app/lib/obuma';
 import { mencionaCodigo, licitacionesOfertadas } from '@/app/lib/ordenes-compra';
 import { ajustesDeLicitacion, claveLineaOc, type AjusteLineaOc } from '@/app/lib/compras-oc-lineas-negocio';
 import { paresFacturaDeOc, dinesDeOc, TIPO_DOC_DIN } from '@/app/lib/obuma-facturas-enlace';
@@ -45,6 +45,41 @@ export interface FacturaObuma {
   total: number | null; fecha: string | null;
   proveedorRazonSocial: string | null; proveedorRut: string | null;
   s3Link: string | null;   // XML real de la factura, descarga directa (link público de Obuma)
+  /** La factura tiene una nota de crédito que la anula completa en Obuma (compra_anulada / compra_notacredito = 1): no hay nada que pagar. */
+  anulada?: boolean;
+  /** compra_id de Obuma (rel_compra_id del DTE): une la factura con su registro contable. */
+  relCompraId?: string | null;
+}
+
+/** Marca en `obuma_compras.facturas_json` las facturas que Obuma ya anuló con nota de crédito (caso OC 4034, factura 82, 1095439-8-LP26).
+ *  Una sola lectura de compras.list.json (cacheada 5 min). `compra_notacredito = 2` es una NC PARCIAL: no se marca (la factura sigue vigente).
+ *  Devuelve los códigos de licitación cuyas facturas cambiaron, para volver a sincronizar su negocio. */
+export async function marcarFacturasConNotaCredito(soloCodigo?: string | string[]): Promise<string[]> {
+  const [rows] = await pool.query(
+    `SELECT compra_oc_id, licitacion_codigo, proveedor_id, facturas_json FROM obuma_compras WHERE facturas_json IS NOT NULL AND licitacion_codigo IS NOT NULL`,
+  ) as any;
+  const codigos = soloCodigo ? (Array.isArray(soloCodigo) ? soloCodigo : [soloCodigo]) : null;
+  const filas = (rows as any[]).filter(r => !codigos || codigos.includes(r.licitacion_codigo));
+  if (!filas.length) return [];
+  const compras = await comprasCompleto();
+  const esNc = (c: Record<string, unknown>) => String(c.compra_anulada) === '1' || String(c.compra_notacredito) === '1';
+  const porId = new Map(compras.map(c => [String(c.compra_id), esNc(c)]));
+  const tipoNum = (t: string) => String(t).replace(/\D/g, '');
+  const porDoc = new Map(compras.map(c => [`${tipoNum(String(c.compra_tipo_dcto))}#${String(c.compra_folio).trim()}#${c.rel_proveedor_id}`, esNc(c)]));
+  const cambiados = new Set<string>();
+  for (const r of filas) {
+    const facturas = facturasDesdeJson(r.facturas_json);
+    let cambio = false;
+    for (const f of facturas) {
+      const nc = (f.relCompraId && f.relCompraId !== '0' ? porId.get(String(f.relCompraId)) : undefined)
+        ?? porDoc.get(`${tipoNum(f.tipoDcto)}#${String(f.folioDte).trim()}#${r.proveedor_id}`) ?? false;
+      if (nc !== !!f.anulada) { if (nc) f.anulada = true; else delete f.anulada; cambio = true; }
+    }
+    if (!cambio) continue;
+    await pool.query(`UPDATE obuma_compras SET facturas_json = ? WHERE compra_oc_id = ?`, [JSON.stringify(facturas), r.compra_oc_id]);
+    cambiados.add(r.licitacion_codigo);
+  }
+  return [...cambiados];
 }
 
 export interface ResumenSyncObuma {
@@ -69,6 +104,11 @@ export async function sincronizarComprasObuma(
   const nuestras = await licitacionesOfertadas(CLIENTE_ICA);   // Obuma es solo de Grupo ICA (Inversiones Claro)
   if (nuestras.size === 0) return resumen;
   const codigos = [...nuestras.keys()];
+  // Facturas anuladas con nota de crédito: se revisan siempre (la NC llega después de la factura, aunque la OC ya no esté entre las últimas páginas).
+  const revisarNotasDeCredito = async () => {
+    try { for (const c of await marcarFacturasConNotaCredito(soloCodigo)) if (!resumen.codigos.includes(c)) resumen.codigos.push(c); }
+    catch (err) { console.warn('[obuma-compras] no se pudieron revisar las notas de crédito:', String(err).slice(0, 150)); }
+  };
 
   // Segundo camino de cruce: el CENTRO DE COSTO del proyecto. En Obuma quien arma la OC a veces no escribe
   // el código de la licitación en la referencia (caso 759-21-LE26: «PR-190 ADQUISICION DE EQUIPOS…»), pero
@@ -108,7 +148,7 @@ export async function sincronizarComprasObuma(
     await dormir(PAUSA_MS);
   }
   resumen.candidatas = candidatas.length;
-  if (candidatas.length === 0) return resumen;
+  if (candidatas.length === 0) { await revisarNotasDeCredito(); return resumen; }
 
   // Proveedor: se resuelve una vez por id y se cachea en memoria para esta corrida — varias
   // compras de la misma licitación casi siempre son del mismo proveedor.
@@ -157,7 +197,7 @@ export async function sincronizarComprasObuma(
             tipoDcto, folioDte, dteId: dte.dte_id,
             total: num(dte.dte_total), fecha: dte.dte_fecha || null,
             proveedorRazonSocial: dte.dte_razonsocial_emisor || null, proveedorRut: dte.dte_rut_emisor || null,
-            s3Link: dte.s3_link || null,
+            s3Link: dte.s3_link || null, relCompraId: dte.rel_compra_id && dte.rel_compra_id !== '0' ? String(dte.rel_compra_id) : null,
           });
         } else {
           console.warn(`[obuma-compras] OC ${c.compra_oc_folio}: Obuma no encontró la factura ${tipoDcto}#${folioDte} (enlace "${crudo}").`);
@@ -227,6 +267,7 @@ export async function sincronizarComprasObuma(
     if (cambio && licitacionCodigo && !resumen.codigos.includes(licitacionCodigo)) resumen.codigos.push(licitacionCodigo);
   }
 
+  await revisarNotasDeCredito();
   return resumen;
 }
 

@@ -3,6 +3,12 @@
 Pantalla principal: `/compras/[negocioId]` (`ComprasChrome.tsx`). Traspasado desde la memoria
 personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-11-23 (5) — Factura con nota de crédito en Obuma: no se paga (OC 4034, factura N° 82, 1095439-8-LP26; tsc ok; probado solo contra la API de Obuma, BD local apagada; SIN desplegar)
+**Cómo lo dice Obuma:** en `compras.list.json` la factura 82 (compra_id 2125406, la que enlaza la OC 4034 en `rel_factura_id`) trae `compra_anulada=1` y `compra_notacredito=1`; `compra_notacredito=2` es NC PARCIAL (no se marca). El DTE no lo trae.
+**Cambio:** `FacturaObuma` gana `anulada` y `relCompraId`; `marcarFacturasConNotaCredito()` (obuma-compras.ts) las marca en `facturas_json` y corre al final de cada sincronización (también si no hay OC nuevas, porque la NC llega después). Una OC con TODAS sus facturas anuladas: la tarjeta muestra «Anulada con nota de crédito» / «No se paga», sin «Registrar pago»; `registrarPagoOc` lo rechaza en el servidor; no cuenta como pendiente de pago; la factura anulada sale del gasto (queda en «descartadas» con su motivo).
+**Pendiente:** desplegar y correr la sincronización una vez (o esperar el cron) para que se marque la 82 en producción; ver en navegador.
+**Grises en Crear OC (negocio 308):** NO eran duplicados: el botón sale gris por «Aún sin aprobar» (falta aprobar compra y margen/línea) y porque no hay casilla marcada. El aviso real dice «Posible duplicado» en rojo y esas tarjetas (Marcos Navarrete, Jorge Suárez) no lo tenían; ninguna OC de ellos nombra 1095439-8-LP26 en Obuma.
+
 ## 2026-11-23 (4) — «Posible duplicado» falso en 1095439-8-LP26 (negocio 308; «183» era el PR de Obuma): OC de otra licitación (tsc ok; SIN desplegar)
 **Causa:** `buscarOcRealSimilar` marca duplicado si UNA palabra de 4+ letras del producto aparece en la referencia de cualquier OC del proveedor. El flete «Transporte … Santiago a Coyhaique» (Marcos Navarrete, 201227) calzaba con las OC 3900/3901, que son de 2494-56-LE26 (PR-169) y solo dicen «COYHAIQUE». No había duplicado real.
 **Regla del dueño:** el aviso solo sale si la OC existente (referencia u observación) nombra el código de ESTA licitación; una OC sin ese código nunca es «posible duplicado», aunque comparta palabras. Por eso se escribe el código en la referencia de las OC hechas a mano.

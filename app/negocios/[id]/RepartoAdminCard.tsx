@@ -61,7 +61,7 @@ interface RespaldoHito {
 // Pagos por OC (migration-157) y OC reales de Obuma con sus facturas — ver app/lib/compras-pagos-oc.ts.
 type TipoPago = 'ANTICIPO' | 'PAGO_TOTAL' | 'SALDO';
 interface PagoOc { id: number; ocFolio: string; proveedorNombre: string | null; tipo: TipoPago; monto: number; fecha: string; archivoUrl: string; archivoNombre: string | null; nota: string | null; adjuntos?: Array<{ url: string; nombre: string | null }> }
-interface OcObuma { folio: string; estado: string | null; total: number | null; facturas: Array<{ dteId: string; folio: string; fecha: string | null; total: number | null; s3Link: string | null }> }
+interface OcObuma { folio: string; estado: string | null; total: number | null; facturas: Array<{ dteId: string; folio: string; fecha: string | null; total: number | null; s3Link: string | null; anulada?: boolean }> }
 interface ProyectoOpcion { folio: number; nombre: string | null; referencia: string | null; cliente: string | null; estado: string | null; sugerido: boolean }
 const TIPOS_PAGO: Array<{ key: TipoPago; label: string; ayuda: string }> = [
   { key: 'PAGO_TOTAL', label: 'Pago total', ayuda: 'Se pagó la orden completa de una vez.' },
@@ -678,6 +678,8 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
                         const pagos = pagosOc.filter(x => x.ocFolio === folio);
                         const pagado = pagos.reduce((s, x) => s + x.monto, 0);
                         const pagada = pagos.some(x => x.tipo !== 'ANTICIPO');
+                        // Todas sus facturas tienen nota de crédito en Obuma: no hay nada que pagar hasta que llegue una factura vigente.
+                        const anulada = !!oc?.facturas.length && oc.facturas.every(f => f.anulada);
                         return (
                           <div key={folio} className="px-3 py-2.5">
                             <dl className="grid grid-cols-2 sm:grid-cols-[6rem_minmax(0,1fr)_minmax(0,1fr)_9rem] gap-x-4 gap-y-2">
@@ -692,9 +694,9 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
                                 <dd className="mt-0.5 text-xs text-slate-700">
                                   {oc?.facturas.length ? oc.facturas.map(f => (
                                     <div key={f.folio} className="flex items-center gap-1.5 flex-wrap">
-                                      {conPunto('#059669', `N° ${f.folio}`)}
+                                      {f.anulada ? conPunto('#dc2626', `N° ${f.folio} · Anulada con nota de crédito`) : conPunto('#059669', `N° ${f.folio}`)}
                                       {f.fecha && <span className="text-slate-500">{fechaCorta(f.fecha)}</span>}
-                                      {f.total != null && <span className="tabular-nums text-slate-500">{fmtCLP(f.total)}</span>}
+                                      {f.total != null && <span className={`tabular-nums text-slate-500${f.anulada ? ' line-through' : ''}`}>{fmtCLP(f.total)}</span>}
                                       {/* Factura de una OC propia (subida a mano en Licitank): no está en Obuma, se abre el archivo tal cual. */}
                                       {f.s3Link && f.dteId.startsWith('propia-') && <a href={f.s3Link} target="_blank" rel="noopener noreferrer" data-testid={`factura-ver-${f.folio}`} className="font-medium text-teal-700 hover:text-teal-900">Ver factura</a>}
                                       {f.s3Link && !f.dteId.startsWith('propia-') && <button type="button" onClick={() => setFacturaAbierta(f.dteId)} data-testid={`factura-ver-${f.folio}`} className="font-medium text-teal-700 hover:text-teal-900">Ver factura</button>}
@@ -707,12 +709,15 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
                               <div>
                                 <dt className="text-[11px] text-slate-500">Pago</dt>
                                 <dd className="mt-0.5 flex items-center gap-2 flex-wrap">
-                                  {pagada ? conPunto('#059669', 'Pagada') : pagos.length ? conPunto('#d97706', 'Con anticipo') : conPunto('#94a3b8', 'Sin pagar')}
-                                  <span className="text-xs text-slate-500"><b className="tabular-nums text-slate-800">{fmtCLP(pagado)}</b>{oc?.total != null && <> de {fmtCLP(oc.total)} con IVA</>}</span>
+                                  {anulada && !pagos.length ? conPunto('#94a3b8', 'No se paga')
+                                    : pagada ? conPunto('#059669', 'Pagada') : pagos.length ? conPunto('#d97706', 'Con anticipo') : conPunto('#94a3b8', 'Sin pagar')}
+                                  {anulada && !pagos.length
+                                    ? <span className="text-xs text-slate-500">La factura tiene nota de crédito en Obuma; se paga cuando llegue una vigente.</span>
+                                    : <span className="text-xs text-slate-500"><b className="tabular-nums text-slate-800">{fmtCLP(pagado)}</b>{oc?.total != null && <> de {fmtCLP(oc.total)} con IVA</>}</span>}
                                 </dd>
                               </div>
                               <div className="self-center sm:text-right">
-                                {puedeOperar && !pagada && pagoAbierto !== folio && (
+                                {puedeOperar && !pagada && !anulada && pagoAbierto !== folio && (
                                   <button type="button" onClick={() => abrirPago(folio)} data-testid={`oc-registrar-pago-${folio}`}
                                     className="text-[12px] font-semibold text-teal-700 border border-teal-200 hover:bg-teal-50 px-3 py-1.5 rounded-lg whitespace-nowrap">
                                     Registrar pago
@@ -1002,7 +1007,7 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
         const totalOrdenes = proveedoresOC.length + foliosPropios.length;
         const conOc = proveedoresOC.filter(p => p.yaCreada || p.ocRealObuma).length + foliosPropios.length;
         const pagadas = todosFolios.filter(f => pagosOc.some(x => x.ocFolio === f && x.tipo !== 'ANTICIPO')).length;
-        const facturadas = todosFolios.filter(f => { const o = ocsObuma.find(x => x.folio === f); return !!o && (o.facturas.length > 0 || /factur/i.test(o.estado || '')); }).length;
+        const facturadas = todosFolios.filter(f => { const o = ocsObuma.find(x => x.folio === f); return !!o && (o.facturas.some(x => !x.anulada) || (!o.facturas.length && /factur/i.test(o.estado || ''))); }).length;
         const totalPagado = pagosOc.reduce((s, x) => s + x.monto, 0);
         const proyNoAplica = respaldos.find(r => r.hito === 'carpetaProyectoCreada')?.estado === 'NO_APLICA';
         const proyVinculado = reparto.carpetaProyectoCreadaAt ? proyectos?.find(x => String(x.folio) === reparto.carpetaProyectoId) : null;

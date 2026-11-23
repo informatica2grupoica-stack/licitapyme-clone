@@ -998,6 +998,7 @@ export async function resumenGastosCompra(negocioId: number, montoCosteado: numb
       if (vistas.has(k)) continue;
       vistas.add(k);
       const descartar = (motivo: string) => descartadas.push({ dteId: f.dteId, folio: f.folioDte, proveedor: f.proveedorRazonSocial, total: f.total, fecha: f.fecha, xmlUrl: f.s3Link, motivo });
+      if (f.anulada) { descartar(`Tiene nota de crédito en Obuma: la factura quedó anulada y no cuenta como gasto.`); continue; }
       const rutFactura = rutNormalizado(f.proveedorRut);
       if (rutOc && rutFactura && rutOc !== rutFactura) {
         descartar(`El emisor no es el proveedor de la OC ${c.folio || ''} (${c.proveedorRazonSocial || 'otro'}): factura mal enlazada en Obuma.`);

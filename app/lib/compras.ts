@@ -34,7 +34,7 @@ import { calcularHitosGantt, planificarTarea, type AnclaTarea, type EntradaAncla
 import { emparejarProductos, type ProductoExistente } from '@/app/lib/compras-producto-sync';
 import { costeoGanadoDelNegocio } from '@/app/lib/compras-costeo-ganadas';
 import { decidirNoAdjudicadas, esSubestadoFuera, type DecisionNoAdjudicadas } from '@/app/lib/compras-no-adjudicadas';
-import { listarPagosOc, ocsConFacturas, ocPagada } from '@/app/lib/compras-pagos-oc';
+import { listarPagosOc, ocsConFacturas, ocPagada, ocSoloFacturasAnuladas } from '@/app/lib/compras-pagos-oc';
 import { borrarCarga, guardarCarga, hayTablaCombustible } from '@/app/lib/compras-combustible';
 import { validarCarga, type CargaCombustible } from '@/app/lib/compras-combustible-core';
 import { esEstadoCancelada, procesarOcCancelada, reabrirSiOcVigente, registrarCancelacionManual, quitarCancelacionManual } from '@/app/lib/compras-oc-cancelada';
@@ -2959,7 +2959,7 @@ async function contarHitosAdminPendientes(negocioId: number): Promise<number | n
     ]);
     if (!apr || !String(apr.estado).startsWith('APROBADA')) return null;
     const carpetaPendiente = !r?.carpeta_proyecto_creada_at && !Number(noAplica?.n) ? 1 : 0;
-    return carpetaPendiente + ocs.filter((o: { folio: string }) => !ocPagada(pagos, o.folio)).length;
+    return carpetaPendiente + ocs.filter((o: any) => !ocPagada(pagos, o.folio) && !ocSoloFacturasAnuladas(o)).length;
   } catch { return null; }
 }
 

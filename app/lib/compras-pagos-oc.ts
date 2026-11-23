@@ -24,7 +24,12 @@ export interface AdjuntoPago { url: string; nombre: string | null }
 /** Una OC real de Obuma de la licitación, con sus facturas (para mostrar «Factura N° … · Ver XML»). */
 export interface OcConFacturas {
   folio: string; estado: string | null; total: number | null; proveedorRut: string | null;
-  facturas: Array<{ dteId: string; folio: string; fecha: string | null; total: number | null; s3Link: string | null }>;
+  facturas: Array<{ dteId: string; folio: string; fecha: string | null; total: number | null; s3Link: string | null; anulada?: boolean }>;
+}
+
+/** Una OC cuyas facturas están TODAS anuladas con nota de crédito en Obuma: no hay nada que pagar hasta que llegue una factura vigente. */
+export function ocSoloFacturasAnuladas(oc: Pick<OcConFacturas, 'facturas'> | undefined): boolean {
+  return !!oc && oc.facturas.length > 0 && oc.facturas.every(f => f.anulada);
 }
 
 async function licitacionDeNegocio(negocioId: number): Promise<string | null> {
@@ -71,7 +76,7 @@ export async function ocsConFacturas(negocioId: number): Promise<OcConFacturas[]
       const unicas = c.facturas.filter(f => { const k = String(f.dteId || `${f.tipoDcto}#${f.folioDte}`); if (vistos.has(k)) return false; vistos.add(k); return true; });
       return {
         folio: c.folio || c.compraOcId, estado: c.estado, total: c.total, proveedorRut: c.proveedorRut,
-        facturas: unicas.map(f => ({ dteId: String(f.dteId), folio: f.folioDte, fecha: f.fecha, total: f.total, s3Link: f.s3Link })),
+        facturas: unicas.map(f => ({ dteId: String(f.dteId), folio: f.folioDte, fecha: f.fecha, total: f.total, s3Link: f.s3Link, ...(f.anulada ? { anulada: true } : {}) })),
       };
     }), ...propias];
 }
@@ -89,6 +94,8 @@ export async function registrarPagoOc(
   actorId: number, actorNombre: string | null,
 ): Promise<void> {
   if (!datos.ocFolio.trim()) throw new Error('Falta la orden de compra.');
+  const oc = (await ocsConFacturas(negocioId)).find(o => o.folio === datos.ocFolio.trim());
+  if (ocSoloFacturasAnuladas(oc)) throw new Error(`La factura de la OC ${datos.ocFolio.trim()} tiene nota de crédito en Obuma: no se puede registrar un pago.`);
   if (!TIPOS_PAGO_OC.includes(datos.tipo)) throw new Error('Tipo de pago desconocido.');
   if (!(datos.monto > 0)) throw new Error('El monto tiene que ser mayor que cero.');
   if (!/^\d{4}-\d{2}-\d{2}$/.test(datos.fecha)) throw new Error('Falta la fecha del pago.');
