@@ -47,14 +47,70 @@ Estado de «aplicar licitank-ui a todo el sistema» (pedido del dueño). Todo es
 
 ## Decisiones vigentes del dueño
 
-- **licitank-ui aplicada a Empresas (`/empresas`) y Perfil (`/perfil`) (2026-11-23, sin commit, sin aprobar; visto en Chrome a 1366 px, Perfil en claro y oscuro, Empresas solo vacío en claro).**
+- **800 px de las pantallas del 2026-11-23 (Empresas, Perfil, Puente, Favoritos, Órdenes de compra, Negocios Lista/Mes, Radar):
+  PENDIENTE, solo se vio Empresas.** El Chrome del dueño está maximizado (1920 px) y `resize_window` no lo achica. Truco que
+  funciona: abrir cualquier pantalla de `localhost:3000`, vaciar `document.body` y poner un `<iframe style="width:800px">` con la
+  ruta (mismo origen, misma sesión; los `@container` y media queries responden al ancho del iframe). Con 800 px el menú pasa a
+  hamburguesa y las tarjetas de Empresas quedan en 2 columnas sin romperse (textos largos se cortan con «…»). El Chrome se
+  cerró varias veces con poca RAM libre (<2 GB), así que no se alcanzó a revisar el resto. Esto fue lo último de la sesión.
+
+- **licitank-ui aplicada al resto del Radar (`/radar`) (2026-11-23, sin commit, sin aprobar; `tsc` sin errores; visto en Chrome a
+  1366 px, claro y oscuro, con datos reales: 821 licitaciones, panel de Filtros abierto y pestaña «Palabras clave»; no se pulsó
+  nada que escriba).** Se hizo sobre lo que ya estaba rediseñado (KPIs, tarjetas/filas): barra de mando sin `backdrop-blur`
+  y con campos `h-9`; «Tarjetas / Lista» con `Pestanas` del kit; «Filtros» con `Boton`; cortes de gestión (Activas, No leídas,
+  Sin asignar…) con UN solo estilo (antes cada uno tenía su color: cian, esmeralda, ámbar), activo = teal suave; chips de «Filtrando»
+  unificados (`CHIP`, texto con punto donde el filtro tiene color; antes pastillas de colores con 11 px); `PanelFiltros` en
+  superficie del kit con rótulos de fila legibles (antes 10 px) y fechas en campos `h-9`; modal «Asignar» con `Boton` y
+  superficie del kit; pestaña Palabras clave: campo `h-9`, «Agregar» con `Boton`, cuadro «¿Cómo funciona el Radar?» neutro
+  (era azul), vacío con `Vacio`, grupos por línea de negocio con punto y título neutro, «N nuevas» como texto teal (antes pastilla
+  sólida), tacho con `aria-label`. Barrido de `text-[10px]`/`[11px]`/`[11.5px]` → `text-xs`. Copia del archivo antes del cambio
+  solo en el scratchpad de la sesión (git la tiene). Sin ver: 800 px, modal Asignar, vista Tarjetas.
+
+- **licitank-ui aplicada a Negocios, vistas Lista y Mes + barra de herramientas (`/negocios?vista=lista|calendario`) (2026-11-23,
+  sin commit, sin aprobar; `tsc` sin errores; visto en Chrome a 1366 px, claro y oscuro, con los 1.593 negocios reales; no se
+  pulsó nada que escriba).** Lista: cada fila (`NegocioListItem`) en superficie del kit con `shadow-tarjeta`, tipo/código y perfil en
+  `text-xs` (antes 7–10 px), etiquetas de línea como texto con punto (antes pastillas de color), monto sin verde, cierre en
+  palabras («Hoy», «Mañana», «En 3 días», «Vencida»), «Ver →» teal y el tacho con `aria-label` (visible también con foco). Mes:
+  `VistaCalendario` en superficie del kit, hoy en teal, números y contadores en `text-xs`, puntos de 10 px, `dark:`. Barra:
+  selector de vista con `Pestanas` del kit (antes botones con íconos a mano), orden/limpiar/filtros con `Boton`, panel de filtros
+  con campos `h-9`, error con `Banner`, vacío con `Vacio`, carga con `Esqueleto`. Modal «Cierres del día» con superficie del kit.
+  `@container` en la página (la columna de viabilidad/docs de la lista sale desde `@5xl`). **Sin tocar:** vista Semana, tarjetas
+  destacadas, «Carga de trabajo por perfil», `NegocioCard`, `NegocioDetalleModal`. Sin ver: 800 px y el modal del día.
+
+- **licitank-ui aplicada a Órdenes de compra (`/ordenes-compra`) (2026-11-23, sin commit, sin aprobar; `tsc` sin errores; visto en
+  Chrome a 1366 px, claro y oscuro, pestañas «Todas» y «Aceptación» con las 272 OC reales del VPS; no se pulsó nada que escriba).**
+  Ya traía `Estado` con punto y `Banner`. Se agregó: `Encabezado` con el buscador, `Pestanas` del kit (antes subrayado a mano),
+  filtros con campos `h-9` y «Limpiar» como `Boton` fantasma, filas de OC en superficie del kit con datos en `text-[13px]`/`text-xs`
+  (nada de 10–11 px), íconos de ver/descargar como botones de 32 px con `Tooltip` y `aria-label`, carga con `Esqueleto`, vacío con
+  `Vacio`, modal «Usar como experiencia» más angosto y con `dark:`, «Cargar más» con `Boton`. `@container` en la página. Sin ver:
+  800 px y el modal de experiencia.
+
+- **licitank-ui aplicada a Favoritos (`/favoritos`) (2026-11-23, sin commit, sin aprobar; `tsc` sin errores; visto en Chrome a
+  1366 px, claro y oscuro, con 3 favoritos reales del VPS; sin pulsar Quitar/Asignar).** `Encabezado`, `Tarjeta`/`Datos`/`Dato`
+  en `Lista` de 1–2 columnas por `@container`, carga con `Esqueleto`, vacío con `Vacio` (con «Quitar filtros»), error con
+  `Banner`, filtros de tipo como botones `rounded-lg` con punto de color (se quitó `TIPO_COLOR_CLASS`), modal de asignar con
+  rótulos arriba, «(opcional)» y `Boton`. Cierre en días de calendario («Hoy», «Mañana», «En 5 días»). **Cifra corregida:** el
+  estado salía como número («5», «8») porque `favorites.estado` guarda el código de MP; ahora `estadoEfectivoNombre`
+  (`app/lib/estado-mp.ts`) muestra «Publicada / Cerrada / Adjudicada…», y «Cerrada» si el plazo ya venció. Sin ver: modal de
+  asignar y 800 px.
+
+- **licitank-ui aplicada a Puente (`/puente`) (2026-11-23, sin commit, sin aprobar; `tsc` sin errores).** Solo lo visual, misma
+  lógica y API: `Encabezado` con `Boton`/`Tooltip`, vacío con `Vacio`, carga con `Esqueleto`, migración pendiente con `Banner`,
+  grillas por `@container` (`@4xl`, `@2xl`, `@5xl`), tarjetas del puente con tipo como `Estado` con punto (se quitó
+  `TIPO_COLOR_CLASS`), perfiles de destino como botones `rounded-lg` con la carga en número suelto, tramos con campos `h-9`,
+  «Simular reparto» y «Confirmar reparto» (era verde esmeralda) con `Boton` primario teal, vista previa en superficie del kit
+  con columnas por perfil, textos de 10–11 px → `text-xs`, `dark:` en todo. **Visto:** solo el estado vacío en claro, a
+  1366 px (el puente está vacío en la BD del VPS). **Sin ver:** lista, panel de reparto, vista previa y arrastrar — para
+  verlos hace falta empujar licitaciones desde el radar (escribe en producción: no se hizo). Pendiente: 800 px y oscuro.
+
+- **licitank-ui aplicada a Empresas (`/empresas`) y Perfil (`/perfil`) (2026-11-23, sin commit, sin aprobar; visto en Chrome a 1366 px, claro y oscuro; con la BD del VPS Empresas muestra sus 2 tarjetas y el modal de edición, sin guardar nada; falta 800 px).**
   Solo lo visual. Empresas: `Encabezado` + `Boton`, tarjetas con `Tarjeta`/`Lista` en `@container`, carga con `Esqueleto`,
   vacío con `Vacio`, error con `Banner`, modal con campos `h-9` y «Guardar cambios» / «Guardando…»; se conservó
   `isAdmin = permisos.config_empresa`. Perfil: identidad en tarjeta neutra, avatar sólido, rol como `Estado`, formulario con
   rótulo arriba y «(opcional)», contraseña con rótulos, mensajes con `Banner`. `tsc` sin errores. Perfil lleva `autoComplete` (el
-  navegador rellenaba «Área» con el correo y la contraseña actual). **Sin ver:** tarjetas de Empresas y el modal, y 800 px:
-  la BD de desarrollo no está (`/api/empresas` devuelve `_migrationPending` y `/api/auth/perfil` da error interno), así que
-  Empresas sale vacía y Perfil sin teléfono/RUT/cargo. **Bug previo, sin tocar:** en Perfil «Nombre» y «Empresa» arrancan
+  navegador rellenaba «Área» con el correo y la contraseña actual). **Pendiente:** 800 px; en el modal de
+  Empresas los obligatorios aún llevan asterisco rojo (la skill pide «(opcional)» en los demás). (Antes no se veían datos porque
+  `.env.development.local` apuntaba al Docker apagado; ver `infra.md` (4).) **Bug previo, sin tocar:** en Perfil «Nombre» y «Empresa» arrancan
   vacíos porque `useState` lee `usuario` antes de que cargue la sesión. Tras reiniciar `npm run dev`, el admin sí recibe
   `permisos.analisis_licitacion` y `config_empresa`. **El proyecto vive en `C:\licitapyme-clone`**; D: es copia vieja.
   Análisis de licitación no se tocó en C: (ya tenía trabajo de otra cuenta). Con poca RAM libre (<2 GB) el Chrome pierde la

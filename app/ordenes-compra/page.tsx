@@ -18,6 +18,10 @@ import { useToast } from '@/app/components/ui/toast';
 import { Banner } from '@/app/components/ui/Banner';
 import { Select } from '@/app/components/ui/Select';
 import { Estado } from '@/app/components/ui/kit/Tarjeta';
+import { Encabezado, Esqueleto, Vacio } from '@/app/components/ui/kit/Estructura';
+import { Boton } from '@/app/components/ui/kit/Boton';
+import { Pestanas } from '@/app/components/ui/kit/Pestanas';
+import { Tooltip } from '@/app/components/ui/Tooltip';
 import { DocumentViewerModal, type VisorDoc } from '@/app/components/DocumentViewerModal';
 import { IconReceipt as Receipt, IconLoader2 as Loader2, IconSearch as Search, IconFilter as Filter, IconX as X, IconCalendar as Calendar, IconBuilding as Building2, IconPackage as Package, IconChevronDown as ChevronDown, IconChevronUp as ChevronUp, IconExternalLink as ExternalLink, IconEye as Eye, IconDownload as Download, IconArrowUpRight as ArrowUpRight, IconFolderSymlink as FolderInput, IconCheck as Check } from '@tabler/icons-react';
 
@@ -77,6 +81,9 @@ function colorEstado(codigo: number | null): { fondo: string; texto: string; bor
   if (codigo === 6 || codigo === 12) return { fondo: 'bg-emerald-50', texto: 'text-emerald-700', borde: 'border-emerald-200' };
   return { fondo: 'bg-amber-50', texto: 'text-amber-700', borde: 'border-amber-200' };
 }
+
+const SUPERFICIE = 'rounded-xl border border-linea bg-white shadow-tarjeta dark:bg-slate-900 dark:border-slate-800';
+const CAMPO = 'h-9 rounded-lg border border-linea bg-white text-sm text-tinta outline-none focus-visible:ring-2 focus-visible:ring-marca/60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100';
 
 const fmtCLP = (n: number | null | undefined, moneda?: string | null) => {
   if (n == null) return '—';
@@ -155,53 +162,50 @@ function EnviarExperienciaModal({ oc, onClose }: { oc: OrdenCompra; onClose: () 
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-[2px] z-50 flex items-center justify-center p-4 overlay-in"
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 overlay-in"
       role="dialog" aria-modal="true">
-      <div className="bg-white rounded-xl shadow-flotante w-full max-w-2xl modal-in">
-        <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 bg-teal-50 rounded-xl flex items-center justify-center"><FolderInput size={16} className="text-teal-600" /></div>
-            <div>
-              <h3 className="text-[13px] font-semibold text-slate-800">Usar como experiencia</h3>
-              <p className="text-[11px] text-slate-500 font-mono">{oc.codigo}</p>
-            </div>
+      <div className="bg-white dark:bg-slate-900 rounded-xl shadow-flotante w-full max-w-xl modal-in">
+        <div className="px-5 py-4 border-b border-linea dark:border-slate-800 flex items-center justify-between">
+          <div>
+            <h3 className="text-[15px] font-semibold text-tinta dark:text-slate-50">Usar como experiencia</h3>
+            <p className="text-xs text-tinta-2 dark:text-slate-400 font-mono mt-0.5">{oc.codigo}</p>
           </div>
-          <button onClick={onClose} aria-label="Cerrar" className="p-1.5 hover:bg-slate-100 rounded-lg transition-colors"><X size={16} className="text-slate-500" /></button>
+          <button onClick={onClose} aria-label="Cerrar" className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-tinta focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marca/60 dark:hover:bg-slate-800"><X size={18} stroke={1.75} /></button>
         </div>
 
-        <div className="px-6 py-4">
-          <p className="text-[12px] text-slate-500 mb-3">
+        <div className="px-5 py-4">
+          <p className="text-[13px] text-tinta-2 dark:text-slate-400 mb-3">
             Copia el PDF de esta orden a <b>Documentos Propios → Experiencia</b> de la licitación que
             elijas — sirve para respaldar experiencia al postular a otra oportunidad. No mueve ni
             cambia la licitación de origen de esta OC.
           </p>
           <div className="relative">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <Search size={16} stroke={1.75} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input autoFocus value={q} onChange={e => setQ(e.target.value)}
               placeholder="Buscar por código o nombre de la licitación destino…"
-              className="w-full pl-8 pr-3 py-2 text-[13px] border border-slate-200 rounded-lg focus:ring-1 focus:ring-teal-500 outline-none" />
+              className={`w-full pl-9 pr-3 ${CAMPO}`} />
           </div>
           <div className="mt-2 max-h-64 overflow-y-auto space-y-1">
             {buscando ? (
-              <div className="flex items-center justify-center py-4"><Loader2 size={16} className="animate-spin text-teal-500" /></div>
+              <div className="flex items-center justify-center py-4"><Loader2 size={16} className="animate-spin text-slate-400" /></div>
             ) : q.trim().length < 2 ? (
-              <p className="text-[12px] text-slate-400 text-center py-4">Escribe al menos 2 caracteres</p>
+              <p className="text-[13px] text-tinta-2 text-center py-4">Escribe al menos 2 caracteres</p>
             ) : resultados.length === 0 ? (
-              <p className="text-[12px] text-slate-400 text-center py-4">Sin resultados</p>
+              <p className="text-[13px] text-tinta-2 text-center py-4">Sin resultados</p>
             ) : resultados.map(n => {
               const enviado = enviadosA.has(n.licitacion_codigo);
               const cargando = enviandoA === n.licitacion_codigo;
               return (
                 <button key={n.licitacion_codigo} disabled={cargando} onClick={() => enviar(n)}
                   className={`w-full text-left px-3 py-2 rounded-lg border transition-colors disabled:opacity-50 flex items-center gap-2
-                    ${enviado ? 'bg-emerald-50 border-emerald-200' : 'border-transparent hover:bg-slate-50 hover:border-slate-200'}`}>
+                    ${enviado ? 'bg-emerald-50 border-emerald-200 dark:bg-emerald-950/30 dark:border-emerald-900' : 'border-transparent hover:bg-slate-50 hover:border-linea dark:hover:bg-slate-800'}`}>
                   <div className="flex-1 min-w-0">
-                    <p className="text-[11px] font-mono text-slate-400">{n.licitacion_codigo}</p>
-                    <p className="text-[12.5px] font-semibold text-slate-700 truncate">{n.licitacion_nombre || '—'}</p>
-                    {n.licitacion_organismo && <p className="text-[11px] text-slate-400 truncate">{n.licitacion_organismo}</p>}
+                    <p className="text-xs font-mono text-tinta-2 dark:text-slate-400">{n.licitacion_codigo}</p>
+                    <p className="text-[13px] font-medium text-tinta dark:text-slate-100 truncate">{n.licitacion_nombre || '—'}</p>
+                    {n.licitacion_organismo && <p className="text-xs text-tinta-2 dark:text-slate-400 truncate">{n.licitacion_organismo}</p>}
                   </div>
-                  {cargando ? <Loader2 size={15} className="animate-spin text-teal-500 flex-shrink-0" />
-                    : enviado ? <Check size={15} className="text-emerald-600 flex-shrink-0" /> : null}
+                  {cargando ? <Loader2 size={16} className="animate-spin text-slate-400 flex-shrink-0" />
+                    : enviado ? <Check size={16} stroke={1.75} className="text-exito flex-shrink-0" /> : null}
                 </button>
               );
             })}
@@ -238,14 +242,18 @@ function AccionesDocumento({ codigo, nombre, pdfUrlInicial, onVer }: { codigo: s
 
   return (
     <div className="inline-flex items-center gap-1">
-      <button type="button" onClick={ver} disabled={cargando !== null} title="Ver"
-        className="p-1 text-slate-400 hover:text-teal-600 hover:bg-teal-50 rounded transition-colors disabled:opacity-50">
-        {cargando === 'ver' ? <Loader2 size={13} className="animate-spin" /> : <Eye size={13} />}
-      </button>
-      <button type="button" onClick={descargar} disabled={cargando !== null} title="Descargar"
-        className="p-1 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded transition-colors disabled:opacity-50">
-        {cargando === 'descargar' ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
-      </button>
+      <Tooltip label="Ver el PDF">
+        <button type="button" onClick={ver} disabled={cargando !== null} aria-label="Ver el PDF"
+          className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-marca focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marca/60 disabled:opacity-50 dark:hover:bg-slate-800">
+          {cargando === 'ver' ? <Loader2 size={16} className="animate-spin" /> : <Eye size={16} stroke={1.75} />}
+        </button>
+      </Tooltip>
+      <Tooltip label="Descargar el PDF">
+        <button type="button" onClick={descargar} disabled={cargando !== null} aria-label="Descargar el PDF"
+          className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-marca focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marca/60 disabled:opacity-50 dark:hover:bg-slate-800">
+          {cargando === 'descargar' ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} stroke={1.75} />}
+        </button>
+      </Tooltip>
     </div>
   );
 }
@@ -273,20 +281,20 @@ function FilaOrden({ oc, onVer, onEnviarExperiencia, etiqueta }: { oc: OrdenComp
   const fecha = fmtFecha(oc.fechaEnvio) || fmtFecha(oc.fechaCreacion);
 
   return (
-    <div className="rounded-xl border border-slate-200 overflow-hidden bg-white">
+    <div className={`${SUPERFICIE} overflow-hidden`}>
       <div className="flex items-start gap-3 px-4 py-3">
-        <span className={`w-9 h-9 rounded-lg bg-slate-100 text-slate-500 dark:bg-slate-800 flex items-center justify-center flex-shrink-0`}><Receipt size={16} /></span>
+        <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-500 dark:bg-slate-800"><Receipt size={18} stroke={1.75} /></span>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-[13px] font-semibold text-slate-800 font-mono">{oc.codigo}</span>
+            <span className="text-[13px] font-semibold text-tinta dark:text-slate-50 font-mono">{oc.codigo}</span>
             {etiqueta && <span className="text-xs font-medium text-tinta-2 dark:text-slate-300"><Estado color={colorDeClase(etiqueta.clase)}>{etiqueta.texto}</Estado></span>}
             {oc.estado && <span className="text-xs font-medium text-tinta-2 dark:text-slate-300"><Estado color={colorDeClase(c.texto)}>{oc.estado}</Estado></span>}
-            {oc.empresaNombre && <span className="text-xs text-tinta-3">· {oc.empresaNombre}</span>}
-            {fecha && <span className="text-[10.5px] text-slate-400">{fecha}</span>}
+            {oc.empresaNombre && <span className="text-xs text-tinta-2 dark:text-slate-400">· {oc.empresaNombre}</span>}
+            {fecha && <span className="text-xs text-tinta-2 dark:text-slate-400 tabular-nums">{fecha}</span>}
           </div>
           {oc.compradorOrganismo && (
-            <p className="mt-1 text-[12px] text-slate-600 flex items-center gap-1.5 min-w-0">
-              <Building2 size={12} className="flex-shrink-0 text-slate-400" />
+            <p className="mt-1 text-[13px] text-tinta-2 dark:text-slate-300 flex items-center gap-1.5 min-w-0">
+              <Building2 size={16} stroke={1.75} className="flex-shrink-0 text-slate-400" />
               <span className="truncate" title={`${oc.compradorOrganismo}${oc.compradorUnidad ? ` · ${oc.compradorUnidad}` : ''}`}>
                 {oc.compradorOrganismo}{oc.compradorUnidad ? ` · ${oc.compradorUnidad}` : ''}
               </span>
@@ -294,47 +302,47 @@ function FilaOrden({ oc, onVer, onEnviarExperiencia, etiqueta }: { oc: OrdenComp
           )}
           {oc.licitacionCodigo ? (
             <Link href={`/licitacion/${encodeURIComponent(oc.licitacionCodigo)}`}
-              className="mt-1 inline-flex items-center gap-1 text-[11.5px] font-semibold text-teal-600 hover:text-teal-700">
-              {oc.licitacionNombre || oc.licitacionCodigo} <ArrowUpRight size={11} />
+              className="mt-1 inline-flex items-center gap-1 text-[13px] font-medium text-marca hover:underline">
+              {oc.licitacionNombre || oc.licitacionCodigo} <ArrowUpRight size={16} stroke={1.75} />
             </Link>
           ) : (
-            <span className="mt-1 block text-[11.5px] text-slate-400">Sin licitación de origen detectada</span>
+            <span className="mt-1 block text-xs text-tinta-2 dark:text-slate-400">Sin licitación de origen detectada</span>
           )}
         </div>
         <div className="text-right whitespace-nowrap">
-          <span className="block text-[14px] font-semibold text-slate-800">{fmtCLP(oc.total, oc.moneda)}</span>
-          {oc.totalNeto != null && oc.totalNeto !== oc.total && <span className="block text-[11px] text-slate-400">neto {fmtCLP(oc.totalNeto, oc.moneda)}</span>}
+          <span className="block text-[15px] font-semibold tabular-nums text-tinta dark:text-slate-50">{fmtCLP(oc.total, oc.moneda)}</span>
+          {oc.totalNeto != null && oc.totalNeto !== oc.total && <span className="block text-xs tabular-nums text-tinta-2 dark:text-slate-400">neto {fmtCLP(oc.totalNeto, oc.moneda)}</span>}
         </div>
       </div>
 
-      <div className="flex items-center gap-3 px-4 py-2 border-t border-slate-100 bg-slate-50/60">
+      <div className="flex items-center gap-3 px-4 py-2 border-t border-linea dark:border-slate-800">
         {oc.items.length > 0 && (
-          <button onClick={() => setAbierto(o => !o)} className="text-[11.5px] font-semibold text-slate-600 hover:text-slate-800 inline-flex items-center gap-1">
-            <Package size={12} /> {oc.items.length} ítem{oc.items.length !== 1 ? 's' : ''}
-            {abierto ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+          <button onClick={() => setAbierto(o => !o)} aria-expanded={abierto} className="text-[13px] font-medium text-tinta-2 hover:text-tinta dark:text-slate-300 inline-flex items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marca/60 rounded">
+            <Package size={16} stroke={1.75} /> {oc.items.length} ítem{oc.items.length !== 1 ? 's' : ''}
+            {abierto ? <ChevronUp size={16} stroke={1.75} /> : <ChevronDown size={16} stroke={1.75} />}
           </button>
         )}
         <div className="ml-auto flex items-center gap-3">
           {onEnviarExperiencia && <button onClick={() => onEnviarExperiencia(oc)}
-            className="text-[11.5px] font-semibold text-slate-600 hover:text-teal-600 inline-flex items-center gap-1"
+            className="text-[13px] font-medium text-tinta-2 hover:text-marca dark:text-slate-300 inline-flex items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marca/60 rounded"
             title="Copiar a Documentos Propios de otra licitación">
-            <FolderInput size={13} /> Usar como experiencia
+            <FolderInput size={16} stroke={1.75} /> Usar como experiencia
           </button>}
           <AccionesDocumento codigo={oc.codigo} nombre={`OC_${oc.codigo}.pdf`} pdfUrlInicial={oc.pdfUrl} onVer={onVer} />
-          <a href={oc.url} target="_blank" rel="noopener noreferrer" className="text-[11.5px] font-semibold text-teal-600 hover:text-teal-700 inline-flex items-center gap-1">
-            <ExternalLink size={12} /> Mercado Público
+          <a href={oc.url} target="_blank" rel="noopener noreferrer" className="text-[13px] font-medium text-marca hover:underline inline-flex items-center gap-1.5">
+            <ExternalLink size={16} stroke={1.75} /> Mercado Público
           </a>
         </div>
       </div>
 
       {abierto && oc.items.length > 0 && (
-        <div className="px-4 py-3 border-t border-slate-100 space-y-1.5">
+        <div className="px-4 py-3 border-t border-linea dark:border-slate-800 space-y-1.5">
           {oc.items.map((it, i) => (
-            <div key={i} className="flex items-start justify-between gap-3 text-[12px]">
-              <span className="text-slate-700 min-w-0" title={it.descripcion}>{it.descripcion || `Ítem ${i + 1}`}</span>
-              <span className="text-slate-500 whitespace-nowrap">
+            <div key={i} className="flex items-start justify-between gap-3 text-[13px]">
+              <span className="text-tinta dark:text-slate-200 min-w-0" title={it.descripcion}>{it.descripcion || `Ítem ${i + 1}`}</span>
+              <span className="text-tinta-2 dark:text-slate-400 whitespace-nowrap tabular-nums">
                 {it.cantidad != null ? `${it.cantidad} × ` : ''}{fmtCLP(it.precioNeto, oc.moneda)}
-                {it.total != null && <b className="ml-2 text-slate-700">{fmtCLP(it.total, oc.moneda)}</b>}
+                {it.total != null && <b className="ml-2 font-semibold text-tinta dark:text-slate-100">{fmtCLP(it.total, oc.moneda)}</b>}
               </span>
             </div>
           ))}
@@ -364,7 +372,7 @@ function PestanaAceptacion({ onVer }: { onVer: (doc: VisorDoc) => void }) {
   }, []);
   useEffect(() => { cargar(); }, [cargar]);
 
-  if (loading) return <div className="flex items-center justify-center py-16"><Loader2 className="w-5 h-5 animate-spin text-slate-400" /></div>;
+  if (loading) return <div className="space-y-2">{Array.from({ length: 4 }).map((_, i) => <Esqueleto key={i} className="h-24 rounded-xl" />)}</div>;
   if (error) return <Banner variante="error" accion={{ label: 'Reintentar', onClick: cargar }}>{error}</Banner>;
 
   const hoy = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Santiago' });
@@ -375,23 +383,23 @@ function PestanaAceptacion({ onVer }: { onVer: (doc: VisorDoc) => void }) {
     <div className="space-y-6">
       <section className="space-y-2">
         <div className="flex items-baseline gap-2 flex-wrap">
-          <h2 className="text-[14px] font-semibold text-slate-800">Por aceptar</h2>
-          <span className="text-[12px] text-slate-500">
+          <h2 className="text-[15px] font-semibold text-tinta dark:text-slate-100">Por aceptar</h2>
+          <span className="text-xs text-tinta-2 dark:text-slate-400 tabular-nums">
             {totalPor} orden{totalPor !== 1 ? 'es' : ''} · {venceHoy} vence{venceHoy !== 1 ? 'n' : ''} hoy · {vencidas} vencida{vencidas !== 1 ? 's' : ''}
           </span>
         </div>
         {porAceptar.length === 0
-          ? <p className="text-[12.5px] text-slate-400 py-4">No hay órdenes pendientes de aceptar.</p>
+          ? <p className="text-[13px] text-tinta-2 dark:text-slate-400 py-4">No hay órdenes pendientes de aceptar.</p>
           : porAceptar.map(oc => <FilaOrden key={oc.codigo} oc={oc} onVer={onVer} etiqueta={etiquetaPlazo(oc)} />)}
       </section>
 
       <section className="space-y-2">
         <div className="flex items-baseline gap-2 flex-wrap">
-          <h2 className="text-[14px] font-semibold text-slate-800">Aceptadas</h2>
-          <span className="text-[12px] text-slate-500">{aceptadas.length} orden{aceptadas.length !== 1 ? 'es' : ''} · las más recientes primero</span>
+          <h2 className="text-[15px] font-semibold text-tinta dark:text-slate-100">Aceptadas</h2>
+          <span className="text-xs text-tinta-2 dark:text-slate-400 tabular-nums">{aceptadas.length} orden{aceptadas.length !== 1 ? 'es' : ''} · las más recientes primero</span>
         </div>
         {aceptadas.length === 0
-          ? <p className="text-[12.5px] text-slate-400 py-4">Todavía no hay órdenes aceptadas.</p>
+          ? <p className="text-[13px] text-tinta-2 dark:text-slate-400 py-4">Todavía no hay órdenes aceptadas.</p>
           : aceptadas.map(oc => (
             <FilaOrden key={oc.codigo} oc={oc} onVer={onVer}
               etiqueta={{ texto: oc.aceptadaEn ? `Aceptada ${fmtFecha(oc.aceptadaEn) ?? ''}`.trim() : 'Aceptada', clase: 'bg-emerald-50 text-emerald-700 border-emerald-200' }} />
@@ -476,7 +484,7 @@ export default function OrdenesCompraPage() {
   if (cargandoSesion || (!puedeVer && loading)) {
     return (
       <AppLayout breadcrumb={[{ label: 'Órdenes de compra' }]}>
-        <div className="flex items-center justify-center min-h-[60vh]"><Loader2 className="w-6 h-6 animate-spin text-slate-400" /></div>
+        <div className="mx-auto max-w-5xl space-y-3 p-4 sm:p-6"><Esqueleto className="h-7 w-56" />{Array.from({ length: 4 }).map((_, i) => <Esqueleto key={i} className="h-24 rounded-xl" />)}</div>
       </AppLayout>
     );
   }
@@ -484,40 +492,29 @@ export default function OrdenesCompraPage() {
 
   return (
     <AppLayout breadcrumb={[{ label: 'Órdenes de compra' }]}>
-      <div className="p-4 sm:p-6 max-w-5xl mx-auto space-y-4">
-        <div className="flex items-center justify-between gap-3 flex-wrap">
-          <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-lg bg-teal-50 flex items-center justify-center flex-shrink-0"><Receipt size={17} className="text-teal-600" /></div>
-            <div>
-              <h1 className="text-[16px] font-semibold text-slate-900 leading-tight">Órdenes de compra</h1>
-              <p className="text-[12px] text-slate-500">
-                {loading ? 'Cargando…' : `${total} orden${total !== 1 ? 'es' : ''}${hayFiltro ? ' con estos filtros' : ''} · ${fmtCLP(sumaTotal)}`}
-              </p>
+      <div className="@container p-4 sm:p-6 max-w-5xl mx-auto space-y-4">
+        <Encabezado
+          titulo="Órdenes de compra"
+          descripcion={loading ? 'Cargando…' : `${total} orden${total !== 1 ? 'es' : ''}${hayFiltro ? ' con estos filtros' : ''} · ${fmtCLP(sumaTotal)}`}
+          acciones={pestana === 'todas' ? (
+            <div className="relative">
+              <Search size={16} stroke={1.75} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input value={q} onChange={e => setQ(e.target.value)} aria-label="Buscar órdenes de compra"
+                placeholder="Buscar código, organismo o ítem…"
+                className={`w-72 pl-9 pr-3 ${CAMPO} placeholder:text-tinta-3`} />
             </div>
-          </div>
-          {pestana === 'todas' && <div className="relative">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input value={q} onChange={e => setQ(e.target.value)}
-              placeholder="Buscar código, organismo, proveedor, licitación o ítem…"
-              className="pl-8 pr-3 py-2 text-[13px] border border-slate-200 rounded-lg focus:ring-1 focus:ring-teal-500 outline-none w-80" />
-          </div>}
-        </div>
+          ) : undefined}
+        />
 
-        <div className="flex gap-1 border-b border-slate-200">
-          {([['todas', 'Todas'], ['aceptacion', 'Aceptación']] as const).map(([v, label]) => (
-            <button key={v} onClick={() => setPestana(v)}
-              className={`px-3.5 py-2 text-[13px] font-semibold -mb-px border-b-2 transition-colors ${pestana === v ? 'border-teal-600 text-teal-700' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>
-              {label}
-            </button>
-          ))}
-        </div>
+        <Pestanas id="oc" valor={pestana} onCambio={setPestana}
+          opciones={[{ valor: 'todas', etiqueta: 'Todas' }, { valor: 'aceptacion', etiqueta: 'Aceptación' }]} />
 
         {pestana === 'aceptacion' ? <PestanaAceptacion onVer={setVisorDoc} /> : <>
         {migracionPendiente && <Banner variante="warning">Falta aplicar la migración de órdenes de compra en la base de datos.</Banner>}
         {error && <Banner variante="error" accion={{ label: 'Reintentar', onClick: () => cargar(0) }}>{error}</Banner>}
 
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-[12px] text-slate-400 font-medium flex items-center gap-1"><Filter size={13} /> Filtrar:</span>
+          <span className="text-[13px] font-medium text-tinta-2 dark:text-slate-400 flex items-center gap-1.5 mr-1"><Filter size={16} stroke={1.75} className="text-slate-400" /> Filtros</span>
 
           <Select value={empresaId} onChange={setEmpresaId} minWidth={180}
             placeholder="Todas las empresas"
@@ -527,38 +524,35 @@ export default function OrdenesCompraPage() {
             placeholder="Todos los estados"
             options={[{ value: '', label: 'Todos los estados' }, ...ESTADOS_OC]} />
 
-          <div className="flex items-center gap-1.5 border border-slate-200 rounded-lg px-2.5 py-1">
-            <Calendar size={13} className="text-slate-400 flex-shrink-0" />
+          <div className={`flex items-center gap-1.5 px-2.5 ${CAMPO}`}>
+            <Calendar size={16} stroke={1.75} className="text-slate-400 flex-shrink-0" />
             <input type="date" value={desde} onChange={e => setDesde(e.target.value)} max={hasta || undefined}
-              className="text-[12px] text-slate-700 bg-transparent outline-none w-[118px]" title="Emitida desde" />
-            <span className="text-slate-300">–</span>
+              className="text-[13px] text-tinta dark:text-slate-100 bg-transparent outline-none w-[118px]" title="Emitida desde" aria-label="Emitida desde" />
+            <span className="text-tinta-3">–</span>
             <input type="date" value={hasta} onChange={e => setHasta(e.target.value)} min={desde || undefined}
-              className="text-[12px] text-slate-700 bg-transparent outline-none w-[118px]" title="Emitida hasta" />
+              className="text-[13px] text-tinta dark:text-slate-100 bg-transparent outline-none w-[118px]" title="Emitida hasta" aria-label="Emitida hasta" />
             {(desde || hasta) && (
-              <button onClick={() => { setDesde(''); setHasta(''); }} title="Quitar rango" className="text-slate-400 hover:text-red-600 flex-shrink-0"><X size={12} /></button>
+              <button onClick={() => { setDesde(''); setHasta(''); }} aria-label="Quitar rango" title="Quitar rango" className="text-slate-400 hover:text-urgente flex-shrink-0"><X size={16} stroke={1.75} /></button>
             )}
           </div>
 
-          <label className="flex items-center gap-1.5 text-[12px] font-medium text-slate-600 border border-slate-200 rounded-lg px-2.5 py-2 cursor-pointer hover:bg-slate-50">
+          <label className={`flex items-center gap-2 px-2.5 text-[13px] font-medium text-tinta dark:text-slate-100 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 ${CAMPO}`}>
             <input type="checkbox" checked={incluirTerceros} onChange={e => setIncluirTerceros(e.target.checked)} className="accent-teal-600" />
             Incluir de terceros
           </label>
 
           {hayFiltro && (
-            <button onClick={limpiar} className="inline-flex items-center gap-1 text-[12px] font-semibold text-red-600 bg-red-50 border border-red-200 hover:bg-red-100 px-2.5 py-2 rounded-lg transition-colors">
-              <X size={12} /> Limpiar
-            </button>
+            <Boton variante="fantasma" onClick={limpiar} icono={<X size={16} stroke={1.75} />}>Limpiar</Boton>
           )}
         </div>
 
         {loading ? (
-          <div className="flex items-center justify-center py-16"><Loader2 className="w-5 h-5 animate-spin text-slate-400" /></div>
+          <div className="space-y-2">{Array.from({ length: 5 }).map((_, i) => <Esqueleto key={i} className="h-24 rounded-xl" />)}</div>
         ) : ordenes.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-16 text-center gap-2">
-            <Receipt size={28} className="text-slate-300" />
-            <p className="text-[13.5px] font-semibold text-slate-500">{hayFiltro ? 'Sin resultados' : 'Todavía no hay órdenes de compra'}</p>
-            <p className="text-[12px] text-slate-400">{hayFiltro ? 'Prueba ajustando los filtros.' : 'El cron diario revisa Mercado Público y las trae solas.'}</p>
-          </div>
+          <Vacio icono={<Receipt size={28} stroke={1.75} />}
+            titulo={hayFiltro ? 'Sin resultados' : 'Todavía no hay órdenes de compra'}
+            texto={hayFiltro ? 'Prueba ajustando los filtros.' : 'El cron diario revisa Mercado Público y las trae solas.'}
+            accion={hayFiltro ? <Boton tamano="sm" onClick={limpiar}>Quitar filtros</Boton> : undefined} />
         ) : (
           <>
             <div className="space-y-2">
@@ -568,11 +562,10 @@ export default function OrdenesCompraPage() {
             </div>
             {ordenes.length < total && (
               <div className="flex justify-center pt-2">
-                <button onClick={() => cargar(ordenes.length)} disabled={loadingMore}
-                  className="inline-flex items-center gap-2 px-4 py-2 text-[12.5px] font-semibold text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors disabled:opacity-50">
-                  {loadingMore ? <Loader2 size={13} className="animate-spin" /> : null}
-                  Cargar más ({ordenes.length} de {total})
-                </button>
+                <Boton onClick={() => cargar(ordenes.length)} disabled={loadingMore}
+                  icono={loadingMore ? <Loader2 size={16} className="animate-spin" /> : undefined}>
+                  {loadingMore ? 'Cargando…' : `Cargar más (${ordenes.length} de ${total})`}
+                </Boton>
               </div>
             )}
           </>

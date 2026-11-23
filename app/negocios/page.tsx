@@ -19,6 +19,9 @@ import { colorUsuario, inicialesUsuario } from '@/app/lib/user-color';
 import { semaforoRevision } from '@/app/lib/asignacion';
 import { Datos, Dato, Estado } from '@/app/components/ui/kit/Tarjeta';
 import { Boton } from '@/app/components/ui/kit/Boton';
+import { Pestanas } from '@/app/components/ui/kit/Pestanas';
+import { Esqueleto, Vacio } from '@/app/components/ui/kit/Estructura';
+import { Banner } from '@/app/components/ui/Banner';
 
 interface Etiqueta { id: number; nombre: string; color: string; }
 
@@ -164,6 +167,16 @@ function formatMonto(n: number | null): string {
   // "$0" leía como si la licitación valiera cero; en realidad es "MP no informó monto".
   if (!n) return '—';
   return new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n);
+}
+
+// Cierre para la lista: «Hoy», «Mañana», «En 3 días» (rojo hoy/mañana, ámbar hasta 3 días).
+function cierreEnPalabras(dias: string): { texto: string; color: string } {
+  if (!dias) return { texto: '', color: '#64748b' };
+  if (dias === 'Vencida') return { texto: 'Vencida', color: '#94a3b8' };
+  if (dias === 'Hoy') return { texto: 'Hoy', color: '#dc2626' };
+  const n = parseInt(dias);
+  if (n === 1) return { texto: 'Mañana', color: '#dc2626' };
+  return { texto: `En ${n} días`, color: n <= 3 ? '#d97706' : '#64748b' };
 }
 
 function diasRestantes(fecha: string | null): string {
@@ -445,8 +458,7 @@ function NegocioListItem({ neg, isAdmin, onEliminar }: {
   const col    = colorUsuario(neg.usuario_email || neg.usuario_nombre);
   const descartada = (neg.estado_pipeline || '') === 'DESCARTADA';
   const dias   = diasRestantes(neg.licitacion_cierre);
-  const diasCls = dias === 'Vencida' ? 'text-slate-400'
-    : (parseInt(dias) <= 3 ? 'text-red-600 font-semibold' : parseInt(dias) <= 7 ? 'text-orange-500' : 'text-slate-400');
+  const cierre = cierreEnPalabras(dias);
   const viab   = viabilidadDe(neg);
   const sem    = !descartada ? semaforoRevision(neg.updated_at) : null;
   const iniciales = inicialesUsuario(neg.usuario_nombre, neg.usuario_email);
@@ -454,19 +466,19 @@ function NegocioListItem({ neg, isAdmin, onEliminar }: {
   return (
     <Link
       href={`/negocios/${neg.id}`}
-      className={`group relative flex items-center gap-3 rounded-lg pl-3.5 pr-3 py-2.5 border transition-all ${
-        descartada ? 'bg-red-50/40 border-red-200 hover:bg-red-50' : 'bg-white border-slate-200 hover:border-teal-300 hover:bg-teal-50/30'
+      className={`group relative flex items-center gap-3 rounded-xl px-4 py-3 border shadow-tarjeta transition-[box-shadow,border-color,background-color] duration-150 hover:shadow-tarjeta-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marca/60 ${
+        descartada ? 'bg-red-50/40 border-red-200 hover:bg-red-50 dark:bg-red-950/20 dark:border-red-900' : 'bg-white border-linea hover:border-teal-300 dark:bg-slate-900 dark:border-slate-800'
       }`}
     >
       {/* Tipo + código (+ perfil para admin) */}
-      <div className="flex-shrink-0 w-36">
-        <div className="flex items-center gap-1 mb-1">
-          {tipo && <span className="text-xs font-mono text-slate-400">{tipo}</span>}
-          <span className="text-[10px] font-mono text-slate-500 truncate" title={neg.licitacion_codigo}>{neg.licitacion_codigo}</span>
+      <div className="flex-shrink-0 w-40">
+        <div className="flex items-center gap-1.5 mb-0.5 text-xs font-mono text-tinta-2 dark:text-slate-400">
+          {tipo && <span className="font-semibold text-tinta dark:text-slate-200">{tipo}</span>}
+          <span className="truncate" title={neg.licitacion_codigo}>{neg.licitacion_codigo}</span>
         </div>
         {isAdmin && (
-          <span className="inline-flex items-center gap-1 text-[10px] text-slate-400 max-w-full truncate" title={neg.usuario_nombre || neg.usuario_email}>
-            <span style={{ background: col }} className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full text-white text-[7px] font-semibold flex-shrink-0">{iniciales}</span>
+          <span className="inline-flex items-center gap-1.5 text-xs text-tinta-2 dark:text-slate-400 max-w-full truncate" title={neg.usuario_nombre || neg.usuario_email}>
+            <span style={{ background: col }} className="inline-flex items-center justify-center w-4 h-4 rounded-full text-white text-[8px] font-semibold flex-shrink-0">{iniciales}</span>
             <span className="truncate">{neg.usuario_nombre || neg.usuario_email}</span>
           </span>
         )}
@@ -474,51 +486,52 @@ function NegocioListItem({ neg, isAdmin, onEliminar }: {
 
       {/* Nombre + organismo + pipeline/etiquetas */}
       <div className="flex-1 min-w-0">
-        <p className="text-[12.5px] font-semibold text-slate-900 truncate group-hover:text-teal-700 transition-colors" title={neg.licitacion_nombre}>
+        <p className="text-[13px] font-medium text-tinta dark:text-slate-100 truncate group-hover:text-marca transition-colors" title={neg.licitacion_nombre}>
           {neg.licitacion_nombre || neg.licitacion_codigo}
         </p>
-        <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+        <div className="flex items-center gap-x-3 gap-y-0.5 mt-1 flex-wrap">
           <PipelineBadge estadoId={claveVisibleDeNegocio(neg)} />
           <EstadoMpBadge estado={neg.licitacion_estado} cierre={neg.licitacion_cierre} adjEsAdjudicada={neg.adj_es_adjudicada} adjGanamos={neg.adj_ganamos} />
           {neg.licitacion_organismo && (
-            <span className="text-[10.5px] text-slate-500 truncate max-w-[240px]" title={neg.licitacion_organismo}>{neg.licitacion_organismo}</span>
+            <span className="text-xs text-tinta-2 dark:text-slate-400 truncate max-w-[240px]" title={neg.licitacion_organismo}>{neg.licitacion_organismo}</span>
           )}
           {neg.etiquetas.slice(0, 2).map(et => (
-            <span key={et.id} style={{ backgroundColor: et.color + '20', color: et.color, borderColor: et.color + '40' }}
-              className="text-[9px] px-1.5 py-0.5 rounded-full font-semibold border flex-shrink-0">{et.nombre}</span>
+            <span key={et.id} className="inline-flex items-center gap-1.5 text-xs text-tinta-2 dark:text-slate-300 flex-shrink-0">
+              <span aria-hidden style={{ backgroundColor: et.color }} className="h-1.5 w-1.5 rounded-full" />{et.nombre}
+            </span>
           ))}
         </div>
       </div>
 
       {/* Monto + cierre (fecha + hora Chile) */}
-      <div className="flex-shrink-0 w-40 text-right hidden sm:block whitespace-nowrap">
-        <p className="text-[11.5px] font-semibold text-emerald-700">{formatMonto(neg.licitacion_monto)}</p>
-        {neg.monto_ofertado > 0 && <p className="text-[9.5px] text-slate-400">Ofertó {formatMonto(neg.monto_ofertado)}</p>}
+      <div className="flex-shrink-0 w-44 text-right hidden sm:block whitespace-nowrap">
+        <p className="text-[13px] font-semibold text-tinta dark:text-slate-50 tabular-nums">{formatMonto(neg.licitacion_monto)}</p>
+        {neg.monto_ofertado > 0 && <p className="text-xs text-tinta-2 dark:text-slate-400 tabular-nums">Ofertó {formatMonto(neg.monto_ofertado)}</p>}
         {neg.licitacion_cierre && (
-          <p className="text-[10px] text-slate-500 mt-0.5">
-            {new Date(neg.licitacion_cierre).toLocaleDateString('es-CL', { timeZone: 'America/Santiago', day: '2-digit', month: '2-digit' })}
+          <p className="text-xs text-tinta-2 dark:text-slate-400 mt-0.5 tabular-nums">
+            {new Date(neg.licitacion_cierre).toLocaleDateString('es-CL', { timeZone: 'America/Santiago', day: 'numeric', month: 'short' }).replace('.', '')}
             {' · '}
             {new Date(neg.licitacion_cierre).toLocaleTimeString('es-CL', { timeZone: 'America/Santiago', hour: '2-digit', minute: '2-digit' })}
-            {' '}<span className={diasCls}>({dias})</span>
+            {cierre.texto && <span className="ml-1.5 font-medium" style={{ color: cierre.color }}>{cierre.texto}</span>}
           </p>
         )}
       </div>
 
-      {/* Badges: viabilidad + docs + semáforo de frescura */}
-      <div className="flex-shrink-0 hidden lg:flex items-center justify-end gap-1.5 w-[300px] whitespace-nowrap">
+      {/* Viabilidad + docs + semáforo de frescura */}
+      <div className="flex-shrink-0 hidden @5xl:flex items-center justify-end gap-3 w-[280px] whitespace-nowrap">
         {viab && (
-          <span className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-700 flex-shrink-0" title={`Viabilidad: ${viab.label}`}>
+          <span className="inline-flex items-center gap-1.5 text-xs font-medium text-tinta dark:text-slate-200 flex-shrink-0" title={`Viabilidad: ${viab.label}`}>
             <span style={{ background: viab.color }} className="w-1.5 h-1.5 rounded-full" />
             {viab.label}{viab.puntaje != null ? ` ${viab.puntaje}` : ''}
           </span>
         )}
         {neg.tiene_documentos ? (
-          <span className="inline-flex items-center gap-1 text-xs text-slate-400 flex-shrink-0">
-            <FileText size={12} /> Docs
+          <span className="inline-flex items-center gap-1 text-xs text-tinta-2 dark:text-slate-400 flex-shrink-0">
+            <FileText size={16} stroke={1.75} /> Docs
           </span>
         ) : null}
         {sem && (
-          <span className={`inline-flex items-center gap-1.5 text-xs font-semibold flex-shrink-0 ${sem.text}`}
+          <span className={`inline-flex items-center gap-1.5 text-xs font-medium flex-shrink-0 ${sem.text}`}
             title={`${sem.dias} día${sem.dias === 1 ? '' : 's'} sin cambio de estado`}>
             <span style={{ background: sem.color }} className="w-1.5 h-1.5 rounded-full" />
             {sem.dias === 0 ? sem.etiqueta : `${sem.etiqueta} sin cambios`}
@@ -528,14 +541,15 @@ function NegocioListItem({ neg, isAdmin, onEliminar }: {
 
       {/* Acciones */}
       <div className="flex-shrink-0 flex items-center gap-1" onClick={e => e.preventDefault()}>
-        <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-teal-700 group-hover:text-teal-700">
-          Ver <ArrowRight size={12} />
+        <span className="inline-flex items-center gap-1 text-[13px] font-medium text-marca">
+          Ver <ArrowRight size={16} stroke={1.75} />
         </span>
         {isAdmin && (
           <button onClick={e => { e.preventDefault(); onEliminar(neg.id); }}
-            className="p-1.5 rounded-lg text-slate-300 hover:text-red-600 hover:bg-red-50 transition-colors opacity-0 group-hover:opacity-100"
+            aria-label="Quitar de Negocios"
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:text-urgente hover:bg-red-50 transition-colors opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marca/60 dark:hover:bg-red-950/40"
             title="Quitar de Negocios">
-            <Trash2 size={13} />
+            <Trash2 size={16} stroke={1.75} />
           </button>
         )}
       </div>
@@ -567,14 +581,14 @@ function VistaCalendario({ negocios, onAbrirDia }: { negocios: Negocio[]; onAbri
   const hoy = dayjs().format('YYYY-MM-DD');
 
   return (
-    <div className="bg-white border border-slate-200 rounded-xl p-4">
+    <div className="bg-white border border-linea rounded-xl p-5 shadow-tarjeta dark:bg-slate-900 dark:border-slate-800">
       <div className="flex items-center justify-between mb-4">
-        <button onClick={() => setMes(m => m.subtract(1, 'month'))} aria-label="Mes anterior" className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500 transition-colors"><ChevronLeft size={18} /></button>
-        <span className="text-lg font-semibold text-slate-800">{MESES[mes.month()]} {mes.year()}</span>
-        <button onClick={() => setMes(m => m.add(1, 'month'))} aria-label="Mes siguiente" className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500 transition-colors"><ChevronRight size={18} /></button>
+        <button onClick={() => setMes(m => m.subtract(1, 'month'))} aria-label="Mes anterior" className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-tinta transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marca/60 dark:hover:bg-slate-800"><ChevronLeft size={18} stroke={1.75} /></button>
+        <span className="text-[15px] font-semibold text-tinta dark:text-slate-50">{MESES[mes.month()]} {mes.year()}</span>
+        <button onClick={() => setMes(m => m.add(1, 'month'))} aria-label="Mes siguiente" className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-tinta transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marca/60 dark:hover:bg-slate-800"><ChevronRight size={18} stroke={1.75} /></button>
       </div>
       <div className="grid grid-cols-7 gap-1 mb-1">
-        {SEMANA.map(d => <div key={d} className="text-center text-[11px] font-semibold text-slate-400 py-1">{d}</div>)}
+        {SEMANA.map(d => <div key={d} className="text-center text-xs font-medium text-tinta-2 dark:text-slate-400 py-1">{d}</div>)}
       </div>
       <div className="grid grid-cols-7 gap-1">
         {dias.map(d => {
@@ -584,10 +598,10 @@ function VistaCalendario({ negocios, onAbrirDia }: { negocios: Negocio[]; onAbri
           const esHoy = k === hoy;
           return (
             <button key={k} disabled={items.length === 0} onClick={() => items.length && onAbrirDia(k)}
-              className={`min-h-[70px] rounded-lg border p-1.5 text-left align-top transition-colors ${fueraMes ? 'bg-slate-50/40 border-transparent' : 'border-slate-100'} ${items.length ? 'hover:border-teal-300 hover:bg-teal-50/50 cursor-pointer' : 'cursor-default'}`}>
+              className={`min-h-[70px] rounded-lg border p-1.5 text-left align-top transition-colors ${fueraMes ? 'bg-slate-50/40 border-transparent dark:bg-slate-950/30' : 'border-linea dark:border-slate-800'} ${items.length ? 'hover:border-teal-300 hover:bg-teal-50/50 dark:hover:bg-slate-800 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marca/60' : 'cursor-default'}`}>
               <div className="flex items-center justify-between">
-                <span className={esHoy ? 'bg-teal-700 text-white rounded-full w-5 h-5 inline-flex items-center justify-center text-[11px] font-semibold' : `text-[12px] ${fueraMes ? 'text-slate-300' : 'text-slate-600'}`}>{d.date()}</span>
-                {items.length > 0 && <span className="text-[10px] font-semibold text-teal-700 tabular-nums">{items.length}</span>}
+                <span className={esHoy ? 'bg-marca text-white rounded-full w-6 h-6 inline-flex items-center justify-center text-xs font-semibold' : `text-xs tabular-nums ${fueraMes ? 'text-tinta-3' : 'text-tinta dark:text-slate-200'}`}>{d.date()}</span>
+                {items.length > 0 && <span className="text-xs font-semibold text-marca tabular-nums">{items.length}</span>}
               </div>
               <div className="flex flex-wrap gap-1 mt-1.5">
                 {items.slice(0, 6).map((n, i) => {
@@ -596,10 +610,10 @@ function VistaCalendario({ negocios, onAbrirDia }: { negocios: Negocio[]; onAbri
                     <span key={i}
                       title={`${n.usuario_nombre || n.usuario_email}${estadoItem === 'DESCARTADA' ? ' · Descartada' : estadoItem === 'POSTULADA' ? ' · Postulada' : ''}`}
                       style={{ background: estadoItem === 'DESCARTADA' ? '#DC2626' : estadoItem === 'POSTULADA' ? '#059669' : colorUsuario(n.usuario_email || n.usuario_nombre) }}
-                      className="w-2 h-2 rounded-full" />
+                      className="w-2.5 h-2.5 rounded-full" />
                   );
                 })}
-                {items.length > 6 && <span className="text-[8px] text-slate-400 leading-none self-center">+{items.length - 6}</span>}
+                {items.length > 6 && <span className="text-xs text-tinta-2 leading-none self-center tabular-nums">+{items.length - 6}</span>}
               </div>
             </button>
           );
@@ -1615,7 +1629,7 @@ function NegociosContent() {
 
   return (
     <AppLayout breadcrumb={[{ label: 'Dashboard', href: '/dashboard' }, { label: 'Negocios' }]}>
-      <div className="p-4 sm:p-6 lg:p-8">
+      <div className="@container p-4 sm:p-6 lg:p-8">
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
           <div>
@@ -1695,68 +1709,57 @@ function NegociosContent() {
         <div className="mb-4 space-y-2">
           <div className="flex items-center justify-between gap-3 flex-wrap">
             {/* Selector de vista */}
-            <div className="flex items-center gap-0.5 bg-slate-100 rounded-lg p-0.5">
-              {([
-                { key: 'semana',      label: 'Semana',      icon: <CalendarDays size={13} /> },
-                { key: 'lista',       label: 'Lista',       icon: <List size={13} /> },
-                { key: 'calendario',  label: 'Mes',         icon: <Calendar size={13} /> },
-              ] as const).map(v => (
-                <button
-                  key={v.key}
-                  onClick={() => setVista(v.key)}
-                  className={`flex items-center gap-1 px-2.5 py-1.5 rounded-md text-xs font-semibold transition-colors ${
-                    vista === v.key ? 'bg-white text-teal-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'
-                  }`}
-                >
-                  {v.icon} {v.label}
-                </button>
-              ))}
-            </div>
+            <Pestanas id="vista-negocios" valor={vista} onCambio={setVista}
+              opciones={[
+                { valor: 'semana', etiqueta: 'Semana' },
+                { valor: 'lista', etiqueta: 'Lista' },
+                { valor: 'calendario', etiqueta: 'Mes' },
+              ]} />
 
             {/* Orden por fecha de cierre (solo vista lista) */}
             {vista === 'lista' && (
-              <button
+              <Boton
                 onClick={() => setOrdenCierreDesc(v => !v)}
                 title={ordenCierreDesc ? 'Ordenado: cierra más lejos primero — clic para invertir' : 'Ordenado: próxima a cerrar primero — clic para invertir'}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border bg-white text-slate-600 border-slate-200 hover:border-slate-400 transition-colors"
+                icono={ordenCierreDesc ? <ArrowDownWideNarrow size={16} stroke={1.75} /> : <ArrowUpNarrowWide size={16} stroke={1.75} />}
               >
-                {ordenCierreDesc ? <ArrowDownWideNarrow size={13} /> : <ArrowUpNarrowWide size={13} />}
                 Cierre: {ordenCierreDesc ? 'más lejano' : 'más próximo'}
-              </button>
+              </Boton>
             )}
 
             {/* Filtros toggle + limpiar */}
             <div className="flex items-center gap-2">
               {(search || filtroUsuarios.length || filtroEtiqueta.length || filtroTipo.length || filtroEstado.length || filtroRegion.length || filtroFechaDesde || filtroFechaHasta) ? (
-                <button
+                <Boton
+                  variante="fantasma"
                   onClick={() => { setSearch(''); setFiltroUsuarios([]); setFiltroEtiqueta([]); setFiltroTipo([]); setFiltroEstado([]); setFiltroRegion([]); setFiltroFechaDesde(''); setFiltroFechaHasta(''); }}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-red-50 text-red-600 border border-red-200 rounded-lg hover:bg-red-100 transition-colors"
+                  icono={<X size={16} stroke={1.75} />}
                 >
-                  <X size={12} /> Limpiar filtros
-                </button>
+                  Limpiar filtros
+                </Boton>
               ) : null}
-              <button
+              <Boton
                 onClick={() => setFiltrosOpen(v => !v)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border transition-colors ${
-                  filtrosOpen ? 'bg-teal-50 text-teal-700 border-teal-200' : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400'
-                }`}
+                aria-expanded={filtrosOpen}
+                className={filtrosOpen ? '!border-marca !bg-marca-suave !text-marca' : ''}
+                icono={<SlidersHorizontal size={16} stroke={1.75} />}
               >
-                <SlidersHorizontal size={12} /> Filtros
-                <ChevronDown size={11} className={`transition-transform ${filtrosOpen ? 'rotate-180' : ''}`} />
-              </button>
+                Filtros
+                <ChevronDown size={16} stroke={1.75} className={`transition-transform ${filtrosOpen ? 'rotate-180' : ''}`} />
+              </Boton>
             </div>
           </div>
 
           {/* Panel de filtros colapsable */}
           {filtrosOpen && (
-            <div className="bg-white border border-slate-200 rounded-xl p-3 flex flex-wrap gap-2">
+            <div className="bg-white border border-linea rounded-xl p-3 shadow-tarjeta flex flex-wrap gap-2 dark:bg-slate-900 dark:border-slate-800">
               <div className="relative">
-                <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                <Search size={16} stroke={1.75} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                 <input
                   value={search}
                   onChange={e => setSearch(e.target.value)}
                   placeholder="Buscar..."
-                  className="pl-8 pr-4 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-teal-500 outline-none w-48"
+                  aria-label="Buscar" className="h-9 pl-9 pr-3 border border-linea rounded-lg text-sm text-tinta placeholder:text-tinta-3 outline-none focus-visible:ring-2 focus-visible:ring-marca/60 w-48 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
                 />
               </div>
               {isAdmin && usuarios.length > 0 && (
@@ -1796,19 +1799,19 @@ function NegociosContent() {
                 />
               )}
               {/* Rango por fecha de cierre */}
-              <div className="flex items-center gap-1.5 border border-slate-200 rounded-lg px-2.5 py-1">
-                <Calendar size={13} className="text-slate-400 flex-shrink-0" />
-                <span className="text-[11px] font-semibold text-slate-500">Cierre</span>
+              <div className="flex items-center gap-1.5 h-9 border border-linea rounded-lg px-2.5 dark:border-slate-700">
+                <Calendar size={16} stroke={1.75} className="text-slate-400 flex-shrink-0" />
+                <span className="text-[13px] text-tinta-2 dark:text-slate-400">Cierre</span>
                 <input type="date" value={filtroFechaDesde} onChange={e => setFiltroFechaDesde(e.target.value)}
                   max={filtroFechaHasta || undefined}
-                  className="text-[12px] text-slate-700 bg-transparent outline-none w-[118px]" title="Cierre desde" />
-                <span className="text-slate-300">–</span>
+                  className="text-[13px] text-tinta dark:text-slate-100 bg-transparent outline-none w-[118px]" title="Cierre desde" aria-label="Cierre desde" />
+                <span className="text-tinta-3">–</span>
                 <input type="date" value={filtroFechaHasta} onChange={e => setFiltroFechaHasta(e.target.value)}
                   min={filtroFechaDesde || undefined}
-                  className="text-[12px] text-slate-700 bg-transparent outline-none w-[118px]" title="Cierre hasta" />
+                  className="text-[13px] text-tinta dark:text-slate-100 bg-transparent outline-none w-[118px]" title="Cierre hasta" aria-label="Cierre hasta" />
                 {(filtroFechaDesde || filtroFechaHasta) && (
                   <button onClick={() => { setFiltroFechaDesde(''); setFiltroFechaHasta(''); }}
-                    title="Quitar rango de fecha" className="text-slate-400 hover:text-red-600 flex-shrink-0"><X size={12} /></button>
+                    title="Quitar rango de fecha" aria-label="Quitar rango de fecha" className="text-slate-400 hover:text-urgente flex-shrink-0"><X size={16} stroke={1.75} /></button>
                 )}
               </div>
             </div>
@@ -1817,27 +1820,19 @@ function NegociosContent() {
 
         {/* Error */}
         {error && (
-          <div className="flex items-center gap-2 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm mb-4">
-            <AlertCircle size={16} /> {error}
-            <button onClick={() => cargar()} className="ml-auto hover:underline">Reintentar</button>
+          <div className="mb-4">
+            <Banner variante="error" accion={{ label: 'Reintentar', onClick: () => cargar() }}>{error}</Banner>
           </div>
         )}
 
         {/* Tabla */}
         {!loading && !error && (
           negociosFiltrados.length === 0 ? (
-            <div className="text-center py-20 bg-white rounded-xl border border-slate-100">
-              <Briefcase size={36} className="text-gray-300 mx-auto mb-3" />
-              <h3 className="text-lg font-semibold text-gray-700 mb-2">
-                {search || filtroEtiqueta.length || filtroTipo.length || filtroEstado.length ? 'Sin resultados' : 'No hay licitaciones asignadas'}
-              </h3>
-              <p className="text-sm text-gray-400">
-                {isAdmin
-                  ? 'Usa "Asignar licitación" para agregar un proyecto al panel'
-                  : 'El administrador aún no te ha asignado licitaciones'
-                }
-              </p>
-            </div>
+            <Vacio icono={<Briefcase size={28} stroke={1.75} />}
+              titulo={search || filtroEtiqueta.length || filtroTipo.length || filtroEstado.length ? 'Sin resultados' : 'No hay licitaciones asignadas'}
+              texto={search || filtroEtiqueta.length || filtroTipo.length || filtroEstado.length
+                ? 'Cambia o quita los filtros para ver más licitaciones.'
+                : isAdmin ? 'Usa «Asignar licitación» para agregar un proyecto al panel.' : 'El administrador aún no te ha asignado licitaciones.'} />
           ) : vista === 'semana' ? (
             /* ── Vista calendario semanal (vigentes + postuladas) ── */
             <VistaSemana negocios={negociosCalendario} onAbrirNegocio={setNegocioModal} />
@@ -1845,7 +1840,7 @@ function NegociosContent() {
             /* ── Vista calendario mensual (vigentes + postuladas) ── */
             <VistaCalendario negocios={negociosCalendario} onAbrirDia={setDiaSel} />
           ) : (
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               {negociosLista.map(neg => (
                 <NegocioListItem key={neg.id} neg={neg} isAdmin={isAdmin} onEliminar={eliminar} />
               ))}
@@ -1855,29 +1850,23 @@ function NegociosContent() {
 
         {/* Skeleton loading */}
         {loading && (
-          <div className="bg-white rounded-xl border border-slate-100 overflow-hidden">
-            {[1, 2, 3, 4].map(i => (
-              <div key={i} className="px-4 py-4 border-b border-gray-50 animate-pulse flex gap-4">
-                <div className="h-4 bg-gray-200 rounded w-24" />
-                <div className="h-4 bg-slate-100 rounded flex-1" />
-                <div className="h-4 bg-slate-100 rounded w-32" />
-              </div>
-            ))}
+          <div className="space-y-2">
+            {[1, 2, 3, 4].map(i => <Esqueleto key={i} className="h-[72px] rounded-xl" />)}
           </div>
         )}
       </div>
 
       {/* Modal del día del calendario */}
       {!!diaSel && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
-          <div className="bg-white rounded-xl shadow-flotante w-full max-w-3xl max-h-[92vh] flex flex-col overflow-hidden">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 flex-shrink-0">
-              <p className="font-semibold text-slate-800">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
+          <div className="bg-white dark:bg-slate-900 rounded-xl shadow-flotante w-full max-w-3xl max-h-[92vh] flex flex-col overflow-hidden">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-linea dark:border-slate-800 flex-shrink-0">
+              <p className="text-[15px] font-semibold text-tinta dark:text-slate-50">
                 Cierres del {dayjs(diaSel).format('DD/MM/YYYY')}
-                <span className="text-sm font-normal text-slate-400 ml-2">· {itemsDia.length} licitación{itemsDia.length !== 1 ? 'es' : ''}</span>
+                <span className="text-sm font-normal text-tinta-2 dark:text-slate-400 ml-2">· {itemsDia.length} licitación{itemsDia.length !== 1 ? 'es' : ''}</span>
               </p>
-              <button onClick={() => setDiaSel(null)} className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-400 transition-colors">
-                <X size={18} />
+              <button onClick={() => setDiaSel(null)} aria-label="Cerrar" className="flex h-8 w-8 items-center justify-center hover:bg-slate-100 rounded-lg text-slate-400 transition-colors dark:hover:bg-slate-800">
+                <X size={18} stroke={1.75} />
               </button>
             </div>
             <div className="overflow-y-auto p-4 space-y-2">
@@ -1885,21 +1874,21 @@ function NegociosContent() {
                 const col = colorUsuario(neg.usuario_email || neg.usuario_nombre);
                 const tipo = extractTipoFromCodigo(neg.licitacion_codigo || '');
                 return (
-                  <div key={neg.id} className="bg-white border border-slate-200 rounded-lg p-3">
+                  <div key={neg.id} className="bg-white border border-linea rounded-xl p-3.5 shadow-tarjeta dark:bg-slate-900 dark:border-slate-800">
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
                         <div className="flex items-center gap-1.5 mb-1.5">
-                          <span className="text-xs font-mono text-slate-400">{neg.licitacion_codigo}</span>
-                          {tipo && <span className="text-[10px] bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded font-semibold">{tipo}</span>}
+                          <span className="text-xs font-mono text-tinta-2 dark:text-slate-400">{neg.licitacion_codigo}</span>
+                          {tipo && <span className="text-xs font-semibold text-tinta dark:text-slate-200">{tipo}</span>}
                           <PipelineBadge estadoId={claveVisibleDeNegocio(neg)} />
                           <EstadoMpBadge estado={neg.licitacion_estado} cierre={neg.licitacion_cierre} />
                         </div>
-                        <p className="text-sm font-semibold text-slate-800 line-clamp-2">{neg.licitacion_nombre || 'Sin nombre'}</p>
-                        {neg.licitacion_organismo && <p className="text-xs text-slate-400 truncate mt-0.5">{neg.licitacion_organismo}</p>}
+                        <p className="text-sm font-medium text-tinta dark:text-slate-100 line-clamp-2">{neg.licitacion_nombre || 'Sin nombre'}</p>
+                        {neg.licitacion_organismo && <p className="text-xs text-tinta-2 dark:text-slate-400 truncate mt-0.5">{neg.licitacion_organismo}</p>}
                         <div className="flex items-center gap-3 mt-1.5">
-                          <span className="text-xs font-semibold text-teal-700">{formatMonto(neg.licitacion_monto)}</span>
+                          <span className="text-xs font-semibold text-tinta dark:text-slate-100 tabular-nums">{formatMonto(neg.licitacion_monto)}</span>
                           {isAdmin && (
-                            <span className="flex items-center gap-1 text-xs text-slate-400">
+                            <span className="flex items-center gap-1 text-xs text-tinta-2 dark:text-slate-400">
                               <span style={{ background: col }} className="inline-flex items-center justify-center w-4 h-4 rounded-full text-white text-[8px] font-semibold">
                                 {inicialesUsuario(neg.usuario_nombre, neg.usuario_email)}
                               </span>
@@ -1909,8 +1898,8 @@ function NegociosContent() {
                         </div>
                       </div>
                       <Link href={`/negocios/${neg.id}`} onClick={() => setDiaSel(null)}
-                        className="flex-shrink-0 flex items-center gap-1 text-xs px-3 py-1.5 bg-teal-50 text-teal-700 rounded-lg font-medium hover:bg-teal-100 transition-colors">
-                        Entrar <ArrowRight size={13} />
+                        className="flex-shrink-0 flex items-center gap-1 h-8 text-[13px] px-3 bg-marca text-white rounded-lg font-medium hover:bg-marca-fuerte transition-colors shadow-tarjeta">
+                        Entrar <ArrowRight size={16} stroke={1.75} />
                       </Link>
                     </div>
                   </div>

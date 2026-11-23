@@ -1030,3 +1030,7 @@ re-homologarlas** (y lo hecho antes en otros negocios con cantidades no exactas 
 - Causa: `GET /api/compras/[id]/orden-compra-obuma` esperaba hasta 15 s la sync con Obuma (1 vez/min por negocio) y pedía `pg-monedas.list` a Obuma en CADA carga; además la tarjeta `RepartoAdminCard` se monta 2 veces y repetía las mismas 3-4 consultas.
 - Hecho: espera de sync máx. 2,5 s (sigue en segundo plano); monedas extranjeras en caché 1 h (`obuma.ts`); `fetchJsonReintento` comparte pedidos idénticos en vuelo (sin caché posterior, así tras guardar se lee fresco).
 - Pendiente: medir en vivo con sesión; si sigue lento, caché por pantalla (mostrar lo último y revalidar) en `RepartoAdminCard`/`ResumenGastosCard`. Falta commit y `deploy.sh`.
+
+## 2026-11-23 — Exportar Excel de Compras = lo que se ve
+- `app/compras/page.tsx`: la pestaña del Gantt (`modoGantt`: por plazo / desde últimas ganadas / fases) subió al padre; el Excel usa `ordenarSegunModoGantt` y sale en el mismo orden de pantalla, con filtros. Primera columna «Lugar» (La Florida, Putre…), luego Licitación, Código, Estado, Monto, hitos (adjudicación, OC, aceptada, entrega). Sin probar en navegador.
+- Ojo: hay dos copias del repo (C:\licitapyme-clone = vigente; D:\licitapyme-clone quedó atrasada, 20-nov). Trabajar siempre en C.

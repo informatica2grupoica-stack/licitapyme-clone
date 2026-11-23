@@ -8,6 +8,9 @@ import { useConfirm } from '@/app/components/ui/confirm';
 import { Select } from '@/app/components/ui/Select';
 import { MultiSelect } from '@/app/components/ui/MultiSelect';
 import { Indicador } from '@/app/components/ui/kit/Indicador';
+import { Boton } from '@/app/components/ui/kit/Boton';
+import { Pestanas } from '@/app/components/ui/kit/Pestanas';
+import { Vacio } from '@/app/components/ui/kit/Estructura';
 import { useSession } from '@/app/lib/session-context';
 import { fechaHoraParaExcel, ordenarPorFecha, hojaDeFilas } from '@/app/lib/exportar-fechas';
 import { IconRadar as Radar, IconPlus as Plus, IconTrash as Trash2, IconExternalLink as ExternalLink, IconTag as Tag, IconChecks as CheckCheck, IconBuilding as Building2, IconCalendar as Calendar, IconCurrencyDollar as DollarSign, IconLoader2 as Loader2, IconBellOff as BellOff, IconX as X, IconClock as Clock, IconSearch as Search, IconBolt as Zap, IconToggleLeft as ToggleLeft, IconToggleRight as ToggleRight, IconWand as Sparkles, IconFilter as Filter, IconChevronDown as ChevronDown, IconFileText as FileText, IconDownload as Download, IconMapPin as MapPin, IconArrowsUpDown as ArrowUpDown, IconEye as Eye, IconEyeOff as EyeOff, IconAlertCircle as AlertCircle, IconFlame as Flame, IconAdjustmentsHorizontal as SlidersHorizontal, IconSquareCheck as CheckSquare, IconSquare as Square, IconUserPlus as UserPlus, IconArrowBackUp as Undo2, IconUserCheck as UserCheck, IconBan as Ban, IconCircleMinus as MinusCircle, IconHistory as History, IconArrowsShuffle as Shuffle } from '@tabler/icons-react';
@@ -290,7 +293,7 @@ function ViabilidadBadge({ semaforo, score, area, informe }: {
           <div className="flex items-center gap-1.5 mb-1.5">
             <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: cfg.dot }} />
             <span className="text-xs font-semibold text-tinta dark:text-slate-100">{cfg.label}{score != null ? ` · ${score}/100` : ''}</span>
-            {area && <span className="text-[11px] text-tinta-3 ml-auto">{area}</span>}
+            {area && <span className="text-xs text-tinta-3 ml-auto">{area}</span>}
           </div>
           {inf.resumen && <p className="text-xs text-tinta-2 dark:text-slate-300 leading-snug mb-2">{inf.resumen}</p>}
           {inf.ventaja_competitiva && (
@@ -330,7 +333,7 @@ function PrefiltroBadge({ decision, categoria, motivo, confianza }: {
           <div className="flex items-center gap-1.5 mb-1.5">
             <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: cfg.dot }} />
             <span className="text-xs font-semibold text-tinta dark:text-slate-100">Prefiltro: {cfg.label}{catLabel ? ` · ${catLabel}` : ''}</span>
-            {confianza != null && <span className="text-[11px] text-tinta-3 ml-auto tabular-nums">conf. {Math.round(confianza * 100)}%</span>}
+            {confianza != null && <span className="text-xs text-tinta-3 ml-auto tabular-nums">conf. {Math.round(confianza * 100)}%</span>}
           </div>
           {motivo && <p className="text-xs text-tinta-2 dark:text-slate-300 leading-snug">{motivo}</p>}
         </div>
@@ -387,7 +390,7 @@ function LicitacionListItem({
             <TipoBadge codigo={alerta.licitacion_codigo} />
             <EstadoBadge estado={alerta.licitacion_estado} cierre={alerta.licitacion_cierre} />
           </div>
-          <span className="text-[11px] font-mono text-tinta-3">{alerta.licitacion_codigo}</span>
+          <span className="text-xs font-mono text-tinta-3">{alerta.licitacion_codigo}</span>
         </div>
 
         <Link
@@ -506,7 +509,7 @@ function LicitacionCard({
             </button>
             <TipoBadge codigo={alerta.licitacion_codigo} />
             <EstadoBadge estado={alerta.licitacion_estado} cierre={alerta.licitacion_cierre} />
-            <span className="text-[11px] font-mono text-tinta-3">{alerta.licitacion_codigo}</span>
+            <span className="text-xs font-mono text-tinta-3">{alerta.licitacion_codigo}</span>
             {alerta.descartada && (
               <span className="inline-flex items-center gap-1 text-xs text-tinta-3"><EyeOff size={13} strokeWidth={1.75} /> Descartada</span>
             )}
@@ -628,12 +631,17 @@ function CardSkeleton() {
   );
 }
 
+const CHIP = 'inline-flex h-7 items-center gap-1.5 rounded-lg border border-linea bg-white px-2 text-xs font-medium text-tinta transition-colors hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800';
+const BTN_CORTE = 'h-8 rounded-lg border px-3 text-[13px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marca/60';
+const CORTE_ON = 'border-marca bg-marca-suave text-marca';
+const CORTE_OFF = 'border-linea bg-white text-tinta-2 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800';
+
 // ── Ayuda contextual: "?" con popover que explica qué hace cada control ───────
 function InfoHint({ texto }: { texto: string }) {
   return (
     <span className="relative group/info inline-flex flex-shrink-0">
       <span className="w-[18px] h-[18px] rounded-full bg-slate-100 text-slate-400 text-[10px] font-semibold flex items-center justify-center cursor-help border border-slate-200 group-hover/info:bg-teal-50 group-hover/info:text-teal-500 group-hover/info:border-teal-200 transition-colors">?</span>
-      <span className="invisible opacity-0 group-hover/info:visible group-hover/info:opacity-100 transition-opacity duration-150 absolute left-1/2 -translate-x-1/2 top-full mt-1.5 z-40 w-64 p-2.5 rounded-lg bg-slate-900 text-white text-[11px] leading-snug font-medium shadow-flotante pointer-events-none">
+      <span className="invisible opacity-0 group-hover/info:visible group-hover/info:opacity-100 transition-opacity duration-150 absolute left-1/2 -translate-x-1/2 top-full mt-1.5 z-40 w-64 p-2.5 rounded-lg bg-slate-900 text-white text-xs leading-snug font-medium shadow-flotante pointer-events-none">
         {texto}
       </span>
     </span>
@@ -686,10 +694,10 @@ function PanelFiltros({
     .map(([k, n]) => ({ value: k, label: k, count: n }));
 
   return (
-    <div className="bg-white border border-slate-200 rounded-xl p-3.5 space-y-3">
+    <div className="bg-white border border-linea rounded-xl p-4 shadow-tarjeta space-y-3 dark:bg-slate-900 dark:border-slate-800">
       {/* Fila 1 — CLASIFICACIÓN: qué es cada licitación */}
       <div className="flex flex-wrap items-center gap-x-1.5 gap-y-2">
-        <span className="text-[10px] font-semibold text-slate-400 w-[88px] flex-shrink-0">Clasificación</span>
+        <span className="text-[13px] font-medium text-tinta-2 dark:text-slate-400 w-24 flex-shrink-0">Clasificación</span>
         {estadoOpts.length > 0 && <>
           <MultiSelect label="Estado MP" icon={<FileText size={13} />} selected={filtros.estados}
             onChange={v => onChange('estados', v)} options={estadoOpts} />
@@ -714,7 +722,7 @@ function PanelFiltros({
 
       {/* Fila 2 — ALCANCE: cuánto, cuándo y dónde */}
       <div className="flex flex-wrap items-center gap-x-1.5 gap-y-2">
-        <span className="text-[10px] font-semibold text-slate-400 w-[88px] flex-shrink-0">Alcance</span>
+        <span className="text-[13px] font-medium text-tinta-2 dark:text-slate-400 w-24 flex-shrink-0">Alcance</span>
         <div title="Plazo hasta el cierre de ofertas. 'Ya vencidos' carga además el histórico completo.">
           <Select value={filtros.dias} onChange={v => onChange('dias', v)} icon={<Clock size={13} />}
             options={RANGOS_DIAS.map(r => ({ value: r.key, label: r.label }))} minWidth={170} />
@@ -735,25 +743,25 @@ function PanelFiltros({
           <InfoHint texto="Palabra clave del radar que detectó la licitación (el match puede venir del título, la descripción o los ítems)." />
         </>}
         {/* Rango de fecha de publicación */}
-        <div className="inline-flex items-center gap-1.5 border border-slate-200 rounded-lg px-2 py-[5px] bg-white">
+        <div className="inline-flex h-9 items-center gap-1.5 border border-linea rounded-lg px-2.5 bg-white dark:border-slate-700 dark:bg-slate-900">
           <Calendar size={12} className="text-slate-400 flex-shrink-0" />
           <input type="date" value={filtros.fechaDesde} max={filtros.fechaHasta || undefined}
             onChange={e => onChange('fechaDesde', e.target.value)}
-            className="text-[12px] text-slate-600 outline-none bg-transparent w-[118px]" />
-          <span className="text-slate-300 text-[11px]">→</span>
+            className="text-[13px] text-tinta dark:text-slate-100 outline-none bg-transparent w-[118px]" />
+          <span className="text-tinta-3 text-xs">→</span>
           <input type="date" value={filtros.fechaHasta} min={filtros.fechaDesde || undefined}
             onChange={e => onChange('fechaHasta', e.target.value)}
-            className="text-[12px] text-slate-600 outline-none bg-transparent w-[118px]" />
+            className="text-[13px] text-tinta dark:text-slate-100 outline-none bg-transparent w-[118px]" />
           {(filtros.fechaDesde || filtros.fechaHasta) && (
             <button onClick={() => { onChange('fechaDesde', ''); onChange('fechaHasta', ''); }}
-              title="Limpiar fechas" className="text-slate-400 hover:text-red-500"><X size={12} /></button>
+              title="Limpiar fechas" aria-label="Limpiar fechas" className="text-slate-400 hover:text-urgente"><X size={16} stroke={1.75} /></button>
           )}
         </div>
         <InfoHint texto="Rango de la FECHA DE PUBLICACIÓN en Mercado Público. Si la API no entregó fecha, se usa el día en que la licitación llegó al radar." />
         <button
           onClick={() => onChange('conDocumentos', !filtros.conDocumentos)}
-          className={`inline-flex items-center gap-1.5 text-[12px] px-2.5 py-[7px] rounded-lg border font-semibold transition-all ${
-            filtros.conDocumentos ? 'bg-teal-50 text-teal-700 border-teal-300' : 'border-slate-200 text-slate-500 hover:border-slate-400'
+          aria-pressed={filtros.conDocumentos} className={`inline-flex items-center gap-1.5 h-9 text-[13px] px-3 rounded-lg border font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marca/60 ${
+            filtros.conDocumentos ? CORTE_ON : CORTE_OFF
           }`}
         >
           <FileText size={12} /> Con documentos
@@ -762,19 +770,9 @@ function PanelFiltros({
       </div>
 
       {/* Footer */}
-      <div className="flex items-center justify-between gap-3 pt-2 border-t border-slate-100 flex-wrap">
-        <p className="text-[11px] text-slate-400">Los filtros se combinan entre sí y quedan guardados mientras navegas por la app.</p>
-        <button
-          onClick={onClear}
-          disabled={!hayFiltros}
-          className={`inline-flex items-center gap-1.5 text-[12px] px-3 py-1.5 rounded-lg border font-semibold transition-all ${
-            hayFiltros
-              ? 'bg-red-50 text-red-600 border-red-200 hover:bg-red-100'
-              : 'text-slate-300 border-slate-100 cursor-not-allowed'
-          }`}
-        >
-          <X size={12} /> Limpiar filtros
-        </button>
+      <div className="flex items-center justify-between gap-3 pt-3 border-t border-linea dark:border-slate-800 flex-wrap">
+        <p className="text-xs text-tinta-2 dark:text-slate-400">Los filtros se combinan entre sí y quedan guardados mientras navegas por la app.</p>
+        <Boton variante="fantasma" tamano="sm" onClick={onClear} disabled={!hayFiltros} icono={<X size={16} stroke={1.75} />}>Limpiar filtros</Boton>
       </div>
     </div>
   );
@@ -811,17 +809,17 @@ function AsignarModal({ usuarios, count, unaNombre = null, onClose, onConfirm, l
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-flotante w-full max-w-2xl" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+      <div className="bg-white dark:bg-slate-900 rounded-xl border border-linea dark:border-slate-800 shadow-flotante w-full max-w-xl" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-linea dark:border-slate-800">
           <div className="min-w-0">
-            <h3 className="text-[15px] font-semibold text-slate-800">Asignar {count} licitación{count !== 1 ? 'es' : ''}</h3>
-            <p className="text-[12px] text-slate-400 truncate">{unaNombre ? unaNombre : 'Elige el perfil del equipo'}</p>
+            <h3 className="text-[15px] font-semibold text-tinta dark:text-slate-50">Asignar {count} licitación{count !== 1 ? 'es' : ''}</h3>
+            <p className="text-xs text-tinta-2 dark:text-slate-400 truncate">{unaNombre ? unaNombre : 'Elige el perfil del equipo'}</p>
           </div>
-          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100"><X size={16} /></button>
+          <button onClick={onClose} aria-label="Cerrar" className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marca/60"><X size={18} stroke={1.75} /></button>
         </div>
         <div className="max-h-80 overflow-y-auto p-2">
           {usuariosOrdenados.length === 0 ? (
-            <p className="text-[13px] text-slate-400 text-center py-8">No hay perfiles disponibles.</p>
+            <p className="text-[13px] text-tinta-2 text-center py-8">No hay perfiles disponibles.</p>
           ) : usuariosOrdenados.map((u, idx) => {
             const esYo = u.id === usuarioActualId;
             const esAdmin = u.rol === 'admin';
@@ -833,23 +831,23 @@ function AsignarModal({ usuarios, count, unaNombre = null, onClose, onConfirm, l
               <div key={u.id}>
                 {mostrarSeparador && (
                   <div className="flex items-center gap-2 px-3 py-1.5 mt-1">
-                    <div className="flex-1 h-px bg-slate-100" />
-                    <span className="text-[10px] font-semibold text-slate-400">Administradores</span>
-                    <div className="flex-1 h-px bg-slate-100" />
+                    <div className="flex-1 h-px bg-slate-100 dark:bg-slate-800" />
+                    <span className="text-xs text-tinta-2">Administradores</span>
+                    <div className="flex-1 h-px bg-slate-100 dark:bg-slate-800" />
                   </div>
                 )}
                 <button onClick={() => setSel(u.id)}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-colors ${sel === u.id ? 'bg-teal-50 ring-1 ring-teal-300' : 'hover:bg-slate-50'}`}>
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-colors ${sel === u.id ? 'bg-marca-suave ring-1 ring-teal-300' : 'hover:bg-slate-50 dark:hover:bg-slate-800'}`}>
                   <div className={`w-8 h-8 rounded-full flex items-center justify-center text-[13px] font-semibold flex-shrink-0 border ${c.bg} ${c.text} ${c.border}`}>
                     {(u.nombre || u.email || '?').charAt(0).toUpperCase()}
                   </div>
                   <div className="min-w-0 flex-1">
-                    <p className="text-[13px] font-semibold text-slate-800 truncate">
+                    <p className="text-[13px] font-medium text-tinta dark:text-slate-100 truncate">
                       {u.nombre || u.email}
-                      {esYo && <span className="ml-1.5 text-[10px] font-normal text-teal-400">(yo)</span>}
-                      {esAdmin && <span className="ml-1.5 text-[10px] font-normal text-amber-500">admin</span>}
+                      {esYo && <span className="ml-1.5 text-xs font-normal text-marca">(yo)</span>}
+                      {esAdmin && <span className="ml-1.5 text-xs font-normal text-alerta">admin</span>}
                     </p>
-                    {u.nombre && <p className="text-[11px] text-slate-400 truncate">{u.email}</p>}
+                    {u.nombre && <p className="text-xs text-tinta-2 dark:text-slate-400 truncate">{u.email}</p>}
                   </div>
                   {sel === u.id && <CheckSquare size={16} className="text-teal-600 ml-auto flex-shrink-0" />}
                 </button>
@@ -857,12 +855,12 @@ function AsignarModal({ usuarios, count, unaNombre = null, onClose, onConfirm, l
             );
           })}
         </div>
-        <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-slate-100">
-          <button onClick={onClose} className="px-4 py-2 text-[13px] font-semibold text-slate-600 rounded-lg hover:bg-slate-100">Cancelar</button>
-          <button onClick={() => sel != null && onConfirm(sel)} disabled={sel == null || loading}
-            className="inline-flex items-center gap-1.5 px-4 py-2 text-[13px] font-semibold text-white bg-teal-600 rounded-lg hover:bg-teal-700 disabled:opacity-50">
-            {loading ? <Loader2 size={14} className="animate-spin" /> : <UserPlus size={14} />} Asignar
-          </button>
+        <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-linea dark:border-slate-800">
+          <Boton onClick={onClose}>Cancelar</Boton>
+          <Boton variante="primario" onClick={() => sel != null && onConfirm(sel)} disabled={sel == null || loading}
+            icono={loading ? <Loader2 size={16} className="animate-spin" /> : <UserPlus size={16} stroke={1.75} />}>
+            {loading ? 'Asignando…' : 'Asignar'}
+          </Boton>
         </div>
       </div>
     </div>
@@ -1771,7 +1769,7 @@ export default function RadarPage() {
                     <button
                       onClick={iniciarDescNeg}
                       title="Descarga los documentos de TODAS las licitaciones asignadas en Negocios (todos los perfiles) que aún no los tienen. Reanudable."
-                      className="ml-1 px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-[11px] transition-colors"
+                      className="ml-1 px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs transition-colors"
                     >
                       Descargar docs de Negocios
                     </button>
@@ -1843,7 +1841,7 @@ export default function RadarPage() {
             >
               {t.label}
               {t.count > 0 && (
-                <span className={`text-[11px] px-1.5 py-px rounded-full font-semibold tabular-nums ${
+                <span className={`text-xs px-1.5 py-px rounded-full font-semibold tabular-nums ${
                   t.key === 'radar' && noLeidas > 0 ? 'bg-teal-600 text-white' : 'bg-slate-100 text-slate-500'
                 }`}>{t.count}</span>
               )}
@@ -1897,8 +1895,8 @@ export default function RadarPage() {
                         { n: '4', t: 'Gestión', d: 'Descarta lo que no sirve, opera en lote con la selección múltiple y filtra con los KPIs de arriba: son clicables.' },
                       ].map(p => (
                         <div key={p.n} className="rounded-lg bg-slate-50 border border-slate-100 p-3">
-                          <p className="text-[11px] font-semibold text-teal-600 mb-1">{p.n} · {p.t.toUpperCase()}</p>
-                          <p className="text-[11.5px] text-slate-500 leading-snug">{p.d}</p>
+                          <p className="text-xs font-semibold text-teal-600 mb-1">{p.n} · {p.t.toUpperCase()}</p>
+                          <p className="text-xs text-slate-500 leading-snug">{p.d}</p>
                         </div>
                       ))}
                     </div>
@@ -1918,7 +1916,7 @@ export default function RadarPage() {
                       <strong className="text-slate-700 tabular-nums">{alertas.length.toLocaleString('es-CL')}</strong>
                       <span>detectadas en el radar</span>
                       <InfoHint texto={desgloseTexto} />
-                      <span className="text-slate-400 text-[11.5px]">— pasa el mouse por el "?" para ver qué se oculta y por qué</span>
+                      <span className="text-slate-400 text-xs">— pasa el mouse por el "?" para ver qué se oculta y por qué</span>
                     </>
                   )}
                 </div>
@@ -1948,7 +1946,7 @@ export default function RadarPage() {
                 </div>
 
                 {/* ── Barra de mando (pegajosa): búsqueda + orden + vista + filtros + gestión ── */}
-                <div className="sticky top-0 z-30 bg-white/95 backdrop-blur rounded-xl border border-slate-200 shadow-sm p-3 space-y-2.5">
+                <div className="sticky top-0 z-30 bg-white rounded-xl border border-linea shadow-tarjeta p-3 space-y-2.5 dark:bg-slate-900 dark:border-slate-800">
                   {/* Fila 1: buscador (con debounce) + orden + vista + panel de filtros */}
                   <div className="flex flex-wrap items-center gap-2">
                     <div className="relative flex-1 min-w-[220px]">
@@ -1959,7 +1957,7 @@ export default function RadarPage() {
                         onChange={e => setTextoInput(e.target.value)}
                         title="Busca en el título, el organismo y el código de licitación. Se aplica junto con los demás filtros."
                         placeholder="Buscar por título, organismo o código (ej: 1499887-11-LE26)…"
-                        className="w-full pl-9 pr-8 py-2 border border-slate-200 rounded-lg text-[13px] focus:ring-2 focus:ring-teal-500/20 focus:border-teal-400 outline-none transition-all bg-slate-50"
+                        className="h-9 w-full pl-9 pr-8 border border-linea rounded-lg text-[13px] text-tinta placeholder:text-tinta-3 outline-none focus-visible:ring-2 focus-visible:ring-marca/60 bg-white dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
                       />
                       {textoInput && (
                         <button onClick={() => setTextoInput('')} title="Limpiar búsqueda"
@@ -1972,37 +1970,16 @@ export default function RadarPage() {
                       <Select value={filtros.orden} onChange={v => setFiltro('orden', v)} icon={<ArrowUpDown size={13} />}
                         options={OPCIONES_ORDEN.map(o => ({ value: o.key, label: o.label }))} minWidth={215} />
                     </div>
-                    <div className="flex items-center gap-1 bg-slate-100 rounded-lg p-1">
-                      <button onClick={() => setVistaRadar('tarjetas')} title="Tarjetas con el detalle completo"
-                        className={`px-3 py-1.5 text-[11px] font-semibold rounded transition-colors ${
-                          vistaRadar === 'tarjetas' ? 'bg-white text-teal-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
-                        }`}>
-                        Tarjetas
-                      </button>
-                      <button onClick={() => setVistaRadar('lista')} title="Lista compacta (una línea por licitación)"
-                        className={`px-3 py-1.5 text-[11px] font-semibold rounded transition-colors ${
-                          vistaRadar === 'lista' ? 'bg-white text-teal-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
-                        }`}>
-                        Lista
-                      </button>
-                    </div>
-                    <button
-                      onClick={() => setFiltrosOpen(v => !v)}
+                    <Pestanas id="vista-radar" valor={vistaRadar} onCambio={setVistaRadar}
+                      opciones={[{ valor: 'tarjetas', etiqueta: 'Tarjetas' }, { valor: 'lista', etiqueta: 'Lista' }]} />
+                    <Boton onClick={() => setFiltrosOpen(v => !v)} aria-expanded={filtrosOpen}
                       title="Abre el panel completo de filtros (estado, viabilidad, prefiltro, tipo, plazo, monto, región, palabra, fechas, documentos). El número indica cuántos filtros están activos."
-                      className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border text-[12px] font-semibold transition-colors ${
-                        filtrosOpen || numFiltrosActivos > 0
-                          ? 'bg-teal-50 text-teal-700 border-teal-200'
-                          : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400'
-                      }`}>
-                      <SlidersHorizontal size={13} />
+                      className={filtrosOpen || numFiltrosActivos > 0 ? '!border-marca !bg-marca-suave !text-marca' : ''}
+                      icono={<SlidersHorizontal size={16} stroke={1.75} />}>
                       Filtros
-                      {numFiltrosActivos > 0 && (
-                        <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-teal-600 text-white text-[10px] font-semibold">
-                          {numFiltrosActivos}
-                        </span>
-                      )}
-                      <ChevronDown size={12} className={`transition-transform ${filtrosOpen ? 'rotate-180' : ''}`} />
-                    </button>
+                      {numFiltrosActivos > 0 && <span className="text-xs font-semibold tabular-nums">{numFiltrosActivos}</span>}
+                      <ChevronDown size={16} stroke={1.75} className={`transition-transform ${filtrosOpen ? 'rotate-180' : ''}`} />
+                    </Boton>
                   </div>
 
                   {/* Fila 2: cortes de gestión + acciones de la lista */}
@@ -2010,14 +1987,10 @@ export default function RadarPage() {
                     {/* Estado base: Activas (todo lo no descartado) */}
                     <button onClick={() => setFiltro('gestion', '')}
                       title="Vista base: todo lo no descartado (con los filtros de arriba aplicados)"
-                      className={`text-[12px] font-semibold px-3 py-1.5 rounded-lg border transition-colors ${
-                        filtros.gestion === ''
-                          ? 'bg-teal-600 text-white border-teal-600'
-                          : 'bg-white text-slate-600 border-slate-200 hover:border-teal-300 hover:text-teal-700'
-                      }`}>
+                      aria-pressed={filtros.gestion === ''} className={`${BTN_CORTE} ${filtros.gestion === '' ? CORTE_ON : CORTE_OFF}`}>
                       Activas
                     </button>
-                    <span className="w-px h-5 bg-slate-200 mx-0.5" aria-hidden="true" />
+                    <span className="w-px h-5 bg-slate-200 dark:bg-slate-700 mx-0.5" aria-hidden="true" />
                     {([
                       { key: 'no_leidas',      label: 'No leídas',       color: 'violet' },
                       { key: 'sin_asignar',    label: 'Sin asignar',     color: 'indigo' },
@@ -2033,18 +2006,10 @@ export default function RadarPage() {
                         excluidas_pref: 'Lo que el prefiltro IA (Fase 0) dejó fuera automáticamente por no calzar con el perfil de negocio',
                       };
                       const activo = filtros.gestion === g.key;
-                      const clsActivo =
-                        g.color === 'emerald' ? 'bg-emerald-600 text-white border-emerald-600' :
-                        g.color === 'violet'  ? 'bg-cyan-600 text-white border-cyan-600' :
-                        g.color === 'slate'   ? 'bg-slate-600 text-white border-slate-600' :
-                        g.color === 'amber'   ? 'bg-amber-500 text-white border-amber-500' :
-                        'bg-teal-600 text-white border-teal-600';
-                      return (
+                                            return (
                         <button key={g.key} onClick={() => setFiltro('gestion', activo ? '' : g.key)}
                           title={TITULOS_GESTION[g.key]}
-                          className={`text-[12px] font-semibold px-3 py-1.5 rounded-lg border transition-colors ${
-                            activo ? clsActivo : 'bg-white text-slate-600 border-slate-200 hover:border-teal-300 hover:text-teal-700'
-                          }`}>
+                          aria-pressed={activo} className={`${BTN_CORTE} ${activo ? CORTE_ON : CORTE_OFF}`}>
                           {g.label}
                         </button>
                       );
@@ -2052,22 +2017,22 @@ export default function RadarPage() {
                     <InfoHint texto="Cortes rápidos de gestión: 'Activas' es la vista base (todo lo no descartado). 'Descartadas' muestra lo que sacaste del radar y 'Excluidas (prefiltro)' lo que la Fase 0 dejó fuera automáticamente." />
 
                     <div className="ml-auto flex items-center gap-3 flex-wrap">
-                      <p className="text-[12px] text-slate-500">
-                        <strong className="text-slate-800 text-[13px]">{alertasFiltradas.length}</strong>
+                      <p className="text-xs text-tinta-2 dark:text-slate-400">
+                        <strong className="font-semibold text-tinta dark:text-slate-100 text-[13px] tabular-nums">{alertasFiltradas.length}</strong>
                         {' '}licitación{alertasFiltradas.length !== 1 ? 'es' : ''}
                         {alertasFiltradas.length < alertas.length && (
-                          <span className="text-slate-400"> de {alertas.length}</span>
+                          <span className="text-tinta-2"> de {alertas.length}</span>
                         )}
                       </p>
                       <button onClick={() => setIncluirVencidas(v => !v)} disabled={loadingAlerts}
                         title={incluirVencidas ? 'Mostrar solo licitaciones activas' : 'Cargar también las licitaciones vencidas (histórico completo)'}
-                        className="flex items-center gap-1.5 text-[12px] text-slate-400 hover:text-teal-600 transition-colors disabled:opacity-50">
+                        className="flex items-center gap-1.5 text-[13px] text-tinta-2 hover:text-marca transition-colors disabled:opacity-50">
                         <History size={13} /> {incluirVencidas ? 'Solo activas' : 'Ver histórico'}
                       </button>
                       {noLeidas > 0 && (
                         <button onClick={marcarTodasLeidas}
                           title="Marca como revisadas TODAS las no leídas del radar (deja la burbuja del título en 0). No las descarta ni las asigna: solo apaga el aviso de 'nueva'."
-                          className="flex items-center gap-1.5 text-[12px] text-slate-400 hover:text-teal-600 transition-colors">
+                          className="flex items-center gap-1.5 text-[13px] text-tinta-2 hover:text-marca transition-colors">
                           <CheckCheck size={13} /> Marcar todas leídas
                         </button>
                       )}
@@ -2084,7 +2049,7 @@ export default function RadarPage() {
                             });
                           }}
                           title="Selecciona todas las tarjetas de esta página para asignarlas o descartarlas en lote"
-                          className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-slate-500 hover:text-teal-600 transition-colors">
+                          className="inline-flex items-center gap-1.5 text-[13px] font-medium text-tinta-2 hover:text-marca transition-colors">
                           {alertasPagina.every(a => sel.has(a.id))
                             ? <><CheckSquare size={14} className="text-teal-600" /> Quitar selección</>
                             : <><Square size={14} /> Seleccionar página ({alertasPagina.length})</>}
@@ -2095,88 +2060,88 @@ export default function RadarPage() {
 
                   {/* Fila 3: chips de TODO lo que está filtrando ahora (quitar de a uno) */}
                   {numFiltrosActivos > 0 && (
-                    <div className="flex flex-wrap items-center gap-1.5 pt-2 border-t border-slate-100">
-                      <span className="text-[11px] text-slate-400">Filtrando:</span>
+                    <div className="flex flex-wrap items-center gap-1.5 pt-2.5 border-t border-linea dark:border-slate-800">
+                      <span className="text-xs text-tinta-2 dark:text-slate-400">Filtrando</span>
                       {filtros.texto && (
                         <button onClick={() => setFiltro('texto', '')}
-                          className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-700 hover:opacity-75">
-                          <Search size={10} /> “{filtros.texto}” <X size={11} />
+                          className={CHIP}>
+                          <Search size={14} stroke={1.75} /> “{filtros.texto}” <X size={14} stroke={1.75} className="text-slate-400" />
                         </button>
                       )}
                       {!estadosEsDefault && (
                         <button onClick={() => setFiltro('estados', ESTADOS_ACTIVOS_DEFAULT)}
-                          className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-600 hover:opacity-75">
-                          Estado: {filtros.estados.length ? filtros.estados.join(', ') : 'todos'} <X size={11} />
+                          className={CHIP}>
+                          Estado: {filtros.estados.length ? filtros.estados.join(', ') : 'todos'} <X size={14} stroke={1.75} className="text-slate-400" />
                         </button>
                       )}
                       {!tiposEsDefault && (
                         <button onClick={() => setFiltro('tipos', FILTROS_DEFAULT.tipos)}
-                          className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-600 hover:opacity-75">
-                          Tipo: {filtros.tipos.length ? filtros.tipos.join(', ') : 'todos'} <X size={11} />
+                          className={CHIP}>
+                          Tipo: {filtros.tipos.length ? filtros.tipos.join(', ') : 'todos'} <X size={14} stroke={1.75} className="text-slate-400" />
                         </button>
                       )}
                       {filtros.semaforos.map(s => (
                         <button key={s} onClick={() => setFiltro('semaforos', filtros.semaforos.filter(x => x !== s))}
-                          className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full border hover:opacity-75 ${SEMAFORO_CFG[s]?.bg} ${SEMAFORO_CFG[s]?.text} ${SEMAFORO_CFG[s]?.border}`}>
-                          Viabilidad: {SEMAFORO_CFG[s]?.label || s} <X size={11} />
+                          className={CHIP}>
+                          <span aria-hidden style={{ backgroundColor: SEMAFORO_CFG[s]?.dot }} className="h-1.5 w-1.5 rounded-full" />Viabilidad: {SEMAFORO_CFG[s]?.label || s} <X size={14} stroke={1.75} className="text-slate-400" />
                         </button>
                       ))}
                       {filtros.decisiones.map(dv => (
                         <button key={dv} onClick={() => setFiltro('decisiones', filtros.decisiones.filter(x => x !== dv))}
-                          className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full border hover:opacity-75 ${PREFILTRO_CFG[dv]?.bg} ${PREFILTRO_CFG[dv]?.text} ${PREFILTRO_CFG[dv]?.border}`}>
-                          Prefiltro: {PREFILTRO_CFG[dv]?.label || dv} <X size={11} />
+                          className={CHIP}>
+                          <span aria-hidden style={{ backgroundColor: PREFILTRO_CFG[dv]?.dot }} className="h-1.5 w-1.5 rounded-full" />Prefiltro: {PREFILTRO_CFG[dv]?.label || dv} <X size={14} stroke={1.75} className="text-slate-400" />
                         </button>
                       ))}
                       {filtros.dias && (
                         <button onClick={() => setFiltro('dias', '')}
-                          className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-600 hover:opacity-75">
-                          {RANGOS_DIAS.find(r => r.key === filtros.dias)?.label} <X size={11} />
+                          className={CHIP}>
+                          {RANGOS_DIAS.find(r => r.key === filtros.dias)?.label} <X size={14} stroke={1.75} className="text-slate-400" />
                         </button>
                       )}
                       {filtros.monto && (
                         <button onClick={() => setFiltro('monto', '')}
-                          className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-700 hover:opacity-75">
-                          {RANGOS_MONTO.find(r => r.key === filtros.monto)?.label} <X size={11} />
+                          className={CHIP}>
+                          {RANGOS_MONTO.find(r => r.key === filtros.monto)?.label} <X size={14} stroke={1.75} className="text-slate-400" />
                         </button>
                       )}
                       {filtros.region && (
                         <button onClick={() => setFiltro('region', '')}
-                          className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-600 hover:opacity-75 max-w-[220px]">
-                          <MapPin size={10} /> <span className="truncate">{filtros.region}</span> <X size={11} />
+                          className={CHIP}>
+                          <MapPin size={14} stroke={1.75} /> <span className="truncate">{filtros.region}</span> <X size={14} stroke={1.75} className="text-slate-400" />
                         </button>
                       )}
                       {filtros.keyword && (
                         <button onClick={() => setFiltro('keyword', '')}
-                          className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-600 hover:opacity-75">
-                          <Tag size={10} /> {filtros.keyword} <X size={11} />
+                          className={CHIP}>
+                          <Tag size={14} stroke={1.75} /> {filtros.keyword} <X size={14} stroke={1.75} className="text-slate-400" />
                         </button>
                       )}
                       {(filtros.fechaDesde || filtros.fechaHasta) && (
                         <button onClick={() => { setFiltro('fechaDesde', ''); setFiltro('fechaHasta', ''); }}
-                          className="inline-flex items-center gap-1 text-[11px] font-medium text-teal-700 hover:opacity-75">
-                          <Calendar size={10} /> Publicación: {filtros.fechaDesde || '…'} → {filtros.fechaHasta || '…'} <X size={11} />
+                          className={CHIP}>
+                          <Calendar size={14} stroke={1.75} /> Publicación: {filtros.fechaDesde || '…'} → {filtros.fechaHasta || '…'} <X size={14} stroke={1.75} className="text-slate-400" />
                         </button>
                       )}
                       {filtros.conDocumentos && (
                         <button onClick={() => setFiltro('conDocumentos', false)}
-                          className="inline-flex items-center gap-1 text-[11px] font-medium text-teal-700 hover:opacity-75">
-                          <FileText size={10} /> Con documentos <X size={11} />
+                          className={CHIP}>
+                          <FileText size={14} stroke={1.75} /> Con documentos <X size={14} stroke={1.75} className="text-slate-400" />
                         </button>
                       )}
                       {filtros.soloNoLeidas && (
                         <button onClick={() => setFiltro('soloNoLeidas', false)}
-                          className="inline-flex items-center gap-1 text-[11px] font-medium text-cyan-700 hover:opacity-75">
-                          Solo no leídas <X size={11} />
+                          className={CHIP}>
+                          Solo no leídas <X size={14} stroke={1.75} className="text-slate-400" />
                         </button>
                       )}
                       {filtros.ocultarExcluidas && (
                         <button onClick={() => setFiltro('ocultarExcluidas', false)}
-                          className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-600 hover:opacity-75">
-                          Ocultar excluidas <X size={11} />
+                          className={CHIP}>
+                          Ocultar excluidas <X size={14} stroke={1.75} className="text-slate-400" />
                         </button>
                       )}
                       <button onClick={limpiarFiltros}
-                        className="text-[11px] font-semibold text-slate-400 hover:text-red-600 underline ml-1">
+                        className="text-xs font-medium text-tinta-2 hover:text-urgente underline underline-offset-2 ml-1">
                         Limpiar todo
                       </button>
                     </div>
@@ -2323,7 +2288,7 @@ export default function RadarPage() {
                     value={nuevaKw}
                     onChange={e => setNuevaKw(e.target.value)}
                     placeholder={nuevaNegativa ? 'Palabra a EXCLUIR. Ej: "usado", "fotográfica", "arriendo"' : 'Ej: "materiales de construcción", "cancha", "tractor"'}
-                    className={`w-full pl-9 pr-4 py-2.5 bg-white border rounded-xl text-[13px] placeholder:text-zinc-400 outline-none ${nuevaNegativa ? 'border-rose-200 focus:ring-2 focus:ring-rose-500/20 focus:border-rose-400' : 'border-zinc-200 focus:ring-2 focus:ring-teal-500/20 focus:border-teal-400'}`}
+                    className={`h-9 w-full pl-9 pr-3 bg-white border rounded-lg text-[13px] text-tinta placeholder:text-tinta-3 outline-none focus-visible:ring-2 dark:bg-slate-900 dark:text-slate-100 ${nuevaNegativa ? 'border-rose-200 focus-visible:ring-rose-400/50' : 'border-linea focus-visible:ring-marca/60 dark:border-slate-700'}`}
                     maxLength={100}
                   />
                 </div>
@@ -2331,39 +2296,29 @@ export default function RadarPage() {
                   <Select value={nuevaCat} onChange={setNuevaCat} minWidth={170}
                     options={[{ value: '', label: 'Sin categoría' }, ...etiquetas.map(e => ({ value: String(e.id), label: e.nombre, color: e.color }))]} />
                 )}
-                <button type="submit" disabled={agregando || !nuevaKw.trim()}
-                  className={`flex items-center gap-2 px-4 py-2.5 text-white rounded-xl text-[13px] font-semibold disabled:opacity-40 disabled:cursor-not-allowed shadow-sm ${nuevaNegativa ? 'bg-rose-600 hover:bg-rose-500' : 'bg-teal-600 hover:bg-teal-500'}`}>
-                  {agregando ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
+                <Boton type="submit" variante="primario" disabled={agregando || !nuevaKw.trim()}
+                  icono={agregando ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} stroke={1.75} />}>
                   Agregar
-                </button>
+                </Boton>
               </div>
               {/* Toggle: palabra positiva vs negativa (exclusión) */}
               <button type="button" onClick={() => setNuevaNegativa(v => !v)}
                 title="Palabra NEGATIVA: en vez de detectar licitaciones, las excluye del radar aunque calcen con una palabra positiva (ej: 'usado', 'arriendo')."
-                className={`mt-2 inline-flex items-center gap-1.5 text-[12px] font-semibold px-3 py-1.5 rounded-lg border transition-colors ${nuevaNegativa ? 'bg-rose-50 text-rose-700 border-rose-200' : 'bg-white text-slate-500 border-slate-200 hover:border-rose-200 hover:text-rose-600'}`}>
-                <MinusCircle size={13} /> {nuevaNegativa ? 'Es palabra de exclusión (negativa)' : 'Marcar como palabra de exclusión'}
+                aria-pressed={nuevaNegativa} className={`mt-2 inline-flex items-center gap-1.5 h-8 text-[13px] font-medium px-3 rounded-lg border transition-colors ${nuevaNegativa ? 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/30 dark:text-rose-300 dark:border-rose-900' : CORTE_OFF}`}>
+                <MinusCircle size={16} stroke={1.75} /> {nuevaNegativa ? 'Es palabra de exclusión (negativa)' : 'Marcar como palabra de exclusión'}
               </button>
             </form>
             )}
 
-            <div className="flex items-start gap-3 bg-teal-50 border border-blue-200/60 rounded-xl px-4 py-3.5 mb-5">
-              <Sparkles size={15} className="text-teal-500 flex-shrink-0 mt-0.5" />
-              <div className="text-[12.5px] text-blue-800 leading-relaxed space-y-1">
-                <p><strong className="font-semibold">¿Cómo funciona el Radar?</strong></p>
-                <p>Descarga licitaciones activas desde Mercado Público y busca tus palabras clave en el <strong>título</strong> y la <strong>descripción</strong>. Se ejecuta automáticamente cada 4 horas y los resultados se acumulan.</p>
-              </div>
+            <div className="mb-5 rounded-xl border border-linea bg-white px-4 py-3.5 shadow-tarjeta dark:bg-slate-900 dark:border-slate-800">
+              <p className="text-[13px] font-medium text-tinta dark:text-slate-100">¿Cómo funciona el Radar?</p>
+              <p className="mt-1 text-[13px] leading-relaxed text-tinta-2 dark:text-slate-400">Descarga licitaciones activas desde Mercado Público y busca tus palabras clave en el <strong className="font-semibold text-tinta dark:text-slate-200">título</strong> y la <strong className="font-semibold text-tinta dark:text-slate-200">descripción</strong>. Se ejecuta automáticamente cada 4 horas y los resultados se acumulan.</p>
             </div>
 
             {loading ? (
               <div className="space-y-2">{[1,2,3].map(i => <CardSkeleton key={i} />)}</div>
             ) : keywords.length === 0 ? (
-              <div className="flex flex-col items-center py-14 text-center">
-                <div className="w-14 h-14 bg-zinc-100 rounded-2xl flex items-center justify-center mb-3">
-                  <Search size={22} className="text-zinc-400" />
-                </div>
-                <p className="text-[14px] font-semibold text-zinc-800 mb-1">Sin palabras clave</p>
-                <p className="text-[13px] text-zinc-400">Escribe arriba para agregar la primera</p>
-              </div>
+              <Vacio icono={<Search size={28} stroke={1.75} />} titulo="Sin palabras clave" texto="Escribe arriba para agregar la primera." />
             ) : (
               <div className="space-y-4">
                 {(() => {
@@ -2379,19 +2334,19 @@ export default function RadarPage() {
 
                   return <>
                   {grupos.map(grupo => (
-                    <div key={grupo.id} className="rounded-2xl border border-zinc-200 bg-zinc-50/60 p-3">
+                    <div key={grupo.id} className="rounded-xl border border-linea bg-slate-50/60 p-3 dark:bg-slate-950/30 dark:border-slate-800">
                       {/* Cabecera de la cajita */}
                       <div className="flex items-center gap-2 px-1 pb-2.5">
                         <span style={{ backgroundColor: grupo.color }} className="w-2.5 h-2.5 rounded-full flex-shrink-0" />
-                        <span className="text-[12.5px] font-semibold" style={{ color: grupo.color }}>{grupo.nombre}</span>
-                        <span className="text-[11px] text-zinc-400 font-medium">{grupo.items.length}</span>
+                        <span className="text-[13px] font-semibold text-tinta dark:text-slate-100">{grupo.nombre}</span>
+                        <span className="text-xs text-tinta-2 tabular-nums">{grupo.items.length}</span>
                       </div>
 
                       {/* Keywords de la categoría */}
                       <div className="space-y-2">
                         {grupo.items.map(kw => (
-                          <div key={kw.id} className={`flex items-center gap-3 bg-white rounded-xl border px-4 py-3 transition-all ${
-                            kw.activo ? 'border-zinc-200 shadow-sm hover:shadow-md hover:-translate-y-px' : 'border-zinc-200/50 opacity-50'
+                          <div key={kw.id} className={`flex items-center gap-3 bg-white dark:bg-slate-900 rounded-xl border px-4 py-3 transition-all ${
+                            kw.activo ? 'border-linea shadow-tarjeta hover:shadow-tarjeta-hover dark:border-slate-800' : 'border-linea/50 opacity-50 dark:border-slate-800'
                           }`}>
                             <button onClick={() => toggleKeyword(kw.id, kw.activo)}
                               className="flex-shrink-0 transition-transform hover:scale-105"
@@ -2401,18 +2356,18 @@ export default function RadarPage() {
                                 : <ToggleLeft  size={26} className="text-zinc-300" />}
                             </button>
                             <div className="flex-1 min-w-0">
-                              <p className="text-[13.5px] font-semibold text-zinc-900">{kw.keyword}</p>
-                              <p className="text-[11px] text-zinc-400 mt-0.5 flex items-center gap-2">
+                              <p className="text-[13px] font-medium text-tinta dark:text-slate-100">{kw.keyword}</p>
+                              <p className="text-xs text-tinta-2 dark:text-slate-400 mt-0.5 flex items-center gap-2">
                                 <span>{kw.total_encontradas > 0 ? `${kw.total_encontradas} encontradas` : 'Sin búsquedas aún'}</span>
                                 {kw.ultima_busqueda && (
-                                  <span className="inline-flex items-center gap-0.5 text-zinc-300">
-                                    <Clock size={9} /> {tiempoRelativo(kw.ultima_busqueda)}
+                                  <span className="inline-flex items-center gap-1 text-tinta-3">
+                                    <Clock size={14} stroke={1.75} /> {tiempoRelativo(kw.ultima_busqueda)}
                                   </span>
                                 )}
                               </p>
                             </div>
                             {kw.resultados_nuevos > 0 && (
-                              <span className="bg-teal-600 text-white text-[11px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0">
+                              <span className="text-xs font-semibold text-marca flex-shrink-0 tabular-nums">
                                 {kw.resultados_nuevos} nuevas
                               </span>
                             )}
@@ -2420,13 +2375,13 @@ export default function RadarPage() {
                             <div title="Línea de negocio de esta palabra clave: colorea sus alertas y permite filtrar por categoría.">
                               <Select value={String(kw.categoria_id ?? '')} onChange={v => cambiarCategoria(kw.id, v)}
                                 className="max-w-[150px]" minWidth={160} align="right"
-                                buttonClassName="!px-2 !py-1 !text-[11px]"
+                                buttonClassName="!px-2 !py-1 !text-xs"
                                 options={[{ value: '', label: 'Sin categoría' }, ...etiquetas.map(e => ({ value: String(e.id), label: e.nombre, color: e.color }))]} />
                             </div>
                             <button onClick={() => eliminarKeyword(kw.id)}
                               title="Eliminar esta palabra clave y TODAS sus alertas asociadas (pide confirmación)"
-                              className="w-7 h-7 flex items-center justify-center rounded-lg text-zinc-400 hover:text-red-500 hover:bg-red-50">
-                              <Trash2 size={13} />
+                              aria-label="Eliminar" className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-urgente hover:bg-red-50 dark:hover:bg-red-950/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marca/60">
+                              <Trash2 size={16} stroke={1.75} />
                             </button>
                           </div>
                         ))}
@@ -2436,13 +2391,13 @@ export default function RadarPage() {
 
                   {/* Cajita de PALABRAS NEGATIVAS (exclusión) */}
                   {negativas.length > 0 && (
-                    <div className="rounded-2xl border border-rose-200 bg-rose-50/50 p-3">
+                    <div className="rounded-xl border border-rose-200 bg-rose-50/50 p-3 dark:bg-rose-950/20 dark:border-rose-900">
                       <div className="flex items-center gap-2 px-1 pb-1.5">
                         <Ban size={13} className="text-rose-500 flex-shrink-0" />
-                        <span className="text-[12.5px] font-semibold text-rose-600">Palabras de exclusión</span>
-                        <span className="text-[11px] text-rose-400 font-medium">{negativas.length}</span>
+                        <span className="text-[13px] font-semibold text-rose-700 dark:text-rose-300">Palabras de exclusión</span>
+                        <span className="text-xs text-rose-600 tabular-nums">{negativas.length}</span>
                       </div>
-                      <p className="text-[11.5px] text-rose-700/70 px-1 pb-2.5">Si una licitación contiene alguna de estas palabras (en título, descripción, ítems o rubro), <strong>se excluye</strong> aunque calce una palabra positiva.</p>
+                      <p className="text-xs text-rose-700 dark:text-rose-300 px-1 pb-2.5">Si una licitación contiene alguna de estas palabras (en título, descripción, ítems o rubro), <strong>se excluye</strong> aunque calce una palabra positiva.</p>
                       <div className="space-y-2">
                         {negativas.map(kw => (
                           <div key={kw.id} className={`flex items-center gap-3 bg-white rounded-xl border px-4 py-3 transition-all ${
@@ -2456,15 +2411,15 @@ export default function RadarPage() {
                                 : <ToggleLeft  size={26} className="text-zinc-300" />}
                             </button>
                             <div className="flex-1 min-w-0">
-                              <p className="text-[13.5px] font-semibold text-zinc-900 flex items-center gap-1.5">
+                              <p className="text-[13px] font-medium text-tinta dark:text-slate-100 flex items-center gap-1.5">
                                 <Ban size={12} className="text-rose-400 flex-shrink-0" /> {kw.keyword}
                               </p>
-                              <p className="text-[11px] text-zinc-400 mt-0.5">Excluye coincidencias</p>
+                              <p className="text-xs text-tinta-2 dark:text-slate-400 mt-0.5">Excluye coincidencias</p>
                             </div>
                             <button onClick={() => eliminarKeyword(kw.id)}
                               title="Eliminar esta palabra de exclusión (pide confirmación)"
-                              className="w-7 h-7 flex items-center justify-center rounded-lg text-zinc-400 hover:text-red-500 hover:bg-red-50">
-                              <Trash2 size={13} />
+                              aria-label="Eliminar" className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-urgente hover:bg-red-50 dark:hover:bg-red-950/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marca/60">
+                              <Trash2 size={16} stroke={1.75} />
                             </button>
                           </div>
                         ))}
@@ -2494,7 +2449,7 @@ export default function RadarPage() {
       {/* Overlay mientras se empuja el lote al puente. No se puede cerrar a mano: se va solo
           cuando el fetch resuelve (éxito o error), en el finally de enviarAlPuente. */}
       {enviandoAlPuente != null && createPortal(
-        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm overlay-in">
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 overlay-in">
           <div className="bg-white rounded-xl shadow-flotante px-9 py-8 modal-in">
             <PuenteLoader
               total={enviandoAlPuente}

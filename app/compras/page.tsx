@@ -1163,10 +1163,15 @@ function FilaFasesCompras({ f, onDetalle }: { f: ComprasFila; onDetalle: () => v
   );
 }
 
-function VistaGanttCompras({ negocios, ultimaUrgenteId }: { negocios: ComprasFila[]; ultimaUrgenteId: number | null }) {
+type ModoGantt = 'plazos' | 'ultimas' | 'fases';
+
+// Orden de las filas según la pestaña del Gantt: la misma regla para la pantalla y para el Excel.
+const ordenarSegunModoGantt = (negocios: ComprasFila[], modo: ModoGantt) =>
+  modo !== 'plazos' ? [...negocios].sort((a, b) => b.ganadoAt.localeCompare(a.ganadoAt)) : negocios;
+
+function VistaGanttCompras({ negocios, ultimaUrgenteId, modo, setModo }: { negocios: ComprasFila[]; ultimaUrgenteId: number | null; modo: ModoGantt; setModo: (m: ModoGantt) => void }) {
   const [densidad, setDensidad] = useState<'compacta' | 'normal' | 'amplia'>('normal');
   const [seleccionadoId, setSeleccionadoId] = useState<number | null>(null);
-  const [modo, setModo] = useState<'plazos' | 'ultimas' | 'fases'>('plazos');
   const scrollRef = useRef<HTMLDivElement>(null);
   const yaCentrado = useRef(false);
   const pxDia = PX_DIA[densidad];
@@ -1208,7 +1213,7 @@ function VistaGanttCompras({ negocios, ultimaUrgenteId }: { negocios: ComprasFil
 
   // Pestaña «Desde las últimas ganadas»: las filas van de la más reciente a la más antigua y la línea de tiempo
   // arranca en el día de la última ganada (lo anterior queda hacia la izquierda).
-  const lista = useMemo(() => modo !== 'plazos' ? [...negocios].sort((a, b) => b.ganadoAt.localeCompare(a.ganadoAt)) : negocios, [negocios, modo]);
+  const lista = useMemo(() => ordenarSegunModoGantt(negocios, modo), [negocios, modo]);
   const xUltima = useMemo(() => {
     const ult = negocios.reduce<string | null>((m, f) => (m == null || f.ganadoAt > m ? f.ganadoAt : m), null);
     return ult ? diasEntre(inicioRango, dayjs(ult.slice(0, 10))) * pxDia : 0;
@@ -1390,6 +1395,7 @@ export default function ComprasPage() {
   const [obumaCierre, setObumaCierre] = useState<Record<number, ObumaDeCerrada> | null>(null);
   const toast = useToast();
   const [exportando, setExportando] = useState(false);
+  const [modoGantt, setModoGantt] = useState<ModoGantt>('plazos');
   // Pestaña: ganadas en firme o pre-compras (POSIBLE ADJ, sin adjudicación firme).
   const [ambito, setAmbito] = useState<'ganadas' | 'precompras' | 'avances'>('ganadas');
   const [fechaDesde, setFechaDesde] = useState('');
@@ -1589,25 +1595,37 @@ export default function ComprasPage() {
     setExportando(true);
     try {
       const XLSX = await import('xlsx');
-      const filas = filtrados.map(f => ({
-        'Código': f.licitacionCodigo,
-        'Nombre': f.licitacionNombre || '',
-        'Organismo': f.licitacionOrganismo || '',
-        'Región': f.licitacionRegion || '',
-        'Encargado': f.asignadoNombre || 'Sin asignar',
-        'Postuló': f.postuladoPorNombre || '',
-        'Urgente': f.urgente ? 'Sí' : 'No',
-        'Ganado (fecha)': fechaHoraParaExcel(f.ganadoAt).fecha,
-        'Monto nuestro': f.montoNuestro ?? '',
-        'Plazo entrega (días)': f.plazoEntregaDias ?? '',
-        'Fecha OC': f.ocFecha ? fechaHoraParaExcel(f.ocFecha).fecha : '',
-        'Tareas hechas': f.tareasHechas,
-        'Tareas totales': f.tareasTotal,
-        'Tareas vencidas': f.tareasVencidas,
-        'Cierre': f.cierreLegado === 'ENTREGADA' ? 'Cerrada' : f.cierreLegado ? 'Cancelada' : 'Abierta',
-      }));
+      // Mismo orden que se ve: en Gantt manda la pestaña activa (por plazo / desde las últimas ganadas / fases).
+      const enGantt = ambito === 'ganadas' && !soloUrgentes && vista === 'gantt';
+      const lista = enGantt ? ordenarSegunModoGantt(filtrados, modoGantt) : filtrados;
+      const fmtD = (d: dayjs.Dayjs | null | undefined) => (d ? d.format('DD-MM-YYYY') : '');
+      const filas = lista.map(f => {
+        const h = calcularHitosGantt(f);
+        const p = f.hitosGantt;
+        return {
+          'Lugar': lugarCorto(f) || '',
+          'Licitación': f.licitacionNombre || '',
+          'Código': f.licitacionCodigo,
+          'Estado': estadoEntregaGantt(f, h).texto,
+          'Monto nuestro': f.montoNuestro ?? '',
+          'Ganado (fecha)': fechaHoraParaExcel(f.ganadoAt).fecha,
+          'Encargado': f.asignadoNombre || 'Sin asignar',
+          'Tareas': `${f.tareasHechas}/${f.tareasTotal}`,
+          'Tareas vencidas': f.tareasVencidas,
+          'Adjudicación': f.precompra ? '' : fmtD(h.adjudicacion),
+          'Llegó la OC': fmtD(h.ocReal),
+          'OC aceptada': p?.ocAceptada ? fmtD(dayjs(p.ocAceptada.slice(0, 10))) : '',
+          'Plazo entrega (días)': f.plazoEntregaDias ?? '',
+          'Fecha de entrega': fmtD(h.entrega),
+          'Organismo': f.licitacionOrganismo || '',
+          'Región': f.licitacionRegion || '',
+          'Postuló': f.postuladoPorNombre || '',
+          'Urgente': f.urgente ? 'Sí' : 'No',
+          'Cierre': f.cierreLegado === 'ENTREGADA' ? 'Cerrada' : f.cierreLegado ? 'Cancelada' : 'Abierta',
+        };
+      });
       const ws = hojaDeFilas(XLSX, filas);
-      ws['!cols'] = [{ wch: 18 }, { wch: 48 }, { wch: 30 }, { wch: 22 }, { wch: 22 }, { wch: 22 }, { wch: 9 }, { wch: 14 }, { wch: 14 }, { wch: 12 }, { wch: 12 }, { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 14 }];
+      ws['!cols'] = [{ wch: 16 }, { wch: 52 }, { wch: 16 }, { wch: 26 }, { wch: 14 }, { wch: 14 }, { wch: 22 }, { wch: 9 }, { wch: 10 }, { wch: 13 }, { wch: 13 }, { wch: 13 }, { wch: 12 }, { wch: 15 }, { wch: 30 }, { wch: 22 }, { wch: 22 }, { wch: 9 }, { wch: 12 }];
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, ambito === 'precompras' ? 'Pre-compras' : 'Compras');
       XLSX.writeFile(wb, `compras-${dayjs().format('DD-MM-YYYY')}.xlsx`);
@@ -1885,7 +1903,7 @@ export default function ComprasPage() {
         ) : soloUrgentes ? (
           <VistaUrgentesCompras negocios={filtrados} />
         ) : vista === 'gantt' ? (
-          <VistaGanttCompras negocios={filtrados} ultimaUrgenteId={ambito === 'ganadas' ? (ultimaUrgente?.negocioId ?? null) : null} />
+          <VistaGanttCompras negocios={filtrados} ultimaUrgenteId={ambito === 'ganadas' ? (ultimaUrgente?.negocioId ?? null) : null} modo={modoGantt} setModo={setModoGantt} />
         ) : vista === 'mes' ? (
           <VistaMensualCompras negocios={filtrados} onAbrirDia={setDiaSel} mesesVista={mesesVista} />
         ) : (

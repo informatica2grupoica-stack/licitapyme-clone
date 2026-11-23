@@ -6,8 +6,14 @@ import { AppLayout } from '@/app/components/AppLayout';
 import { useSession }  from '@/app/lib/session-context';
 import { useToast }    from '@/app/components/ui/toast';
 import { Select } from '@/app/components/ui/Select';
-import { IconStar as Star, IconExternalLink as ExternalLink, IconTrash as Trash2, IconSearch as Search, IconBuilding as Building2, IconCalendar as Calendar, IconCurrencyDollar as DollarSign, IconMapPin as MapPin, IconRefresh as RefreshCw, IconAlertCircle as AlertCircle, IconFileText as FileText, IconUserPlus as UserPlus, IconChevronDown as ChevronDown, IconCheck as Check, IconLoader2 as Loader2, IconX as X } from '@tabler/icons-react';
-import { extractTipoFromCodigo, getTipoLicitacion, TIPO_COLOR_CLASS } from '@/app/lib/tipos-licitacion';
+import { Banner } from '@/app/components/ui/Banner';
+import { Encabezado, Esqueleto, Vacio } from '@/app/components/ui/kit/Estructura';
+import { Boton } from '@/app/components/ui/kit/Boton';
+import { Lista } from '@/app/components/ui/kit/Aparecer';
+import { Tarjeta, Datos, Dato, Estado } from '@/app/components/ui/kit/Tarjeta';
+import { IconStar as Star, IconExternalLink as ExternalLink, IconTrash as Trash2, IconSearch as Search, IconRefresh as RefreshCw, IconUserPlus as UserPlus, IconCheck as Check, IconLoader2 as Loader2, IconX as X } from '@tabler/icons-react';
+import { extractTipoFromCodigo, getTipoLicitacion } from '@/app/lib/tipos-licitacion';
+import { estadoEfectivoNombre } from '@/app/lib/estado-mp';
 
 interface Favorito {
   id:              number;
@@ -27,13 +33,14 @@ interface Favorito {
 interface Usuario  { id: number; nombre: string | null; email: string; }
 interface Etiqueta { id: number; nombre: string; color: string; }
 
+// Color del punto del estado de la licitación (texto + punto, sin pastilla).
 const ESTADO_COLOR: Record<string, string> = {
-  'Publicada':  'bg-green-100 text-green-700',
-  'Adjudicada': 'bg-teal-100 text-teal-700',
-  'Cerrada':    'bg-slate-100 text-slate-600',
-  'Desierta':   'bg-red-100 text-red-600',
-  'Suspendida': 'bg-yellow-100 text-yellow-700',
-  'Revocada':   'bg-orange-100 text-orange-700',
+  'Publicada':  '#16a34a',
+  'Adjudicada': '#0d9488',
+  'Cerrada':    '#64748b',
+  'Desierta':   '#dc2626',
+  'Suspendida': '#d97706',
+  'Revocada':   '#ea580c',
 };
 
 function formatMonto(monto: number | null, moneda = 'CLP'): string {
@@ -41,17 +48,22 @@ function formatMonto(monto: number | null, moneda = 'CLP'): string {
   if (moneda === 'CLP') {
     return new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(monto);
   }
-  return `${moneda} ${monto.toLocaleString()}`;
+  return `${moneda} ${monto.toLocaleString('es-CL')}`;
 }
 
+// Cierre en días de calendario: «Hoy», «Mañana», «en 5 días». Rojo hoy/mañana, ámbar hasta 3 días.
 function diasHastaCierre(fecha: string | null): { label: string; color: string } | null {
   if (!fecha) return null;
-  const diff = Math.ceil((new Date(fecha).getTime() - Date.now()) / 86400000);
-  if (diff < 0) return { label: 'Vencida',   color: 'text-gray-400' };
-  if (diff === 0) return { label: 'Hoy',      color: 'text-red-600 font-semibold' };
-  if (diff <= 3)  return { label: `${diff}d`, color: 'text-red-500 font-semibold' };
-  if (diff <= 7)  return { label: `${diff}d`, color: 'text-orange-500' };
-  return { label: `${diff}d`, color: 'text-gray-500' };
+  const d = new Date(fecha);
+  if (isNaN(d.getTime())) return null;
+  const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
+  const dia = new Date(d); dia.setHours(0, 0, 0, 0);
+  const diff = Math.round((dia.getTime() - hoy.getTime()) / 86400000);
+  if (diff < 0)   return { label: 'Vencida',  color: '#94a3b8' };
+  if (diff === 0) return { label: 'Hoy',      color: '#dc2626' };
+  if (diff === 1) return { label: 'Mañana',   color: '#dc2626' };
+  if (diff <= 3)  return { label: `En ${diff} días`, color: '#d97706' };
+  return { label: `En ${diff} días`, color: '#475569' };
 }
 
 // ── Modal Asignar (inline, sin shared) ────────────────────────────────────────
@@ -112,69 +124,55 @@ function ModalAsignar({
   };
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm p-0 sm:p-4"
-    >
-      <div className="bg-white w-full sm:max-w-2xl rounded-t-3xl sm:rounded-xl shadow-flotante scale-in overflow-hidden">
-        <div className="flex justify-center pt-3 sm:hidden">
-          <div className="w-10 h-1 bg-zinc-200 rounded-full" />
-        </div>
-
-        <div className="flex items-center justify-between px-5 py-4">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 bg-teal-600/10 rounded-lg flex items-center justify-center">
-              <UserPlus size={15} className="text-teal-600" />
-            </div>
-            <div>
-              <h3 className="text-[14px] font-semibold text-zinc-900 leading-none">Asignar a perfil</h3>
-              <p className="text-[11px] text-zinc-400 mt-0.5">Agregar al pipeline de negocios</p>
-            </div>
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-0 sm:p-4">
+      <div className="bg-white dark:bg-slate-900 w-full sm:max-w-xl rounded-t-2xl sm:rounded-xl shadow-flotante scale-in overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-linea dark:border-slate-800">
+          <div>
+            <h3 className="text-[15px] font-semibold text-tinta dark:text-slate-50">Asignar a un perfil</h3>
+            <p className="text-xs text-tinta-2 dark:text-slate-400 mt-0.5">Se agrega al pipeline de Negocios.</p>
           </div>
-          <button onClick={onClose} className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-zinc-100 text-zinc-400">
-            <X size={14} />
+          <button onClick={onClose} aria-label="Cerrar"
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-tinta focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marca/60 dark:hover:bg-slate-800">
+            <X size={18} stroke={1.75} />
           </button>
         </div>
 
-        <div className="px-5 pb-5 space-y-4">
-          <div className="bg-zinc-50 border border-zinc-200/60 rounded-xl p-3.5">
-            <p className="text-[13px] font-semibold text-zinc-900 line-clamp-2 mb-1.5">
+        <div className="px-5 py-5 space-y-5">
+          <div>
+            <p className="text-[13px] font-medium text-tinta dark:text-slate-100 line-clamp-2">
               {favorito.nombre || favorito.codigo}
             </p>
-            <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-zinc-500">
-              <span className="font-mono text-teal-600 font-semibold">{favorito.codigo}</span>
-              {tipo && (
-                <span className={`${TIPO_COLOR_CLASS[tipo] || 'bg-gray-500'} text-white text-[10px] px-1.5 py-0.5 rounded font-semibold`}>
-                  {tipo}
-                </span>
-              )}
-              {favorito.organismo && <span className="truncate">{favorito.organismo}</span>}
-            </div>
+            <p className="mt-1 flex flex-wrap items-center gap-x-2 text-xs text-tinta-2 dark:text-slate-400">
+              <span className="font-mono">{favorito.codigo}</span>
+              {tipo && <><span aria-hidden>·</span><span>{tipo}</span></>}
+              {favorito.organismo && <><span aria-hidden>·</span><span className="truncate">{favorito.organismo}</span></>}
+            </p>
           </div>
 
           {exito ? (
             <div className="flex flex-col items-center py-6 gap-3 slide-in-up">
-              <div className="w-14 h-14 rounded-2xl bg-emerald-100 flex items-center justify-center">
-                <Check size={26} className="text-emerald-600" stroke={2.5} />
-              </div>
-              <p className="font-semibold text-zinc-900 text-[14px]">¡Listo!</p>
+              <span className="flex h-12 w-12 items-center justify-center rounded-full bg-emerald-50 text-exito dark:bg-emerald-950/40">
+                <Check size={24} stroke={2} />
+              </span>
+              <p className="font-semibold text-tinta dark:text-slate-100 text-[15px]">Listo, quedó asignada</p>
             </div>
           ) : (
             <>
               <div>
-                <label className="text-[11px] font-semibold text-zinc-500 mb-1.5 block">
-                  Usuario destino *
+                <label className="text-[13px] font-medium text-tinta dark:text-slate-200 mb-1 block">
+                  Perfil destino
                 </label>
                 <Select
                   value={usuarioId === '' ? '' : String(usuarioId)}
                   onChange={v => setUsuarioId(v ? parseInt(v) : '')}
-                  placeholder="Selecciona un usuario…"
+                  placeholder="Elige un perfil…"
                   options={usuarios.map(u => ({ value: String(u.id), label: u.nombre || u.email.split('@')[0], description: u.email }))} />
               </div>
 
               {etiquetas.length > 0 && (
                 <div>
-                  <label className="text-[11px] font-semibold text-zinc-500 mb-1.5 block">
-                    Líneas de negocio
+                  <label className="text-[13px] font-medium text-tinta dark:text-slate-200 mb-1.5 block">
+                    Líneas de negocio <span className="font-normal text-tinta-2 dark:text-slate-400">(opcional)</span>
                   </label>
                   <div className="flex flex-wrap gap-1.5">
                     {etiquetas.map(et => {
@@ -183,13 +181,13 @@ function ModalAsignar({
                         <button
                           key={et.id}
                           type="button"
+                          aria-pressed={sel}
                           onClick={() => setEtiquetaIds(p => sel ? p.filter(x => x !== et.id) : [...p, et.id])}
-                          style={sel ? { backgroundColor: et.color + '18', color: et.color, borderColor: et.color + '60' } : {}}
-                          className={`inline-flex items-center gap-1 text-[12px] px-3 py-1 rounded-full border font-medium transition-all ${
-                            sel ? 'shadow-sm' : 'border-zinc-200 text-zinc-500 hover:border-zinc-300'
+                          className={`inline-flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-[13px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marca/60 ${
+                            sel ? 'border-marca bg-marca-suave text-marca' : 'border-linea text-tinta-2 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800'
                           }`}
                         >
-                          {sel && <Check size={10} stroke={3} />}
+                          <span aria-hidden style={{ backgroundColor: et.color }} className="h-1.5 w-1.5 rounded-full" />
                           {et.nombre}
                         </button>
                       );
@@ -198,21 +196,12 @@ function ModalAsignar({
                 </div>
               )}
 
-              <div className="flex gap-2 pt-1">
-                <button
-                  onClick={onClose}
-                  className="flex-1 px-4 py-2.5 border border-zinc-200 text-zinc-600 rounded-xl text-[13px] font-semibold hover:bg-zinc-50"
-                >
-                  Cancelar
-                </button>
-                <button
-                  onClick={asignar}
-                  disabled={guardando || !usuarioId}
-                  className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-teal-600 text-white rounded-xl text-[13px] font-semibold hover:bg-teal-500 disabled:opacity-40"
-                >
-                  {guardando ? <Loader2 size={14} className="animate-spin" /> : <UserPlus size={14} />}
-                  Asignar
-                </button>
+              <div className="flex justify-end gap-2 pt-1">
+                <Boton onClick={onClose}>Cancelar</Boton>
+                <Boton variante="primario" onClick={asignar} disabled={guardando || !usuarioId}
+                  icono={guardando ? <Loader2 size={16} className="animate-spin" /> : <UserPlus size={16} stroke={1.75} />}>
+                  {guardando ? 'Asignando…' : 'Asignar'}
+                </Boton>
               </div>
             </>
           )}
@@ -290,68 +279,60 @@ export default function FavoritosPage() {
     return matchSearch && matchTipo;
   });
 
+  const BTN_FILTRO = 'inline-flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-[13px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marca/60';
+  const FILTRO_ON  = 'border-marca bg-marca-suave text-marca';
+  const FILTRO_OFF = 'border-linea text-tinta-2 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800';
+
   return (
     <AppLayout breadcrumb={[{ label: 'Dashboard', href: '/dashboard' }, { label: 'Favoritos' }]}>
-      <div className="p-4 sm:p-6 lg:p-8">
-        {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
-          <div>
-            <h1 className="text-2xl font-semibold text-gray-900 flex items-center gap-2">
-              <Star size={24} className="text-amber-500 fill-amber-500" />
-              Mis favoritos
-            </h1>
-            <p className="text-sm text-gray-500 mt-0.5">
-              {loading ? 'Cargando…' : `${favoritosFiltrados.length} de ${favoritos.length} guardada${favoritos.length !== 1 ? 's' : ''}`}
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <Link
-              href="/"
-              className="flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg text-sm font-medium hover:bg-teal-700 transition-colors"
-            >
-              <Search size={15} /> Buscar licitaciones
-            </Link>
-            <button onClick={cargarFavoritos} className="p-2 hover:bg-gray-100 rounded-lg text-gray-500">
-              <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
-            </button>
-          </div>
-        </div>
+      <div className="@container p-4 sm:p-6 lg:p-8">
+        <Encabezado
+          titulo="Mis favoritos"
+          descripcion={loading ? 'Cargando…' : `${favoritosFiltrados.length} de ${favoritos.length} guardada${favoritos.length !== 1 ? 's' : ''}`}
+          acciones={
+            <>
+              <Link href="/"
+                className="inline-flex h-9 items-center gap-2 rounded-lg bg-marca px-3.5 text-sm font-medium text-white shadow-tarjeta transition-colors hover:bg-marca-fuerte focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marca/60 focus-visible:ring-offset-1">
+                <Search size={16} stroke={1.75} /> Buscar licitaciones
+              </Link>
+              <Boton onClick={cargarFavoritos} aria-label="Actualizar" className="!px-0 w-9">
+                <RefreshCw size={16} stroke={1.75} className={loading ? 'animate-spin text-slate-400' : 'text-slate-400'} />
+              </Boton>
+            </>
+          }
+        />
 
         {/* Filtros */}
         {favoritos.length > 0 && (
-          <div className="space-y-2 mb-4">
+          <div className="space-y-3 mb-5">
             <div className="relative w-full max-w-md">
-              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              <Search size={16} stroke={1.75} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
               <input
                 value={search}
                 onChange={e => setSearch(e.target.value)}
                 placeholder="Filtrar por nombre, organismo o código…"
-                className="w-full pl-9 pr-4 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-teal-500 outline-none"
+                aria-label="Filtrar favoritos"
+                className="h-9 w-full rounded-lg border border-linea bg-white pl-9 pr-3 text-sm text-tinta placeholder:text-tinta-3 outline-none focus-visible:ring-2 focus-visible:ring-marca/60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
               />
             </div>
             {tiposDisponibles.length > 1 && (
               <div className="flex items-center gap-1.5 flex-wrap">
-                <span className="text-xs text-gray-400 font-medium">Tipo:</span>
-                <button
-                  onClick={() => setFiltroTipo('')}
-                  className={`px-3 py-1 rounded-full text-xs font-semibold border transition-all ${
-                    filtroTipo === '' ? 'bg-gray-800 text-white border-gray-800' : 'bg-white text-gray-500 border-slate-200 hover:border-gray-400'
-                  }`}
-                >
+                <span className="text-[13px] text-tinta-2 dark:text-slate-400 mr-1">Tipo</span>
+                <button onClick={() => setFiltroTipo('')} aria-pressed={filtroTipo === ''}
+                  className={`${BTN_FILTRO} ${filtroTipo === '' ? FILTRO_ON : FILTRO_OFF}`}>
                   Todos
                 </button>
                 {tiposDisponibles.map(t => {
                   const info = getTipoLicitacion(t);
-                  const bg   = TIPO_COLOR_CLASS[t] || 'bg-gray-400';
                   return (
                     <button
                       key={t}
                       onClick={() => setFiltroTipo(filtroTipo === t ? '' : t)}
+                      aria-pressed={filtroTipo === t}
                       title={info?.label}
-                      className={`px-3 py-1 rounded-full text-xs font-semibold border transition-all ${
-                        filtroTipo === t ? `${bg} text-white border-transparent` : 'bg-white text-gray-600 border-slate-200 hover:border-gray-400'
-                      }`}
+                      className={`${BTN_FILTRO} ${filtroTipo === t ? FILTRO_ON : FILTRO_OFF}`}
                     >
+                      <span aria-hidden style={{ backgroundColor: info?.color || '#94a3b8' }} className="h-1.5 w-1.5 rounded-full" />
                       {t}
                     </button>
                   );
@@ -363,21 +344,15 @@ export default function FavoritosPage() {
 
         {/* Error */}
         {error && (
-          <div className="flex items-center gap-2 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm mb-4">
-            <AlertCircle size={16} /> {error}
-            <button onClick={cargarFavoritos} className="ml-auto hover:underline">Reintentar</button>
+          <div className="mb-4">
+            <Banner variante="error" accion={{ label: 'Reintentar', onClick: cargarFavoritos }}>{error}</Banner>
           </div>
         )}
 
-        {/* Skeleton */}
+        {/* Carga */}
         {loading && (
-          <div className="space-y-3">
-            {[1, 2, 3].map(i => (
-              <div key={i} className="bg-white rounded-xl border border-gray-100 p-4 animate-pulse">
-                <div className="h-4 bg-gray-200 rounded w-3/4 mb-2" />
-                <div className="h-3 bg-gray-100 rounded w-1/2" />
-              </div>
-            ))}
+          <div className="grid grid-cols-1 gap-3 @3xl:grid-cols-2">
+            {[1, 2, 3, 4].map(i => <Esqueleto key={i} className="h-36 rounded-xl" />)}
           </div>
         )}
 
@@ -385,133 +360,88 @@ export default function FavoritosPage() {
         {!loading && !error && (
           <>
             {favoritosFiltrados.length === 0 ? (
-              <div className="text-center py-20 bg-white rounded-xl border border-gray-100">
-                <div className="w-16 h-16 bg-amber-50 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <Star size={28} className="text-amber-400" />
-                </div>
-                <h3 className="text-lg font-semibold text-gray-800 mb-2">
-                  {search || filtroTipo ? 'Sin resultados' : 'No tienes favoritos aún'}
-                </h3>
-                <p className="text-gray-500 text-sm mb-6">
-                  {search || filtroTipo ? 'Cambia los filtros' : 'Busca licitaciones y guárdalas con la estrella ★'}
-                </p>
-                {!search && !filtroTipo && (
-                  <Link href="/" className="inline-flex items-center gap-2 px-5 py-2.5 bg-teal-600 text-white rounded-lg text-sm font-medium hover:bg-teal-700">
-                    <Search size={15} /> Ir al buscador
-                  </Link>
-                )}
-              </div>
+              <Vacio
+                icono={<Star size={28} stroke={1.75} />}
+                titulo={search || filtroTipo ? 'Sin resultados' : 'Aún no tienes favoritos'}
+                texto={search || filtroTipo ? 'Cambia o quita los filtros para ver tus licitaciones guardadas.' : 'Busca licitaciones y guárdalas con la estrella.'}
+                accion={!search && !filtroTipo
+                  ? <Link href="/" className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-marca px-3 text-[13px] font-medium text-white shadow-tarjeta hover:bg-marca-fuerte focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marca/60"><Search size={16} stroke={1.75} /> Ir al buscador</Link>
+                  : <Boton tamano="sm" onClick={() => { setSearch(''); setFiltroTipo(''); }}>Quitar filtros</Boton>}
+              />
             ) : (
-              <div className="space-y-3">
+              <Lista className="grid grid-cols-1 gap-3 @3xl:grid-cols-2">
                 {favoritosFiltrados.map(fav => {
-                  const cierre     = diasHastaCierre(fav.fecha_cierre);
-                  const estadoClass = ESTADO_COLOR[fav.estado || ''] || 'bg-slate-100 text-slate-600';
-                  const monto      = formatMonto(fav.monto_total || fav.monto_estimado, fav.moneda);
-                  const tipo       = extractTipoFromCodigo(fav.codigo);
-                  const tipoInfo   = tipo ? getTipoLicitacion(tipo) : null;
-                  const tipoBg     = tipo ? (TIPO_COLOR_CLASS[tipo] || 'bg-gray-500') : '';
+                  const cierre = diasHastaCierre(fav.fecha_cierre);
+                  // MP guarda el estado como código (5, 8…): se muestra su nombre, y «Cerrada» si ya venció el plazo.
+                  const estadoNombre = estadoEfectivoNombre(fav.estado, fav.fecha_cierre);
+                  const monto  = formatMonto(fav.monto_total || fav.monto_estimado, fav.moneda);
+                  const tipo   = extractTipoFromCodigo(fav.codigo);
+                  const tipoInfo = tipo ? getTipoLicitacion(tipo) : null;
+                  const region = fav.region
+                    ? fav.region.replace('Región de ', '').replace('Región del ', '').replace('Región Metropolitana de ', 'RM')
+                    : null;
 
                   return (
-                    <div
-                      key={fav.codigo}
-                      className="bg-white rounded-xl border border-gray-100 shadow-sm hover:shadow-md hover:border-slate-200 transition-all p-4 sm:p-5"
-                    >
-                      <div className="flex items-start gap-3">
-                        <div className="w-10 h-10 bg-teal-50 rounded-xl flex items-center justify-center flex-shrink-0 mt-0.5">
-                          <FileText size={18} className="text-teal-600" />
+                    <Tarjeta key={fav.codigo}>
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <Link
+                            href={`/licitacion/${encodeURIComponent(fav.codigo)}`}
+                            className="text-[15px] font-semibold text-tinta hover:text-marca transition-colors line-clamp-2 dark:text-slate-50"
+                          >
+                            {fav.nombre || 'Sin nombre'}
+                          </Link>
+                          <p className="mt-1 flex flex-wrap items-center gap-x-2 text-xs text-tinta-2 dark:text-slate-400">
+                            <span className="font-mono">{fav.codigo}</span>
+                            {tipo && <span title={tipoInfo?.label}><span aria-hidden>· </span>{tipo}</span>}
+                          </p>
                         </div>
-
-                        <div className="flex-1 min-w-0">
-                          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2 mb-0.5 flex-wrap">
-                                {tipo && (
-                                  <span
-                                    className={`${tipoBg} text-white text-[10px] font-semibold px-1.5 py-0.5 rounded flex-shrink-0`}
-                                    title={tipoInfo?.label}
-                                  >
-                                    {tipo}
-                                  </span>
-                                )}
-                                <Link
-                                  href={`/licitacion/${encodeURIComponent(fav.codigo)}`}
-                                  className="text-sm font-semibold text-gray-900 hover:text-teal-600 transition-colors line-clamp-1"
-                                >
-                                  {fav.nombre || 'Sin nombre'}
-                                </Link>
-                              </div>
-                              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1">
-                                {fav.organismo && (
-                                  <span className="flex items-center gap-1 text-xs text-gray-500 truncate max-w-[200px]">
-                                    <Building2 size={11} /> {fav.organismo}
-                                  </span>
-                                )}
-                                {fav.region && (
-                                  <span className="flex items-center gap-1 text-xs text-gray-500">
-                                    <MapPin size={11} /> {fav.region.replace('Región de ', '').replace('Región del ', '').replace('Región Metropolitana de ', 'RM')}
-                                  </span>
-                                )}
-                                {monto !== '—' && (
-                                  <span className="flex items-center gap-1 text-xs text-gray-600 font-medium">
-                                    <DollarSign size={11} /> {monto}
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-
-                            <div className="flex items-center gap-2 flex-shrink-0">
-                              {fav.estado && (
-                                <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${estadoClass}`}>
-                                  {fav.estado}
-                                </span>
-                              )}
-                            </div>
-                          </div>
-
-                          {/* Footer */}
-                          <div className="flex flex-wrap items-center justify-between gap-2 mt-3 pt-3 border-t border-gray-50">
-                            <div className="flex items-center gap-3 text-xs text-gray-400">
-                              {fav.fecha_cierre && (
-                                <span className="flex items-center gap-1">
-                                  <Calendar size={11} />
-                                  {new Date(fav.fecha_cierre).toLocaleDateString('es-CL')}
-                                  {cierre && <span className={`ml-1 ${cierre.color}`}>({cierre.label})</span>}
-                                </span>
-                              )}
-                              <span className="font-mono text-[11px]">{fav.codigo}</span>
-                            </div>
-
-                            <div className="flex items-center gap-1">
-                              {isAdmin && (
-                                <button
-                                  onClick={() => setAsignando(fav)}
-                                  className="flex items-center gap-1.5 px-3 py-1.5 bg-teal-600 text-white text-xs rounded-lg hover:bg-teal-500 transition-colors font-semibold shadow-sm shadow-blue-600/20"
-                                >
-                                  <UserPlus size={12} /> Asignar
-                                </button>
-                              )}
-                              <Link
-                                href={`/licitacion/${encodeURIComponent(fav.codigo)}`}
-                                className="flex items-center gap-1 px-3 py-1.5 text-xs text-teal-600 hover:bg-teal-50 rounded-lg transition-colors font-medium"
-                              >
-                                <ExternalLink size={12} /> Ver
-                              </Link>
-                              <button
-                                onClick={() => eliminarFavorito(fav.codigo)}
-                                disabled={eliminando === fav.codigo}
-                                className="flex items-center gap-1 px-3 py-1.5 text-xs text-red-500 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50"
-                              >
-                                <Trash2 size={12} />
-                                {eliminando === fav.codigo ? '…' : 'Quitar'}
-                              </button>
-                            </div>
-                          </div>
-                        </div>
+                        {estadoNombre && (
+                          <span className="flex-shrink-0 text-xs font-medium text-tinta dark:text-slate-200">
+                            <Estado color={ESTADO_COLOR[estadoNombre] || '#64748b'}>{estadoNombre}</Estado>
+                          </span>
+                        )}
                       </div>
-                    </div>
+
+                      <Datos columnas={2}>
+                        <Dato rotulo="Organismo">{fav.organismo || undefined}</Dato>
+                        <Dato rotulo="Región">{region || undefined}</Dato>
+                        <Dato rotulo="Monto">{monto !== '—' ? monto : undefined}</Dato>
+                        <Dato rotulo="Cierre">
+                          {fav.fecha_cierre ? (
+                            <>
+                              {new Date(fav.fecha_cierre).toLocaleDateString('es-CL', { day: 'numeric', month: 'short' }).replace('.', '')}
+                              {cierre && <span className="ml-1.5 text-xs font-medium" style={{ color: cierre.color }}>{cierre.label}</span>}
+                            </>
+                          ) : undefined}
+                        </Dato>
+                      </Datos>
+
+                      <div className="mt-3 flex flex-wrap items-center justify-end gap-1.5 border-t border-linea/80 pt-3 dark:border-slate-800">
+                        <button
+                          onClick={() => eliminarFavorito(fav.codigo)}
+                          disabled={eliminando === fav.codigo}
+                          className="inline-flex h-8 items-center gap-1.5 rounded-lg px-3 text-[13px] font-medium text-tinta-2 transition-colors hover:bg-red-50 hover:text-urgente focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marca/60 disabled:opacity-50 dark:text-slate-300 dark:hover:bg-red-950/40"
+                        >
+                          <Trash2 size={16} stroke={1.75} />
+                          {eliminando === fav.codigo ? 'Quitando…' : 'Quitar'}
+                        </button>
+                        <Link
+                          href={`/licitacion/${encodeURIComponent(fav.codigo)}`}
+                          className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-linea bg-white px-3 text-[13px] font-medium text-tinta shadow-tarjeta transition-colors hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marca/60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800"
+                        >
+                          <ExternalLink size={16} stroke={1.75} /> Ver
+                        </Link>
+                        {isAdmin && (
+                          <Boton variante="primario" tamano="sm" onClick={() => setAsignando(fav)} icono={<UserPlus size={16} stroke={1.75} />}>
+                            Asignar
+                          </Boton>
+                        )}
+                      </div>
+                    </Tarjeta>
                   );
                 })}
-              </div>
+              </Lista>
             )}
           </>
         )}
@@ -530,4 +460,3 @@ export default function FavoritosPage() {
     </AppLayout>
   );
 }
-

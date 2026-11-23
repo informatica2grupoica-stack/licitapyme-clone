@@ -20,7 +20,12 @@ import { useConfirm } from '@/app/components/ui/confirm';
 import { Select } from '@/app/components/ui/Select';
 import { colorUsuario, inicialesUsuario } from '@/app/lib/user-color';
 import { PuenteLoader } from '@/app/components/ui/PuenteLoader';
-import { extractTipoFromCodigo, getTipoLicitacion, TIPO_COLOR_CLASS } from '@/app/lib/tipos-licitacion';
+import { extractTipoFromCodigo, getTipoLicitacion } from '@/app/lib/tipos-licitacion';
+import { Encabezado, Esqueleto, Vacio } from '@/app/components/ui/kit/Estructura';
+import { Boton } from '@/app/components/ui/kit/Boton';
+import { Estado } from '@/app/components/ui/kit/Tarjeta';
+import { Banner } from '@/app/components/ui/Banner';
+import { Tooltip } from '@/app/components/ui/Tooltip';
 import type { Estrategia } from '@/app/lib/puente-reparto';
 
 // ── Tipos (espejo de lo que devuelve /api/puente) ──────────────────────────────
@@ -71,6 +76,9 @@ const fmtFecha = (s: string | null) => {
   return isNaN(d.getTime()) ? '—' : d.toLocaleDateString('es-CL', { day: '2-digit', month: 'short' });
 };
 const nombrePerfil = (p?: Perfil | null) => p?.nombre || p?.email || 'perfil';
+const SUPERFICIE = 'rounded-xl border border-linea bg-white shadow-tarjeta dark:bg-slate-900 dark:border-slate-800';
+const ROTULO = 'text-[13px] font-medium text-tinta dark:text-slate-200';
+const CAMPO = 'h-9 rounded-lg border border-linea bg-white px-2.5 text-sm text-tinta outline-none focus-visible:ring-2 focus-visible:ring-marca/60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100';
 
 export default function PuentePage() {
   const { usuario, cargando: cargandoSesion } = useSession();
@@ -290,8 +298,15 @@ export default function PuentePage() {
   if (cargandoSesion || (cargando && !migrationPending)) {
     return (
       <AppLayout breadcrumb={[{ label: 'Puente' }]}>
-        <div className="p-10 flex items-center justify-center text-slate-400">
-          <Loader2 size={20} className="animate-spin mr-2" /> Cargando el puente…
+        <div className="@container mx-auto max-w-[1500px] p-4 sm:p-6 lg:p-8">
+          <Esqueleto className="h-7 w-56" />
+          <Esqueleto className="mt-2 h-4 w-80" />
+          <div className="mt-6 grid grid-cols-1 gap-5 @4xl:grid-cols-3">
+            <div className="space-y-2 @4xl:col-span-2">
+              {Array.from({ length: 5 }).map((_, i) => <Esqueleto key={i} className="h-[72px] rounded-xl" />)}
+            </div>
+            <Esqueleto className="h-80 rounded-xl" />
+          </div>
         </div>
       </AppLayout>
     );
@@ -300,11 +315,11 @@ export default function PuentePage() {
   if (migrationPending) {
     return (
       <AppLayout breadcrumb={[{ label: 'Puente' }]}>
-        <div className="p-8 max-w-2xl mx-auto">
-          <div className="bg-amber-50 border border-amber-200 rounded-xl p-5 text-[13px] text-amber-900">
-            <div className="flex items-center gap-2 font-semibold mb-1"><AlertTriangle size={16} /> Falta aplicar la migración</div>
-            El puente necesita sus tablas. Corre <code className="bg-white px-1.5 py-0.5 rounded border border-amber-200">node scripts/aplicar-migration-73.mjs</code> y recarga.
-          </div>
+        <div className="mx-auto max-w-2xl p-8">
+          <Banner variante="warning">
+            <span className="font-semibold">Falta aplicar la migración.</span> El puente necesita sus tablas. Corre{' '}
+            <code className="rounded border border-linea bg-white px-1.5 py-0.5 dark:border-slate-700 dark:bg-slate-900">node scripts/aplicar-migration-73.mjs</code> y recarga.
+          </Banner>
         </div>
       </AppLayout>
     );
@@ -312,106 +327,84 @@ export default function PuentePage() {
 
   return (
     <AppLayout breadcrumb={[{ label: 'Puente' }]}>
-      <div className="p-4 sm:p-6 lg:p-8 max-w-[1500px] mx-auto space-y-5">
+      <div className="@container mx-auto max-w-[1500px] space-y-5 p-4 sm:p-6 lg:p-8">
 
-        {/* Encabezado */}
-        <div className="flex items-start justify-between gap-3 flex-wrap">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-teal-50 flex items-center justify-center text-teal-600">
-              <Shuffle size={18} />
-            </div>
-            <div>
-              <h1 className="text-[19px] font-semibold text-slate-800 leading-tight">Puente del radar</h1>
-              <p className="text-[12.5px] text-slate-500">
-                {licitaciones.length === 0
-                  ? 'Vacío. Empuja licitaciones desde el radar para repartirlas al equipo.'
-                  : `${licitaciones.length} licitación${licitaciones.length !== 1 ? 'es' : ''} esperando dueño`}
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <Link href="/radar"
-              className="inline-flex items-center gap-1.5 px-3 py-2 text-[12.5px] font-semibold text-teal-700 bg-teal-50 hover:bg-teal-100 rounded-lg">
-              <RadarIcon size={14} /> Ir al radar
-            </Link>
-            <button onClick={cargar} title="Recargar el puente"
-              className="inline-flex items-center gap-1.5 px-3 py-2 text-[12.5px] font-semibold text-slate-600 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg">
-              <RefreshCw size={14} /> Actualizar
-            </button>
-            {licitaciones.length > 0 && (
-              <button onClick={vaciarPuente} title="Devolver TODO al radar (no asigna ni descarta nada)"
-                className="inline-flex items-center gap-1.5 px-3 py-2 text-[12.5px] font-semibold text-red-600 bg-white border border-red-200 hover:bg-red-50 rounded-lg">
-                <Trash2 size={14} /> Vaciar
-              </button>
-            )}
-          </div>
-        </div>
+        <Encabezado
+          titulo="Puente del radar"
+          descripcion={licitaciones.length === 0
+            ? 'Vacío. Empuja licitaciones desde el radar para repartirlas al equipo.'
+            : `${licitaciones.length} licitación${licitaciones.length !== 1 ? 'es' : ''} esperando dueño`}
+          acciones={
+            <>
+              <Link href="/radar"
+                className="inline-flex h-9 items-center gap-2 rounded-lg border border-linea bg-white px-3.5 text-sm font-medium text-tinta shadow-tarjeta transition-colors hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marca/60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800">
+                <RadarIcon size={16} stroke={1.75} /> Ir al radar
+              </Link>
+              <Tooltip label="Recargar el puente">
+                <Boton onClick={cargar} icono={<RefreshCw size={16} stroke={1.75} />}>Actualizar</Boton>
+              </Tooltip>
+              {licitaciones.length > 0 && (
+                <Tooltip label="Devolver TODO al radar (no asigna ni descarta nada)">
+                  <Boton variante="peligro" onClick={vaciarPuente} icono={<Trash2 size={16} stroke={1.75} />}>Vaciar</Boton>
+                </Tooltip>
+              )}
+            </>
+          }
+        />
 
         {licitaciones.length === 0 ? (
-          <div className="text-center py-20 bg-white rounded-xl border border-slate-200">
-            <div className="w-12 h-12 bg-slate-100 rounded-xl flex items-center justify-center mx-auto mb-3">
-              <Shuffle size={20} className="text-slate-400" />
-            </div>
-            <p className="text-[14px] font-semibold text-slate-700 mb-1">El puente está vacío</p>
-            <p className="text-[12.5px] text-slate-400 mb-4 max-w-md mx-auto">
-              En el radar, selecciona licitaciones y usa el botón <strong>Al puente</strong>. Cuando tengas la tanda
-              completa, vuelve acá y repártela entre los perfiles.
-            </p>
-            <Link href="/radar" className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-teal-600 hover:underline">
-              Abrir el radar <ArrowRight size={13} />
-            </Link>
-          </div>
+          <Vacio icono={<Shuffle size={28} stroke={1.75} />} titulo="El puente está vacío"
+            texto="En el radar, selecciona licitaciones y usa el botón «Al puente». Cuando tengas la tanda completa, vuelve acá y repártela entre los perfiles."
+            accion={<Link href="/radar" className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-marca px-3 text-[13px] font-medium text-white shadow-tarjeta hover:bg-marca-fuerte focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marca/60">Abrir el radar <ArrowRight size={16} stroke={1.75} /></Link>} />
         ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 items-start">
+          <div className="grid grid-cols-1 @4xl:grid-cols-3 gap-5 items-start">
 
             {/* ── Columna izquierda: contenido del puente ─────────────────────── */}
-            <div className="lg:col-span-2 space-y-3">
-              <div className="flex items-center gap-2 text-[12px] font-semibold text-slate-400">
-                <Layers size={13} /> En el puente ({licitaciones.length})
-              </div>
+            <div className="@4xl:col-span-2 space-y-3">
+              <h2 className="flex items-center gap-2 text-[15px] font-semibold text-tinta dark:text-slate-100">
+                <Layers size={18} stroke={1.75} className="text-slate-400" /> En el puente <span className="text-xs font-semibold tabular-nums text-tinta-2 dark:text-slate-400">{licitaciones.length}</span>
+              </h2>
               <div className="space-y-2 max-h-[70vh] overflow-y-auto pr-1">
                 {licitaciones.map(l => {
                   const tipo = getTipoLicitacion(extractTipoFromCodigo(l.licitacion_codigo));
                   return (
-                    <div key={l.id} className="bg-white border border-slate-200 rounded-xl px-3.5 py-2.5 hover:border-teal-200 transition-colors">
+                    <div key={l.id} className="bg-white border border-linea rounded-xl px-4 py-3 shadow-tarjeta transition-colors hover:border-teal-200 dark:bg-slate-900 dark:border-slate-800">
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
-                            {tipo && (
-                              <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border ${TIPO_COLOR_CLASS[tipo.codigo] || 'bg-slate-50 text-slate-600 border-slate-200'}`}>
-                                {tipo.codigo}
-                              </span>
-                            )}
-                            <span className="font-mono text-[11px] text-slate-400">{l.licitacion_codigo}</span>
+                            {tipo && <span className="text-xs font-medium text-tinta dark:text-slate-200"><Estado color={tipo.color}>{tipo.codigo}</Estado></span>}
+                            <span className="font-mono text-xs text-tinta-2 dark:text-slate-400">{l.licitacion_codigo}</span>
                             {l.categoria_nombre && (
-                              <span className="inline-flex items-center gap-1 text-[10.5px] font-medium text-cyan-700">
-                                <Tag size={9} /> {l.categoria_nombre}
+                              <span className="inline-flex items-center gap-1 text-xs text-tinta-2 dark:text-slate-400">
+                                <Tag size={12} stroke={1.75} /> {l.categoria_nombre}
                               </span>
                             )}
                           </div>
-                          <p className="text-[13px] font-semibold text-slate-800 truncate mt-0.5">{l.licitacion_nombre || 'Sin nombre'}</p>
-                          <div className="flex items-center gap-3 text-[11.5px] text-slate-500 mt-0.5 flex-wrap">
+                          <p className="text-[13px] font-medium text-tinta dark:text-slate-100 truncate mt-0.5">{l.licitacion_nombre || 'Sin nombre'}</p>
+                          <div className="flex items-center gap-3 text-xs text-tinta-2 dark:text-slate-400 mt-1 flex-wrap">
                             {l.licitacion_organismo && (
-                              <span className="inline-flex items-center gap-1 truncate max-w-[260px]"><Building2 size={11} /> {l.licitacion_organismo}</span>
+                              <span className="inline-flex items-center gap-1 truncate max-w-[260px]"><Building2 size={14} stroke={1.75} /> {l.licitacion_organismo}</span>
                             )}
-                            <span className="inline-flex items-center gap-1"><DollarSign size={11} /> {fmtMonto(l.licitacion_monto)}</span>
-                            <span className="inline-flex items-center gap-1"><Calendar size={11} /> {fmtFecha(l.licitacion_cierre)}</span>
+                            <span className="inline-flex items-center gap-1"><DollarSign size={14} stroke={1.75} /> <span className="tabular-nums">{fmtMonto(l.licitacion_monto)}</span></span>
+                            <span className="inline-flex items-center gap-1"><Calendar size={14} stroke={1.75} /> {fmtFecha(l.licitacion_cierre)}</span>
                             {l.licitacion_region && (
-                              <span className="inline-flex items-center gap-1 truncate max-w-[160px]"><MapPin size={11} /> {l.licitacion_region}</span>
+                              <span className="inline-flex items-center gap-1 truncate max-w-[160px]"><MapPin size={14} stroke={1.75} /> {l.licitacion_region}</span>
                             )}
                           </div>
                         </div>
                         <div className="flex items-center gap-1 shrink-0">
-                          <Link href={`/licitacion/${encodeURIComponent(l.licitacion_codigo)}`} target="_blank"
-                            title="Abrir la licitación en otra pestaña"
-                            className="p-1.5 text-slate-400 hover:text-teal-600 hover:bg-teal-50 rounded-lg">
-                            <ExternalLink size={14} />
-                          </Link>
-                          <button onClick={() => quitarDelPuente([l.licitacion_codigo])}
-                            title="Sacar del puente (vuelve al radar sin cambios)"
-                            className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg">
-                            <X size={14} />
-                          </button>
+                          <Tooltip label="Abrir la licitación en otra pestaña">
+                            <Link href={`/licitacion/${encodeURIComponent(l.licitacion_codigo)}`} target="_blank" aria-label="Abrir la licitación en otra pestaña"
+                              className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-marca focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marca/60 dark:hover:bg-slate-800">
+                              <ExternalLink size={16} stroke={1.75} />
+                            </Link>
+                          </Tooltip>
+                          <Tooltip label="Sacar del puente (vuelve al radar sin cambios)">
+                            <button onClick={() => quitarDelPuente([l.licitacion_codigo])} aria-label="Sacar del puente"
+                              className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:bg-red-50 hover:text-urgente focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marca/60 dark:hover:bg-red-950/40">
+                              <X size={16} stroke={1.75} />
+                            </button>
+                          </Tooltip>
                         </div>
                       </div>
                     </div>
@@ -421,10 +414,10 @@ export default function PuentePage() {
             </div>
 
             {/* ── Columna derecha: panel de reparto ───────────────────────────── */}
-            <div className="bg-white border border-slate-200 rounded-xl p-4 space-y-4 lg:sticky lg:top-4">
-              <div className="flex items-center gap-2 text-[12px] font-semibold text-slate-400">
-                <Users size={13} /> Repartir a
-              </div>
+            <div className="bg-white border border-linea rounded-xl p-5 shadow-tarjeta space-y-4 @4xl:sticky @4xl:top-4 dark:bg-slate-900 dark:border-slate-800">
+              <h2 className="flex items-center gap-2 text-[15px] font-semibold text-tinta dark:text-slate-100">
+                <Users size={18} stroke={1.75} className="text-slate-400" /> Repartir a
+              </h2>
 
               {/* Perfiles */}
               <div className="flex flex-wrap gap-1.5">
@@ -433,14 +426,14 @@ export default function PuentePage() {
                   return (
                     <button key={p.id} onClick={() => togglePerfil(p.id)}
                       title={`${nombrePerfil(p)} — ${p.cargaActual} licitación(es) vigentes hoy`}
-                      className={`inline-flex items-center gap-1.5 pl-1 pr-2.5 py-1 rounded-full border text-[12px] font-semibold transition-colors
-                        ${on ? 'bg-teal-600 text-white border-teal-600' : 'bg-white text-slate-600 border-slate-200 hover:border-teal-300'}`}>
-                      <span className="w-5 h-5 rounded-full text-[9.5px] font-semibold text-white flex items-center justify-center"
+                      className={`inline-flex items-center gap-1.5 pl-1 pr-2.5 h-8 rounded-lg border text-[13px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marca/60
+                        ${on ? 'bg-marca text-white border-marca' : 'bg-white text-tinta border-linea hover:border-teal-300 dark:bg-slate-900 dark:text-slate-100 dark:border-slate-700'}`}>
+                      <span className="w-5 h-5 rounded-full text-[10px] font-semibold text-white flex items-center justify-center"
                         style={{ background: colorUsuario(p.id) }}>
                         {inicialesUsuario(p.nombre, p.email)}
                       </span>
                       <span className="truncate max-w-[120px]">{nombrePerfil(p)}</span>
-                      <span className={`text-[10.5px] font-semibold px-1.5 rounded-full ${on ? 'bg-white/20' : 'bg-slate-100 text-slate-500'}`}>
+                      <span className={`text-xs font-semibold tabular-nums ${on ? 'text-white/80' : 'text-tinta-2'}`}>
                         {p.cargaActual}
                       </span>
                     </button>
@@ -448,15 +441,15 @@ export default function PuentePage() {
                 })}
               </div>
               {elegidos.length > 0 && (
-                <p className="text-[11.5px] text-slate-400 -mt-2">
+                <p className="text-xs text-tinta-2 dark:text-slate-400 -mt-2">
                   El número es su carga vigente de hoy. {licitaciones.length} ÷ {elegidos.length} ≈{' '}
-                  <strong className="text-slate-600">{Math.floor(licitaciones.length / elegidos.length)}</strong> por perfil.
+                  <strong className="font-semibold text-tinta dark:text-slate-200">{Math.floor(licitaciones.length / elegidos.length)}</strong> por perfil.
                 </p>
               )}
 
               {/* Estrategia */}
               <div className="space-y-1.5">
-                <label className="text-[12px] font-semibold text-slate-500">Cómo repartir</label>
+                <label className={ROTULO}>Cómo repartir</label>
                 <Select
                   value={estrategia}
                   onChange={v => { setEstrategia(v as Estrategia); setReglas({}); invalidarPrevia(); }}
@@ -464,7 +457,7 @@ export default function PuentePage() {
                   minWidth={260}
                   className="w-full" buttonClassName="w-full"
                 />
-                <p className="text-[11.5px] text-slate-400 leading-snug">
+                <p className="text-xs text-tinta-2 dark:text-slate-400 leading-snug">
                   {ESTRATEGIAS.find(e => e.value === estrategia)?.desc}
                 </p>
               </div>
@@ -472,12 +465,12 @@ export default function PuentePage() {
               {/* Reglas por valor (categoría / región / viabilidad) */}
               {valoresDeLaEstrategia.length > 0 && (
                 <div className="space-y-1.5">
-                  <label className="text-[12px] font-semibold text-slate-500">Reglas</label>
+                  <label className={ROTULO}>Reglas</label>
                   <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
                     {valoresDeLaEstrategia.map(v => (
                       <div key={v.valor} className="flex items-center gap-2">
-                        <span className="text-[12px] text-slate-700 truncate flex-1" title={v.valor}>
-                          {v.valor} <span className="text-slate-400">({v.total})</span>
+                        <span className="text-[13px] text-tinta dark:text-slate-100 truncate flex-1" title={v.valor}>
+                          {v.valor} <span className="text-tinta-2 tabular-nums">({v.total})</span>
                         </span>
                         <Select
                           value={reglas[v.valor] != null ? String(reglas[v.valor]) : ''}
@@ -488,7 +481,7 @@ export default function PuentePage() {
                     ))}
                   </div>
                   {perfilesElegidos.length === 0 && (
-                    <p className="text-[11.5px] text-amber-600">Elige primero los perfiles de destino.</p>
+                    <p className="text-xs text-alerta">Elige primero los perfiles de destino.</p>
                   )}
                 </div>
               )}
@@ -496,38 +489,40 @@ export default function PuentePage() {
               {/* Tramos de monto */}
               {estrategia === 'monto' && (
                 <div className="space-y-1.5">
-                  <label className="text-[12px] font-semibold text-slate-500">Tramos de presupuesto (CLP)</label>
+                  <label className={ROTULO}>Tramos de presupuesto (CLP)</label>
                   {tramos.map((t, i) => (
                     <div key={i} className="flex items-center gap-1.5">
                       <input type="number" value={t.desde ?? ''} placeholder="desde"
                         onChange={e => { const v = e.target.value === '' ? null : Number(e.target.value); setTramos(prev => prev.map((x, j) => j === i ? { ...x, desde: v } : x)); invalidarPrevia(); }}
-                        className="w-24 px-2 py-1.5 text-[12px] border border-slate-200 rounded-lg focus:outline-none focus:border-teal-400" />
+                        className={`w-24 tabular-nums ${CAMPO}`} />
                       <input type="number" value={t.hasta ?? ''} placeholder="hasta"
                         onChange={e => { const v = e.target.value === '' ? null : Number(e.target.value); setTramos(prev => prev.map((x, j) => j === i ? { ...x, hasta: v } : x)); invalidarPrevia(); }}
-                        className="w-24 px-2 py-1.5 text-[12px] border border-slate-200 rounded-lg focus:outline-none focus:border-teal-400" />
+                        className={`w-24 tabular-nums ${CAMPO}`} />
                       <Select
                         value={t.usuarioId != null ? String(t.usuarioId) : ''}
                         onChange={val => { setTramos(prev => prev.map((x, j) => j === i ? { ...x, usuarioId: val ? Number(val) : null } : x)); invalidarPrevia(); }}
                         options={opcionesPerfil} minWidth={140} align="right"
                       />
-                      <button onClick={() => { setTramos(prev => prev.filter((_, j) => j !== i)); invalidarPrevia(); }}
-                        title="Quitar tramo" className="p-1 text-slate-300 hover:text-red-600">
-                        <X size={13} />
-                      </button>
+                      <Tooltip label="Quitar tramo">
+                        <button onClick={() => { setTramos(prev => prev.filter((_, j) => j !== i)); invalidarPrevia(); }}
+                          aria-label="Quitar tramo" className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:bg-red-50 hover:text-urgente focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marca/60 dark:hover:bg-red-950/40">
+                          <X size={16} stroke={1.75} />
+                        </button>
+                      </Tooltip>
                     </div>
                   ))}
                   <button onClick={() => setTramos(prev => [...prev, { desde: null, hasta: null, usuarioId: null }])}
-                    className="inline-flex items-center gap-1 text-[11.5px] font-semibold text-teal-600 hover:underline">
-                    <Plus size={12} /> Agregar tramo
+                    className="inline-flex items-center gap-1 text-[13px] font-medium text-marca hover:underline">
+                    <Plus size={16} stroke={1.75} /> Agregar tramo
                   </button>
-                  <p className="text-[11px] text-slate-400">«desde» incluye el valor; «hasta» lo excluye. Vacío = sin tope.</p>
+                  <p className="text-xs text-tinta-2 dark:text-slate-400">«desde» incluye el valor; «hasta» lo excluye. Vacío = sin tope.</p>
                 </div>
               )}
 
               {/* Qué hacer con lo que ninguna regla alcanza */}
               {(estrategia === 'categoria' || estrategia === 'region' || estrategia === 'viabilidad' || estrategia === 'monto') && (
                 <div className="space-y-1.5">
-                  <label className="text-[12px] font-semibold text-slate-500">Lo que no calce con ninguna regla</label>
+                  <label className={ROTULO}>Lo que no calce con ninguna regla</label>
                   <Select
                     value={fallback}
                     onChange={v => { setFallback(v as typeof fallback); invalidarPrevia(); }}
@@ -541,12 +536,11 @@ export default function PuentePage() {
                 </div>
               )}
 
-              <button onClick={simular} disabled={simulando || elegidos.length === 0}
-                className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-teal-600 text-white text-[13px] font-semibold rounded-lg hover:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed">
-                {simulando ? <Loader2 size={15} className="animate-spin" /> : <Shuffle size={15} />}
-                Simular reparto
-              </button>
-              <p className="text-[11px] text-slate-400 text-center -mt-2">
+              <Boton variante="primario" onClick={simular} disabled={simulando || elegidos.length === 0} className="w-full"
+                icono={simulando ? <Loader2 size={16} className="animate-spin" /> : <Shuffle size={16} stroke={1.75} />}>
+                {simulando ? 'Simulando…' : 'Simular reparto'}
+              </Boton>
+              <p className="text-xs text-tinta-2 dark:text-slate-400 text-center -mt-2">
                 La simulación no cambia nada: muestra a quién le tocaría cada una.
               </p>
             </div>
@@ -555,35 +549,31 @@ export default function PuentePage() {
 
         {/* ── Vista previa del reparto ─────────────────────────────────────────── */}
         {previa && (
-          <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-3">
+          <div className="bg-white border border-linea rounded-2xl p-5 shadow-tarjeta space-y-4 dark:bg-slate-900 dark:border-slate-800">
             <div className="flex items-center justify-between gap-3 flex-wrap">
               <div>
-                <h2 className="text-[15px] font-semibold text-slate-800 flex items-center gap-2">
-                  <Hand size={15} className="text-teal-600" /> Vista previa
+                <h2 className="flex items-center gap-2 text-[15px] font-semibold text-tinta dark:text-slate-100">
+                  <Hand size={18} stroke={1.75} className="text-slate-400" /> Vista previa
                   {ajustadaAMano && (
-                    <span className="text-[10.5px] font-medium text-amber-800">
-                      ajustada a mano
+                    <span className="text-xs font-medium text-alerta">
+                      <Estado color="#d97706">ajustada a mano</Estado>
                     </span>
                   )}
                 </h2>
-                <p className="text-[12px] text-slate-500">
+                <p className="mt-0.5 text-xs text-tinta-2 dark:text-slate-400">
                   Arrastra una tarjeta a otra columna para corregir antes de confirmar. Todavía no se ha asignado nada.
                 </p>
               </div>
               <div className="flex items-center gap-2">
-                <button onClick={invalidarPrevia} disabled={ejecutando}
-                  className="inline-flex items-center gap-1.5 px-3 py-2 text-[12.5px] font-semibold text-slate-600 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg disabled:opacity-50">
-                  <X size={14} /> Descartar
-                </button>
-                <button onClick={confirmarReparto} disabled={ejecutando}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-600 text-white text-[12.5px] font-semibold rounded-lg hover:bg-emerald-700 disabled:opacity-50">
-                  {ejecutando ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
-                  Confirmar reparto
-                </button>
+                <Boton onClick={invalidarPrevia} disabled={ejecutando} icono={<X size={16} stroke={1.75} />}>Descartar</Boton>
+                <Boton variante="primario" onClick={confirmarReparto} disabled={ejecutando}
+                  icono={ejecutando ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} stroke={1.75} />}>
+                  {ejecutando ? 'Repartiendo…' : 'Confirmar reparto'}
+                </Boton>
               </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+            <div className="grid grid-cols-1 @2xl:grid-cols-2 @5xl:grid-cols-4 gap-3">
               {columnas.map(col => {
                 const key = col.perfil ? String(col.perfil.id) : 'sin';
                 const destino = col.perfil ? col.perfil.id : null;
@@ -591,8 +581,8 @@ export default function PuentePage() {
                   <div key={key}
                     onDragOver={e => e.preventDefault()}
                     onDrop={e => { e.preventDefault(); if (arrastrando) mover(arrastrando, destino); setArrastrando(null); }}
-                    className={`rounded-xl border p-2.5 min-h-[120px] transition-colors
-                      ${col.perfil ? 'bg-white border-slate-200' : 'bg-amber-50/60 border-amber-200'}`}>
+                    className={`rounded-xl border p-3 min-h-[120px] transition-colors
+                      ${col.perfil ? 'bg-slate-50 border-linea dark:bg-slate-950/40 dark:border-slate-800' : 'bg-amber-50/60 border-amber-200 dark:bg-amber-950/20 dark:border-amber-900'}`}>
                     <div className="flex items-center gap-2 mb-2 px-0.5">
                       {col.perfil ? (
                         <>
@@ -600,20 +590,20 @@ export default function PuentePage() {
                             style={{ background: colorUsuario(col.perfil.id) }}>
                             {inicialesUsuario(col.perfil.nombre, col.perfil.email)}
                           </span>
-                          <span className="text-[12.5px] font-semibold text-slate-700 truncate flex-1">{nombrePerfil(col.perfil)}</span>
+                          <span className="text-[13px] font-semibold text-tinta dark:text-slate-100 truncate flex-1">{nombrePerfil(col.perfil)}</span>
                         </>
                       ) : (
-                        <span className="text-[12.5px] font-semibold text-amber-800 flex-1 flex items-center gap-1.5">
-                          <AlertTriangle size={13} /> Se quedan en el puente
+                        <span className="text-[13px] font-semibold text-alerta flex-1 flex items-center gap-1.5">
+                          <AlertTriangle size={16} stroke={1.75} /> Se quedan en el puente
                         </span>
                       )}
-                      <span className="text-[11px] font-medium text-slate-600">
+                      <span className="text-xs font-semibold tabular-nums text-tinta dark:text-slate-100">
                         {col.items.length}
                       </span>
                     </div>
                     {col.perfil && (
-                      <p className="text-[10.5px] text-slate-400 px-0.5 mb-1.5">
-                        tenía {col.perfil.cargaActual} → queda con <strong className="text-slate-600">{col.perfil.cargaActual + col.items.length}</strong>
+                      <p className="text-xs text-tinta-2 dark:text-slate-400 px-0.5 mb-2">
+                        tenía {col.perfil.cargaActual} → queda con <strong className="font-semibold text-tinta dark:text-slate-200">{col.perfil.cargaActual + col.items.length}</strong>
                       </p>
                     )}
 
@@ -624,16 +614,16 @@ export default function PuentePage() {
                           <div key={a.codigo} draggable
                             onDragStart={() => setArrastrando(a.codigo)}
                             onDragEnd={() => setArrastrando(null)}
-                            className={`group bg-white border border-slate-200 rounded-lg px-2 py-1.5 cursor-grab active:cursor-grabbing
+                            className={`group bg-white border border-linea rounded-lg px-2.5 py-2 shadow-tarjeta cursor-grab active:cursor-grabbing dark:bg-slate-900 dark:border-slate-800
                               ${arrastrando === a.codigo ? 'opacity-40' : 'hover:border-teal-300'}`}>
                             <div className="flex items-start gap-1.5">
-                              <GripVertical size={12} className="text-slate-300 mt-0.5 shrink-0" />
+                              <GripVertical size={16} stroke={1.75} className="text-slate-300 shrink-0" />
                               <div className="min-w-0 flex-1">
-                                <p className="text-[11.5px] font-semibold text-slate-700 line-clamp-2 leading-tight">
+                                <p className="text-xs font-medium text-tinta dark:text-slate-100 line-clamp-2 leading-snug">
                                   {l?.licitacion_nombre || a.codigo}
                                 </p>
-                                <p className="font-mono text-[10px] text-slate-400 mt-0.5">{a.codigo}</p>
-                                <p className="text-[10px] text-slate-400 truncate">{fmtMonto(l?.licitacion_monto ?? null)} · {a.motivo}</p>
+                                <p className="font-mono text-xs text-tinta-2 dark:text-slate-400 mt-0.5">{a.codigo}</p>
+                                <p className="text-xs text-tinta-2 dark:text-slate-400 truncate">{fmtMonto(l?.licitacion_monto ?? null)} · {a.motivo}</p>
                               </div>
                             </div>
                             {/* Respaldo sin arrastrar: en táctil el drag&drop de HTML5 no existe,
@@ -649,7 +639,7 @@ export default function PuentePage() {
                         );
                       })}
                       {col.items.length === 0 && (
-                        <p className="text-[11px] text-slate-300 text-center py-4">Suelta tarjetas acá</p>
+                        <p className="text-xs text-tinta-3 text-center py-4">Suelta tarjetas acá</p>
                       )}
                     </div>
                   </div>
@@ -663,7 +653,7 @@ export default function PuentePage() {
             licitación, avisa a cada perfil y encola la descarga de documentos. Se va sola al
             terminar (finally de confirmarReparto). */}
         {ejecutando && (
-          <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm overlay-in">
+          <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 overlay-in">
             <div className="bg-white rounded-xl shadow-flotante px-9 py-8 modal-in">
               <PuenteLoader
                 total={previa ? previa.filter(a => a.usuarioId != null).length : undefined}
