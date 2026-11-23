@@ -1,0 +1,996 @@
+- generic [active] [ref=e1]:
+  - link "¿Dudas? ¡Escríbenos!" [ref=e2] [cursor=pointer]:
+    - /url: https://wa.me/56942161738?text=Quiero%20conocer%20m%C3%A1s%20de%20LicitaLAB
+  - banner [ref=e4]:
+    - generic [ref=e6]:
+      - link [ref=e7] [cursor=pointer]:
+        - /url: /
+      - text: 
+      - navigation [ref=e8]:
+        - generic [ref=e9]:
+          - link "LIA" [ref=e11] [cursor=pointer]:
+            - /url: /lia
+          - link "Planes" [ref=e17] [cursor=pointer]:
+            - /url: /planes
+          - link "Eventos HUB" [ref=e18] [cursor=pointer]:
+            - /url: /eventos
+          - link "Adjudicadores" [ref=e19] [cursor=pointer]:
+            - /url: /adjudicadores
+          - link "Glosario 🔍" [ref=e20] [cursor=pointer]:
+            - /url: /glosario
+          - button "Recursos" [ref=e22] [cursor=pointer]
+        - generic [ref=e24]:
+          - link "¡Comienza gratis!" [ref=e25] [cursor=pointer]:
+            - /url: https://app.licitalab.cl/new_user?_gl=1*1fdpknn*_gcl_au*NjQzNTI2MzMuMTczNDAxNDI2MQ..*_ga*MTYxMDg3NjUwMy4xNzM0MDE0MjYx*_ga_W5LDH5SWCE*MTc0MDA4NTY2MS4zMC4xLjE3NDAwODU2NzIuNDkuMC4w
+          - link "Iniciar Sesión" [ref=e26] [cursor=pointer]:
+            - /url: https://app.licitalab.cl/login
+          - button "🇨🇱 Chile" [ref=e28] [cursor=pointer]:
+            - generic [aria-hidden] [ref=e29]: 
+  - generic [ref=e47]:
+    - generic [ref=e48]:
+      - generic [ref=e49]:
+        - generic [ref=e50]:
+          - generic [ref=e51]: RS
+          - generic [ref=e52]: TB
+          - generic [ref=e53]: FK
+          - generic [ref=e54]: UAI
+        - generic [ref=e55]: +1.500 empresas
+        - generic [ref=e56]: venden al Estado con LicitaLAB
+      - heading [level=1] [ref=e57]:
+        - text: El software que hace del
+        - emphasis [ref=e58]: Estado
+        - text: tu mejor cliente
+      - paragraph [ref=e59]: Encuentra las oportunidades que calzan con tu negocio, entiende tu mercado y postula más rápido. Todo Mercado Público, en un solo lugar.
+      - generic [ref=e60]:
+        - link "Empieza gratis" [ref=e61] [cursor=pointer]:
+          - /url: https://app.licitalab.cl/new_user
+        - link "Ver cómo funciona" [ref=e65] [cursor=pointer]:
+          - /url: "#"
+    - generic [ref=e69]:
+      - generic [ref=e74]:
+        - generic [ref=e75]: Nueva compra ágil que calza con tu perfil
+        - generic [ref=e76]: App LicitaLAB · hace 2 min
+      - generic [ref=e81]:
+        - generic [ref=e82]: Tu competencia adjudicó $12,4M
+        - generic [ref=e83]: Hospital Regional de Talca
+      - generic [ref=e88]:
+        - generic [ref=e89]: Orden de compra recibida · $4.280.000
+        - generic [ref=e90]: Municipalidad de Ñuñoa
+      - generic [ref=e93]:
+        - generic [ref=e94]:
+          - img "LicitaLAB" [ref=e96]
+          - generic [ref=e97]: Buscar en LicitaLAB
+          - generic [ref=e101]:
+            - generic [ref=e102]: NP
+            - generic [ref=e106]: Mercado Público
+        - generic [ref=e108]:
+          - generic [ref=e109]: 99+
+          - complementary [ref=e138]:
+            - heading "Oportunidades" [level=6] [ref=e139]
+            - generic [ref=e140]: Mis resultados
+            - generic [ref=e141]:
+              - text: Recomendadas
+              - generic [ref=e144]: "43"
+            - generic [ref=e145]:
+              - text: Todos
+              - generic [ref=e148]: 99+
+            - generic [ref=e149]: Mis vistas
+            - generic [ref=e150]:
+              - generic [ref=e151]: "#"
+              - text: No leídas
+            - generic [ref=e152]:
+              - generic [ref=e153]: "#"
+              - text: Publicadas hoy
+            - generic [ref=e154]:
+              - generic [ref=e155]: "#"
+              - text: Descartadas
+            - generic [ref=e156]: Mercado Público
+            - generic [ref=e157]: Búsqueda libre
+          - generic [ref=e161]:
+            - generic [ref=e162]:
+              - generic [ref=e166]: + Filtro
+              - generic [ref=e167]: Buscar por nombre, ID, product...
+              - generic [ref=e168]: Columnas ⌵
+            - generic [ref=e169]:
+              - generic [ref=e170]:
+                - generic [ref=e171]: Oportunidad / ID
+                - generic [ref=e172]: Organismo
+                - generic [ref=e173]: Monto
+                - generic [ref=e174]: Cierre
+              - generic [ref=e175]:
+                - generic [ref=e176]:
+                  - generic [ref=e177]: ★ 36%
+                  - text: Adquisición Insumos Alimentarios Req. N°3901
+                  - generic [ref=e178]:
+                    - text: "ID: 2307-431-COT26"
+                    - generic [ref=e179]: Ágil 2°
+                - generic [ref=e180]:
+                  - generic [ref=e181]: I. Municipalidad de Osorno
+                  - text: Región de los Lagos
+                - generic [ref=e182]: $ 1.259.594
+                - generic [ref=e183]:
+                  - generic [ref=e184]: 25/09/2026 16:18
+                  - text: 2d 22h
+              - generic [ref=e185]:
+                - generic [ref=e186]:
+                  - generic [ref=e187]: ★ 55%
+                  - text: Construcción Paraderos Sector Laguna Bonita
+                  - generic [ref=e188]:
+                    - text: "ID: 739231-19-LE26"
+                    - generic [ref=e189]: LE
+                - generic [ref=e190]:
+                  - generic [ref=e191]: I. Municipalidad Puerto Octay
+                  - text: Región de los Lagos
+                - generic [ref=e192]: $ 21.000.000
+                - generic [ref=e193]:
+                  - generic [ref=e194]: 29/09/2026 17:00
+                  - text: 6 días
+              - generic [ref=e195]:
+                - generic [ref=e196]:
+                  - generic [ref=e197]: ★ 30%
+                  - text: Ampliación Oficina de Finanzas Municipalidad de Pica
+                  - generic [ref=e198]:
+                    - text: "ID: 3885-51-LP26"
+                    - generic [ref=e199]: LP
+                - generic [ref=e200]:
+                  - generic [ref=e201]: I. Municipalidad de Pica
+                  - text: Región de Tarapacá
+                - generic [ref=e202]: $ 75.000.000
+                - generic [ref=e203]:
+                  - generic [ref=e204]: 29/09/2026 15:30
+                  - text: 6 días
+              - generic [ref=e205]:
+                - generic [ref=e206]:
+                  - generic [ref=e207]: ★ 26%
+                  - text: Cursos de Capacitación Programa Fomento Productivo
+                  - generic [ref=e208]:
+                    - text: "ID: 2430-17-LE26"
+                    - generic [ref=e209]: LE
+                - generic [ref=e210]:
+                  - generic [ref=e211]: I. Municipalidad de Antofagasta
+                  - text: Región de Antofagasta
+                - generic [ref=e212]: $ 41.600.000
+                - generic [ref=e213]:
+                  - generic [ref=e214]: 24/09/2026 15:01
+                  - text: 1d 21h
+              - generic [ref=e215]:
+                - generic [ref=e216]:
+                  - generic [ref=e217]: ★ 63%
+                  - text: Renovación de Colector Aeropuerto SMAPA
+                  - generic [ref=e218]:
+                    - text: "ID: 3759-37-RFI26"
+                    - generic [ref=e219]: Consulta Mercado
+                - generic [ref=e220]:
+                  - generic [ref=e221]: Ilustre Municipalidad de Maipú
+                  - text: Región Metropolitana
+                - generic [ref=e222]: No disponible
+                - generic [ref=e223]:
+                  - generic [ref=e224]: 30/09/2026 10:00
+                  - text: 7 días
+              - generic [ref=e225]:
+                - generic [ref=e226]:
+                  - generic [ref=e227]: ★ 30%
+                  - text: Servicio de Guardias Edificio Consistorial
+                  - generic [ref=e228]:
+                    - text: "ID: 2413-88-LE26"
+                    - generic [ref=e229]: LE
+                - generic [ref=e230]:
+                  - generic [ref=e231]: I. Municipalidad de Independencia
+                  - text: Región Metropolitana
+                - generic [ref=e232]: No disponible
+                - generic [ref=e233]:
+                  - generic [ref=e234]: 30/09/2026 15:05
+                  - text: 7 días
+  - generic [ref=e239]:
+    - heading "Más de 1.500 empresas ya venden mejor al Estado con LicitaLAB" [level=2] [ref=e241]
+    - generic [ref=e243]:
+      - img "RedSalud" [ref=e245]
+      - img "Transbank" [ref=e247]
+      - img "Fresenius Kabi" [ref=e249]
+      - img "Pesco" [ref=e251]
+      - img "Editorial Zig Zag" [ref=e253]
+      - img "Universidad Adolfo Ibáñez" [ref=e255]
+      - img "RedSalud" [ref=e257]
+      - img "Transbank" [ref=e259]
+      - img "Fresenius Kabi" [ref=e261]
+      - img "Pesco" [ref=e263]
+      - img "Editorial Zig Zag" [ref=e265]
+      - img "Universidad Adolfo Ibáñez" [ref=e267]
+      - img "RedSalud" [ref=e269]
+      - img "Transbank" [ref=e271]
+      - img "Fresenius Kabi" [ref=e273]
+      - img "Pesco" [ref=e275]
+      - img "Editorial Zig Zag" [ref=e277]
+      - img "Universidad Adolfo Ibáñez" [ref=e279]
+      - img "RedSalud" [ref=e281]
+      - img "Transbank" [ref=e283]
+      - img "Fresenius Kabi" [ref=e285]
+      - img "Pesco" [ref=e287]
+      - img "Editorial Zig Zag" [ref=e289]
+      - img "Universidad Adolfo Ibáñez" [ref=e291]
+  - generic [ref=e293]:
+    - generic [ref=e294]:
+      - heading [level=2] [ref=e295]:
+        - text: El impacto de LicitaLAB en
+        - emphasis [ref=e296]: Mercado Público
+      - paragraph [ref=e297]: Nuestros clientes ya mueven una parte importante de Mercado Público.
+    - generic [ref=e300]:
+      - generic [ref=e354]: OC
+      - generic [aria-hidden] [ref=e360]: Cliente
+      - generic [ref=e367]:
+        - generic [ref=e368]:
+          - generic [ref=e369]: Órdenes de compra en Mercado Público
+          - generic [ref=e379]:
+            - generic [ref=e380]: 1 de cada 8
+            - paragraph [ref=e381]: pasa por un cliente LicitaLAB.
+        - generic [ref=e382]:
+          - generic [ref=e383]: Ventas de nuestros clientes
+          - generic [ref=e384]:
+            - emphasis [ref=e386]: Antes
+            - emphasis [ref=e388]: Con LicitaLAB
+          - generic [ref=e389]:
+            - generic [ref=e390]: +0%
+            - paragraph [ref=e391]: más de ventas, en promedio.
+  - generic [ref=e395]:
+    - generic [ref=e396]:
+      - heading [level=2] [ref=e397]:
+        - text: Inteligencia para
+        - emphasis [ref=e398]: vender al Estado
+      - paragraph [ref=e399]: LicitaLAB es un software de compras públicas que reúne las oportunidades de Mercado Público, te muestra quién compite y a qué precio, y te permite postular desde un solo lugar.
+      - navigation [ref=e400]:
+        - link "Explorador de oportunidades" [ref=e401] [cursor=pointer]:
+          - /url: "#f-explorador"
+        - link "Seguimiento y alertas" [ref=e404] [cursor=pointer]:
+          - /url: "#f-seguimiento"
+        - link "Análisis de mercado y competencia" [ref=e407] [cursor=pointer]:
+          - /url: "#f-analisis"
+        - link "Postulación asistida con IA" [ref=e410] [cursor=pointer]:
+          - /url: "#f-postulacion"
+        - link "Integraciones" [ref=e413] [cursor=pointer]:
+          - /url: "#f-integraciones"
+    - generic [ref=e416]:
+      - article [ref=e417]:
+        - generic [ref=e418]:
+          - generic [ref=e421]:
+            - generic [ref=e422]:
+              - generic [ref=e426]: + Filtro
+              - generic [ref=e427]: guantes de nitrilo
+              - generic [ref=e429]: Columnas ⌵
+            - generic [ref=e430]:
+              - generic [ref=e431]:
+                - generic [ref=e432]: Oportunidad / ID
+                - generic [ref=e433]: Organismo
+                - generic [ref=e434]: Monto
+                - generic [ref=e435]: Cierre
+              - generic [ref=e436]:
+                - generic [ref=e437]:
+                  - generic [ref=e438]: ★ 91%
+                  - text: Compra de guantes de nitrilo talla M y L
+                  - generic [ref=e439]:
+                    - text: "ID: 4471-1-L125"
+                    - generic [ref=e440]: Ágil 2°
+                - generic [ref=e441]:
+                  - generic [ref=e442]: CESFAM Santa Julia
+                  - text: Región Metropolitana
+                - generic [ref=e443]: $ 2.180.000
+                - generic [ref=e444]:
+                  - generic [ref=e445]: 24/09/2026 15:00
+                  - text: 26 h
+              - generic [ref=e446]:
+                - generic [ref=e447]:
+                  - generic [ref=e448]: ★ 84%
+                  - text: Insumos de protección personal para SAPU
+                  - generic [ref=e449]:
+                    - text: "ID: 1180-2-LE26"
+                    - generic [ref=e450]: LE
+                - generic [ref=e451]:
+                  - generic [ref=e452]: Servicio de Salud Metropolitano Sur
+                  - text: Región Metropolitana
+                - generic [ref=e453]: $ 14.900.000
+                - generic [ref=e454]:
+                  - generic [ref=e455]: 29/09/2026 15:00
+                  - text: 6 días
+              - generic [ref=e456]:
+                - generic [ref=e457]:
+                  - generic [ref=e458]: ★ 77%
+                  - text: Guantes de procedimiento sin polvo
+                  - generic [ref=e459]:
+                    - text: "ID: 2210-8-L125"
+                    - generic [ref=e460]: Ágil 2°
+                - generic [ref=e461]:
+                  - generic [ref=e462]: Hospital de Ovalle
+                  - text: Región de Coquimbo
+                - generic [ref=e463]: $ 1.640.000
+                - generic [ref=e464]:
+                  - generic [ref=e465]: 25/09/2026 12:00
+                  - text: 2 días
+              - generic [ref=e466]:
+                - generic [ref=e467]:
+                  - generic [ref=e468]: ★ 62%
+                  - text: Kit EPP para brigadas de salud rural
+                  - generic [ref=e469]:
+                    - text: "ID: 3300-12-TD26"
+                    - generic [ref=e470]: Trato directo
+                - generic [ref=e471]:
+                  - generic [ref=e472]: I. Municipalidad de Paine
+                  - text: Región Metropolitana
+                - generic [ref=e473]: $ 3.200.000
+                - generic [ref=e474]:
+                  - generic [ref=e475]: 30/09/2026 10:00
+                  - text: 7 días
+          - generic [ref=e476]:
+            - heading "Explorador de oportunidades" [level=3] [ref=e477]
+            - paragraph [ref=e478]: Busca en todo lo que publica el Estado (licitaciones, compras ágiles, convenios marco y tratos directos) por rubro, región, monto o palabra clave. O deja que tu perfil de búsqueda lo haga por ti.
+      - article [ref=e479]:
+        - generic [ref=e480]:
+          - generic [ref=e481]:
+            - generic [ref=e483]:
+              - heading "Buenas tardes, Nicolas· martes 22 de septiembre" [level=4] [ref=e484]
+              - generic [ref=e485]:
+                - generic [ref=e486]: ◉ Feed
+                - generic [ref=e487]: Reportes
+              - generic [ref=e488]:
+                - generic [ref=e489]: Todo
+                - generic [ref=e490]: Negocios
+                - generic [ref=e491]: Competencia
+                - generic [ref=e492]: Gestión
+                - generic [ref=e493]:
+                  - generic [ref=e494]: Para mí
+                  - generic [ref=e495]: Organización
+              - generic [ref=e496]: 11613 sin leer
+              - generic [ref=e497]: Hoy
+              - generic [ref=e498]:
+                - generic [ref=e502]:
+                  - generic [ref=e503]: Nueva orden de compra
+                  - generic [ref=e504]: 1040166-22-SE26 · Almacena 608897-78-LR24 -L 5 AA, septiembre
+                - generic [ref=e505]: hace 1 h
+              - generic [ref=e507]:
+                - generic [ref=e511]:
+                  - generic [ref=e512]: Se publicó el cuadro de apertura de ofertas
+                  - generic [ref=e513]: 4476-22-LE26 · Insumos Para Esterilización Del Cesfam Romeral
+                - generic [ref=e514]: hace 1 h
+              - generic [ref=e516]:
+                - generic [ref=e520]:
+                  - generic [ref=e521]: "Nuevo documento en la licitación: 3470 DECRETO DECLARA DESIERTA.pdf"
+                  - generic [ref=e522]: 2713-154-LE26 · Dideco Adquisicion De Juguetes Solicitud 871
+                - generic [ref=e523]: hace 1 h
+              - generic [ref=e525]:
+                - generic [ref=e530]:
+                  - generic [ref=e531]: "Cambio de fecha en la licitación: Fecha de adjudicación"
+                  - generic [ref=e532]: 2713-154-LE26 · Dideco Adquisicion De Juguetes Solicitud 871
+                - generic [ref=e533]: hace 1 h
+              - generic [ref=e535]:
+                - generic [ref=e539]:
+                  - generic [ref=e540]: Cambio de estado en la licitación
+                  - generic [ref=e541]: 2713-154-LE26 · Dideco Adquisicion De Juguetes Solicitud 871
+                - generic [ref=e542]: hace 1 h
+            - generic [ref=e544]: Guantes de nitrilo cierra mañana a las 15:00Alerta enviada a Camila por correo
+          - generic [ref=e550]:
+            - heading "Seguimiento y alertas" [level=3] [ref=e551]
+            - paragraph [ref=e552]: "Un feed en tu inicio con lo que pasa en las oportunidades que sigues: cambios de fecha, adjudicaciones y órdenes de compra de tu competencia. Alertas por correo y en la app, y un responsable asignado a cada negocio."
+      - article [ref=e553]:
+        - generic [ref=e554]:
+          - generic [ref=e556]:
+            - generic [ref=e557]:
+              - generic [ref=e558]: Reportes / Mercado
+              - generic [ref=e559]: Panorama general de las compras públicas en Chile
+            - generic [ref=e560]:
+              - generic [ref=e561]: Personaliza…
+              - generic [ref=e562]: 01/01/2026 → 22/09/2026
+              - generic [ref=e563]: Modalidad de com…
+              - generic [ref=e564]: Rubro / producto
+              - generic [ref=e565]: Organismo
+              - generic [ref=e566]: Región
+            - generic [ref=e567]:
+              - generic [ref=e568]:
+                - generic [ref=e569]: 13 bill.
+                - text: Ventas
+              - generic [ref=e570]:
+                - generic [ref=e571]: 1,3 mill.
+                - text: Órdenes de Compra
+              - generic [ref=e572]:
+                - generic [ref=e573]: "1.227"
+                - text: Organismos Compradores
+              - generic [ref=e574]:
+                - generic [ref=e575]: "59.640"
+                - text: Empresas Proveedoras
+            - generic [ref=e576]:
+              - heading "Modalidad de compra utilizada 2026-01-01 > 2026-09-22" [level=6] [ref=e577]:
+                - text: Modalidad de compra utilizada
+                - generic [ref=e578]: 2026-01-01 > 2026-09-22
+              - generic [ref=e585]:
+                - generic [ref=e586]: Licitación
+                - generic [ref=e587]: Trato directo
+                - generic [ref=e588]: Compra ágil
+                - generic [ref=e589]: Convenio marco
+                - generic [ref=e590]: Compra coordinada
+                - generic [ref=e591]: Cotización
+            - generic [ref=e592]:
+              - heading "Rubros y productos más comprados 2026-01-01 > 2026-09-22" [level=6] [ref=e593]:
+                - text: Rubros y productos más comprados
+                - generic [ref=e594]: 2026-01-01 > 2026-09-22
+              - table [ref=e595]:
+                - rowgroup [ref=e596]:
+                  - row [ref=e597]:
+                    - columnheader "Rubro" [ref=e598]
+                    - columnheader "Ventas [CLP]" [ref=e599]
+                    - columnheader "%" [ref=e600]
+                  - row [ref=e601]:
+                    - cell "Construcción de obras civiles y infraestructuras" [ref=e602]
+                    - cell "960.824.666.573" [ref=e603]
+                    - cell "7.6%" [ref=e604]
+                  - row [ref=e606]:
+                    - cell "Política, planificación y programas de alimentación" [ref=e607]
+                    - cell "708.179.113.567" [ref=e608]
+                    - cell "5.6%" [ref=e609]
+                  - row [ref=e611]:
+                    - cell "Sin clasificar" [ref=e612]
+                    - cell "579.675.216.992" [ref=e613]
+                    - cell "4.6%" [ref=e614]
+                  - row [ref=e616]:
+                    - cell "Homeopatía" [ref=e617]
+                    - cell "444.779.010.996" [ref=e618]
+                    - cell "3.5%" [ref=e619]
+                  - row [ref=e621]:
+                    - cell "Transporte de pasajeros por carretera" [ref=e622]
+                    - cell "375.538.609.704" [ref=e623]
+                    - cell "3.0%" [ref=e624]
+          - generic [ref=e626]:
+            - heading "Análisis de mercado y competencia" [level=3] [ref=e627]
+            - paragraph [ref=e628]: Quién ganó, a qué precio y con qué comprador. Reportes de competidores, de organismos compradores y de convenio marco, con el historial de pago de cada uno.
+      - article [ref=e629]:
+        - generic [ref=e630]:
+          - generic [ref=e632]:
+            - generic [ref=e633]:
+              - generic [ref=e634]: Oferta · Guantes de nitrilo M y L
+              - generic [ref=e635]: ✦ LIA completando
+            - generic [ref=e638]:
+              - generic [ref=e639]: Producto
+              - generic [ref=e640]: Guantes nitrilo M x100 · SKU 40021
+            - generic [ref=e645]:
+              - generic [ref=e646]: Cantidad
+              - generic [ref=e647]: 120 cajas
+            - generic [ref=e652]:
+              - generic [ref=e653]: Precio unitario
+              - generic [ref=e654]: $8.900 neto
+            - generic [ref=e659]:
+              - generic [ref=e660]: Ficha técnica
+              - generic [ref=e661]: ficha-40021.pdf adjunta
+            - generic [ref=e666]:
+              - generic [ref=e667]: Plazo de entrega
+              - generic [ref=e668]: 5 días hábiles
+            - generic [ref=e673]:
+              - generic [ref=e674]: Puntaje estimado
+              - generic [ref=e675]: 92 / 100
+          - generic [ref=e676]:
+            - heading "Postulación asistida con IA" [level=3] [ref=e677]
+            - paragraph [ref=e678]: LIA completa tu postulación y la deja lista con los datos de tu catálogo. Tú solo revisas y envías. Lo que antes era una tarde, ahora son minutos.
+      - article [ref=e679]:
+        - generic [ref=e680]:
+          - generic [ref=e682]:
+            - generic [ref=e683]:
+              - generic [ref=e687]:
+                - generic [ref=e688]: Extensión para Chrome
+                - paragraph [ref=e689]: Conecta LicitaLAB con Mercado Público para postular y gestionar órdenes de compra desde el navegador.
+              - generic [ref=e690]:
+                - generic [ref=e691]: No instalada
+                - generic [ref=e693]: Descargar
+            - generic [ref=e696]:
+              - generic [ref=e699]:
+                - generic [ref=e700]: Google Sheets
+                - paragraph [ref=e701]: Conecta la planilla donde llevas tus productos y sincroniza tu catálogo con los cambios que hagas en ella.
+              - generic [ref=e702]:
+                - generic [ref=e703]: Sincronizado 17/08/2026
+                - generic [ref=e705]: Desconectar
+            - generic [ref=e708]:
+              - generic [ref=e711]:
+                - generic [ref=e712]: MCP de Claude
+                - paragraph [ref=e713]: Analiza licitaciones y redacta postulaciones desde Claude conectando el servidor MCP de LicitaLAB.
+              - generic [ref=e714]:
+                - generic [ref=e715]: Vía Model Context Protocol
+                - generic [ref=e716]: Ver guía
+            - generic [ref=e719]:
+              - generic [ref=e722]:
+                - generic [ref=e723]: Aplicación de ChatGPT
+                - paragraph [ref=e724]: Usa la app de LicitaLAB dentro de ChatGPT para consultar oportunidades en lenguaje natural.
+              - generic [ref=e725]:
+                - generic [ref=e726]: App oficial
+                - generic [ref=e727]: Abrir app
+            - generic [ref=e730]:
+              - generic [ref=e731]:
+                - emphasis [ref=e733]: API
+                - generic [ref=e734]:
+                  - generic [ref=e735]: API Key de LicitaLAB
+                  - paragraph [ref=e736]: Conecta con tu workspace y gestiona tus oportunidades. Controla y sincroniza el catálogo de tus productos.
+              - generic [ref=e737]:
+                - generic [ref=e738]: 3 keys activas
+                - generic [ref=e739]: Administrar
+            - generic [ref=e740]:
+              - generic [ref=e749]:
+                - generic [ref=e750]: Zapier
+                - paragraph [ref=e751]: "Automatiza flujos conectando LicitaLAB con miles de apps: notifica nuevas licitaciones, vuelca datos a tu CRM y más."
+              - generic [ref=e752]:
+                - generic [ref=e753]: Automatización
+                - generic [ref=e754]: Conectar
+          - generic [ref=e757]:
+            - heading "Integraciones" [level=3] [ref=e758]
+            - paragraph [ref=e759]: Sincroniza tu catálogo con Google Sheets y lleva LicitaLAB a Claude, ChatGPT, Zapier o tu propio sistema con la API.
+  - generic [ref=e763]:
+    - generic [ref=e764]:
+      - generic [ref=e765]: Nuevo
+      - text: App de LicitaLAB
+    - heading "Vende al Estado desde tu celular , estés donde estés" [level=2] [ref=e766]:
+      - generic [ref=e767]: Vende
+      - generic [ref=e769]: al
+      - generic [ref=e771]: Estado
+      - generic [ref=e773]:
+        - emphasis [ref=e774]:
+          - generic [ref=e775]: desde
+          - generic [ref=e777]: tu
+          - generic [ref=e779]: celular
+        - generic [ref=e781]: ","
+      - generic [ref=e783]: estés
+      - generic [ref=e785]: donde
+      - generic [ref=e787]: estés
+    - paragraph [ref=e789]: Oportunidades que calzan con tu negocio, alertas al instante y el seguimiento de tus licitaciones. Todo Mercado Público, en tu bolsillo.
+    - generic [ref=e790]:
+      - link "Disponible en Google Play" [ref=e791] [cursor=pointer]:
+        - /url: https://play.google.com/store/apps/details?id=cl.licitalab.mobile&hl=es_CL
+        - generic [ref=e797]:
+          - generic [ref=e798]: DISPONIBLE EN
+          - generic [ref=e799]: Google Play
+      - link "Descárgalo en el App Store" [ref=e800] [cursor=pointer]:
+        - /url: https://apps.apple.com/cl/app/licitalab/id6823810096
+        - generic [ref=e803]:
+          - generic [ref=e804]: Descárgalo en el
+          - generic [ref=e805]: App Store
+      - link "Saber más" [ref=e806] [cursor=pointer]:
+        - /url: https://www.licitalab.cl/app
+  - generic [ref=e816]:
+    - generic [ref=e817]:
+      - heading [level=2] [ref=e818]:
+        - text: La IA de LicitaLAB,
+        - emphasis [ref=e819]: dentro y fuera
+        - text: de la plataforma
+      - paragraph [ref=e820]: El asistente de IA de LicitaLAB encuentra tus oportunidades, analiza el mercado, responde sobre tu negocio y postula por ti. Y con nuestro MCP, Claude o ChatGPT se conectan a tu cuenta para consultar tus licitaciones, compras ágiles, competidores y organismos, sin salir del chat.
+    - tablist "Ejemplos de la IA de LicitaLAB" [ref=e821]:
+      - tab "Agente LicitaLAB" [selected] [ref=e822] [cursor=pointer]
+      - tab "Claude" [ref=e826] [cursor=pointer]
+      - tab "ChatGPT" [ref=e827] [cursor=pointer]
+    - generic [ref=e829]:
+      - generic [ref=e830]:
+        - generic [ref=e831]: Agente LicitaLAB
+        - generic [ref=e835]: Dentro de LicitaLAB
+      - tabpanel "Agente LicitaLAB" [ref=e838]:
+        - generic [ref=e839]: Calcula mi tasa de adjudicación en los últimos 60 días
+        - generic [ref=e840]:
+          - generic [ref=e841]: Revisando tu seguimiento… (últimos 60 días)
+          - paragraph [ref=e844]: "Postulaste a 24 procesos y ganaste 7: tu tasa de adjudicación es de 29%."
+          - generic [ref=e845]:
+            - generic [ref=e846]:
+              - generic [ref=e847]: Módulo
+              - generic [ref=e848]: Postulaste
+              - generic [ref=e849]: Ganaste
+              - generic [ref=e850]: Tasa
+            - generic [ref=e851]:
+              - generic [ref=e852]: Compra Ágil
+              - generic [ref=e853]: "14"
+              - generic [ref=e854]: "5"
+              - generic [ref=e855]: 36%
+            - generic [ref=e856]:
+              - generic [ref=e857]: Convenio Marco
+              - generic [ref=e858]: "4"
+              - generic [ref=e859]: "1"
+              - generic [ref=e860]: 25%
+            - generic [ref=e861]:
+              - generic [ref=e862]: Licitaciones
+              - generic [ref=e863]: "6"
+              - generic [ref=e864]: "1"
+              - generic [ref=e865]: 17%
+            - generic [ref=e866]:
+              - generic [ref=e867]: Total
+              - generic [ref=e868]: "24"
+              - generic [ref=e869]: "7"
+              - generic [ref=e870]: 29%
+          - paragraph [ref=e871]: "Tu mejor resultado está en Compra Ágil. En licitaciones perdiste 4 de 5 por precio: ofertaste en promedio 8% sobre el ganador. ¿Quieres que revise esos procesos?"
+          - generic [ref=e872]: Copiar
+    - generic [ref=e877]:
+      - link "Conoce LIA" [ref=e878] [cursor=pointer]:
+        - /url: /lia
+      - link "Conectar con Claude o ChatGPT" [ref=e882] [cursor=pointer]:
+        - /url: https://help.licitalab.cl/es-cl/articles/3-como-instalar-el-mcp-de-licitalab-en-claude-o-chatgpt
+  - generic [ref=e888]:
+    - generic [ref=e889]:
+      - heading [level=2] [ref=e890]:
+        - text: Aprende a vender
+        - emphasis [ref=e891]: más
+        - text: al Estado
+      - paragraph [ref=e892]: Estudios, tutoriales y grabaciones de nuestros eventos.
+    - generic [ref=e893]:
+      - article [ref=e894]:
+        - generic [ref=e895]:
+          - img "Ebook Pulso Mercado Público 2025 en un iPad" [ref=e897]
+          - generic [ref=e898]:
+            - generic [ref=e899]: Ebook
+            - 'heading "Pulso Mercado Público 2025: análisis y claves para triunfar en 2026" [level=3] [ref=e900]'
+            - link "Descárgalo gratis" [ref=e902] [cursor=pointer]:
+              - /url: https://recursos.licitalab.cl/pulso-2025
+      - article [ref=e906]:
+        - generic [ref=e907]:
+          - img "Demostración de la postulación asistida con IA" [ref=e909]
+          - generic [ref=e913]:
+            - generic [ref=e914]: Video · Producto
+            - heading "Así funciona la postulación asistida con IA" [level=3] [ref=e915]
+            - link "Ver el video" [ref=e917] [cursor=pointer]:
+              - /url: https://www.youtube.com/watch?v=OuvYxnNmuBs
+      - article [ref=e921]:
+        - generic [ref=e922]:
+          - 'img "LicitaLAB en tu IA favorita: conecta con Claude y ChatGPT" [ref=e924]'
+          - generic [ref=e928]:
+            - generic [ref=e929]: Video · Evento
+            - 'heading "LicitaLAB en tu IA favorita: conecta con Claude y ChatGPT" [level=3] [ref=e930]'
+            - link "Ver la grabación" [ref=e932] [cursor=pointer]:
+              - /url: https://www.youtube.com/watch?v=juhgPCZQL3k
+      - article [ref=e936]:
+        - generic [ref=e937]:
+          - generic [ref=e938]:
+            - img "Feed de LicitaLAB con las novedades de tus licitaciones"
+          - generic [ref=e939]:
+            - generic [ref=e940]: Novedades
+            - heading "Lo nuevo de LicitaLAB" [level=3] [ref=e941]
+            - paragraph [ref=e942]: "Todo lo que lanzamos este año: postulación con IA, catálogo de productos, cotizaciones y más."
+            - link "Ver las novedades" [ref=e944] [cursor=pointer]:
+              - /url: https://www.licitalab.cl/lo-nuevo-de-licitalab
+  - generic [ref=e949]:
+    - heading [level=2] [ref=e951]:
+      - text: Lo que cambia cuando dejas de buscar
+      - emphasis [ref=e952]: a mano
+    - generic [ref=e955]:
+      - article [aria-hidden] [ref=e956] [cursor=pointer]:
+        - generic [ref=e958]:
+          - paragraph [ref=e959]: “LicitaLAB es un sistema que nos ha permitido optimizar los tiempos de búsqueda.”
+          - generic [ref=e960]:
+            - generic [ref=e961]: Paulina Mateu
+            - generic [ref=e962]: Encargada ChileCompra, Purity Eco
+        - button [ref=e963]:
+          - generic [ref=e966]: Ver historia
+      - article [aria-hidden] [ref=e967] [cursor=pointer]:
+        - generic [ref=e969]:
+          - paragraph [ref=e970]: “El primer gran cambio con LicitaLAB es poder tener el control de todo lo que uno postula.”
+          - generic [ref=e971]:
+            - generic [ref=e972]: Alejandra Rodríguez
+            - generic [ref=e973]: Ejecutiva Comercial Licitaciones, Glomax
+        - button [ref=e974]:
+          - generic [ref=e977]: Ver historia
+      - article [aria-hidden] [ref=e978] [cursor=pointer]:
+        - generic [ref=e980]:
+          - paragraph [ref=e981]: “Con LicitaLAB tuvimos un crecimiento de un 70% en las oportunidades que captamos, y nuestras adjudicaciones aumentaron un 30%.”
+          - generic [ref=e982]:
+            - generic [ref=e983]: Diego Morales
+            - generic [ref=e984]: Analista de Licitaciones, SmartMedical
+        - button [ref=e985]:
+          - generic [ref=e988]: Ver historia
+      - article [aria-hidden] [ref=e989] [cursor=pointer]:
+        - generic [ref=e991]:
+          - paragraph [ref=e992]: “Tenemos una gran mejora en el flujo de trabajo entre el departamento de licitaciones y el equipo de ventas.”
+          - generic [ref=e993]:
+            - generic [ref=e994]: Liliana Blanco
+            - generic [ref=e995]: Encargada de Licitaciones, Qualitek
+        - button [ref=e996]:
+          - generic [ref=e999]: Ver historia
+      - article [aria-hidden] [ref=e1000] [cursor=pointer]:
+        - generic [ref=e1002]:
+          - paragraph [ref=e1003]: “Gracias a LicitaLAB pudimos formar nuestro equipo de licitaciones dentro de Alcosafe.”
+          - generic [ref=e1004]:
+            - generic [ref=e1005]: Fernando Irribarra
+            - generic [ref=e1006]: Encargado de Licitaciones, Alcosafe
+        - button [ref=e1007]:
+          - generic [ref=e1010]: Ver historia
+      - article [aria-hidden] [ref=e1011] [cursor=pointer]:
+        - generic [ref=e1013]:
+          - paragraph [ref=e1014]: “Antes nos tomaba un día entero buscar oportunidades. Ahora con LicitaLAB, lo hacemos en minutos.”
+          - generic [ref=e1015]:
+            - generic [ref=e1016]: Felipe Mota
+            - generic [ref=e1017]: BI, MedTec
+        - button [ref=e1018]:
+          - generic [ref=e1021]: Ver historia
+      - article [aria-hidden] [ref=e1022] [cursor=pointer]:
+        - generic [ref=e1024]:
+          - paragraph [ref=e1025]: “Con LicitaLAB sabemos qué podemos adjudicar y qué podemos ganar.”
+          - generic [ref=e1026]:
+            - generic [ref=e1027]: Gabriela Godoy
+            - generic [ref=e1028]: KAM, Ensus Chile
+        - button [ref=e1029]:
+          - generic [ref=e1032]: Ver historia
+      - article [ref=e1033] [cursor=pointer]:
+        - generic [ref=e1035]:
+          - paragraph [ref=e1036]: “LicitaLAB es un sistema que nos ha permitido optimizar los tiempos de búsqueda.”
+          - generic [ref=e1037]:
+            - generic [ref=e1038]: Paulina Mateu
+            - generic [ref=e1039]: Encargada ChileCompra, Purity Eco
+        - button "Ver historia de Paulina Mateu" [ref=e1040]:
+          - generic [ref=e1043]: Ver historia
+      - article [ref=e1044] [cursor=pointer]:
+        - generic [ref=e1046]:
+          - paragraph [ref=e1047]: “El primer gran cambio con LicitaLAB es poder tener el control de todo lo que uno postula.”
+          - generic [ref=e1048]:
+            - generic [ref=e1049]: Alejandra Rodríguez
+            - generic [ref=e1050]: Ejecutiva Comercial Licitaciones, Glomax
+        - button "Ver historia de Alejandra Rodríguez" [ref=e1051]:
+          - generic [ref=e1054]: Ver historia
+      - article [ref=e1055] [cursor=pointer]:
+        - generic [ref=e1057]:
+          - paragraph [ref=e1058]: “Con LicitaLAB tuvimos un crecimiento de un 70% en las oportunidades que captamos, y nuestras adjudicaciones aumentaron un 30%.”
+          - generic [ref=e1059]:
+            - generic [ref=e1060]: Diego Morales
+            - generic [ref=e1061]: Analista de Licitaciones, SmartMedical
+        - button "Ver historia de Diego Morales" [ref=e1062]:
+          - generic [ref=e1065]: Ver historia
+      - article [ref=e1066] [cursor=pointer]:
+        - generic [ref=e1068]:
+          - paragraph [ref=e1069]: “Tenemos una gran mejora en el flujo de trabajo entre el departamento de licitaciones y el equipo de ventas.”
+          - generic [ref=e1070]:
+            - generic [ref=e1071]: Liliana Blanco
+            - generic [ref=e1072]: Encargada de Licitaciones, Qualitek
+        - button "Ver historia de Liliana Blanco" [ref=e1073]:
+          - generic [ref=e1076]: Ver historia
+      - article [ref=e1077] [cursor=pointer]:
+        - generic [ref=e1079]:
+          - paragraph [ref=e1080]: “Gracias a LicitaLAB pudimos formar nuestro equipo de licitaciones dentro de Alcosafe.”
+          - generic [ref=e1081]:
+            - generic [ref=e1082]: Fernando Irribarra
+            - generic [ref=e1083]: Encargado de Licitaciones, Alcosafe
+        - button "Ver historia de Fernando Irribarra" [ref=e1084]:
+          - generic [ref=e1087]: Ver historia
+      - article [ref=e1088] [cursor=pointer]:
+        - generic [ref=e1090]:
+          - paragraph [ref=e1091]: “Antes nos tomaba un día entero buscar oportunidades. Ahora con LicitaLAB, lo hacemos en minutos.”
+          - generic [ref=e1092]:
+            - generic [ref=e1093]: Felipe Mota
+            - generic [ref=e1094]: BI, MedTec
+        - button "Ver historia de Felipe Mota" [ref=e1095]:
+          - generic [ref=e1098]: Ver historia
+      - article [ref=e1099] [cursor=pointer]:
+        - generic [ref=e1101]:
+          - paragraph [ref=e1102]: “Con LicitaLAB sabemos qué podemos adjudicar y qué podemos ganar.”
+          - generic [ref=e1103]:
+            - generic [ref=e1104]: Gabriela Godoy
+            - generic [ref=e1105]: KAM, Ensus Chile
+        - button "Ver historia de Gabriela Godoy" [ref=e1106]:
+          - generic [ref=e1109]: Ver historia
+      - article [aria-hidden] [ref=e1110] [cursor=pointer]:
+        - generic [ref=e1112]:
+          - paragraph [ref=e1113]: “LicitaLAB es un sistema que nos ha permitido optimizar los tiempos de búsqueda.”
+          - generic [ref=e1114]:
+            - generic [ref=e1115]: Paulina Mateu
+            - generic [ref=e1116]: Encargada ChileCompra, Purity Eco
+        - button [ref=e1117]:
+          - generic [ref=e1120]: Ver historia
+      - article [aria-hidden] [ref=e1121] [cursor=pointer]:
+        - generic [ref=e1123]:
+          - paragraph [ref=e1124]: “El primer gran cambio con LicitaLAB es poder tener el control de todo lo que uno postula.”
+          - generic [ref=e1125]:
+            - generic [ref=e1126]: Alejandra Rodríguez
+            - generic [ref=e1127]: Ejecutiva Comercial Licitaciones, Glomax
+        - button [ref=e1128]:
+          - generic [ref=e1131]: Ver historia
+      - article [aria-hidden] [ref=e1132] [cursor=pointer]:
+        - generic [ref=e1134]:
+          - paragraph [ref=e1135]: “Con LicitaLAB tuvimos un crecimiento de un 70% en las oportunidades que captamos, y nuestras adjudicaciones aumentaron un 30%.”
+          - generic [ref=e1136]:
+            - generic [ref=e1137]: Diego Morales
+            - generic [ref=e1138]: Analista de Licitaciones, SmartMedical
+        - button [ref=e1139]:
+          - generic [ref=e1142]: Ver historia
+      - article [aria-hidden] [ref=e1143] [cursor=pointer]:
+        - generic [ref=e1145]:
+          - paragraph [ref=e1146]: “Tenemos una gran mejora en el flujo de trabajo entre el departamento de licitaciones y el equipo de ventas.”
+          - generic [ref=e1147]:
+            - generic [ref=e1148]: Liliana Blanco
+            - generic [ref=e1149]: Encargada de Licitaciones, Qualitek
+        - button [ref=e1150]:
+          - generic [ref=e1153]: Ver historia
+      - article [aria-hidden] [ref=e1154] [cursor=pointer]:
+        - generic [ref=e1156]:
+          - paragraph [ref=e1157]: “Gracias a LicitaLAB pudimos formar nuestro equipo de licitaciones dentro de Alcosafe.”
+          - generic [ref=e1158]:
+            - generic [ref=e1159]: Fernando Irribarra
+            - generic [ref=e1160]: Encargado de Licitaciones, Alcosafe
+        - button [ref=e1161]:
+          - generic [ref=e1164]: Ver historia
+      - article [aria-hidden] [ref=e1165] [cursor=pointer]:
+        - generic [ref=e1167]:
+          - paragraph [ref=e1168]: “Antes nos tomaba un día entero buscar oportunidades. Ahora con LicitaLAB, lo hacemos en minutos.”
+          - generic [ref=e1169]:
+            - generic [ref=e1170]: Felipe Mota
+            - generic [ref=e1171]: BI, MedTec
+        - button [ref=e1172]:
+          - generic [ref=e1175]: Ver historia
+      - article [aria-hidden] [ref=e1176] [cursor=pointer]:
+        - generic [ref=e1178]:
+          - paragraph [ref=e1179]: “Con LicitaLAB sabemos qué podemos adjudicar y qué podemos ganar.”
+          - generic [ref=e1180]:
+            - generic [ref=e1181]: Gabriela Godoy
+            - generic [ref=e1182]: KAM, Ensus Chile
+        - button [ref=e1183]:
+          - generic [ref=e1186]: Ver historia
+  - generic [ref=e1196]:
+    - radio "Precio mensual" [checked]
+    - radio "Precio anual"
+    - generic [ref=e1197]:
+      - generic [ref=e1198]:
+        - heading [level=2] [ref=e1199]:
+          - text: Precios claros,
+          - emphasis [ref=e1200]: desde el día uno
+        - paragraph [ref=e1201]: Elige según el tamaño de tu equipo y cuánto quieras automatizar. Todos los planes parten con 14 días gratis.
+        - generic [ref=e1202]:
+          - generic [ref=e1203] [cursor=pointer]: Mensual
+          - generic [ref=e1204] [cursor=pointer]:
+            - text: Anual
+            - generic [ref=e1205]: −10%
+      - generic [ref=e1206]:
+        - article [ref=e1207]:
+          - generic [ref=e1208]:
+            - generic [ref=e1209]: Crece
+            - heading "Analiza tu mercado y adjudica más y mejores negocios." [level=3] [ref=e1212]
+            - generic [ref=e1214]:
+              - generic [ref=e1215]: 2,2 UF
+              - generic [ref=e1216]: al mes + IVA
+            - paragraph [ref=e1217]: +0,5 UF por usuario extra al mes
+            - paragraph [ref=e1218]:
+              - emphasis [ref=e1219]: Ideal si
+              - text: vendes o empiezas a vender al Estado y necesitas encontrar y organizar oportunidades.
+            - link "Empieza gratis" [ref=e1220] [cursor=pointer]:
+              - /url: https://app.licitalab.cl/new_user
+            - generic [ref=e1224]:
+              - generic [ref=e1225]: Postulaciones con IA
+              - generic [ref=e1226]: 10 al mes
+            - generic [ref=e1229]:
+              - generic [ref=e1230]: Líneas de negocio
+              - generic [ref=e1231]: Una
+            - generic [ref=e1232]:
+              - generic [ref=e1233]: Reportes
+              - generic [ref=e1234]: Básicos
+            - generic [ref=e1235]:
+              - generic [ref=e1236]: Integraciones
+              - generic [ref=e1237]: No incluye
+            - generic [ref=e1238]:
+              - generic [ref=e1239]: Órdenes de compra
+              - generic [ref=e1240]: No incluye
+        - article [ref=e1241]:
+          - generic [ref=e1242]:
+            - generic [ref=e1243]:
+              - generic [ref=e1244]: Escala
+              - generic [ref=e1246]: Más popular
+            - heading "Colabora y optimiza los procesos de tu equipo." [level=3] [ref=e1247]
+            - generic [ref=e1249]:
+              - generic [ref=e1250]: 3,2 UF
+              - generic [ref=e1251]: al mes + IVA
+            - paragraph [ref=e1252]: +0,75 UF por usuario extra al mes
+            - paragraph [ref=e1253]:
+              - emphasis [ref=e1254]: Ideal si
+              - text: ya postulas seguido y quieres IA, reportes y trabajo en equipo.
+            - link "Empieza gratis" [ref=e1255] [cursor=pointer]:
+              - /url: https://app.licitalab.cl/new_user
+            - generic [ref=e1259]:
+              - generic [ref=e1260]: Postulaciones con IA
+              - generic [ref=e1261]: 20 al mes
+            - generic [ref=e1264]:
+              - generic [ref=e1265]: Líneas de negocio
+              - generic [ref=e1266]: Hasta 3
+            - generic [ref=e1267]:
+              - generic [ref=e1268]: Reportes
+              - generic [ref=e1269]: Convenio Marco
+            - generic [ref=e1270]:
+              - generic [ref=e1271]: Integraciones
+              - generic [ref=e1272]: No incluye
+            - generic [ref=e1273]:
+              - generic [ref=e1274]: Órdenes de compra
+              - generic [ref=e1275]: Ver y enviar
+        - article [ref=e1276]:
+          - generic [ref=e1277]:
+            - generic [ref=e1278]: PRO
+            - heading "Toda la gestión de Compras Públicas en un solo lugar." [level=3] [ref=e1281]
+            - generic [ref=e1283]:
+              - generic [ref=e1284]: 5 UF
+              - generic [ref=e1285]: al mes + IVA
+            - paragraph [ref=e1286]: +1,25 UF por usuario extra al mes
+            - paragraph [ref=e1287]:
+              - emphasis [ref=e1288]: Ideal si
+              - text: "ofertas en volumen: cotizas, postulas y gestionas órdenes de compra desde la plataforma."
+            - link "Empieza gratis" [ref=e1289] [cursor=pointer]:
+              - /url: https://app.licitalab.cl/new_user
+            - generic [ref=e1293]:
+              - generic [ref=e1294]: Postulaciones con IA
+              - generic [ref=e1295]: Ilimitadas
+            - generic [ref=e1298]:
+              - generic [ref=e1299]: Líneas de negocio
+              - generic [ref=e1300]: Hasta 10
+            - generic [ref=e1301]:
+              - generic [ref=e1302]: Reportes
+              - generic [ref=e1303]: Avanzados
+            - generic [ref=e1304]:
+              - generic [ref=e1305]: Integraciones
+              - generic [ref=e1306]: Incluidas
+            - generic [ref=e1308]:
+              - generic [ref=e1309]: Órdenes de compra
+              - generic [ref=e1310]: Acepta, rechaza y gestiona
+      - generic [ref=e1311]:
+        - generic [ref=e1312]:
+          - generic [ref=e1313]: Incluido en todos los planes
+          - list [ref=e1314]:
+            - listitem [ref=e1315]: Búsqueda de negocios
+            - listitem [ref=e1317]: Sugerencias de negocios con IA
+            - listitem [ref=e1319]: Calendario y seguimiento
+            - listitem [ref=e1321]: Análisis de competidores
+            - listitem [ref=e1323]: Capacitación y soporte en vivo
+        - link "Ver qué incluye cada plan" [ref=e1325] [cursor=pointer]:
+          - /url: https://www.licitalab.cl/planes
+  - generic [ref=e1332]:
+    - generic:
+      - heading "Haz del Estado tu mejor cliente" [level=2]:
+        - text: Haz del
+        - emphasis: Estado
+        - text: tu mejor cliente
+      - paragraph: Prueba LicitaLAB 14 días gratis, sin instalar nada.
+      - generic:
+        - link "Empieza gratis" [ref=e1454] [cursor=pointer]:
+          - /url: https://app.licitalab.cl/new_user
+        - link "Habla con ventas" [ref=e1458] [cursor=pointer]:
+          - /url: https://api.whatsapp.com/send/?phone=56942161738&text=Quiero+conocer+m%C3%A1s+de+LicitaLAB&type=phone_number&app_absent=0
+      - paragraph: ¿Dudas? Respondemos por chat en menos de 2 minutos.
+  - contentinfo [ref=e1462]:
+    - generic [ref=e1464]:
+      - generic [ref=e1466]:
+        - generic [ref=e1467]:
+          - link [ref=e1468] [cursor=pointer]:
+            - /url: "#"
+          - generic [ref=e1469]: El software que hace del Estado tu mejor cliente.
+          - generic [ref=e1470]:
+            - link "Prueba Gratis Ahora" [ref=e1471] [cursor=pointer]:
+              - /url: https://app.licitalab.cl/new_user?_gl=1*1fdpknn*_gcl_au*NjQzNTI2MzMuMTczNDAxNDI2MQ..*_ga*MTYxMDg3NjUwMy4xNzM0MDE0MjYx*_ga_W5LDH5SWCE*MTc0MDA4NTY2MS4zMC4xLjE3NDAwODU2NzIuNDkuMC4w
+            - link "Iniciar Sesión" [ref=e1472] [cursor=pointer]:
+              - /url: https://app.licitalab.cl/login
+        - generic [ref=e1473]:
+          - generic [ref=e1474]:
+            - generic [ref=e1475]: LicitaLAB
+            - link "LIA" [ref=e1477] [cursor=pointer]:
+              - /url: /lia
+            - link "Planes" [ref=e1478] [cursor=pointer]:
+              - /url: /planes
+            - link "Comparativa de software" [ref=e1479] [cursor=pointer]:
+              - /url: /competidores
+            - link "Glosario" [ref=e1480] [cursor=pointer]:
+              - /url: /glosario
+          - generic [ref=e1481]:
+            - generic [ref=e1482]: Recursos
+            - link "Blog" [ref=e1484] [cursor=pointer]:
+              - /url: /blog
+            - link "Nosotros" [ref=e1485] [cursor=pointer]:
+              - /url: /nosotros
+            - link "Casos de éxito" [ref=e1486] [cursor=pointer]:
+              - /url: /casos-de-exito
+          - generic [ref=e1487]:
+            - generic [ref=e1488]: Contacto
+            - link "info@licitalab.cl" [ref=e1490] [cursor=pointer]:
+              - /url: mailto:info@licitalab.cl
+            - link "+56 9 6655 9894" [ref=e1491] [cursor=pointer]:
+              - /url: https://api.whatsapp.com/send?phone=56966559894&text=%C2%A1Hola!%20Quiero%20saber%20m%C3%A1s%20sobre%20LicitaLAB
+            - link "FAQs" [ref=e1492] [cursor=pointer]:
+              - /url: /preguntas-frecuentes
+      - generic [ref=e1494]:
+        - generic [ref=e1495]: © 2026 LicitaLAB
+        - generic [ref=e1496]:
+          - generic [ref=e1497]:
+            - link [ref=e1498] [cursor=pointer]:
+              - /url: https://www.facebook.com/licitalab/?locale=es_LA
+            - link [ref=e1502] [cursor=pointer]:
+              - /url: https://www.instagram.com/licitalab/
+            - link [ref=e1506] [cursor=pointer]:
+              - /url: https://cl.linkedin.com/company/licitalab
+            - link [ref=e1510] [cursor=pointer]:
+              - /url: https://www.youtube.com/@licitalab
+            - link [ref=e1514] [cursor=pointer]:
+              - /url: https://www.tiktok.com/@licitalab.ai
+          - link "Términos y Condiciones" [ref=e1519] [cursor=pointer]:
+            - /url: /terminos-y-condiciones

@@ -24,6 +24,11 @@ Traspasado desde la memoria personal el 2026-10-27; las fechas son de cuando se 
   migration-182 en el VPS, poner el Área a María Elena y Carolina Sepúlveda («Compras») y a Carolina González («Mercado Público»),
   y encender los avisos nuevos de WhatsApp por perfil. Sin desplegar ni probado en vivo. El aviso de cambio de fecha de cierre y
   los de Compras (aprobaciones) no se tocaron.
+- **Comentarios automáticos de Mercado Público se ven como LICITANK (23-nov-2026, pedido del dueño).** El comentario «Mercado Público
+  marcó la licitación como X.» se guarda con el encargado como `usuario_id` (la columna es NOT NULL), lo que confundía: parecía
+  escrito por la asistente. Ahora la API lo marca `es_sistema` (por ese texto, sin migración) y `ComentariosSection` muestra el
+  logo LICITANK + «Automático». Si se agrega otro comentario automático, hay que sumarlo a ese `LIKE` en
+  `licitacion-comentarios/[codigo]/route.ts` y `negocios/[id]/comentarios/route.ts`. Sin probar en pantalla (la BD local no responde).
 - **Nunca avisar por vista de pantalla**: que alguien abra Postuladas no puede disparar ni
   «consumir» un aviso; el aviso lo da el cron. Mismo blindaje para Adjudicada, Revocada, Desierta,
   Cerrada, Suspendida y apertura.

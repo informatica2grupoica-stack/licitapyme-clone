@@ -1,0 +1,674 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - banner [ref=e3]:
+      - generic [ref=e4]:
+        - link "LICITANK LICITANK" [ref=e5] [cursor=pointer]:
+          - /url: "#top"
+          - img "LICITANK" [ref=e6]
+          - generic [ref=e11]: LICITANK
+        - navigation [ref=e12]:
+          - link "El ciclo" [ref=e13] [cursor=pointer]:
+            - /url: "#ciclo"
+          - link "Lectura de bases" [ref=e14] [cursor=pointer]:
+            - /url: "#bases"
+          - link "Plataforma" [ref=e15] [cursor=pointer]:
+            - /url: "#modulos"
+          - link "Plan" [ref=e16] [cursor=pointer]:
+            - /url: "#plan"
+        - link "Iniciar sesión" [ref=e18] [cursor=pointer]:
+          - /url: /login
+    - main [ref=e19]:
+      - generic [ref=e20]:
+        - generic [ref=e21]:
+          - generic [ref=e22]:
+            - heading "Licitaciones públicas, del aviso a la factura." [level=1] [ref=e24]:
+              - generic [ref=e26]: Licitaciones
+              - generic [aria-hidden] [ref=e28]:
+                - generic [ref=e29]: públicas,
+                - generic [ref=e31]: del
+                - generic [ref=e33]: aviso
+              - generic [aria-hidden] [ref=e35]:
+                - generic [ref=e36]: a
+                - generic [ref=e38]: la
+                - generic [ref=e40]: factura.
+            - paragraph [ref=e42]: Conocemos Mercado Público por dentro. LICITANK detecta lo que te sirve, lee las bases con IA, costea, rellena los anexos, audita tu oferta y sigue el negocio hasta la orden de compra y la entrega.
+            - generic [ref=e43]:
+              - link "Iniciar sesión" [ref=e44] [cursor=pointer]:
+                - /url: /login
+                - text: Iniciar sesión
+                - generic [aria-hidden] [ref=e45]: →
+              - link "Ver cómo funciona" [ref=e46] [cursor=pointer]:
+                - /url: "#recorrido"
+            - generic [ref=e47]:
+              - generic [ref=e48]:
+                - term [ref=e49]: Fuente
+                - definition [ref=e50]: Mercado Público
+              - generic [ref=e51]:
+                - term [ref=e52]: Cobertura
+                - definition [ref=e53]: Del aviso a la factura
+              - generic [ref=e54]:
+                - term [ref=e55]: Lectura
+                - definition [ref=e56]: PDF, Word, Excel y OCR
+          - generic [ref=e57]:
+            - generic [ref=e76]:
+              - paragraph [ref=e77]: Nueva coincidencia
+              - paragraph [ref=e78]: MOBILIARIO ESCOLAR PARA ESTABLECIMIENTOS
+              - paragraph [ref=e79]: I. Municipalidad de Temuco
+              - paragraph [ref=e80]: Cierra mañana, 15:00
+            - generic [ref=e83]:
+              - paragraph [ref=e84]: Asignada a
+              - paragraph [ref=e85]:
+                - text: Diego Rojas
+                - generic [ref=e86]: DR
+              - paragraph [ref=e87]: Materiales eléctricos · Talca
+        - generic [ref=e90]:
+          - generic [ref=e91]: mobiliario escolar
+          - generic [ref=e93]: materiales eléctricos
+          - generic [ref=e95]: equipos computacionales
+          - generic [ref=e97]: insumos médicos
+          - generic [ref=e99]: vestuario institucional
+          - generic [ref=e101]: servicios de aseo
+          - generic [ref=e103]: útiles de oficina
+          - generic [ref=e105]: mantención de edificios
+          - generic [ref=e107]: alimentación
+          - generic [ref=e109]: maquinaria
+          - generic [ref=e111]: mobiliario escolar
+          - generic [ref=e113]: materiales eléctricos
+          - generic [ref=e115]: equipos computacionales
+          - generic [ref=e117]: insumos médicos
+          - generic [ref=e119]: vestuario institucional
+          - generic [ref=e121]: servicios de aseo
+          - generic [ref=e123]: útiles de oficina
+          - generic [ref=e125]: mantención de edificios
+          - generic [ref=e127]: alimentación
+          - generic [ref=e129]: maquinaria
+      - paragraph [ref=e132]:
+        - generic [ref=e133]: Cada
+        - generic [ref=e134]: día
+        - generic [ref=e135]: aparecen
+        - generic [ref=e136]: licitaciones
+        - generic [ref=e137]: nuevas
+        - generic [ref=e138]: en
+        - generic [ref=e139]: Mercado
+        - generic [ref=e140]: Público.
+        - generic [ref=e141]: Revisarlas
+        - generic [ref=e142]: a
+        - generic [ref=e143]: mano
+        - generic [ref=e144]: toma
+        - generic [ref=e145]: horas,
+        - generic [ref=e146]: "y"
+        - generic [ref=e147]: la
+        - generic [ref=e148]: que
+        - generic [ref=e149]: "no"
+        - generic [ref=e150]: viste
+        - generic [ref=e151]: ya
+        - generic [ref=e152]: cerró.
+        - generic [ref=e153]: LICITANK
+        - generic [ref=e154]: las
+        - generic [ref=e155]: busca
+        - generic [ref=e156]: por
+        - generic [ref=e157]: ti,
+        - generic [ref=e158]: las
+        - generic [ref=e159]: ordena
+        - generic [ref=e160]: por
+        - generic [ref=e161]: fecha
+        - generic [ref=e162]: de
+        - generic [ref=e163]: cierre
+        - generic [ref=e164]: "y"
+        - generic [ref=e165]: deja
+        - generic [ref=e166]: a
+        - generic [ref=e167]: una
+        - generic [ref=e168]: persona
+        - generic [ref=e169]: a
+        - generic [ref=e170]: cargo
+        - generic [ref=e171]: de
+        - generic [ref=e172]: cada
+        - generic [ref=e173]: una.
+      - generic [ref=e177]:
+        - generic [ref=e178]:
+          - generic [ref=e179]:
+            - button "Ver Detectar" [ref=e181] [cursor=pointer]:
+              - generic [ref=e182]:
+                - generic [ref=e183]: "01"
+                - generic [ref=e184]: Detectar
+            - button "Ver Asignar" [ref=e185] [cursor=pointer]:
+              - generic [ref=e186]:
+                - generic [ref=e187]: "02"
+                - generic [ref=e188]: Asignar
+            - button "Ver Seguir" [ref=e189] [cursor=pointer]:
+              - generic [ref=e190]:
+                - generic [ref=e191]: "03"
+                - generic [ref=e192]: Seguir
+          - generic [ref=e193]:
+            - paragraph [ref=e194]: El radar revisa Mercado Público todos los días con tus palabras clave, tus rubros y tus regiones. Lo nuevo aparece ordenado por fecha de cierre.
+            - paragraph [ref=e195]: Cada licitación se asigna a una persona del equipo con un clic. Quien la recibe la ve en su lista de negocios, con el cierre a la vista.
+            - paragraph [ref=e196]: El negocio avanza por etapas, con comentarios e historial. Cuando Mercado Público adjudica, queda como ganado o perdido.
+        - generic [ref=e197]:
+          - generic [ref=e201]:
+            - generic [ref=e202]: radar / configuración
+            - generic [ref=e208]:
+              - paragraph [ref=e209]: Palabras clave
+              - list [ref=e210]:
+                - generic [ref=e211]:
+                  - text: mobiliario escolar
+                  - generic [ref=e212]:
+                    - generic [ref=e213]: "0"
+                    - text: nuevas
+                - generic [ref=e214]:
+                  - text: materiales eléctricos
+                  - generic [ref=e215]:
+                    - generic [ref=e216]: "0"
+                    - text: nuevas
+                - generic [ref=e217]:
+                  - text: equipos computacionales
+                  - generic [ref=e218]:
+                    - generic [ref=e219]: "0"
+                    - text: nuevas
+              - generic [ref=e220]:
+                - generic [ref=e221]:
+                  - term [ref=e222]: Regiones
+                  - definition [ref=e223]: Araucanía · Maule · Biobío
+                - generic [ref=e224]:
+                  - term [ref=e225]: Revisión
+                  - definition [ref=e226]: Todos los días
+            - generic [ref=e227]:
+              - paragraph [ref=e228]: Licitaciones nuevas hoy
+              - paragraph [ref=e229]: "0"
+          - generic [ref=e233]:
+            - generic [ref=e234]: negocios / asignación
+            - generic [ref=e240]:
+              - paragraph [ref=e241]: Licitación por asignar
+              - paragraph [ref=e242]: MATERIALES ELÉCTRICOS PARA MANTENCIÓN
+              - list [ref=e243]:
+                - listitem [ref=e244]:
+                  - generic [ref=e245]: MF
+                  - generic [ref=e246]: María Fuentes
+                  - generic [ref=e248]:
+                    - term [ref=e249]: Negocios activos
+                    - definition [ref=e250]: "6"
+                - listitem [ref=e251]:
+                  - generic [ref=e252]: DR
+                  - generic [ref=e253]: Diego Rojas
+                  - generic [ref=e254]: + Recibió esta licitación
+                  - generic [ref=e256]:
+                    - term [ref=e257]: Negocios activos
+                    - definition [ref=e258]:
+                      - generic [ref=e259]: "4"
+                - generic [aria-hidden]: 1234-71-LE26 → Diego Rojas
+          - generic [ref=e263]:
+            - generic [ref=e264]: negocios / seguimiento
+            - list [ref=e270]:
+              - listitem [ref=e271]:
+                - generic [ref=e272]:
+                  - paragraph [ref=e273]: Asignado
+                  - paragraph [ref=e274]: Diego Rojas recibe la licitación.
+              - listitem [ref=e275]:
+                - generic [ref=e276]:
+                  - paragraph [ref=e277]: En proceso
+                  - paragraph [ref=e278]: Se trabaja la postulación; el equipo comenta en el negocio.
+              - listitem [ref=e279]:
+                - generic [ref=e280]:
+                  - paragraph [ref=e281]: Postulada
+                  - paragraph [ref=e282]: Se marca como postulada y queda a la espera del resultado.
+              - listitem [ref=e283]:
+                - generic [ref=e284]:
+                  - paragraph [ref=e285]: Ganada o perdida
+                  - paragraph [ref=e286]: El resultado se detecta desde Mercado Público.
+      - generic [ref=e288]:
+        - generic [ref=e289]:
+          - paragraph [ref=e290]: El ciclo completo
+          - heading "Una licitación se gana o se pierde en ocho momentos. Cubrimos los ocho." [level=2] [ref=e291]
+          - paragraph [ref=e292]: "Conocemos el proceso por dentro porque lo trabajamos todos los días: desde que Mercado Público publica las bases hasta que el cliente recibe el producto y se emite la factura."
+        - list [ref=e295]:
+          - listitem [ref=e296]:
+            - generic [ref=e298]:
+              - paragraph [ref=e299]: "01"
+              - heading "Publicación" [level=3] [ref=e300]
+              - generic [ref=e301]:
+                - generic [ref=e302]:
+                  - term [ref=e303]: Dónde se pierde
+                  - definition [ref=e304]: Cada día se publican decenas de licitaciones y los plazos corren desde el primer minuto.
+                - generic [ref=e305]:
+                  - term [ref=e306]: En LICITANK
+                  - definition [ref=e307]: El radar la detecta con tus palabras clave y la ordena por fecha de cierre.
+          - listitem [ref=e308]:
+            - generic [ref=e310]:
+              - paragraph [ref=e311]: "02"
+              - heading "Foro de consultas" [level=3] [ref=e312]
+              - generic [ref=e313]:
+                - generic [ref=e314]:
+                  - term [ref=e315]: Dónde se pierde
+                  - definition [ref=e316]: Es la única ventana para aclarar bases ambiguas. Pasado el plazo, la duda se queda sin respuesta.
+                - generic [ref=e317]:
+                  - term [ref=e318]: En LICITANK
+                  - definition [ref=e319]: Lee las fechas de las bases y las deja a la vista en el negocio.
+          - listitem [ref=e320]:
+            - generic [ref=e322]:
+              - paragraph [ref=e323]: "03"
+              - heading "Lectura de bases" [level=3] [ref=e324]
+              - generic [ref=e325]:
+                - generic [ref=e326]:
+                  - term [ref=e327]: Dónde se pierde
+                  - definition [ref=e328]: Garantías, criterios, plazos y anexos están repartidos en decenas de páginas y documentos.
+                - generic [ref=e329]:
+                  - term [ref=e330]: En LICITANK
+                  - definition [ref=e331]: La IA lee todo y entrega la viabilidad por requisito, con cita a la página de origen.
+          - listitem [ref=e332]:
+            - generic [ref=e334]:
+              - paragraph [ref=e335]: "04"
+              - heading "Oferta" [level=3] [ref=e336]
+              - generic [ref=e337]:
+                - generic [ref=e338]:
+                  - term [ref=e339]: Dónde se pierde
+                  - definition [ref=e340]: Un error en un anexo o en la planilla económica deja la oferta fuera de bases.
+                - generic [ref=e341]:
+                  - term [ref=e342]: En LICITANK
+                  - definition [ref=e343]: Costeo con cotizaciones y margen por ítem; anexos rellenados con los datos de tu empresa.
+          - listitem [ref=e344]:
+            - generic [ref=e346]:
+              - paragraph [ref=e347]: "05"
+              - heading "Auditoría previa" [level=3] [ref=e348]
+              - generic [ref=e349]:
+                - generic [ref=e350]:
+                  - term [ref=e351]: Dónde se pierde
+                  - definition [ref=e352]: Una oferta inadmisible no se evalúa, aunque sea la más barata.
+                - generic [ref=e353]:
+                  - term [ref=e354]: En LICITANK
+                  - definition [ref=e355]: El auditor compara requisito por requisito y bloquea la postulación si falta un anexo.
+          - listitem [ref=e356]:
+            - generic [ref=e358]:
+              - paragraph [ref=e359]: "06"
+              - heading "Cierre y apertura" [level=3] [ref=e360]
+              - generic [ref=e361]:
+                - generic [ref=e362]:
+                  - term [ref=e363]: Dónde se pierde
+                  - definition [ref=e364]: Subir el archivo a último minuto es la forma más común de perder un negocio.
+                - generic [ref=e365]:
+                  - term [ref=e366]: En LICITANK
+                  - definition [ref=e367]: Las postuladas quedan con su hora de cierre y su fecha de adjudicación a la vista.
+          - listitem [ref=e368]:
+            - generic [ref=e370]:
+              - paragraph [ref=e371]: "07"
+              - heading "Adjudicación" [level=3] [ref=e372]
+              - generic [ref=e373]:
+                - generic [ref=e374]:
+                  - term [ref=e375]: Dónde se pierde
+                  - definition [ref=e376]: El resultado sale en Mercado Público, sin aviso para quien postuló.
+                - generic [ref=e377]:
+                  - term [ref=e378]: En LICITANK
+                  - definition [ref=e379]: "Detecta el resultado y lo marca: ganada, perdida, desierta o revocada."
+          - listitem [ref=e380]:
+            - generic [ref=e382]:
+              - paragraph [ref=e383]: "08"
+              - heading "Orden de compra y entrega" [level=3] [ref=e384]
+              - generic [ref=e385]:
+                - generic [ref=e386]:
+                  - term [ref=e387]: Dónde se pierde
+                  - definition [ref=e388]: "Ganar es la mitad: falta comprar, entregar, facturar y cobrar."
+                - generic [ref=e389]:
+                  - term [ref=e390]: En LICITANK
+                  - definition [ref=e391]: La orden de compra llega sola; compras, pagos, acta y facturación quedan en el mismo negocio.
+      - generic [ref=e393]:
+        - generic [ref=e394]:
+          - paragraph [ref=e395]: Lectura de bases
+          - heading "Sabemos qué buscar en unas bases, y dónde se esconde el riesgo." [level=2] [ref=e396]
+          - paragraph [ref=e397]: Garantías, plazos, criterios, declaraciones, anexos y multas. LICITANK los extrae, los explica y los convierte en tareas con responsable. Extracto de ejemplo.
+        - generic [ref=e398]:
+          - generic [ref=e399]:
+            - generic [ref=e400]: bases_administrativas.pdf
+            - list [ref=e406]:
+              - listitem [ref=e407]:
+                - button "Art. 7 Garantía de seriedad de la oferta El oferente deberá entregar una boleta de garantía a la vista, por el 1% del monto total ofertado, con vigencia mínima de 60 días corridos desde el cierre." [pressed] [ref=e408]:
+                  - generic [ref=e410]:
+                    - generic [ref=e411]: Art. 7
+                    - generic [ref=e412]: Garantía de seriedad de la oferta
+                    - generic [ref=e413]: El oferente deberá entregar una boleta de garantía a la vista, por el 1% del monto total ofertado, con vigencia mínima de 60 días corridos desde el cierre.
+              - listitem [ref=e414]:
+                - button "Art. 9 Plazo de entrega Los bienes se entregarán en un plazo máximo de 30 días corridos contados desde la aceptación de la orden de compra." [ref=e415]:
+                  - generic [ref=e416]:
+                    - generic [ref=e417]: Art. 9
+                    - generic [ref=e418]: Plazo de entrega
+                    - generic [ref=e419]: Los bienes se entregarán en un plazo máximo de 30 días corridos contados desde la aceptación de la orden de compra.
+              - listitem [ref=e420]:
+                - button "Art. 12 Criterios de evaluación Precio, 60%. Plazo de entrega, 25%. Experiencia del oferente, 15%. Las ofertas bajo 60% de puntaje no serán adjudicadas." [ref=e421]:
+                  - generic [ref=e422]:
+                    - generic [ref=e423]: Art. 12
+                    - generic [ref=e424]: Criterios de evaluación
+                    - generic [ref=e425]: Precio, 60%. Plazo de entrega, 25%. Experiencia del oferente, 15%. Las ofertas bajo 60% de puntaje no serán adjudicadas.
+              - listitem [ref=e426]:
+                - button "Art. 14 Declaraciones juradas El oferente deberá acompañar la declaración de no estar afecto a las inhabilidades del artículo 4º de la Ley N° 19.886." [ref=e427]:
+                  - generic [ref=e428]:
+                    - generic [ref=e429]: Art. 14
+                    - generic [ref=e430]: Declaraciones juradas
+                    - generic [ref=e431]: El oferente deberá acompañar la declaración de no estar afecto a las inhabilidades del artículo 4º de la Ley N° 19.886.
+              - listitem [ref=e432]:
+                - button "Art. 15 Anexos obligatorios Anexo N°1 identificación, Anexo N°2 declaración jurada, Anexo N°3 oferta económica. La omisión de cualquiera hará inadmisible la oferta." [ref=e433]:
+                  - generic [ref=e434]:
+                    - generic [ref=e435]: Art. 15
+                    - generic [ref=e436]: Anexos obligatorios
+                    - generic [ref=e437]: Anexo N°1 identificación, Anexo N°2 declaración jurada, Anexo N°3 oferta económica. La omisión de cualquiera hará inadmisible la oferta.
+              - listitem [ref=e438]:
+                - button "Art. 21 Multas por atraso Por cada día de atraso se aplicará una multa de 0,5% del valor de la orden de compra, con tope de 10%." [ref=e439]:
+                  - generic [ref=e440]:
+                    - generic [ref=e441]: Art. 21
+                    - generic [ref=e442]: Multas por atraso
+                    - generic [ref=e443]: Por cada día de atraso se aplicará una multa de 0,5% del valor de la orden de compra, con tope de 10%.
+          - generic [ref=e445]:
+            - paragraph [ref=e446]: Lo que LICITANK extrajo
+            - generic [ref=e447]:
+              - heading "Garantía de seriedad de la oferta" [level=3] [ref=e448]
+              - generic [ref=e449]:
+                - generic [ref=e450]:
+                  - term [ref=e451]: Qué exigen
+                  - definition [ref=e452]: Documento físico o electrónico, con vigencia que cubre hasta la adjudicación.
+                - generic [ref=e453]:
+                  - term [ref=e454]: Dónde está el riesgo
+                  - definition [ref=e455]: Un banco puede tardar días en emitirla.
+                - generic [ref=e458]:
+                  - term [ref=e459]: Qué hace el sistema
+                  - definition [ref=e460]: Se agrega a la lista de pendientes con fecha límite y responsable.
+              - paragraph [ref=e461]: "Fuente: bases administrativas · Art. 7"
+      - generic [ref=e470]:
+        - generic [ref=e471]:
+          - paragraph [ref=e472]: La plataforma
+          - heading "Todo el trabajo de una licitación en un solo lugar." [level=2] [ref=e473]
+          - paragraph [ref=e474]: Hecho por gente que postula licitaciones. Cada módulo resuelve un paso que, a mano, se pierde o se hace mal.
+        - generic [ref=e475]:
+          - generic [ref=e478]:
+            - paragraph [ref=e479]: Viabilidad con IA
+            - heading "Qué exigen las bases, con la página donde lo dicen" [level=3] [ref=e480]
+            - paragraph [ref=e481]: Lee bases, anexos y fichas, y entrega un veredicto por requisito para decidir si conviene postular. Caso real de Mercado Público.
+            - generic [ref=e483]:
+              - generic [ref=e484]:
+                - paragraph [ref=e485]: 2467-70-LE26
+                - generic [ref=e486]:
+                  - generic [ref=e487]:
+                    - term [ref=e488]: Monto
+                    - definition [ref=e489]: $24.741.860
+                  - generic [ref=e490]:
+                    - term [ref=e491]: Líneas
+                    - definition [ref=e492]: "65"
+                  - generic [ref=e493]:
+                    - term [ref=e494]: Criterios
+                    - definition [ref=e495]: "5"
+                  - generic [ref=e496]:
+                    - term [ref=e497]: Documentos
+                    - definition [ref=e498]: "6"
+              - list [ref=e499]:
+                - listitem [ref=e500]:
+                  - generic [ref=e501]: Garantía de seriedad
+                  - generic [ref=e503]: Exige boleta por el 1% del monto
+                  - generic [ref=e504]: Bases · p. 9
+                - listitem [ref=e505]:
+                  - generic [ref=e506]: Plazo de entrega
+                  - generic [ref=e508]: 30 días corridos desde la OC
+                  - generic [ref=e509]: Bases · p. 12
+                - listitem [ref=e510]:
+                  - generic [ref=e511]: Experiencia del oferente
+                  - generic [ref=e513]: Pide 2 contratos similares
+                  - generic [ref=e514]: Bases · p. 15
+                - listitem [ref=e515]:
+                  - generic [ref=e516]: Visita a terreno
+                  - generic [ref=e518]: Obligatoria, antes del cierre
+                  - generic [ref=e519]: Bases · p. 4
+              - paragraph [ref=e520]: Cada veredicto cita la página de las bases donde se origina.
+          - generic [ref=e523]:
+            - paragraph [ref=e524]: Lectura de documentos
+            - heading "Lee lo que otros descartan" [level=3] [ref=e525]
+            - paragraph [ref=e526]: PDF, Word, Excel y escaneos con OCR.
+            - list [ref=e528]:
+              - listitem [ref=e529]:
+                - generic [ref=e531]:
+                  - generic [ref=e532]: Bases administrativas
+                  - generic [ref=e533]:
+                    - generic [ref=e534]: PDF
+                    - generic [ref=e535]: leído
+              - listitem [ref=e537]:
+                - generic [ref=e539]:
+                  - generic [ref=e540]: Anexos de la oferta
+                  - generic [ref=e541]:
+                    - generic [ref=e542]: DOCX
+                    - generic [ref=e543]: leído
+              - listitem [ref=e545]:
+                - generic [ref=e547]:
+                  - generic [ref=e548]: Planilla económica
+                  - generic [ref=e549]:
+                    - generic [ref=e550]: XLSX
+                    - generic [ref=e551]: leído
+              - listitem [ref=e553]:
+                - generic [ref=e555]:
+                  - generic [ref=e556]: Ficha técnica escaneada
+                  - generic [ref=e557]:
+                    - generic [ref=e558]: PDF · OCR
+                    - generic [ref=e559]: leído
+          - generic [ref=e563]:
+            - paragraph [ref=e564]: Anexos
+            - heading "Anexos rellenados" [level=3] [ref=e565]
+            - paragraph [ref=e566]: Con los datos de tu empresa, en el formato original de las bases.
+            - generic [ref=e568]:
+              - paragraph [ref=e569]: Anexo N°1 · Identificación del oferente
+              - generic [ref=e570]:
+                - generic [ref=e571]:
+                  - term [ref=e572]: Razón social
+                  - definition [ref=e573]
+                - generic [ref=e575]:
+                  - term [ref=e576]: RUT
+                  - definition [ref=e577]
+                - generic [ref=e579]:
+                  - term [ref=e580]: Representante legal
+                  - definition [ref=e581]
+          - generic [ref=e585]:
+            - paragraph [ref=e586]: Auditor técnico
+            - heading "Tu oferta contra las bases, línea por línea" [level=3] [ref=e587]
+            - paragraph [ref=e588]: Compara cada requisito técnico con lo que ofreces y marca lo que no cumple antes de que lo haga la comisión evaluadora.
+            - generic [ref=e590]:
+              - generic [ref=e591]:
+                - generic [ref=e592]: Bases piden
+                - generic [ref=e593]: Tu oferta dice
+                - generic [ref=e594]: Resultado
+              - generic [ref=e595]:
+                - generic [ref=e596]: "Garantía del producto: 12 meses"
+                - generic [ref=e597]: 24 meses
+                - generic [ref=e598]: Cumple
+              - generic [ref=e600]:
+                - generic [ref=e601]: Estructura de acero de 25 mm
+                - generic [ref=e602]: 22 mm
+                - generic [ref=e603]: No cumple
+              - generic [ref=e605]:
+                - generic [ref=e606]: Asiento de polipropileno
+                - generic [ref=e607]: Polipropileno
+                - generic [ref=e608]: Cumple
+          - generic [ref=e612]:
+            - paragraph [ref=e613]: Costeo
+            - heading "Cuánto cuesta y cuánto ganas" [level=3] [ref=e614]
+            - paragraph [ref=e615]: Cotizaciones comparadas, margen por ítem y presupuesto listo para la oferta económica.
+            - generic [ref=e617]:
+              - list [ref=e618]:
+                - listitem [ref=e619]:
+                  - generic [ref=e620]:
+                    - generic [ref=e621]: Proveedor Amenor costo
+                    - generic [ref=e622]: $18.490
+                - listitem [ref=e624]:
+                  - generic [ref=e625]:
+                    - generic [ref=e626]: Proveedor B
+                    - generic [ref=e627]: $19.250
+                - listitem [ref=e629]:
+                  - generic [ref=e630]:
+                    - generic [ref=e631]: Proveedor C
+                    - generic [ref=e632]: $21.900
+              - paragraph [ref=e634]: Costo por unidad con IVA, de tres cotizaciones leídas por la IA.
+          - generic [ref=e637]:
+            - paragraph [ref=e638]: Compras
+            - heading "Después de ganar, el negocio sigue" [level=3] [ref=e639]
+            - paragraph [ref=e640]: De la orden de compra a la factura, con aprobación, proveedores y entrega en el mismo flujo.
+            - list [ref=e642]:
+              - listitem [ref=e644]:
+                - generic [ref=e646]: Orden de compra del cliente
+              - listitem [ref=e647]:
+                - generic [ref=e649]: Cotización y aprobación
+              - listitem [ref=e650]:
+                - generic [ref=e652]: Orden al proveedor
+              - listitem [ref=e653]:
+                - generic [ref=e655]: Entrega y acta
+              - listitem [ref=e656]:
+                - generic [ref=e658]: Factura
+          - generic [ref=e661]:
+            - paragraph [ref=e662]: Asistente de la licitación
+            - heading "Pregúntale a las bases" [level=3] [ref=e663]
+            - paragraph [ref=e664]: "Responde con las bases leídas y cita el artículo y el anexo de donde sale cada respuesta. Una pregunta real: el anexo sugería un total, pero las bases adjudican por línea."
+            - paragraph [ref=e667]: 1549-58-LE26
+      - generic [ref=e669]:
+        - heading "Lo necesario para no perder una licitación por desorden." [level=2] [ref=e671]
+        - generic [ref=e672]:
+          - generic [ref=e674]:
+            - generic [ref=e675]:
+              - paragraph [ref=e676]: "01"
+              - heading "Radar propio" [level=3] [ref=e677]
+              - paragraph [ref=e678]: Tus palabras clave, rubros y regiones. Lo que ya descartaste no vuelve a aparecer.
+            - list [ref=e680]:
+              - listitem [ref=e681]:
+                - generic [ref=e682]: mobiliario escolar
+                - generic [ref=e684]: "6"
+              - listitem [ref=e685]:
+                - generic [ref=e686]: materiales eléctricos
+                - generic [ref=e688]: "5"
+              - listitem [ref=e689]:
+                - generic [ref=e690]: equipos computacionales
+                - generic [ref=e692]: "3"
+              - listitem [ref=e693]:
+                - generic [ref=e694]: insumos médicos
+                - generic [ref=e696]: "2"
+          - generic [ref=e698]:
+            - generic [ref=e699]:
+              - paragraph [ref=e700]: "02"
+              - heading "Trabajo en equipo" [level=3] [ref=e701]
+              - paragraph [ref=e702]: Asigna licitaciones entre tus dos usuarios y mira la carga de cada uno.
+            - list [ref=e704]:
+              - listitem [ref=e705]:
+                - generic [ref=e706]:
+                  - generic [ref=e707]: MF
+                  - text: María Fuentes
+                  - generic [ref=e708]: "6"
+              - listitem [ref=e710]:
+                - generic [ref=e711]:
+                  - generic [ref=e712]: DR
+                  - text: Diego Rojas
+                  - generic [ref=e713]: "4"
+          - generic [ref=e716]:
+            - generic [ref=e717]:
+              - paragraph [ref=e718]: "03"
+              - heading "Negocios por etapa" [level=3] [ref=e719]
+              - paragraph [ref=e720]: Asignado, en proceso, postulada, ganada o perdida, con el cierre siempre a la vista.
+            - generic [ref=e724]:
+              - generic [ref=e725]: Asignado
+              - generic [ref=e727]: En proceso
+              - generic [ref=e729]: Postulada
+              - generic [ref=e731]: Ganada
+          - generic [ref=e734]:
+            - generic [ref=e735]:
+              - paragraph [ref=e736]: "04"
+              - heading "Comentarios" [level=3] [ref=e737]
+              - paragraph [ref=e738]: Cada negocio tiene su hilo de conversación para dejar acuerdos y pendientes.
+            - generic [ref=e740]:
+              - generic [ref=e741]:
+                - paragraph [ref=e742]: María Fuentes
+                - paragraph [ref=e743]: Falta la garantía de seriedad de la oferta.
+              - generic [ref=e744]:
+                - paragraph [ref=e745]: Diego Rojas
+                - paragraph [ref=e746]: La subo hoy antes de las 15:00.
+          - generic [ref=e748]:
+            - generic [ref=e749]:
+              - paragraph [ref=e750]: "05"
+              - heading "Historial" [level=3] [ref=e751]
+              - paragraph [ref=e752]: Quién asignó, quién cambió la etapa y cuándo. Nada se pierde entre personas.
+            - list [ref=e754]:
+              - listitem [ref=e755]:
+                - generic [ref=e756]: 14:32
+                - text: María asignó la licitación a Diego
+              - listitem [ref=e757]:
+                - generic [ref=e758]: 14:40
+                - text: Diego pasó el negocio a En proceso
+              - listitem [ref=e759]:
+                - generic [ref=e760]: 15:05
+                - text: Diego marcó el negocio como postulado
+      - generic [ref=e763]:
+        - generic [ref=e764]:
+          - paragraph [ref=e765]: Conocimiento del sector
+          - heading "Construido sobre cómo compra el Estado de Chile." [level=2] [ref=e766]
+        - generic [ref=e767]:
+          - generic [ref=e768]:
+            - term [ref=e769]: Ley N° 19.886
+            - definition [ref=e770]: Bases sobre contratos administrativos de suministro y prestación de servicios, y su reglamento.
+          - generic [ref=e771]:
+            - term [ref=e772]: Ley N° 21.634
+            - definition [ref=e773]: Modernización de la Ley de Compras Públicas.
+          - generic [ref=e774]:
+            - term [ref=e775]: Compra Ágil
+            - definition [ref=e776]: Cotizaciones rápidas de menor monto, con plazos de horas.
+          - generic [ref=e777]:
+            - term [ref=e778]: Licitaciones L1, LE, LP, LQ y LR
+            - definition [ref=e779]: Los tipos de licitación pública según monto, cada uno con sus plazos y exigencias.
+          - generic [ref=e780]:
+            - term [ref=e781]: Registro de Proveedores
+            - definition [ref=e782]: Inscripción y documentos vigentes para ofertar al Estado.
+          - generic [ref=e783]:
+            - term [ref=e784]: Garantías
+            - definition [ref=e785]: Seriedad de la oferta y fiel cumplimiento del contrato.
+          - generic [ref=e786]:
+            - term [ref=e787]: Inhabilidades
+            - definition [ref=e788]: Declaraciones juradas del artículo 4º de la Ley N° 19.886.
+          - generic [ref=e789]:
+            - term [ref=e790]: Convenio Marco
+            - definition [ref=e791]: El catálogo electrónico, como alternativa y como competencia.
+        - generic [ref=e793]:
+          - img "LICITANK" [ref=e794]
+          - paragraph [ref=e799]: "Cada regla que ves arriba está en el sistema: en el análisis de bases, en los candados de la postulación y en las alertas."
+      - generic [ref=e801]:
+        - generic [ref=e802]:
+          - heading "Un plan para un equipo de dos." [level=2] [ref=e803]
+          - paragraph [ref=e804]: Cada empresa tiene su propio radar y sus propios negocios. Nadie más ve lo que tú gestionas.
+          - paragraph [ref=e805]: Radar y Negocios vienen incluidos. Los módulos de análisis con IA, anexos, costeo y compras se activan por empresa, según lo que necesites.
+        - generic [ref=e807]:
+          - generic [ref=e808]:
+            - term [ref=e809]: Usuarios incluidos
+            - definition [ref=e810]: "2"
+          - generic [ref=e811]:
+            - term [ref=e812]: Usuarios adicionales
+            - definition [ref=e813]: Consúltanos
+          - generic [ref=e814]:
+            - term [ref=e815]: Radar
+            - definition [ref=e816]: Palabras clave, rubros y regiones propios
+          - generic [ref=e817]:
+            - term [ref=e818]: Negocios
+            - definition [ref=e819]: Asignación entre tus dos usuarios, con etapas, comentarios e historial
+          - generic [ref=e820]:
+            - term [ref=e821]: Resultados
+            - definition [ref=e822]: Seguimiento del resultado desde Mercado Público
+          - generic [ref=e823]:
+            - term [ref=e824]: Soporte
+            - definition [ref=e825]: Por ticket
+      - generic [ref=e833]:
+        - heading "Que ninguna licitación se pase por no haberla visto." [level=2] [ref=e834]
+        - paragraph [ref=e835]: Si ya tienes cuenta, ingresa y sigue donde quedaste.
+        - link "Iniciar sesión" [ref=e837] [cursor=pointer]:
+          - /url: /login
+          - text: Iniciar sesión
+          - generic [aria-hidden] [ref=e838]: →
+    - contentinfo [ref=e839]:
+      - generic [ref=e840]:
+        - generic [ref=e841]:
+          - img "LICITANK" [ref=e842]
+          - generic [ref=e847]: LICITANK
+          - generic [ref=e848]: © 2026
+        - generic [ref=e849]:
+          - link "Privacidad" [ref=e850] [cursor=pointer]:
+            - /url: /privacidad
+          - link "Términos" [ref=e851] [cursor=pointer]:
+            - /url: /terminos
+        - generic [ref=e852]:
+          - text: Datos públicos de
+          - generic "Datos de Mercado Público — ChileCompra" [ref=e853]:
+            - generic [ref=e863]:
+              - generic [ref=e864]: Mercado Público
+              - generic [ref=e865]: ChileCompra
+  - button "Open Next.js Dev Tools" [ref=e871] [cursor=pointer]

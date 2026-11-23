@@ -1,0 +1,132 @@
+- generic [active] [ref=f20e1]:
+  - generic [ref=f20e3]:
+    - banner [ref=f20e4]:
+      - link "LICITANK, inicio" [ref=f20e5] [cursor=pointer]:
+        - /url: "#inicio"
+        - img "LICITANK" [ref=f20e6]
+        - generic [ref=f20e11]: LICITANK
+      - navigation "Principal" [ref=f20e12]:
+        - link "Cómo funciona" [ref=f20e13] [cursor=pointer]:
+          - /url: "#recorrido"
+        - link "Tu margen" [ref=f20e14] [cursor=pointer]:
+          - /url: "#margen"
+        - link "Equipo" [ref=f20e15] [cursor=pointer]:
+          - /url: "#equipo"
+      - link "Iniciar sesión" [ref=f20e16] [cursor=pointer]:
+        - /url: /login
+    - main [ref=f20e17]:
+      - generic [ref=f20e19]:
+        - generic [ref=f20e20]:
+          - heading "Del aviso a la factura." [level=1] [ref=f20e22]: Del avisoa la factura.
+          - paragraph [ref=f20e24]: LICITANK vigila Mercado Público, lee las bases, arma tu oferta y sigue la compra y la entrega hasta el cobro.
+          - generic [ref=f20e25]:
+            - link "Iniciar sesión" [ref=f20e26] [cursor=pointer]:
+              - /url: /login
+            - link "Ver cómo funciona" [ref=f20e30] [cursor=pointer]:
+              - /url: "#recorrido"
+        - generic [ref=f20e33]:
+          - generic [ref=f20e34]:
+            - paragraph [ref=f20e35]: Radar
+            - paragraph [ref=f20e36]: Revisando Mercado Público…
+          - generic [ref=f20e37]:
+            - list
+      - generic [ref=f20e41]:
+        - generic [ref=f20e42]:
+          - list "Capítulos" [ref=f20e43]:
+            - listitem [ref=f20e44]: Detecta
+            - listitem [ref=f20e45]: Decide
+            - listitem [ref=f20e46]: Postula
+            - listitem [ref=f20e47]: Compra
+            - listitem [ref=f20e48]: Cobra
+          - generic [ref=f20e49]:
+            - heading "Lo nuevo de hoy, filtrado." [level=2] [ref=f20e50]
+            - paragraph [ref=f20e51]: Defines tus palabras clave y LICITANK revisa Mercado Público todos los días. Ves qué cierra primero, quién la tiene asignada y por qué coincide.
+        - generic [ref=f20e54]:
+          - generic [ref=f20e55]:
+            - paragraph [ref=f20e56]: Radar de hoy
+            - paragraph [ref=f20e57]: 14 licitaciones nuevas
+          - list [ref=f20e59]:
+            - listitem [ref=f20e60]:
+              - generic [ref=f20e61]:
+                - paragraph [ref=f20e62]: MOBILIARIO ESCOLAR PARA ESTABLECIMIENTOS
+                - paragraph [ref=f20e63]: Mañana, 15:00
+              - paragraph [ref=f20e64]:
+                - text: I. Municipalidad de Temuco
+                - generic [ref=f20e65]:
+                  - text: · coincide con «
+                  - mark [ref=f20e66]: mobiliario
+                  - text: »
+              - paragraph [ref=f20e67]: Asignada a Diego Rojas
+            - listitem [ref=f20e68]:
+              - generic [ref=f20e69]:
+                - paragraph [ref=f20e70]: MATERIALES ELÉCTRICOS PARA MANTENCIÓN
+                - paragraph [ref=f20e71]: Jueves 27
+              - paragraph [ref=f20e72]: Servicio de Salud Maule
+            - listitem [ref=f20e73]:
+              - generic [ref=f20e74]:
+                - paragraph [ref=f20e75]: ADQUISICIÓN DE INSUMOS DE ASEO
+                - paragraph [ref=f20e76]: Lunes 1
+              - paragraph [ref=f20e77]: Hospital de Castro
+            - listitem [ref=f20e78]:
+              - generic [ref=f20e79]:
+                - paragraph [ref=f20e80]: EQUIPAMIENTO DE OFICINA PARA SEDE PROVINCIAL
+                - paragraph [ref=f20e81]: Martes 2
+              - paragraph [ref=f20e82]: Gobierno Regional de Los Lagos
+      - generic [ref=f20e84]:
+        - heading "Tu margen, antes de postular." [level=2] [ref=f20e86]
+        - generic [ref=f20e88]:
+          - generic [ref=f20e89]:
+            - paragraph [ref=f20e90]: Margen previsto
+            - paragraph [ref=f20e91]: 24,2%
+            - img "Margen de 24.2 por ciento; tu piso es 20 por ciento" [ref=f20e92]
+            - paragraph [ref=f20e95]: Sobre tu piso de 20 %
+            - paragraph [ref=f20e96]: Utilidad de $2.900.000 neto · venta con IVA $14.280.000
+          - generic [ref=f20e97]:
+            - generic [ref=f20e98]:
+              - text: Precio de venta neto
+              - generic [ref=f20e99]:
+                - generic [ref=f20e100]: $
+                - textbox "Precio de venta neto $" [ref=f20e101]:
+                  - /placeholder: 12.000.000
+                  - text: 12.000.000
+            - generic [ref=f20e102]:
+              - text: Costo neto de comprar y entregar
+              - generic [ref=f20e103]:
+                - generic [ref=f20e104]: $
+                - textbox "Costo neto de comprar y entregar $" [ref=f20e105]:
+                  - /placeholder: 9.100.000
+                  - text: 9.100.000
+            - generic [ref=f20e106]:
+              - text: Tu piso de margen
+              - generic [ref=f20e107]:
+                - button "Bajar el piso" [ref=f20e108]
+                - generic [ref=f20e110]: 20 %
+                - button "Subir el piso" [ref=f20e111]
+      - generic [ref=f20e114]:
+        - heading "Cada persona ve lo suyo." [level=2] [ref=f20e116]
+        - generic [ref=f20e117]:
+          - generic [ref=f20e118]:
+            - heading "Permisos por perfil" [level=3] [ref=f20e119]
+            - paragraph [ref=f20e120]: "Das o quitas cada acción a cada persona: ver, cotizar, aprobar, comprar. Nadie toca lo que no le toca."
+          - generic [ref=f20e121]:
+            - heading "Un sí o un no al final" [level=3] [ref=f20e122]
+            - paragraph [ref=f20e123]: Descartar, postular, cancelar o marcar una entrega pide confirmación. Todo queda en el historial con nombre y fecha.
+          - generic [ref=f20e124]:
+            - heading "Datos separados por empresa" [level=3] [ref=f20e125]
+            - paragraph [ref=f20e126]: Cada empresa trabaja con su propio equipo, sus cuentas y sus documentos. Nada se mezcla.
+      - generic [ref=f20e127]:
+        - generic [ref=f20e128]:
+          - heading "Pruébalo con tus licitaciones." [level=2] [ref=f20e130]
+          - link "Iniciar sesión" [ref=f20e132] [cursor=pointer]:
+            - /url: /login
+        - paragraph [aria-hidden] [ref=f20e136]: LICITANK
+    - contentinfo [ref=f20e137]:
+      - generic [ref=f20e138]:
+        - generic [ref=f20e139]: © 2026 LICITANK · Los datos de los ejemplos son ficticios
+        - generic [ref=f20e140]:
+          - link "Privacidad" [ref=f20e141] [cursor=pointer]:
+            - /url: /privacidad
+          - link "Términos" [ref=f20e142] [cursor=pointer]:
+            - /url: /terminos
+          - generic [ref=f20e143]: Datos públicos de Mercado Público
+  - button "Open Next.js Dev Tools" [ref=f20e149] [cursor=pointer]

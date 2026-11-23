@@ -119,7 +119,7 @@ export async function GET(request: NextRequest, { params }: Params) {
       const negocioId = await negocioIdDe(codigoDecoded, clienteId);
       if (negocioId) {
         rowsNeg = await consultarConHilo(conHilo =>
-          `SELECT c.id, c.comentario, c.created_at, 'negocio' AS origen, c.pipeline_estado, ${colsHilo(conHilo)},
+          `SELECT c.id, c.comentario, c.created_at, 'negocio' AS origen, c.pipeline_estado, (c.comentario LIKE 'Mercado Público marcó la licitación como %') AS es_sistema, ${colsHilo(conHilo)},
                   u.id AS usuario_id, u.nombre AS usuario_nombre, u.email AS usuario_email
            FROM comentarios_negocio c
            JOIN usuarios u ON u.id = c.usuario_id

@@ -1,0 +1,249 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e3]:
+    - banner [ref=e4]:
+      - link "LICITANK, inicio" [ref=e5] [cursor=pointer]:
+        - /url: "#inicio"
+        - img "LICITANK" [ref=e6]
+        - generic [ref=e11]: LICITANK
+      - navigation "Principal" [ref=e12]:
+        - link "Detecta" [ref=e13] [cursor=pointer]:
+          - /url: "#detecta"
+        - link "Decide" [ref=e14] [cursor=pointer]:
+          - /url: "#decide"
+        - link "Postula" [ref=e15] [cursor=pointer]:
+          - /url: "#postula"
+        - link "Compra" [ref=e16] [cursor=pointer]:
+          - /url: "#compra"
+        - link "Cobra" [ref=e17] [cursor=pointer]:
+          - /url: "#cobra"
+      - link "Iniciar sesión" [ref=e18] [cursor=pointer]:
+        - /url: /login
+    - main [ref=e19]:
+      - generic [ref=e21]:
+        - generic [ref=e22]:
+          - heading "Del aviso a la factura." [level=1] [ref=e24]
+          - paragraph [ref=e26]: LICITANK vigila Mercado Público, lee las bases, arma tu oferta y sigue la compra y la entrega hasta el cobro.
+          - generic [ref=e27]:
+            - link "Iniciar sesión" [ref=e28] [cursor=pointer]:
+              - /url: /login
+            - link "Ver cómo funciona" [ref=e32] [cursor=pointer]:
+              - /url: "#detecta"
+        - generic [ref=e34]:
+          - generic [ref=e35]:
+            - paragraph [ref=e36]: Radar de hoy
+            - paragraph [ref=e37]: 14 licitaciones nuevas
+          - list [ref=e38]:
+            - listitem [ref=e39]:
+              - paragraph [ref=e40]: MOBILIARIO ESCOLAR PARA ESTABLECIMIENTOS
+              - paragraph [ref=e41]:
+                - generic [ref=e42]: Mañana, 15:00
+              - paragraph [ref=e45]: I. Municipalidad de Temuco · coincide con «mobiliario»
+              - paragraph [ref=e46]: Diego Rojas
+            - listitem [ref=e47]:
+              - paragraph [ref=e48]: MATERIALES ELÉCTRICOS PARA MANTENCIÓN
+              - paragraph [ref=e49]:
+                - generic [ref=e50]: Jueves 27
+              - paragraph [ref=e53]: Servicio de Salud Maule · coincide con «eléctricos»
+              - paragraph [ref=e54]: Sin asignar
+            - listitem [ref=e55]:
+              - paragraph [ref=e56]: ADQUISICIÓN DE INSUMOS DE ASEO
+              - paragraph [ref=e57]:
+                - generic [ref=e58]: Lunes 1
+              - paragraph [ref=e61]: Hospital de Castro · coincide con «aseo»
+              - paragraph [ref=e62]: Camila Soto
+            - listitem [ref=e63]:
+              - paragraph [ref=e64]: EQUIPAMIENTO DE OFICINA PARA SEDE PROVINCIAL
+              - paragraph [ref=e65]:
+                - generic [ref=e66]: Martes 2
+              - paragraph [ref=e69]: Gobierno Regional de Los Lagos · coincide con «oficina»
+              - paragraph [ref=e70]: Sin asignar
+      - generic [ref=e72]:
+        - generic [ref=e74]:
+          - paragraph [ref=e75]: Tus palabras clave
+          - list [ref=e76]:
+            - listitem [ref=e77]:
+              - paragraph [ref=e78]: mobiliario
+              - paragraph [ref=e79]: 6 nuevas hoy
+            - listitem [ref=e80]:
+              - paragraph [ref=e81]: insumos de aseo
+              - paragraph [ref=e82]: 4 nuevas hoy
+            - listitem [ref=e83]:
+              - paragraph [ref=e84]: materiales eléctricos
+              - paragraph [ref=e85]: 3 nuevas hoy
+            - listitem [ref=e86]:
+              - paragraph [ref=e87]: equipamiento de oficina
+              - paragraph [ref=e88]: 1 nuevas hoy
+          - generic [ref=e89]:
+            - paragraph [ref=e90]: Licitación por asignar
+            - paragraph [ref=e91]: MATERIALES ELÉCTRICOS PARA MANTENCIÓN
+            - paragraph [ref=e92]: Se la asignas a Camila Soto y le llega el aviso.
+        - generic [ref=e93]:
+          - heading "Lo nuevo de hoy, ya filtrado." [level=2] [ref=e95]
+          - paragraph [ref=e97]: Defines tus palabras clave y LICITANK revisa Mercado Público todos los días. Ves qué cierra primero, quién la tiene asignada y por qué coincide.
+      - generic [ref=e99]:
+        - heading "Cada conclusión cita las bases." [level=2] [ref=e101]
+        - generic [ref=e102]:
+          - paragraph [ref=e104]: "La viabilidad lee los documentos y marca qué exigen, qué riesgos hay y si conviene postular. Cada punto lleva su cita, con numeral y página: un clic y ves la frase exacta."
+          - generic [ref=e106]:
+            - generic [ref=e107]:
+              - paragraph [ref=e108]: Viabilidad
+              - paragraph [ref=e109]:
+                - generic [ref=e110]: Ganable
+            - list [ref=e113]:
+              - listitem [ref=e114]:
+                - button "Exige boleta de garantía de seriedad de la oferta Cita · 8.2 · pág. 14" [pressed] [ref=e115]:
+                  - generic [ref=e116]: Exige boleta de garantía de seriedad de la oferta
+                  - generic [ref=e117]: Cita · 8.2 · pág. 14
+              - listitem [ref=e121]:
+                - button "Se adjudica a la oferta de menor precio Cita · 11.1 · pág. 21" [ref=e122]:
+                  - generic [ref=e123]: Se adjudica a la oferta de menor precio
+                  - generic [ref=e124]: Cita · 11.1 · pág. 21
+              - listitem [ref=e128]:
+                - 'button "Plazo de entrega: 20 días hábiles desde la orden de compra Cita · 14.3 · pág. 27" [ref=e129]':
+                  - generic [ref=e130]: "Plazo de entrega: 20 días hábiles desde la orden de compra"
+                  - generic [ref=e131]: Cita · 14.3 · pág. 27
+            - generic [ref=e135]:
+              - paragraph [ref=e136]: Así dice el documento
+              - paragraph [ref=e137]:
+                - text: Los oferentes deberán presentar, junto con su oferta, una
+                - mark [ref=e138]: garantía de seriedad de la oferta
+                - text: por un monto equivalente al 1 % del presupuesto, con vigencia mínima de 90 días corridos.
+      - generic [ref=e140]:
+        - generic [ref=e141]:
+          - heading "Los anexos salen llenos." [level=2] [ref=e143]
+          - paragraph [ref=e145]: "Word, PDF y Excel: los administrativos, técnicos y económicos se rellenan con los datos de tu empresa y de tu costeo. Un revisor aprueba cada bloque antes de que algo salga."
+        - generic [ref=e146]:
+          - generic [ref=e148]:
+            - generic [ref=e149]:
+              - paragraph [ref=e150]: Anexos de la oferta
+              - paragraph [ref=e151]: 2 de 4 listos
+            - list [ref=e152]:
+              - listitem [ref=e153]:
+                - generic [ref=e154]:
+                  - paragraph [ref=e155]: Anexo 1 · Identificación del oferente
+                  - paragraph [ref=e156]: Administrativo · Word y PDF
+                - paragraph [ref=e157]:
+                  - generic [ref=e158]: Listo
+              - listitem [ref=e161]:
+                - generic [ref=e162]:
+                  - paragraph [ref=e163]: Anexo 2 · Declaración jurada simple
+                  - paragraph [ref=e164]: Administrativo · Word y PDF
+                - paragraph [ref=e165]:
+                  - generic [ref=e166]: Listo
+              - listitem [ref=e169]:
+                - generic [ref=e170]:
+                  - paragraph [ref=e171]: Anexo 3 · Especificaciones técnicas
+                  - paragraph [ref=e172]: Técnico · Word y PDF
+                - paragraph [ref=e173]:
+                  - generic [ref=e174]: En revisión
+              - listitem [ref=e177]:
+                - generic [ref=e178]:
+                  - paragraph [ref=e179]: Anexo 4 · Oferta económica
+                  - paragraph [ref=e180]: Económico · Word y PDF
+                - paragraph [ref=e181]:
+                  - generic [ref=e182]: Falta aprobar
+          - generic [ref=e186]:
+            - paragraph [ref=e187]: Antes de postular
+            - list [ref=e188]:
+              - listitem [ref=e189]:
+                - paragraph [ref=e190]: Bloque técnico
+                - paragraph [ref=e191]:
+                  - generic [ref=e192]: Pendiente de Marcela Vidal
+              - listitem [ref=e195]:
+                - paragraph [ref=e196]: Bloque comercial
+                - paragraph [ref=e197]:
+                  - generic [ref=e198]: Aprobado por Pablo Reyes
+              - listitem [ref=e201]:
+                - paragraph [ref=e202]: Orden de compra
+                - paragraph [ref=e203]:
+                  - generic [ref=e204]: Espera la aprobación de compras
+      - generic [ref=e208]:
+        - generic [ref=e209]:
+          - heading "Compara y elige proveedor." [level=2] [ref=e211]
+          - paragraph [ref=e213]: Subes las cotizaciones y LICITANK las empareja con cada producto de la oferta. Ves quién es más barato, en cuánto tiempo entrega, y la orden de compra sale a Obuma.
+        - generic [ref=e215]:
+          - generic [ref=e216]:
+            - paragraph [ref=e217]: Guante de nitrilo, caja de 100
+            - paragraph [ref=e218]: 3 cotizaciones emparejadas
+          - table [ref=e219]:
+            - rowgroup [ref=e220]:
+              - row [ref=e221]:
+                - columnheader "Proveedor" [ref=e222]
+                - columnheader "Precio unitario neto" [ref=e223]
+                - columnheader "Plazo" [ref=e224]
+                - columnheader "Resultado" [ref=e225]
+            - rowgroup [ref=e226]:
+              - row [ref=e227]:
+                - cell "Ferretería Austral" [ref=e228]
+                - cell "$4.290" [ref=e229]
+                - cell "5 días" [ref=e230]
+                - cell "Más barata" [ref=e231]
+              - row [ref=e235]:
+                - cell "Suministros del Sur" [ref=e236]
+                - cell "$4.580" [ref=e237]
+                - cell "3 días" [ref=e238]
+                - cell "Disponible" [ref=e239]
+              - row [ref=e240]:
+                - cell "Distribuidora Andes" [ref=e241]
+                - cell "$4.720" [ref=e242]
+                - cell "8 días" [ref=e243]
+                - cell "Disponible" [ref=e244]
+      - generic [ref=e246]:
+        - heading "Sabes cuánto ganas antes de postular." [level=2] [ref=e248]
+        - generic [ref=e250]:
+          - generic [ref=e251]:
+            - paragraph [ref=e252]: Margen previsto
+            - paragraph [ref=e253]: 24,2%
+            - img "Margen de 24.2 por ciento; tu piso es 20 por ciento" [ref=e254]
+            - paragraph [ref=e257]: Sobre tu piso de 20 %
+            - paragraph [ref=e258]: Utilidad de $2.900.000 neto · venta con IVA $14.280.000
+          - generic [ref=e259]:
+            - generic [ref=e260]:
+              - text: Precio de venta neto
+              - generic [ref=e261]:
+                - generic [ref=e262]: $
+                - textbox "Precio de venta neto $" [ref=e263]:
+                  - /placeholder: 12.000.000
+                  - text: 12.000.000
+            - generic [ref=e264]:
+              - text: Costo neto de comprar y entregar
+              - generic [ref=e265]:
+                - generic [ref=e266]: $
+                - textbox "Costo neto de comprar y entregar $" [ref=e267]:
+                  - /placeholder: 9.100.000
+                  - text: 9.100.000
+            - generic [ref=e268]:
+              - text: Tu piso de margen
+              - generic [ref=e269]:
+                - button "Bajar el piso" [ref=e270]
+                - generic [ref=e272]: 20 %
+                - button "Subir el piso" [ref=e273]
+        - paragraph [ref=e276]: En LICITANK el margen se calcula con tus cotizaciones y se corrige con el costo real y la factura, hasta cerrar el resultado de cada negocio.
+      - generic [ref=e278]:
+        - heading "Cada persona ve lo suyo." [level=2] [ref=e280]
+        - generic [ref=e281]:
+          - generic [ref=e282]:
+            - heading "Permisos por perfil" [level=3] [ref=e283]
+            - paragraph [ref=e284]: "Das o quitas cada acción a cada persona: ver, cotizar, aprobar, comprar. Nadie toca lo que no le toca."
+          - generic [ref=e285]:
+            - heading "Aprobación antes de cada paso" [level=3] [ref=e286]
+            - paragraph [ref=e287]: Descartar, postular, cancelar o marcar una entrega pide un sí o un no al final. Todo queda en el historial con nombre y fecha.
+          - generic [ref=e288]:
+            - heading "Datos separados por empresa" [level=3] [ref=e289]
+            - paragraph [ref=e290]: Cada empresa trabaja con su propio equipo, sus cuentas y sus documentos. Nada se mezcla.
+      - generic [ref=e291]:
+        - generic [ref=e292]:
+          - heading "Prueba LICITANK con tus licitaciones." [level=2] [ref=e294]
+          - link "Iniciar sesión" [ref=e296] [cursor=pointer]:
+            - /url: /login
+        - paragraph [aria-hidden] [ref=e297]: LICITANK
+    - contentinfo [ref=e298]:
+      - generic [ref=e299]:
+        - generic [ref=e300]: © 2026 LICITANK · Los datos de los ejemplos son ficticios
+        - generic [ref=e301]:
+          - link "Privacidad" [ref=e302] [cursor=pointer]:
+            - /url: /privacidad
+          - link "Términos" [ref=e303] [cursor=pointer]:
+            - /url: /terminos
+          - generic [ref=e304]: Datos públicos de Mercado Público
+  - button "Open Next.js Dev Tools" [ref=e310] [cursor=pointer]

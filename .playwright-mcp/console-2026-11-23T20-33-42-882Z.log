@@ -1,0 +1,45 @@
+[    1406ms] [ERROR] Error: <svg> attribute width: Expected length, "currentWidth". @ https://www.licitalab.cl/:596
+[    1406ms] [ERROR] Error: <svg> attribute height: Expected length, "currentHeight". @ https://www.licitalab.cl/:596
+[    1406ms] [ERROR] Error: <svg> attribute width: Expected length, "currentWidth". @ https://www.licitalab.cl/:598
+[    1406ms] [ERROR] Error: <svg> attribute height: Expected length, "currentHeight". @ https://www.licitalab.cl/:598
+[    1406ms] [ERROR] Error: <svg> attribute width: Expected length, "currentWidth". @ https://www.licitalab.cl/:600
+[    1406ms] [ERROR] Error: <svg> attribute height: Expected length, "currentHeight". @ https://www.licitalab.cl/:600
+[    1656ms] [LOG] País detectado: CL @ https://www.licitalab.cl/:71
+[    1851ms] [WARNING] GSAP target [data-hero="4"] not found. https://gsap.com @ https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js:10
+[    1894ms] [WARNING] Element not found: #modsPinWrap @ https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js:10
+[    1895ms] [WARNING] Element not found: #modsPin @ https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js:10
+[    1896ms] [WARNING] GSAP target null not found. https://gsap.com @ https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js:10
+[    1897ms] [WARNING] GSAP target #stepsLine not found. https://gsap.com @ https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js:10
+[    1899ms] [WARNING] Element not found: #steps @ https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js:10
+[    1899ms] [WARNING] Element not found: #cmpTable @ https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js:10
+[    2001ms] [WARNING] GSAP target [object NodeList] not found. https://gsap.com @ https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js:10
+[    2086ms] [WARNING] [Meta Pixel] - Multiple pixels with conflicting versions were detected on this page. @ https://connect.facebook.net/en_US/fbevents.js:206
+[    2093ms] Uncaught TypeError: undefined is not iterable (cannot read property Symbol(Symbol.iterator))
+    at O (https://connect.facebook.net/en_US/fbevents.js:24:6821)
+    at C (https://connect.facebook.net/en_US/fbevents.js:260:744)
+    at <anonymous> (https://connect.facebook.net/en_US/fbevents.js:479:15965)
+    at <anonymous> (https://connect.facebook.net/en_US/fbevents.js:479:16024)
+    at <anonymous> (https://connect.facebook.net/en_US/fbevents.js:479:16038)
+    at a.__fbeventsModules.a.getFbeventsModules (https://connect.facebook.net/en_US/fbevents.js:24:9067)
+    at <anonymous> (https://connect.facebook.net/en_US/fbevents.js:479:16062)
+    at <anonymous> (https://connect.facebook.net/en_US/fbevents.js:481:21)
+    at <anonymous> (https://connect.facebook.net/en_US/fbevents.js:481:25)
+[    2162ms] [WARNING] GSAP target null not found. https://gsap.com @ https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js:10
+[    2165ms] [WARNING] GSAP target null not found. https://gsap.com @ https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js:10
+[    2165ms] [WARNING] GSAP target .cmp .body-row not found. https://gsap.com @ https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js:10
+[    2168ms] [WARNING] GSAP target null not found. https://gsap.com @ https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js:10
+[    2169ms] [WARNING] GSAP target null not found. https://gsap.com @ https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js:10
+[    2171ms] [WARNING] GSAP target null not found. https://gsap.com @ https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js:10
+[    2172ms] [WARNING] GSAP target null not found. https://gsap.com @ https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js:10
+[    2639ms] Uncaught TypeError: undefined is not iterable (cannot read property Symbol(Symbol.iterator))
+    at O (https://connect.facebook.net/en_US/fbevents.js:24:6821)
+    at C (https://connect.facebook.net/en_US/fbevents.js:260:744)
+    at <anonymous> (https://connect.facebook.net/en_US/fbevents.js:479:15965)
+    at <anonymous> (https://connect.facebook.net/en_US/fbevents.js:479:16024)
+    at <anonymous> (https://connect.facebook.net/en_US/fbevents.js:479:16038)
+    at a.__fbeventsModules.a.getFbeventsModules (https://connect.facebook.net/en_US/fbevents.js:24:9067)
+    at <anonymous> (https://connect.facebook.net/en_US/fbevents.js:479:16062)
+    at <anonymous> (https://connect.facebook.net/en_US/fbevents.js:481:21)
+    at <anonymous> (https://connect.facebook.net/en_US/fbevents.js:481:25)
+[    5028ms] [WARNING] Intento de cargar pixel incorrecto bloqueado. @ https://www.licitalab.cl/:617
+[   10529ms] [WARNING] The resource https://forms-na1.hsforms.com/embed/v4/render-definition/ssr/45380398/9c5679f7-f19b-4218-a6ae-86bdfc103df0 was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally. @ https://45380398.hs-sites.com/hs-web-interactive-45380398-189662984801?utk=cb6002b740ba513ef022cfacd27034e8&parentPageUrl=https%3A%2F%2Fwww.licitalab.cl%2F&enableResponsiveStyles=true:1

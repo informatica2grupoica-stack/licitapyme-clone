@@ -43,6 +43,7 @@ export async function GET(request: NextRequest, { params }: Params) {
     try {
       const [r] = await pool.query(
         `SELECT c.id, c.comentario, c.created_at, c.pipeline_estado,
+                (c.comentario LIKE 'Mercado Público marcó la licitación como %') AS es_sistema,
                 u.id AS usuario_id, u.nombre AS usuario_nombre, u.email AS usuario_email,
                 e.id AS etiqueta_id, e.nombre AS etiqueta_nombre, e.color AS etiqueta_color
          FROM comentarios_negocio c
@@ -57,6 +58,7 @@ export async function GET(request: NextRequest, { params }: Params) {
       // Fallback sin columna pipeline_estado (migration-5 no ejecutada)
       const [r] = await pool.query(
         `SELECT c.id, c.comentario, c.created_at, NULL AS pipeline_estado,
+                (c.comentario LIKE 'Mercado Público marcó la licitación como %') AS es_sistema,
                 u.id AS usuario_id, u.nombre AS usuario_nombre, u.email AS usuario_email,
                 e.id AS etiqueta_id, e.nombre AS etiqueta_nombre, e.color AS etiqueta_color
          FROM comentarios_negocio c

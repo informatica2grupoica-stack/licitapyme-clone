@@ -1,0 +1,118 @@
+- generic [active] [ref=f22e1]:
+  - generic [ref=f22e3]:
+    - banner [ref=f22e4]:
+      - link "LICITANK, inicio" [ref=f22e5] [cursor=pointer]:
+        - /url: "#inicio"
+        - img "LICITANK" [ref=f22e6]
+        - generic [ref=f22e11]: LICITANK
+      - link "Iniciar sesión" [ref=f22e12] [cursor=pointer]:
+        - /url: /login
+    - main [ref=f22e13]:
+      - generic [ref=f22e15]:
+        - generic [ref=f22e16]:
+          - heading "Del aviso a la factura." [level=1] [ref=f22e18]: Del avisoa la factura.
+          - paragraph [ref=f22e20]: LICITANK vigila Mercado Público, lee las bases, arma tu oferta y sigue la compra y la entrega hasta el cobro.
+          - generic [ref=f22e21]:
+            - link "Iniciar sesión" [ref=f22e22] [cursor=pointer]:
+              - /url: /login
+            - link "Ver cómo funciona" [ref=f22e26] [cursor=pointer]:
+              - /url: "#recorrido"
+        - generic [ref=f22e29]:
+          - generic [ref=f22e30]:
+            - paragraph [ref=f22e31]: Radar
+            - paragraph [ref=f22e32]: Revisando Mercado Público…
+          - generic [ref=f22e33]:
+            - list
+      - generic [ref=f22e37]:
+        - generic [ref=f22e39]:
+          - heading "Lo nuevo de hoy, filtrado." [level=2] [ref=f22e40]
+          - paragraph [ref=f22e41]: Defines tus palabras clave y LICITANK revisa Mercado Público todos los días. Ves qué cierra primero, quién la tiene asignada y por qué coincide.
+        - generic [ref=f22e44]:
+          - generic [ref=f22e45]:
+            - paragraph [ref=f22e46]: Radar de hoy
+            - paragraph [ref=f22e47]: 14 licitaciones nuevas
+          - list [ref=f22e49]:
+            - listitem [ref=f22e50]:
+              - generic [ref=f22e51]:
+                - paragraph [ref=f22e52]: MOBILIARIO ESCOLAR PARA ESTABLECIMIENTOS
+                - paragraph [ref=f22e53]: Mañana, 15:00
+              - paragraph [ref=f22e54]:
+                - text: I. Municipalidad de Temuco
+                - generic [ref=f22e55]:
+                  - text: · coincide con «
+                  - mark [ref=f22e56]: mobiliario
+                  - text: »
+              - paragraph [ref=f22e57]: Asignada a Diego Rojas
+            - listitem [ref=f22e58]:
+              - generic [ref=f22e59]:
+                - paragraph [ref=f22e60]: MATERIALES ELÉCTRICOS PARA MANTENCIÓN
+                - paragraph [ref=f22e61]: Jueves 27
+              - paragraph [ref=f22e62]: Servicio de Salud Maule
+            - listitem [ref=f22e63]:
+              - generic [ref=f22e64]:
+                - paragraph [ref=f22e65]: ADQUISICIÓN DE INSUMOS DE ASEO
+                - paragraph [ref=f22e66]: Lunes 1
+              - paragraph [ref=f22e67]: Hospital de Castro
+            - listitem [ref=f22e68]:
+              - generic [ref=f22e69]:
+                - paragraph [ref=f22e70]: EQUIPAMIENTO DE OFICINA PARA SEDE PROVINCIAL
+                - paragraph [ref=f22e71]: Martes 2
+              - paragraph [ref=f22e72]: Gobierno Regional de Los Lagos
+      - generic [ref=f22e74]:
+        - heading "Tu margen, antes de postular." [level=2] [ref=f22e76]
+        - generic [ref=f22e78]:
+          - generic [ref=f22e79]:
+            - paragraph [ref=f22e80]: Margen previsto
+            - paragraph [ref=f22e81]: 24,2%
+            - img "Margen de 24.2 por ciento; tu piso es 20 por ciento" [ref=f22e82]
+            - paragraph [ref=f22e85]: Sobre tu piso de 20 %
+            - paragraph [ref=f22e86]: Utilidad de $2.900.000 neto · venta con IVA $14.280.000
+          - generic [ref=f22e87]:
+            - generic [ref=f22e88]:
+              - text: Precio de venta neto
+              - generic [ref=f22e89]:
+                - generic [ref=f22e90]: $
+                - textbox "Precio de venta neto $" [ref=f22e91]:
+                  - /placeholder: 12.000.000
+                  - text: 12.000.000
+            - generic [ref=f22e92]:
+              - text: Costo neto de comprar y entregar
+              - generic [ref=f22e93]:
+                - generic [ref=f22e94]: $
+                - textbox "Costo neto de comprar y entregar $" [ref=f22e95]:
+                  - /placeholder: 9.100.000
+                  - text: 9.100.000
+            - generic [ref=f22e96]:
+              - text: Tu piso de margen
+              - generic [ref=f22e97]:
+                - button "Bajar el piso" [ref=f22e98]
+                - generic [ref=f22e100]: 20 %
+                - button "Subir el piso" [ref=f22e101]
+      - generic [ref=f22e104]:
+        - heading "Cada persona ve lo suyo." [level=2] [ref=f22e106]
+        - generic [ref=f22e107]:
+          - generic [ref=f22e108]:
+            - heading "Permisos por perfil" [level=3] [ref=f22e109]
+            - paragraph [ref=f22e110]: "Das o quitas cada acción a cada persona: ver, cotizar, aprobar, comprar. Nadie toca lo que no le toca."
+          - generic [ref=f22e111]:
+            - heading "Un sí o un no al final" [level=3] [ref=f22e112]
+            - paragraph [ref=f22e113]: Descartar, postular, cancelar o marcar una entrega pide confirmación. Todo queda en el historial con nombre y fecha.
+          - generic [ref=f22e114]:
+            - heading "Datos separados por empresa" [level=3] [ref=f22e115]
+            - paragraph [ref=f22e116]: Cada empresa trabaja con su propio equipo, sus cuentas y sus documentos. Nada se mezcla.
+      - generic [ref=f22e117]:
+        - generic [ref=f22e118]:
+          - heading "Pruébalo con tus licitaciones." [level=2] [ref=f22e120]
+          - link "Iniciar sesión" [ref=f22e122] [cursor=pointer]:
+            - /url: /login
+        - paragraph [aria-hidden] [ref=f22e126]: LICITANK
+    - contentinfo [ref=f22e127]:
+      - generic [ref=f22e128]:
+        - generic [ref=f22e129]: © 2026 LICITANK · Los datos de los ejemplos son ficticios
+        - generic [ref=f22e130]:
+          - link "Privacidad" [ref=f22e131] [cursor=pointer]:
+            - /url: /privacidad
+          - link "Términos" [ref=f22e132] [cursor=pointer]:
+            - /url: /terminos
+          - generic [ref=f22e133]: Datos públicos de Mercado Público
+  - button "Open Next.js Dev Tools" [ref=f22e139] [cursor=pointer]

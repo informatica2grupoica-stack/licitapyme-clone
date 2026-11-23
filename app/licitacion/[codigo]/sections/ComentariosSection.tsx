@@ -11,6 +11,7 @@ import { estadosParaSelector, getEstadoPipeline, puedeCambiarEstadoPipeline } fr
 import { useEtapasPropias } from '@/app/lib/use-etapas-propias';
 import { colorUsuario, inicialesUsuario } from '@/app/lib/user-color';
 import { Boton } from '@/app/components/ui/kit/Boton';
+import { LicitankIcon } from '@/app/components/LicitankLogo';
 
 interface Comentario {
   id: number;
@@ -20,6 +21,8 @@ interface Comentario {
   usuario_nombre: string;
   usuario_email: string;
   usuario_rol?: string | null;
+  // Comentario puesto por el sistema (p. ej. aviso de Mercado Público): se muestra como LICITANK, no como una persona.
+  es_sistema?: number | boolean;
   origen?: 'licitacion' | 'negocio';
   pipeline_estado?: string | null;
   // Hilos (migration-138): id del comentario al que responde; null = comentario de primer nivel.
@@ -28,7 +31,8 @@ interface Comentario {
 
 const clave = (origen: string | undefined, id: number) => `${origen || 'licitacion'}:${id}`;
 
-function AvatarInicial({ nombre, email, tam = 'md' }: { nombre?: string; email?: string; tam?: 'md' | 'sm' }) {
+function AvatarInicial({ nombre, email, tam = 'md', sistema = false }: { nombre?: string; email?: string; tam?: 'md' | 'sm'; sistema?: boolean }) {
+  if (sistema) return <div className="flex-shrink-0"><LicitankIcon size={tam === 'sm' ? 28 : 36} /></div>;
   // Mismo color e iniciales por persona que en el resto de la app (user-color).
   return (
     <div style={{ backgroundColor: colorUsuario(email || nombre) }}
@@ -190,7 +194,8 @@ export function ComentariosSection({ codigoDecoded, negocioId, estadoActual, isA
   const puedeEliminar = (c: Comentario) => !!usuario && (usuario.id === c.usuario_id || usuario.rol === 'admin');
   const AutorLinea = ({ c }: { c: Comentario }) => (
     <div className="flex items-center gap-2 min-w-0 flex-wrap">
-      <p className="text-[13px] font-semibold text-tinta dark:text-slate-100 truncate">{c.usuario_nombre || c.usuario_email}</p>
+      <p className="text-[13px] font-semibold text-tinta dark:text-slate-100 truncate">{c.es_sistema ? 'LICITANK' : (c.usuario_nombre || c.usuario_email)}</p>
+      {c.es_sistema ? <span className="text-xs text-tinta-2 dark:text-slate-400">Automático</span> : null}
       {c.usuario_rol === 'admin' && <span className="text-xs text-tinta-2 dark:text-slate-400">Admin</span>}
       {c.pipeline_estado && (() => {
         const info = getEstadoPipeline(c.pipeline_estado);
@@ -307,7 +312,7 @@ export function ComentariosSection({ codigoDecoded, negocioId, estadoActual, isA
                   <Aparece key={k} i={i}>
                     <article className="py-4 first:pt-1 last:pb-1">
                       <div className="flex gap-3">
-                        <AvatarInicial nombre={c.usuario_nombre} email={c.usuario_email} />
+                        <AvatarInicial nombre={c.usuario_nombre} email={c.usuario_email} sistema={!!c.es_sistema} />
                         <div className="flex-1 min-w-0">
                           <div className="flex items-start justify-between gap-2">
                             <AutorLinea c={c} />
@@ -340,7 +345,7 @@ export function ComentariosSection({ codigoDecoded, negocioId, estadoActual, isA
                                 <div className="mt-3 space-y-3">
                                   {hijos.map(r => (
                                     <div key={clave(r.origen, r.id)} className="flex gap-2.5 rounded-xl bg-slate-50 px-3.5 py-3 dark:bg-slate-800/50">
-                                      <AvatarInicial nombre={r.usuario_nombre} email={r.usuario_email} tam="sm" />
+                                      <AvatarInicial nombre={r.usuario_nombre} email={r.usuario_email} tam="sm" sistema={!!r.es_sistema} />
                                       <div className="flex-1 min-w-0">
                                         <div className="flex items-start justify-between gap-2">
                                           <AutorLinea c={r} />
