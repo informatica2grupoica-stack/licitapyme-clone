@@ -8,7 +8,7 @@ import { LicitankIcon } from '@/app/components/LicitankLogo';
 
 const EASE = [0.2, 0.7, 0.2, 1] as [number, number, number, number];
 const mono = { fontFamily: 'var(--font-geist-mono), ui-monospace, monospace' } as const;
-const serif = { fontFamily: 'var(--font-roboto), ui-sans-serif, system-ui, sans-serif', fontWeight: 500 } as const;
+const serif = { fontFamily: 'var(--font-landing), var(--font-roboto), ui-sans-serif, system-ui, sans-serif', fontWeight: 600 } as const;
 
 function Rise({ children, delay = 0, className = '' }: { children: React.ReactNode; delay?: number; className?: string }) {
   const reduce = useReducedMotion();
@@ -26,20 +26,6 @@ function useVisto<T extends Element = HTMLDivElement>() {
   return [ref, go] as const;
 }
 
-function useEscribe(texto: string, go: boolean, delay = 0, vel = 38) {
-  const reduce = useReducedMotion();
-  const [n, setN] = useState(0);
-  useEffect(() => {
-    if (!go) return;
-    if (reduce) { const z = setTimeout(() => setN(texto.length), 0); return () => clearTimeout(z); }
-    let i = 0;
-    let iv: ReturnType<typeof setInterval>;
-    const t = setTimeout(() => { iv = setInterval(() => { i++; setN(i); if (i >= texto.length) clearInterval(iv); }, vel); }, delay);
-    return () => { clearTimeout(t); clearInterval(iv); };
-  }, [go, texto, delay, vel, reduce]);
-  return texto.slice(0, n);
-}
-
 function Dot({ c }: { c: string }) {
   return <span aria-hidden className="inline-block h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: c }} />;
 }
@@ -50,11 +36,11 @@ const CICLO = [
   { t: 'Publicación', p: 'Cada día se publican decenas de licitaciones y los plazos corren desde el primer minuto.', s: 'El radar la detecta con tus palabras clave y la ordena por fecha de cierre.' },
   { t: 'Foro de consultas', p: 'Es la única ventana para aclarar bases ambiguas. Pasado el plazo, la duda se queda sin respuesta.', s: 'Lee las fechas de las bases y las deja a la vista en el negocio.' },
   { t: 'Lectura de bases', p: 'Garantías, criterios, plazos y anexos están repartidos en decenas de páginas y documentos.', s: 'La IA lee todo y entrega la viabilidad por requisito, con cita a la página de origen.' },
-  { t: 'Oferta', p: 'Un error en un anexo o en la planilla económica deja la oferta fuera de bases.', s: 'Costeo con cotizaciones y margen por ítem; anexos rellenados con los datos de tu empresa.' },
-  { t: 'Auditoría previa', p: 'Una oferta inadmisible no se evalúa, aunque sea la más barata.', s: 'El auditor compara requisito por requisito y bloquea la postulación si falta un anexo.' },
+  { t: 'Oferta', p: 'Un precio mal calculado se come el margen, o deja la oferta fuera de mercado.', s: 'Costeo con cotizaciones y margen por ítem, para saber a qué precio conviene ofertar.' },
+  { t: 'Auditoría previa', p: 'Una oferta inadmisible no se evalúa, aunque sea la más barata.', s: 'El auditor compara tu oferta con las bases requisito por requisito y marca lo que no cumple, con aprobación antes de postular.' },
   { t: 'Cierre y apertura', p: 'Subir el archivo a último minuto es la forma más común de perder un negocio.', s: 'Las postuladas quedan con su hora de cierre y su fecha de adjudicación a la vista.' },
   { t: 'Adjudicación', p: 'El resultado sale en Mercado Público, sin aviso para quien postuló.', s: 'Detecta el resultado y lo marca: ganada, perdida, desierta o revocada.' },
-  { t: 'Orden de compra y entrega', p: 'Ganar es la mitad: falta comprar, entregar, facturar y cobrar.', s: 'La orden de compra llega sola; compras, pagos, acta y facturación quedan en el mismo negocio.' },
+  { t: 'Orden de compra', p: 'Tras ganar, el organismo emite la orden de compra y hay que aceptarla a tiempo.', s: 'Las órdenes de compra de tus negocios aparecen en una lista, con su estado en Mercado Público.' },
 ];
 
 function HitoCiclo({ i, h }: { i: number; h: (typeof CICLO)[number] }) {
@@ -65,7 +51,7 @@ function HitoCiclo({ i, h }: { i: number; h: (typeof CICLO)[number] }) {
   return (
     <li ref={ref} className="relative grid gap-3 pb-14 pl-10 last:pb-0 md:grid-cols-2 md:gap-16 md:pl-0">
       <motion.span aria-hidden className="absolute left-0 top-1.5 z-10 grid h-[17px] w-[17px] -translate-x-1/2 place-items-center rounded-full border md:left-1/2"
-        animate={{ backgroundColor: activo ? '#2dd4bf' : '#0a0d12', borderColor: activo ? '#2dd4bf' : '#334155', scale: activo ? 1.25 : 1 }}
+        animate={{ backgroundColor: activo ? '#2dd4bf' : '#08110F', borderColor: activo ? '#2dd4bf' : '#334155', scale: activo ? 1.25 : 1 }}
         transition={{ duration: 0.3 }} style={{ marginLeft: 0 }} />
       <motion.div initial={{ opacity: 0, y: 22 }} animate={visto ? { opacity: 1, y: 0 } : {}} transition={{ duration: 0.6, ease: EASE }}
         className={izq ? 'md:text-right' : 'md:col-start-2'}>
@@ -85,16 +71,16 @@ export function Ciclo() {
   const { scrollYProgress } = useScroll({ target: ref, offset: ['start 0.6', 'end 0.55'] });
   const linea = useSpring(scrollYProgress, { stiffness: 120, damping: 28, mass: 0.4 });
   return (
-    <section id="ciclo" className="border-t border-white/10 bg-[#0a0d12]">
+    <section id="ciclo" className="border-t border-white/10 bg-[#08110F]">
       <div className="mx-auto max-w-[1200px] px-5 py-24 sm:px-8 sm:py-32">
         <Rise>
           <p className="text-xs text-teal-400" style={mono}>El ciclo completo</p>
           <h2 style={serif} className="mt-3 max-w-[820px] text-[36px] leading-[1.06] tracking-[-0.02em] text-white sm:text-[54px]">
-            Una licitación se gana o se pierde en ocho momentos. Cubrimos los ocho.
+            Una licitación se gana o se pierde en ocho momentos. Te acompañamos en cada uno.
           </h2>
           <p className="mt-5 max-w-[620px] text-[16px] leading-[1.6] text-slate-400">
             Conocemos el proceso por dentro porque lo trabajamos todos los días: desde que Mercado Público publica las bases
-            hasta que el cliente recibe el producto y se emite la factura.
+            hasta que llega la orden de compra.
           </p>
         </Rise>
         <div ref={ref} className="relative mt-20">
@@ -121,11 +107,11 @@ const BASES = [
 ];
 
 const HALLAZGOS: Record<string, { q: string; r: string; h: string }> = {
-  gar: { q: 'Documento físico o electrónico, con vigencia que cubre hasta la adjudicación.', r: 'Un banco puede tardar días en emitirla.', h: 'Se agrega a la lista de pendientes con fecha límite y responsable.' },
+  gar: { q: 'Documento físico o electrónico, con vigencia que cubre hasta la adjudicación.', r: 'Un banco puede tardar días en emitirla.', h: 'Queda marcada como requisito para que nadie la olvide antes de postular.' },
   plz: { q: 'Entrega en 30 días corridos, no hábiles.', r: 'Si el proveedor tarda más, la multa corre sola.', h: 'Se contrasta con el plazo que ofrece cada cotización antes de costear.' },
   cri: { q: 'El precio pesa 60%; plazo y experiencia suman 40%.', r: 'Bajar el precio sin cuidar el plazo no asegura el puntaje.', h: 'Los criterios se convierten en ítems de costeo para simular el puntaje.' },
-  inh: { q: 'Declaración jurada sobre inhabilidades legales.', r: 'Sin ella la oferta se declara fuera de bases.', h: 'El anexo se rellena con los datos del representante de la empresa.' },
-  ane: { q: 'Tres anexos, todos obligatorios y con firma.', r: 'La omisión de uno solo deja la oferta inadmisible.', h: 'Candado: no deja marcar como postulada si falta alguno.' },
+  inh: { q: 'Declaración jurada sobre inhabilidades legales.', r: 'Sin ella la oferta se declara fuera de bases.', h: 'Queda en la lista de requisitos del negocio, con la cita al artículo.' },
+  ane: { q: 'Tres anexos, todos obligatorios y con firma.', r: 'La omisión de uno solo deja la oferta inadmisible.', h: 'Los anexos obligatorios quedan listados con su cita para prepararlos a tiempo.' },
   mul: { q: '0,5% diario con tope de 10% de la orden de compra.', r: 'Un atraso de 20 días ya consume el margen.', h: 'Entra al análisis de viabilidad como riesgo contractual.' },
 };
 
@@ -143,7 +129,7 @@ export function Bases() {
   const h = HALLAZGOS[b.id];
 
   return (
-    <section id="bases" className="border-t border-white/10 bg-[#0d1117]">
+    <section id="bases" className="border-t border-white/10 bg-[#0c1815]">
       <div className="mx-auto max-w-[1200px] px-5 py-24 sm:px-8 sm:py-32">
         <Rise>
           <p className="text-xs text-teal-400" style={mono}>Lectura de bases</p>
@@ -151,13 +137,13 @@ export function Bases() {
             Sabemos qué buscar en unas bases, y dónde se esconde el riesgo.
           </h2>
           <p className="mt-5 max-w-[620px] text-[16px] leading-[1.6] text-slate-400">
-            Garantías, plazos, criterios, declaraciones, anexos y multas. LICITANK los extrae, los explica y los convierte en tareas
-            con responsable. Extracto de ejemplo.
+            Garantías, plazos, criterios, declaraciones, anexos y multas. LICITANK los extrae, los explica y los deja citados con su
+            artículo y página. Extracto de ejemplo.
           </p>
         </Rise>
 
         <div ref={ref} className="mt-14 grid gap-6 lg:grid-cols-[1.15fr_.85fr]">
-          <div className="overflow-hidden rounded-xl border border-white/10 bg-[#0a0d12]">
+          <div className="overflow-hidden rounded-none border border-white/10 bg-[#08110F]">
             <div className="flex items-center gap-3 border-b border-white/10 px-4 py-2.5">
               <span className="flex gap-1.5" aria-hidden>{[0, 1, 2].map(i => <span key={i} className="h-2 w-2 rounded-full bg-white/15" />)}</span>
               <span className="text-xs text-slate-500" style={mono}>bases_administrativas.pdf</span>
@@ -166,9 +152,9 @@ export function Bases() {
               {BASES.map((x, i) => (
                 <li key={x.id}>
                   <button onClick={() => { setSel(i); setAuto(false); }} aria-pressed={i === sel}
-                    className="relative block w-full rounded-lg px-4 py-3.5 text-left transition-colors duration-200 hover:bg-white/[.03]">
+                    className="relative block w-full rounded-none px-4 py-3.5 text-left transition-colors duration-200 hover:bg-white/[.03]">
                     {i === sel && (
-                      <motion.span layoutId="base-sel" aria-hidden className="absolute inset-0 rounded-lg bg-teal-400/[.09] ring-1 ring-teal-400/30"
+                      <motion.span layoutId="base-sel" aria-hidden className="absolute inset-0 rounded-none bg-teal-400/[.09] ring-1 ring-teal-400/30"
                         transition={{ type: 'spring', stiffness: 380, damping: 34 }} />
                     )}
                     <span className="relative block">
@@ -183,7 +169,7 @@ export function Bases() {
           </div>
 
           <div className="lg:sticky lg:top-24 lg:self-start">
-            <div className="rounded-xl border border-white/10 bg-[#0a0d12] p-6">
+            <div className="rounded-none border border-white/10 bg-[#08110F] p-6">
               <p className="text-[11px] text-slate-500">Lo que LICITANK extrajo</p>
               <motion.div key={b.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, ease: EASE }}>
                 <h3 style={serif} className="mt-1.5 text-[24px] leading-[1.15] text-white">{b.t}</h3>
@@ -216,7 +202,7 @@ function Tarjeta({ className = '', rotulo, titulo, texto, children }: { classNam
   };
   return (
     <Rise className={className}>
-      <div onPointerMove={mover} className="lk-card group relative h-full overflow-hidden rounded-2xl border border-white/10 bg-[#0f141b] p-6 transition-colors duration-300 hover:border-white/20 sm:p-7">
+      <div onPointerMove={mover} className="lk-card group relative h-full overflow-hidden rounded-none border border-white/10 bg-[#101D1A] p-6 transition-colors duration-300 hover:border-white/20 sm:p-7">
         <span aria-hidden className="lk-spot pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
         <div className="relative flex h-full flex-col">
           <p className="text-xs text-teal-400" style={mono}>{rotulo}</p>
@@ -238,7 +224,7 @@ function DemoViabilidad() {
     ['Visita a terreno', 'Obligatoria, antes del cierre', '#ef4444', 'Bases · p. 4'],
   ];
   return (
-    <div ref={ref} className="rounded-lg border border-white/10 bg-[#0a0d12]">
+    <div ref={ref} className="rounded-none border border-white/10 bg-[#08110F]">
       <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1 border-b border-white/10 px-5 py-3.5">
         <p className="text-[13px] font-medium text-white" style={mono}>2467-70-LE26</p>
         <dl className="flex gap-6">
@@ -268,7 +254,7 @@ function DemoLectura() {
   return (
     <ul ref={ref} className="space-y-2">
       {archivos.map(([n, f], i) => (
-        <li key={n} className="relative overflow-hidden rounded-lg border border-white/10 bg-[#0a0d12] px-4 py-3">
+        <li key={n} className="relative overflow-hidden rounded-none border border-white/10 bg-[#08110F] px-4 py-3">
           <motion.span aria-hidden className="absolute inset-y-0 left-0 w-1/3 bg-gradient-to-r from-transparent via-teal-400/20 to-transparent"
             initial={{ x: '-120%' }} animate={go ? { x: '420%' } : {}} transition={{ delay: 0.2 + i * 0.45, duration: 0.9, ease: 'easeInOut' }} />
           <div className="relative flex items-center justify-between gap-3">
@@ -284,27 +270,6 @@ function DemoLectura() {
   );
 }
 
-function DemoAnexo() {
-  const [ref, go] = useVisto<HTMLDivElement>();
-  const razon = useEscribe('Comercial Austral SpA', go, 300);
-  const rut = useEscribe('76.123.456-7', go, 1300);
-  const rep = useEscribe('María Fuentes Rojas', go, 2100);
-  const campos: [string, string][] = [['Razón social', razon], ['RUT', rut], ['Representante legal', rep]];
-  return (
-    <div ref={ref} className="rounded-lg border border-slate-300 bg-white px-5 py-4 text-slate-900">
-      <p className="text-[11px] text-slate-500">Anexo N°1 · Identificación del oferente</p>
-      <dl className="mt-3 space-y-3">
-        {campos.map(([k, v]) => (
-          <div key={k} className="border-b border-slate-200 pb-1.5">
-            <dt className="text-[11px] text-slate-500">{k}</dt>
-            <dd className="h-5 text-[13.5px] font-medium">{v}<span aria-hidden className="lk-caret ml-px inline-block h-[14px] w-px translate-y-[2px] bg-teal-600" /></dd>
-          </div>
-        ))}
-      </dl>
-    </div>
-  );
-}
-
 function DemoAuditor() {
   const [ref, go] = useVisto<HTMLDivElement>();
   const filas: [string, string, boolean][] = [
@@ -313,7 +278,7 @@ function DemoAuditor() {
     ['Asiento de polipropileno', 'Polipropileno', true],
   ];
   return (
-    <div ref={ref} className="overflow-hidden rounded-lg border border-white/10 bg-[#0a0d12]">
+    <div ref={ref} className="overflow-hidden rounded-none border border-white/10 bg-[#08110F]">
       <div className="grid grid-cols-[1.3fr_1fr_auto] gap-3 border-b border-white/10 px-4 py-2 text-[11px] text-slate-500"><span>Bases piden</span><span>Tu oferta dice</span><span>Resultado</span></div>
       {filas.map(([r, o, ok], i) => (
         <motion.div key={r} initial={{ opacity: 0 }} animate={go ? { opacity: 1 } : {}} transition={{ delay: 0.3 + i * 0.5 }}
@@ -352,23 +317,6 @@ function DemoCosteo() {
   );
 }
 
-function DemoCompras() {
-  const [ref, go] = useVisto<HTMLOListElement>();
-  const pasos = ['Orden de compra del cliente', 'Cotización y aprobación', 'Orden al proveedor', 'Entrega y acta', 'Factura'];
-  return (
-    <ol ref={ref} className="relative space-y-3">
-      <span aria-hidden className="absolute bottom-2 left-[4px] top-2 w-px bg-white/10" />
-      {pasos.map((p, i) => (
-        <li key={p} className="relative flex items-center gap-4">
-          <motion.span aria-hidden className="relative h-[9px] w-[9px] rounded-full" initial={{ backgroundColor: '#334155', scale: 0.6 }}
-            animate={go ? { backgroundColor: '#2dd4bf', scale: 1 } : {}} transition={{ delay: 0.2 + i * 0.4, type: 'spring', stiffness: 400, damping: 18 }} />
-          <motion.span initial={{ opacity: 0.35 }} animate={go ? { opacity: 1 } : {}} transition={{ delay: 0.2 + i * 0.4 }} className="text-[13px] text-slate-200">{p}</motion.span>
-        </li>
-      ))}
-    </ol>
-  );
-}
-
 function DemoChat() {
   const [ref, go] = useVisto<HTMLDivElement>();
   const reduce = useReducedMotion();
@@ -379,10 +327,10 @@ function DemoChat() {
     return () => t.forEach(clearTimeout);
   }, [go, reduce]);
   return (
-    <div ref={ref} className="min-h-[190px] space-y-3 rounded-lg border border-white/10 bg-[#0a0d12] p-4">
+    <div ref={ref} className="min-h-[190px] space-y-3 rounded-none border border-white/10 bg-[#08110F] p-4">
       <p className="text-xs text-slate-500" style={mono}>1549-58-LE26</p>
       {paso >= 1 && (
-        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="ml-auto w-fit max-w-[88%] rounded-xl rounded-br-sm bg-white/10 px-3.5 py-2 text-[13px] text-white">
+        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="ml-auto w-fit max-w-[88%] rounded-none rounded-br-sm bg-white/10 px-3.5 py-2 text-[13px] text-white">
           ¿La oferta se presenta por el total o por ítem?
         </motion.div>
       )}
@@ -399,32 +347,28 @@ function DemoChat() {
 
 export function Modulos() {
   return (
-    <section id="modulos" className="border-t border-white/10 bg-[#0a0d12]">
+    <section id="modulos" className="border-t border-white/10 bg-[#08110F]">
       <style>{css}</style>
       <div className="mx-auto max-w-[1200px] px-5 py-24 sm:px-8 sm:py-32">
         <Rise>
           <p className="text-xs text-teal-400" style={mono}>La plataforma</p>
           <h2 style={serif} className="mt-3 max-w-[820px] text-[36px] leading-[1.06] tracking-[-0.02em] text-white sm:text-[54px]">
-            Todo el trabajo de una licitación en un solo lugar.
+            Del radar al resultado, en un solo lugar.
           </h2>
           <p className="mt-5 max-w-[620px] text-[16px] leading-[1.6] text-slate-400">
             Hecho por gente que postula licitaciones. Cada módulo resuelve un paso que, a mano, se pierde o se hace mal.
           </p>
         </Rise>
         <div className="mt-14 grid gap-4 md:grid-cols-6">
-          <Tarjeta className="md:col-span-4" rotulo="Viabilidad con IA" titulo="Qué exigen las bases, con la página donde lo dicen"
+          <Tarjeta className="md:col-span-4" rotulo="Viabilidad con IA · Plan Pro" titulo="Qué exigen las bases, con la página donde lo dicen"
             texto="Lee bases, anexos y fichas, y entrega un veredicto por requisito para decidir si conviene postular. Caso real de Mercado Público."><DemoViabilidad /></Tarjeta>
-          <Tarjeta className="md:col-span-2" rotulo="Lectura de documentos" titulo="Lee lo que otros descartan"
+          <Tarjeta className="md:col-span-2" rotulo="Lectura de documentos · Plan Pro" titulo="Lee lo que otros descartan"
             texto="PDF, Word, Excel y escaneos con OCR."><DemoLectura /></Tarjeta>
-          <Tarjeta className="md:col-span-2" rotulo="Anexos" titulo="Anexos rellenados"
-            texto="Con los datos de tu empresa, en el formato original de las bases."><DemoAnexo /></Tarjeta>
-          <Tarjeta className="md:col-span-4" rotulo="Auditor técnico" titulo="Tu oferta contra las bases, línea por línea"
+          <Tarjeta className="md:col-span-4" rotulo="Auditor técnico · Plan Pro" titulo="Tu oferta contra las bases, línea por línea"
             texto="Compara cada requisito técnico con lo que ofreces y marca lo que no cumple antes de que lo haga la comisión evaluadora."><DemoAuditor /></Tarjeta>
-          <Tarjeta className="md:col-span-3" rotulo="Costeo" titulo="Cuánto cuesta y cuánto ganas"
+          <Tarjeta className="md:col-span-2" rotulo="Costeo · Plan Pro" titulo="Cuánto cuesta y cuánto ganas"
             texto="Cotizaciones comparadas, margen por ítem y presupuesto listo para la oferta económica."><DemoCosteo /></Tarjeta>
-          <Tarjeta className="md:col-span-3" rotulo="Compras" titulo="Después de ganar, el negocio sigue"
-            texto="De la orden de compra a la factura, con aprobación, proveedores y entrega en el mismo flujo."><DemoCompras /></Tarjeta>
-          <Tarjeta className="md:col-span-6" rotulo="Asistente de la licitación" titulo="Pregúntale a las bases"
+          <Tarjeta className="md:col-span-6" rotulo="Asistente de la licitación · Adicional" titulo="Pregúntale a las bases"
             texto="Responde con las bases leídas y cita el artículo y el anexo de donde sale cada respuesta. Una pregunta real: el anexo sugería un total, pero las bases adjudican por línea."><DemoChat /></Tarjeta>
         </div>
       </div>
@@ -447,7 +391,7 @@ const MARCO: [string, string][] = [
 
 export function Marco() {
   return (
-    <section className="border-t border-white/10 bg-[#0d1117]">
+    <section className="border-t border-white/10 bg-[#0c1815]">
       <div className="mx-auto max-w-[1200px] px-5 py-24 sm:px-8 sm:py-32">
         <Rise>
           <p className="text-xs text-teal-400" style={mono}>Conocimiento del sector</p>
@@ -455,10 +399,10 @@ export function Marco() {
             Construido sobre cómo compra el Estado de Chile.
           </h2>
         </Rise>
-        <dl className="mt-14 grid gap-px overflow-hidden rounded-2xl border border-white/10 bg-white/10 sm:grid-cols-2 lg:grid-cols-4">
+        <dl className="mt-14 grid gap-px overflow-hidden rounded-none border border-white/10 bg-white/10 sm:grid-cols-2 lg:grid-cols-4">
           {MARCO.map(([k, v], i) => (
             <motion.div key={k} initial={{ opacity: 0 }} whileInView={{ opacity: 1 }} viewport={{ once: true, margin: '-10% 0px' }} transition={{ delay: (i % 4) * 0.08, duration: 0.6 }}
-              className="bg-[#0a0d12] p-6 transition-colors duration-200 hover:bg-[#10161d]">
+              className="bg-[#08110F] p-6 transition-colors duration-200 hover:bg-[#10161d]">
               <dt className="text-[15px] font-medium text-white">{k}</dt>
               <dd className="mt-2 text-[13.5px] leading-[1.6] text-slate-400">{v}</dd>
             </motion.div>
@@ -468,7 +412,7 @@ export function Marco() {
           <div className="mt-16 flex items-center gap-4 text-slate-400">
             <LicitankIcon size={34} />
             <p className="max-w-[640px] text-[15px] leading-[1.6]">
-              Cada regla que ves arriba está en el sistema: en el análisis de bases, en los candados de la postulación y en las alertas.
+              Cada regla que ves arriba está en el sistema: en el análisis de bases y en las alertas.
             </p>
           </div>
         </Rise>

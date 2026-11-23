@@ -1,7 +1,10 @@
 // Landing pública de LICITANK — página de presentación antes del login.
 // Server Component: exporta la metadata (SEO) y renderiza el cliente animado.
 import type { Metadata } from 'next';
+import { Inter_Tight } from 'next/font/google';
 import Landing from './Landing';
+
+const interTight = Inter_Tight({ subsets: ['latin'], variable: '--font-landing', display: 'swap' });
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://app.licitank.cl';
 const TITULO = 'LICITANK — Radar y gestión de licitaciones públicas';
@@ -40,5 +43,5 @@ export const metadata: Metadata = {
 };
 
 export default function BienvenidaPage() {
-  return <Landing />;
+  return <div className={interTight.variable}><Landing /></div>;
 }

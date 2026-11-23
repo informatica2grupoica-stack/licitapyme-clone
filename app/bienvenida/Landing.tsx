@@ -20,8 +20,8 @@ const MAIL_DEMO = CONTACTO
 
 const EASE = [0.2, 0.7, 0.2, 1] as [number, number, number, number];
 const mono = { fontFamily: 'var(--font-geist-mono), ui-monospace, monospace' } as const;
-const roboto = { fontFamily: 'var(--font-roboto), ui-sans-serif, system-ui, sans-serif' } as const;
-const serif = { fontFamily: 'var(--font-roboto), ui-sans-serif, system-ui, sans-serif', fontWeight: 500 } as const; // títulos: Roboto medium
+const roboto = { fontFamily: 'var(--font-landing), var(--font-roboto), ui-sans-serif, system-ui, sans-serif' } as const;
+const serif = { fontFamily: 'var(--font-landing), var(--font-roboto), ui-sans-serif, system-ui, sans-serif', fontWeight: 600 } as const; // títulos: Inter Tight semibold
 
 /* ── Movimiento ───────────────────────────────────────────────────────────── */
 
@@ -86,7 +86,7 @@ function Avatar({ nombre, tono }: { nombre: string; tono: 'teal' | 'slate' }) {
 
 function Ventana({ ruta, children }: { ruta: string; children: React.ReactNode }) {
   return (
-    <div className="overflow-hidden rounded-lg border border-slate-300 bg-white"
+    <div className="overflow-hidden rounded-none border border-slate-300 bg-white"
       style={{ boxShadow: '0 1px 2px rgba(15,23,42,.08), 0 18px 32px -24px rgba(15,23,42,.35)', ...roboto }}>
       <div className="flex items-center gap-3 border-b border-slate-200 bg-slate-50 px-4 py-2.5">
         <span className="flex gap-1.5" aria-hidden="true">
@@ -265,7 +265,7 @@ function PanelAsignar({ go }: { go: boolean }) {
       <div className="p-5">
         <p className="text-[11px] text-slate-500">Licitación por asignar</p>
         <p className="mt-0.5 text-[13px] font-medium text-slate-900">MATERIALES ELÉCTRICOS PARA MANTENCIÓN</p>
-        <ul className="relative mt-4 divide-y divide-slate-100 rounded-lg border border-slate-200">
+        <ul className="relative mt-4 divide-y divide-slate-100 rounded-none border border-slate-200">
           {gente.map((g, i) => (
             <li key={g.n} className="relative flex items-center gap-3 px-4 py-3.5">
               <Avatar nombre={g.n} tono={g.tono} />
@@ -284,7 +284,7 @@ function PanelAsignar({ go }: { go: boolean }) {
           ))}
           <motion.span aria-hidden initial={{ opacity: 0 }} animate={go ? { opacity: [0, 1, 1, 0], y: [-44, -44, 38, 38] } : { opacity: 0 }}
             transition={{ duration: 1.3, delay: 0.3, times: [0, 0.15, 0.75, 1], ease: 'easeInOut' }}
-            className="pointer-events-none absolute left-4 right-4 top-0 rounded-lg border border-teal-700/40 bg-teal-50 px-3 py-2 text-xs font-medium text-teal-900 shadow-md">
+            className="pointer-events-none absolute left-4 right-4 top-0 rounded-none border border-teal-700/40 bg-teal-50 px-3 py-2 text-xs font-medium text-teal-900 shadow-md">
             1234-71-LE26 → Diego Rojas
           </motion.span>
         </ul>
@@ -571,15 +571,15 @@ export default function Landing() {
     ? { href: '/dashboard', label: 'Ir al panel' }
     : { href: '/login', label: 'Iniciar sesión' };
 
-  const btnSolido = 'lk-btn group inline-flex items-center gap-2 rounded-md bg-teal-500 px-5 py-3 text-[14.5px] font-medium text-[#04201c] hover:bg-teal-400';
-  const btnBorde = 'lk-btn inline-flex items-center gap-2 rounded-md border border-white/25 px-5 py-3 text-[14.5px] font-medium text-white hover:border-white/50';
+  const btnSolido = 'lk-btn group inline-flex items-center gap-2 rounded-none bg-[#2BD4BC] px-6 py-3.5 text-[15px] font-semibold text-[#04201B] hover:brightness-110';
+  const btnBorde = 'lk-btn inline-flex items-center gap-2 rounded-none border border-white/25 px-6 py-3.5 text-[15px] font-semibold text-white hover:border-white/50';
   const flecha = <span aria-hidden className="transition-transform group-hover:translate-x-0.5">→</span>;
 
   return (
-    <div className="min-h-screen bg-[#0a0d12] text-slate-200 antialiased">
+    <div className="min-h-screen bg-[#08110F] text-slate-200 antialiased" style={roboto}>
       <style>{css}</style>
 
-      <header className="sticky top-0 z-50 border-b border-white/10 bg-[#0a0d12]/90">
+      <header className="sticky top-0 z-50 border-b border-white/10 bg-[#08110F]/90">
         <div className="mx-auto flex h-16 max-w-[1200px] items-center justify-between px-5 sm:px-8">
           <a href="#top" className="flex items-center gap-2.5">
             <LicitankIcon size={30} />
@@ -592,11 +592,11 @@ export default function Landing() {
             <a className="lk-nav" href="#plan">Plan</a>
           </nav>
           <div className="flex items-center gap-2">
-            <Link href={cta.href} className="lk-btn inline-flex items-center rounded-md px-3 py-2 text-[13.5px] font-medium text-slate-300 hover:text-white">
+            <Link href={cta.href} className="lk-btn inline-flex items-center rounded-none px-3 py-2 text-[13.5px] font-medium text-slate-300 hover:text-white">
               {cta.label}
             </Link>
             {MAIL_DEMO && (
-              <a href={MAIL_DEMO} className="lk-btn hidden items-center rounded-md bg-teal-500 px-4 py-2 text-[13.5px] font-medium text-[#04201c] hover:bg-teal-400 sm:inline-flex">
+              <a href={MAIL_DEMO} className="lk-btn hidden items-center rounded-none bg-teal-500 px-4 py-2 text-[13.5px] font-medium text-[#04201c] hover:bg-teal-400 sm:inline-flex">
                 Solicitar demo
               </a>
             )}
@@ -611,13 +611,13 @@ export default function Landing() {
           <div className="relative mx-auto grid max-w-[1200px] items-center gap-14 px-5 pb-16 pt-14 sm:px-8 sm:pt-20 lg:grid-cols-[1.1fr_.9fr] lg:pb-24">
             <div>
               <div style={serif}>
-                <Titular lineas={['Licitaciones', 'públicas, del aviso', 'a la factura.']} delay={0.1}
-                  className="text-[48px] leading-[1] tracking-[-0.025em] text-white sm:text-[80px]" />
+                <Titular lineas={['Licitaciones', 'públicas, del aviso', 'al resultado.']} delay={0.1}
+                  className="text-[44px] leading-[1] tracking-[-0.045em] text-white sm:text-[70px]" />
               </div>
               <motion.p initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.7, duration: 0.7, ease: EASE }}
                 className="mt-7 max-w-[520px] text-[17px] leading-[1.6] text-slate-400 sm:text-[18px]">
-                Conocemos Mercado Público por dentro. LICITANK detecta lo que te sirve, lee las bases con IA, costea,
-                rellena los anexos, audita tu oferta y sigue el negocio hasta la orden de compra y la entrega.
+                Conocemos Mercado Público por dentro. LICITANK detecta lo que te sirve, lee las bases con IA, costea tu oferta,
+                la audita contra las bases y sigue cada negocio hasta el resultado y la orden de compra.
               </motion.p>
               <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.85, duration: 0.7, ease: EASE }}
                 className="mt-9 flex flex-wrap items-center gap-3">
@@ -629,7 +629,7 @@ export default function Landing() {
                 <a href="#recorrido" className={btnBorde}>Ver cómo funciona</a>
               </motion.div>
               <motion.dl initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 1.1, duration: 0.8 }} className="mt-12 grid max-w-[520px] grid-cols-3 gap-6 border-t border-white/10 pt-6">
-                {[['Fuente', 'Mercado Público'], ['Cobertura', 'Del aviso a la factura'], ['Lectura', 'PDF, Word, Excel y OCR']].map(([k, v]) => (
+                {[['Fuente', 'Mercado Público'], ['Cobertura', 'Del aviso a la orden de compra'], ['Lectura', 'PDF, Word, Excel y OCR']].map(([k, v]) => (
                   <div key={k}>
                     <dt className="text-[11px] text-slate-500">{k}</dt>
                     <dd className="mt-1 text-[13px] font-medium text-slate-200">{v}</dd>
@@ -657,34 +657,31 @@ export default function Landing() {
         <Marco />
 
         {/* Plan */}
-        <section id="plan" className="border-y border-white/10 bg-[#0a0d12]">
+        <section id="plan" className="border-y border-white/10 bg-[#08110F]">
           <div className="mx-auto grid max-w-[1200px] gap-12 px-5 py-24 sm:px-8 sm:py-32 lg:grid-cols-[.9fr_1.1fr] lg:gap-24">
             <Rise>
-              <h2 style={serif} className="text-[36px] leading-[1.06] tracking-[-0.02em] text-white sm:text-[52px]">
-                Un plan para un equipo de dos.
+              <h2 style={serif} className="text-[36px] leading-[1.06] tracking-[-0.03em] text-white sm:text-[52px]">
+                Elige lo que tu equipo necesita.
               </h2>
               <p className="mt-5 max-w-[440px] text-[16px] leading-[1.6] text-slate-400">
-                Cada empresa tiene su propio radar y sus propios negocios. Nadie más ve lo que tú gestionas.
+                Todas las empresas usan el mismo LICITANK. El plan decide qué módulos ves en el menú.
               </p>
               <p className="mt-4 max-w-[440px] text-[16px] leading-[1.6] text-slate-400">
-                Radar y Negocios vienen incluidos. Los módulos de análisis con IA, anexos, costeo y compras se activan por
-                empresa, según lo que necesites.
+                Cada empresa trabaja con su propio radar, sus negocios y su equipo. Nadie más ve lo que tú gestionas.
               </p>
             </Rise>
             <Rise delay={0.08}>
               <dl>
-                <div className="flex items-baseline justify-between border-t border-white/15 py-5">
-                  <dt className="text-[13px] text-slate-400">Usuarios incluidos</dt>
-                  <dd className="text-5xl font-semibold tabular-nums text-white">2</dd>
-                </div>
-                <div className="flex items-baseline justify-between border-t border-white/15 py-5">
-                  <dt className="text-[13px] text-slate-400">Usuarios adicionales</dt>
-                  <dd className="text-[15px] font-medium text-slate-200">Consúltanos</dd>
-                </div>
-                {[['Radar', 'Palabras clave, rubros y regiones propios'], ['Negocios', 'Asignación entre tus dos usuarios, con etapas, comentarios e historial'], ['Resultados', 'Seguimiento del resultado desde Mercado Público'], ['Soporte', 'Por ticket']].map(([k, v]) => (
-                  <div key={k} className="flex items-baseline justify-between gap-8 border-t border-white/15 py-5">
-                    <dt className="text-[13px] text-slate-400">{k}</dt>
-                    <dd className="max-w-[340px] text-right text-[14.5px] text-slate-200">{v}</dd>
+                {[
+                  ['Básico', 'Buscador, Radar, Puente y Dashboard. Negocios con etapas, comentarios e historial. Postuladas, Ganadas y perdidas, Descartadas y Órdenes de compra.'],
+                  ['Pro', 'Todo lo del Básico, más Viabilidad con IA y sus criterios, Resultado de la adjudicación, Costeo y Auditor con aprobación antes de postular.'],
+                  ['Adicional', 'Consulta a la IA: pregúntale a las bases de cada licitación y a tu propia información.'],
+                  ['Usuarios', 'Según tu contrato. Para sumar más personas, consúltanos.'],
+                  ['Soporte', 'Por ticket'],
+                ].map(([k, v]) => (
+                  <div key={k} className="grid gap-2 border-t border-white/15 py-5 sm:grid-cols-[130px_1fr] sm:gap-8">
+                    <dt className="text-[17px] font-semibold text-white">{k}</dt>
+                    <dd className="text-[14.5px] leading-[1.6] text-slate-300">{v}</dd>
                   </div>
                 ))}
                 <div className="border-t border-white/15" />
@@ -700,7 +697,7 @@ export default function Landing() {
           {[860, 600, 340].map(s => (
             <span key={s} aria-hidden className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full border border-white/[.07]" style={{ width: s, height: s }} />
           ))}
-          <div className="relative mx-auto max-w-[1200px] px-5 py-32 text-center sm:px-8 sm:py-44">
+          <div className="relative mx-auto max-w-[1200px] px-5 pb-20 pt-32 text-center sm:px-8 sm:pb-24 sm:pt-44">
             <Rise>
               <h2 style={serif} className="mx-auto max-w-[800px] text-[38px] leading-[1.04] tracking-[-0.025em] text-white sm:text-[66px]">
                 Que ninguna licitación se pase por no haberla visto.
@@ -714,6 +711,7 @@ export default function Landing() {
               </div>
             </Rise>
           </div>
+          <p aria-hidden className="relative -mb-[3vw] select-none whitespace-nowrap px-5 text-[21vw] leading-[0.78] tracking-[-0.06em] text-[#2BD4BC] sm:px-8" style={serif}>LICITANK</p>
         </section>
       </main>
 
