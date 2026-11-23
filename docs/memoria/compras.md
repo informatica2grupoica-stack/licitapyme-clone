@@ -3,6 +3,11 @@
 Pantalla principal: `/compras/[negocioId]` (`ComprasChrome.tsx`). Traspasado desde la memoria
 personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-11-23 (8) — 759-21-LE26 (negocio 142): productos «Sin emitir» con la OC ya hecha en Obuma (tsc ok; verificado contra la BD del VPS; SIN desplegar)
+**Causa:** Obuma bloqueó `comprasOc.listItems` por tope diario (Error 005); la sync guardó `items_json = NULL` en las 12 OC (pisando lo anterior) y sin líneas no se sabe qué producto lleva cada OC, aunque el proveedor sí estaba reconocido («Hecha en Obuma»).
+**Arreglo:** (a) `obuma-compras.ts`: si Obuma no entrega las líneas, se conserva el `items_json` anterior (COALESCE); (b) `compras-oc-obuma.ts`: si NINGUNA OC real del proveedor tiene líneas, sus productos muestran los folios de ese proveedor. Ahora 12/12 productos con OC; solo «Equipo climatización» (Fuenzaclima) está de verdad sin OC.
+**Pendiente:** desplegar y volver a sincronizar mañana (cuando se libere el tope) para recuperar las líneas.
+
 ## 2026-11-23 (7) — Factura de venta: de Obuma se ve el visor del XML, subida a mano se ve el PDF (tsc ok; migration-204 APLICADA en producción; visto en navegador (negocios 1525 y 332); SIN desplegar)
 **Regla del dueño:** factura subida a mano (Comercial MP, o de Inversiones Claro si la sube una persona) → se ve el PDF. Factura traída desde Obuma → visor tipo factura dibujado con el XML (+ botones PDF y XML).
 **Cómo quedó:** `compras_factura_venta.origen` (OBUMA|MANUAL) y `xml_url` (migration-204, `scripts/aplicar-migration-204.mjs`; las 9 existentes quedaron MANUAL). `cargarFacturaDesdeObuma` guarda el XML en R2 (si no logra bajarlo queda solo el PDF); ruta `factura-venta/visor?id=` lee el XML de la fila del negocio; `FacturaVisor` acepta `urlDatos`. Quitar una factura borra también su XML de R2.
