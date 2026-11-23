@@ -251,7 +251,7 @@ export async function sincronizarComprasObuma(
          proveedor_id = VALUES(proveedor_id),
          proveedor_rut = COALESCE(VALUES(proveedor_rut), proveedor_rut),
          proveedor_razon_social = COALESCE(VALUES(proveedor_razon_social), proveedor_razon_social),
-         items_json = VALUES(items_json), facturas_json = VALUES(facturas_json), raw_json = VALUES(raw_json)`,
+         items_json = COALESCE(VALUES(items_json), items_json), facturas_json = VALUES(facturas_json), raw_json = VALUES(raw_json)`,
       [
         c.compra_oc_id, c.compra_oc_folio || null, fechaMySQL(c.compra_oc_fecha_ingreso),
         referencia || null, licitacionCodigo, negocio?.empresa_id ?? null,

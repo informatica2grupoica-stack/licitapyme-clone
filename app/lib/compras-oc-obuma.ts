@@ -342,6 +342,9 @@ export async function proveedoresParaOrdenCompra(negocioId: number, { buscarDupl
         continue;
       }
       it.foliosOc = delProveedor.filter(c => c.items.some(i => ks.includes(String(i.productoId)) || ks.includes(String(i.codigoComercial)))).map(c => c.folio || c.compraOcId);
+      // Obuma tiene tope diario en comprasOc.listItems: si la copia no trajo las líneas de la OC, no se sabe qué producto lleva cada una y el producto
+      // salía «Sin emitir» aunque la OC existe (759-21-LE26). Solo si NINGUNA de esas OC tiene líneas se le asignan todas las del proveedor.
+      if (it.foliosOc.length === 0 && delProveedor.every(c => c.items.length === 0)) it.foliosOc = delProveedor.map(c => c.folio || c.compraOcId);
     }
     g.ocRealObuma = {
       folios: delProveedor.map(c => c.folio || c.compraOcId),
