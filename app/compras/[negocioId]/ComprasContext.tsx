@@ -58,6 +58,9 @@ export interface Asignacion {
   coencargados: Array<{ id: number; nombre: string | null }>;
   resumen: ResumenCompras | null;
   ordenCompra: OrdenCompra;
+  /** Abierta / En proceso / Entregada / Pagada / Cancelada (migration-203). */
+  estadoCompra: import('@/app/lib/compras-estado-core').EstadoCompra;
+  precompra: boolean;
 }
 
 export interface CampoRegistro { clave: string; etiqueta: string; tipo: 'texto' | 'parrafo' | 'si_no'; placeholder?: string }

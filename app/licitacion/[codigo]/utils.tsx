@@ -290,7 +290,7 @@ export function AlertBanner({ tipo = 'info', titulo, children, pulse = false }: 
 }) {
   const style = ALERT_STYLES[tipo];
   return (
-    <div className={`flex items-start gap-3 rounded-xl border px-4 py-3 text-sm slide-in-up ${style.bg} ${pulse ? 'animate-pulse' : ''}`}>
+    <div className={`flex items-start gap-3 rounded-xl border px-4 py-3 text-sm slide-in-up ${style.bg}`}>
       <span className="flex-shrink-0 mt-0.5">{style.icon}</span>
       <div className="flex-1 min-w-0">
         {titulo && <p className="font-semibold mb-0.5">{titulo}</p>}

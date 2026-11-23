@@ -2,12 +2,15 @@
 // Factura de venta al cliente final (migration-193). Al subirla se marca sola la tarea «Factura y cierre del proyecto» (clave factura_cierre).
 import pool from '@/app/lib/db';
 import { cambiarEstadoTarea } from '@/app/lib/compras';
-import { facturasConOcObuma, pdfDteObuma, type ObumaFacturaEmitida } from '@/app/lib/obuma';
+import { facturasConOcObuma, pdfDteObuma, pdfYEstadoDte, type ObumaFacturaEmitida } from '@/app/lib/obuma';
 import { subirDocumentoR2, borrarDocumentoR2 } from '@/app/lib/r2';
+import { parsearFacturaXml } from '@/app/lib/factura-xml';
 
 export interface FacturaVenta {
   id: number; archivoUrl: string; archivoNombre: string; numero: string | null;
   emitidaAt: string | null; pagadaAt: string | null; subidaPorNombre: string | null; creadaAt: string;
+  /** OBUMA = la trajo Licitank desde Obuma (se ve el visor del XML); MANUAL = la subió una persona (se ve el PDF). */
+  origen: 'OBUMA' | 'MANUAL'; xmlUrl: string | null;
 }
 
 const FECHA = /^\d{4}-\d{2}-\d{2}$/;
@@ -16,21 +19,23 @@ export const fechaValida = (v: unknown): string | null => (typeof v === 'string'
 export async function listarFacturasVenta(negocioId: number): Promise<FacturaVenta[]> {
   const [rows] = await pool.query(
     `SELECT id, archivo_url, archivo_nombre, numero, DATE_FORMAT(emitida_at,'%Y-%m-%d') emitida_at, DATE_FORMAT(pagada_at,'%Y-%m-%d') pagada_at,
-            subida_por_nombre, DATE_FORMAT(created_at,'%Y-%m-%d %H:%i') created_at
+            subida_por_nombre, DATE_FORMAT(created_at,'%Y-%m-%d %H:%i') created_at, origen, xml_url
        FROM compras_factura_venta WHERE negocio_id = ? ORDER BY id`, [negocioId]) as any;
   return (rows as any[]).map(r => ({
     id: r.id, archivoUrl: r.archivo_url, archivoNombre: r.archivo_nombre, numero: r.numero, emitidaAt: r.emitida_at, pagadaAt: r.pagada_at,
     subidaPorNombre: r.subida_por_nombre, creadaAt: r.created_at,
+    origen: r.origen === 'OBUMA' ? 'OBUMA' as const : 'MANUAL' as const, xmlUrl: r.xml_url ?? null,
   }));
 }
 
 export async function registrarFacturaVenta(negocioId: number, d: {
   archivoUrl: string; archivoNombre: string; numero: string | null; emitidaAt: string | null; pagadaAt: string | null;
+  origen?: 'OBUMA' | 'MANUAL'; xmlUrl?: string | null;
 }, actorId: number, actorNombre: string | null): Promise<{ tareaMarcada: boolean }> {
   await pool.query(
-    `INSERT INTO compras_factura_venta (negocio_id, archivo_url, archivo_nombre, numero, emitida_at, pagada_at, subida_por, subida_por_nombre)
-     VALUES (?,?,?,?,?,?,?,?)`,
-    [negocioId, d.archivoUrl, d.archivoNombre.slice(0, 255), d.numero, d.emitidaAt, d.pagadaAt, actorId, actorNombre]);
+    `INSERT INTO compras_factura_venta (negocio_id, archivo_url, archivo_nombre, numero, emitida_at, pagada_at, subida_por, subida_por_nombre, origen, xml_url)
+     VALUES (?,?,?,?,?,?,?,?,?,?)`,
+    [negocioId, d.archivoUrl, d.archivoNombre.slice(0, 255), d.numero, d.emitidaAt, d.pagadaAt, actorId, actorNombre, d.origen ?? 'MANUAL', d.xmlUrl ?? null]);
   // Subir la factura ES la tarea «Factura y cierre»: se da por hecha sola (si ya estaba hecha, no se toca).
   const [t] = await pool.query(`SELECT id, estado FROM compras_tarea WHERE negocio_id = ? AND catalogo_clave = 'factura_cierre' LIMIT 1`, [negocioId]) as any;
   const tarea = (t as any[])[0];
@@ -71,8 +76,18 @@ export async function cargarFacturaDesdeObuma(negocioId: number, licitacionCodig
   const pdf = await pdfDteObuma(tipo, folio);
   const nombre = `Factura ${folio}.pdf`;
   const url = await subirDocumentoR2(`compras/${licitacionCodigo}/factura-venta`, nombre, pdf, 'application/pdf');
-  return registrarFacturaVenta(negocioId, { archivoUrl: url, archivoNombre: nombre, numero: folio, emitidaAt: fechaValida(f.fecha), pagadaAt: null }, actorId, actorNombre)
-    .catch(async (e) => { await borrarDocumentoR2(url).catch(() => {}); throw e; });
+  // El XML se guarda en R2 (el link de Obuma es de ellos): con él Licitank dibuja la factura. Si no se logra bajar, queda solo el PDF.
+  let xmlUrl: string | null = null;
+  try {
+    const { xml } = await pdfYEstadoDte(tipo, folio);
+    if (xml) {
+      const r = await fetch(xml, { signal: AbortSignal.timeout(20_000) });
+      const txt = r.ok ? await r.text() : '';
+      if (parsearFacturaXml(txt)) xmlUrl = await subirDocumentoR2(`compras/${licitacionCodigo}/factura-venta`, `Factura ${folio}.xml`, Buffer.from(txt, 'utf8'), 'application/xml');
+    }
+  } catch { /* sin XML: solo PDF */ }
+  return registrarFacturaVenta(negocioId, { archivoUrl: url, archivoNombre: nombre, numero: folio, emitidaAt: fechaValida(f.fecha), pagadaAt: null, origen: 'OBUMA', xmlUrl }, actorId, actorNombre)
+    .catch(async (e) => { await borrarDocumentoR2(url).catch(() => {}); if (xmlUrl) await borrarDocumentoR2(xmlUrl).catch(() => {}); throw e; });
 }
 
 export async function actualizarFacturaVenta(negocioId: number, id: number, p: { numero?: string | null; emitidaAt?: string | null; pagadaAt?: string | null }): Promise<void> {
@@ -85,5 +100,8 @@ export async function actualizarFacturaVenta(negocioId: number, id: number, p: {
 }
 
 export async function quitarFacturaVenta(negocioId: number, id: number): Promise<void> {
+  const [r] = await pool.query(`SELECT xml_url FROM compras_factura_venta WHERE id = ? AND negocio_id = ?`, [id, negocioId]) as any;
+  const xml = (r as any[])[0]?.xml_url;
   await pool.query(`DELETE FROM compras_factura_venta WHERE id = ? AND negocio_id = ?`, [id, negocioId]);
+  if (xml) await borrarDocumentoR2(xml).catch(() => {});
 }

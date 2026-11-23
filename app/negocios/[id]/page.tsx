@@ -333,7 +333,7 @@ function TablaItems({ items }: { items: ItemEspec[] }) {
   const sinCantidad  = items.length - conCantidad;
 
   return (
-    <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+    <div className="@container bg-white border border-slate-200 rounded-xl overflow-hidden">
       {/* Header */}
       <div className="px-4 py-3 bg-teal-50 border-b border-slate-100">
         <div className="flex items-center gap-2 mb-2">
@@ -387,10 +387,10 @@ function TablaItems({ items }: { items: ItemEspec[] }) {
       ) : (
         <>
           {/* Cabecera de columnas */}
-          <div className="grid grid-cols-[2rem_1fr_5rem] sm:grid-cols-[2rem_1fr_6rem_5rem] gap-0 px-4 py-1.5 bg-slate-50 border-b border-slate-100">
+          <div className="grid grid-cols-[2rem_1fr_5rem] @md:grid-cols-[2rem_1fr_6rem_5rem] gap-0 px-4 py-1.5 bg-slate-50 border-b border-slate-100">
             <span className="text-[10px] font-semibold text-slate-400">#</span>
             <span className="text-[10px] font-semibold text-slate-400">Ítem / Descripción</span>
-            <span className="hidden sm:block text-[10px] font-semibold text-slate-400 text-right">Unidad</span>
+            <span className="hidden @md:block text-[10px] font-semibold text-slate-400 text-right">Unidad</span>
             <span className="text-[10px] font-semibold text-slate-400 text-right">Cant.</span>
           </div>
 
@@ -405,7 +405,7 @@ function TablaItems({ items }: { items: ItemEspec[] }) {
                   key={idx}
                   className={`px-4 py-2.5 hover:bg-slate-50/60 transition-colors ${abierto ? 'bg-teal-50/40' : ''}`}
                 >
-                  <div className="grid grid-cols-[2rem_1fr_5rem] sm:grid-cols-[2rem_1fr_6rem_5rem] gap-0 items-start">
+                  <div className="grid grid-cols-[2rem_1fr_5rem] @md:grid-cols-[2rem_1fr_6rem_5rem] gap-0 items-start">
                     {/* Número */}
                     <span className="text-[11px] font-mono text-slate-400 pt-0.5">{i + 1}</span>
 
@@ -436,7 +436,7 @@ function TablaItems({ items }: { items: ItemEspec[] }) {
                     </div>
 
                     {/* Unidad */}
-                    <span className="hidden sm:block text-[12px] text-slate-500 text-right pt-0.5">
+                    <span className="hidden @md:block text-[12px] text-slate-500 text-right pt-0.5">
                       {it.unidad ?? <span className="text-slate-300">—</span>}
                     </span>
 

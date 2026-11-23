@@ -11,6 +11,9 @@ import { useSession } from '@/app/lib/session-context';
 import { useToast } from '@/app/components/ui/toast';
 import { Select } from '@/app/components/ui/Select';
 import { IconTruck as Truck, IconLoader2 as Loader2, IconPlus as Plus, IconX as X, IconStar as Star, IconAlertTriangle as AlertTriangle, IconSearch as Search, IconMapPin as MapPin } from '@tabler/icons-react';
+import { Encabezado, Esqueleto, Vacio } from '@/app/components/ui/kit/Estructura';
+import { Boton } from '@/app/components/ui/kit/Boton';
+import { Banner } from '@/app/components/ui/Banner';
 
 type Categoria = 'UNICA' | 'CONSOLIDADA';
 
@@ -171,122 +174,117 @@ export default function FleterosPage() {
   if (cargandoSesion || (!puedeVer && loading)) {
     return (
       <AppLayout breadcrumb={[{ label: 'Fleteros' }]}>
-        <div className="flex items-center justify-center min-h-[60vh]"><Loader2 className="w-6 h-6 animate-spin text-zinc-400" /></div>
+        <div className="p-4 sm:p-6 max-w-4xl mx-auto space-y-3">
+          <Esqueleto className="h-7 w-48" />
+          {[1, 2, 3].map(i => <Esqueleto key={i} className="h-16 rounded-xl" />)}
+        </div>
       </AppLayout>
     );
   }
   if (!puedeVer) return null;
 
+  const SUPERFICIE = 'rounded-xl border border-linea bg-white shadow-tarjeta dark:bg-slate-900 dark:border-slate-800';
+  const CAMPO = 'h-9 w-full rounded-lg border border-linea bg-white px-3 text-[13px] text-tinta placeholder:text-tinta-3 outline-none focus-visible:ring-2 focus-visible:ring-marca/60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100';
+  const CHECK = 'flex items-center gap-2 text-[13px] text-tinta-2 dark:text-slate-300';
+
   return (
     <AppLayout breadcrumb={[{ label: 'Fleteros' }]}>
-      <div className="p-4 sm:p-6 max-w-4xl mx-auto space-y-4">
-        <div className="flex items-center justify-between gap-3 flex-wrap">
-          <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-lg bg-teal-50 flex items-center justify-center flex-shrink-0"><Truck size={17} className="text-teal-600" /></div>
-            <div>
-              <h1 className="text-[16px] font-semibold text-zinc-900 leading-tight">Fleteros</h1>
-              <p className="text-[12px] text-zinc-500">{fleteros.length} fletero(s) en el catálogo</p>
-            </div>
-          </div>
-          {!soloLectura && <button onClick={() => setFormAbierto(v => !v)} className="flex items-center gap-1.5 text-[12px] font-semibold text-white bg-teal-600 hover:bg-teal-700 px-3 py-2 rounded-lg">
-            <Plus size={14} /> Agregar fletero
-          </button>}
-        </div>
+      <div className="@container p-4 sm:p-6 max-w-4xl mx-auto space-y-4">
+        <Encabezado
+          titulo="Fleteros"
+          descripcion={`${fleteros.length} fletero${fleteros.length === 1 ? '' : 's'} en el catálogo`}
+          acciones={!soloLectura ? (
+            <Boton variante="primario" onClick={() => setFormAbierto(v => !v)} icono={<Plus size={16} stroke={1.75} />}>Agregar fletero</Boton>
+          ) : undefined}
+        />
 
         {formAbierto && (
-          <div className="bg-white rounded-xl border border-zinc-200 p-4 space-y-2.5">
+          <div className={`${SUPERFICIE} p-5 space-y-3`}>
             <div>
-              <p className="text-[10px] font-semibold text-zinc-400 mb-1">Identidad (spec §13.3 — se busca en Obuma, no se tipea a ciegas)</p>
-              <div className="flex items-center gap-1.5">
-                <input value={form.rut} onChange={e => { setForm(f => ({ ...f, rut: e.target.value })); setObumaResultado(null); }} placeholder="RUT del fletero"
-                  className="flex-1 text-[12.5px] border border-zinc-200 rounded-lg px-2.5 py-1.5 outline-none focus:ring-1 focus:ring-teal-500" />
-                <button type="button" onClick={buscarEnObuma} disabled={!form.rut.trim() || buscandoObuma}
-                  className="flex-shrink-0 flex items-center gap-1 text-[12px] font-semibold text-teal-600 hover:text-teal-700 disabled:opacity-50 px-2.5 py-1.5 border border-teal-200 rounded-lg">
-                  {buscandoObuma ? <Loader2 size={13} className="animate-spin" /> : <Search size={13} />} Buscar en Obuma
-                </button>
+              <h2 className="text-[15px] font-semibold text-tinta dark:text-slate-100">Nuevo fletero</h2>
+              <p className="text-xs text-tinta-2 dark:text-slate-400 mt-0.5">La identidad se busca en Obuma, no se tipea a ciegas (spec §13.3).</p>
+              <div className="mt-3 flex items-center gap-2">
+                <input value={form.rut} onChange={e => { setForm(f => ({ ...f, rut: e.target.value })); setObumaResultado(null); }} placeholder="RUT del fletero" aria-label="RUT del fletero"
+                  className={`flex-1 ${CAMPO}`} />
+                <Boton onClick={buscarEnObuma} disabled={!form.rut.trim() || buscandoObuma}
+                  icono={buscandoObuma ? <Loader2 size={16} className="animate-spin" /> : <Search size={16} stroke={1.75} />}>Buscar en Obuma</Boton>
               </div>
               {obumaResultado?.estado === 'encontrado' && (
-                <p className="mt-1 text-[11px] text-teal-600 bg-teal-50/60 border border-teal-100 rounded-lg px-2 py-1">
-                  <b>{obumaResultado.identidad.razonSocial}</b>
+                <p className="mt-2 text-xs text-tinta-2 dark:text-slate-300">
+                  <b className="font-semibold text-exito">{obumaResultado.identidad.razonSocial}</b>
                   {obumaResultado.identidad.contacto && ` · ${obumaResultado.identidad.contacto}`}
                   {obumaResultado.identidad.direccion && ` · ${obumaResultado.identidad.direccion}${obumaResultado.identidad.comuna ? `, ${obumaResultado.identidad.comuna}` : ''}`}
                 </p>
               )}
               {obumaResultado?.estado === 'no_encontrado' && (
-                <p className="mt-1 text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1">
-                  No tiene facturas en Obuma todavía — puede ser un fletero nuevo. Completa el nombre a mano abajo.
-                </p>
+                <div className="mt-2"><Banner variante="warning">No tiene facturas en Obuma todavía — puede ser un fletero nuevo. Completa el nombre a mano abajo.</Banner></div>
               )}
             </div>
-            <div className="grid grid-cols-2 gap-2.5">
-              <input value={form.nombre} onChange={e => setForm(f => ({ ...f, nombre: e.target.value }))} placeholder="Nombre del fletero"
-                className="text-[12.5px] border border-zinc-200 rounded-lg px-2.5 py-1.5 outline-none focus:ring-1 focus:ring-teal-500 col-span-2" />
+            <div className="grid grid-cols-1 @xl:grid-cols-2 gap-3">
+              <input value={form.nombre} onChange={e => setForm(f => ({ ...f, nombre: e.target.value }))} placeholder="Nombre del fletero" aria-label="Nombre del fletero"
+                className={`${CAMPO} @xl:col-span-2`} />
               <Select value={form.categoria} onChange={v => setForm(f => ({ ...f, categoria: v as Categoria }))}
                 options={[{ value: 'UNICA', label: 'Carga única' }, { value: 'CONSOLIDADA', label: 'Carga consolidada' }]} minWidth={160} />
-              <input value={form.zonas} onChange={e => setForm(f => ({ ...f, zonas: e.target.value }))} placeholder="Zonas que cubre (separadas por coma)"
-                className="text-[12.5px] border border-zinc-200 rounded-lg px-2.5 py-1.5 outline-none focus:ring-1 focus:ring-teal-500" />
-              <input value={form.capacidadCamion} onChange={e => setForm(f => ({ ...f, capacidadCamion: e.target.value }))} placeholder="Capacidad del camión"
-                className="text-[12.5px] border border-zinc-200 rounded-lg px-2.5 py-1.5 outline-none focus:ring-1 focus:ring-teal-500" />
-              <input value={form.tipoCamion} onChange={e => setForm(f => ({ ...f, tipoCamion: e.target.value }))} placeholder="Tipo de camión"
-                className="text-[12.5px] border border-zinc-200 rounded-lg px-2.5 py-1.5 outline-none focus:ring-1 focus:ring-teal-500" />
-              <input inputMode="numeric" value={form.precio} onChange={e => setForm(f => ({ ...f, precio: e.target.value }))} placeholder="Precio"
-                className="text-[12.5px] border border-zinc-200 rounded-lg px-2.5 py-1.5 outline-none focus:ring-1 focus:ring-teal-500" />
-              <input inputMode="numeric" value={form.costoKm} onChange={e => setForm(f => ({ ...f, costoKm: e.target.value }))} placeholder="Costo por km"
-                className="text-[12.5px] border border-zinc-200 rounded-lg px-2.5 py-1.5 outline-none focus:ring-1 focus:ring-teal-500" />
+              <input value={form.zonas} onChange={e => setForm(f => ({ ...f, zonas: e.target.value }))} placeholder="Zonas que cubre (separadas por coma)" aria-label="Zonas que cubre" className={CAMPO} />
+              <input value={form.capacidadCamion} onChange={e => setForm(f => ({ ...f, capacidadCamion: e.target.value }))} placeholder="Capacidad del camión" aria-label="Capacidad del camión" className={CAMPO} />
+              <input value={form.tipoCamion} onChange={e => setForm(f => ({ ...f, tipoCamion: e.target.value }))} placeholder="Tipo de camión" aria-label="Tipo de camión" className={CAMPO} />
+              <input inputMode="numeric" value={form.precio} onChange={e => setForm(f => ({ ...f, precio: e.target.value }))} placeholder="Precio" aria-label="Precio" className={CAMPO} />
+              <input inputMode="numeric" value={form.costoKm} onChange={e => setForm(f => ({ ...f, costoKm: e.target.value }))} placeholder="Costo por km" aria-label="Costo por km" className={CAMPO} />
               {form.categoria === 'CONSOLIDADA' && (
                 <input inputMode="numeric" value={form.plazoDespachoDias} onChange={e => setForm(f => ({ ...f, plazoDespachoDias: e.target.value }))}
-                  placeholder="Plazo de despacho (días) — acá el plazo manda"
-                  className="text-[12.5px] border border-zinc-200 rounded-lg px-2.5 py-1.5 outline-none focus:ring-1 focus:ring-teal-500" />
+                  placeholder="Plazo de despacho (días) — acá el plazo manda" aria-label="Plazo de despacho en días"
+                  className={`${CAMPO} @xl:col-span-2`} />
               )}
             </div>
-            <div className="flex items-center gap-4">
-              <label className="flex items-center gap-1.5 text-[12px] text-zinc-600">
+            <div className="flex items-center gap-5">
+              <label className={CHECK}>
                 <input type="checkbox" checked={form.incluyeDescarga} onChange={e => setForm(f => ({ ...f, incluyeDescarga: e.target.checked }))} className="accent-teal-600" /> Incluye descarga
               </label>
-              <label className="flex items-center gap-1.5 text-[12px] text-zinc-600">
+              <label className={CHECK}>
                 <input type="checkbox" checked={form.tienePionetas} onChange={e => setForm(f => ({ ...f, tienePionetas: e.target.checked }))} className="accent-teal-600" /> Tiene pionetas
               </label>
             </div>
-            <div className="flex items-center gap-2">
-              <button onClick={crear} disabled={!form.nombre.trim() || guardando}
-                className="text-[12px] font-semibold text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-50 px-3 py-1.5 rounded-lg">
-                {guardando ? <Loader2 size={13} className="animate-spin" /> : 'Guardar'}
-              </button>
-              <button onClick={() => setFormAbierto(false)} className="text-zinc-400 hover:text-zinc-600"><X size={16} /></button>
+            <div className="flex items-center justify-end gap-2">
+              <Boton onClick={() => setFormAbierto(false)}>Cancelar</Boton>
+              <Boton variante="primario" onClick={crear} disabled={!form.nombre.trim() || guardando}
+                icono={guardando ? <Loader2 size={16} className="animate-spin" /> : undefined}>
+                {guardando ? 'Guardando…' : 'Guardar fletero'}
+              </Boton>
             </div>
           </div>
         )}
 
         {/* §13.5: sugerencia automática por zona */}
-        <div className="bg-white rounded-xl border border-zinc-200 p-4 space-y-2.5">
-          <p className="text-[11px] font-semibold text-zinc-400 flex items-center gap-1.5"><MapPin size={13} /> Sugerencia por zona de entrega</p>
-          <div className="flex items-center gap-2 flex-wrap">
-            <input value={zonaBusqueda} onChange={e => setZonaBusqueda(e.target.value)} placeholder="Ej: Coyhaique"
+        <div className={`${SUPERFICIE} p-5 space-y-3`}>
+          <h2 className="text-[15px] font-semibold text-tinta dark:text-slate-100 flex items-center gap-2"><MapPin size={18} stroke={1.75} className="text-slate-400" /> Sugerencia por zona de entrega</h2>
+          <div className="flex items-center gap-3 flex-wrap">
+            <input value={zonaBusqueda} onChange={e => setZonaBusqueda(e.target.value)} placeholder="Ej: Coyhaique" aria-label="Zona de entrega"
               onKeyDown={e => e.key === 'Enter' && buscarSugerencia()}
-              className="flex-1 min-w-[160px] text-[12.5px] border border-zinc-200 rounded-lg px-2.5 py-1.5 outline-none focus:ring-1 focus:ring-teal-500" />
-            <label className="flex items-center gap-1.5 text-[12px] text-zinc-600">
-              <input type="checkbox" checked={urgente} onChange={e => setUrgente(e.target.checked)} className="accent-rose-600" /> Cadena de Urgencia (solo carga única)
+              className={`flex-1 min-w-[160px] ${CAMPO}`} />
+            <label className={CHECK}>
+              <input type="checkbox" checked={urgente} onChange={e => setUrgente(e.target.checked)} className="accent-teal-600" /> Cadena de Urgencia (solo carga única)
             </label>
-            <button onClick={buscarSugerencia} disabled={!zonaBusqueda.trim() || buscando}
-              className="flex items-center gap-1.5 text-[12px] font-semibold text-white bg-zinc-800 hover:bg-zinc-900 disabled:opacity-50 px-3 py-1.5 rounded-lg">
-              {buscando ? <Loader2 size={13} className="animate-spin" /> : <Search size={13} />} Buscar
-            </button>
+            <Boton variante="primario" onClick={buscarSugerencia} disabled={!zonaBusqueda.trim() || buscando}
+              icono={buscando ? <Loader2 size={16} className="animate-spin" /> : <Search size={16} stroke={1.75} />}>Buscar</Boton>
           </div>
           {sugerencias != null && (
             sugerencias.length === 0 ? (
-              <p className="text-[12px] text-zinc-400">Ningún fletero cubre esa zona todavía.</p>
+              <p className="text-[13px] text-tinta-2 dark:text-slate-400">Ningún fletero cubre esa zona todavía.</p>
             ) : (
-              <div className="space-y-1.5">
+              <div className="space-y-2">
                 {sugerencias.map((s, i) => (
-                  <div key={s.id} className="flex items-center justify-between gap-2 bg-zinc-50 border border-zinc-100 rounded-lg px-3 py-2">
+                  <div key={s.id} className="flex items-center justify-between gap-2 border-t border-linea dark:border-slate-800 pt-2">
                     <div className="min-w-0">
-                      <p className="text-[12px] font-semibold text-zinc-800">{i === 0 && '🏆 '}{s.nombre} <span className="text-[10.5px] font-normal text-zinc-400">({CATEGORIA_LABEL[s.categoria]})</span></p>
-                      <p className="text-[11px] text-zinc-400">
-                        {s.nota != null && <span className="inline-flex items-center gap-0.5"><Star size={10} className="fill-amber-400 text-amber-400" /> {s.nota}</span>}
+                      <p className="text-[13px] font-medium text-tinta dark:text-slate-100">
+                        {s.nombre} <span className="text-xs font-normal text-tinta-2">({CATEGORIA_LABEL[s.categoria]})</span>
+                        {i === 0 && <span className="ml-2 text-xs font-medium text-exito">Mejor opción</span>}
+                      </p>
+                      <p className="text-xs text-tinta-2 dark:text-slate-400">
+                        {s.nota != null && <span className="inline-flex items-center gap-0.5"><Star size={14} stroke={1.75} className="fill-amber-400 text-amber-400" /> {s.nota}</span>}
                         {s.plazoDespachoDias != null && ` · ${s.plazoDespachoDias} día(s) de despacho`}
                       </p>
                     </div>
-                    <span className="text-[13px] font-semibold text-zinc-800 flex-shrink-0">{fmtCLP(s.costoTentativo)}</span>
+                    <span className="text-[13px] font-semibold tabular-nums text-tinta dark:text-slate-100 flex-shrink-0">{fmtCLP(s.costoTentativo)}</span>
                   </div>
                 ))}
               </div>
@@ -295,40 +293,39 @@ export default function FleterosPage() {
         </div>
 
         {loading ? (
-          <div className="flex items-center justify-center py-16"><Loader2 className="w-5 h-5 animate-spin text-zinc-400" /></div>
+          <div className="space-y-2">{[1, 2, 3].map(i => <Esqueleto key={i} className="h-16 rounded-xl" />)}</div>
+        ) : fleteros.length === 0 ? (
+          <Vacio icono={<Truck size={28} stroke={1.75} />} titulo="Sin fleteros todavía" texto={soloLectura ? 'Cuando el equipo agregue fleteros, aparecerán aquí.' : 'Agrega el primero con el botón «Agregar fletero».'} />
         ) : (
-          <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
-            <div className="divide-y divide-zinc-100">
+          <div className={`${SUPERFICIE} overflow-hidden`}>
+            <div className="divide-y divide-linea dark:divide-slate-800">
               {fleteros.map(f => (
-                <div key={f.id} className={`px-4 py-3 flex items-center justify-between gap-3 flex-wrap ${f.quedoEnPana ? 'opacity-60' : ''}`}>
+                <div key={f.id} className={`px-4 py-3.5 flex items-center justify-between gap-3 flex-wrap ${f.quedoEnPana ? 'opacity-60' : ''}`}>
                   <div className="min-w-0">
-                    <p className="text-[12.5px] font-semibold text-zinc-800 flex items-center gap-1.5">
+                    <p className="text-[13px] font-medium text-tinta dark:text-slate-100 flex items-center gap-2 flex-wrap">
                       {f.nombre}
-                      <span className="text-[10px] font-semibold text-zinc-400 bg-zinc-100 border border-zinc-200 px-1.5 py-0.5 rounded-full">{CATEGORIA_LABEL[f.categoria]}</span>
+                      <span className="text-xs font-normal text-tinta-2 dark:text-slate-400">{CATEGORIA_LABEL[f.categoria]}</span>
                       {f.quedoEnPana && (
-                        <span className="text-[10px] font-medium text-rose-700 flex items-center gap-0.5">
-                          <AlertTriangle size={10} /> En pana — descartado
+                        <span className="text-xs font-medium text-urgente flex items-center gap-1">
+                          <AlertTriangle size={14} stroke={1.75} /> En pana — descartado
                         </span>
                       )}
                     </p>
-                    <p className="text-[11px] text-zinc-400">
+                    <p className="text-xs text-tinta-2 dark:text-slate-400 mt-0.5">
                       {f.zonas.length > 0 ? f.zonas.join(', ') : 'sin zonas'}
                       {f.precio != null && ` · ${fmtCLP(f.precio)}`}
                       {f.plazoDespachoDias != null && ` · ${f.plazoDespachoDias} día(s)`}
-                      {f.nota != null && <span className="inline-flex items-center gap-0.5 ml-1"><Star size={10} className="fill-amber-400 text-amber-400" /> {f.nota}</span>}
+                      {f.nota != null && <span className="inline-flex items-center gap-0.5 ml-1"><Star size={14} stroke={1.75} className="fill-amber-400 text-amber-400" /> {f.nota}</span>}
                     </p>
                   </div>
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    <button onClick={() => evaluar(f.id)} className="text-[11px] font-semibold text-zinc-500 hover:text-zinc-700">Calificar</button>
-                    {!f.quedoEnPana && (
-                      <button onClick={() => marcarPana(f.id)} className="text-[11px] font-semibold text-rose-500 hover:text-rose-700">Marcar en pana</button>
-                    )}
-                  </div>
+                  {(
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      <Boton variante="fantasma" tamano="sm" onClick={() => evaluar(f.id)}>Calificar</Boton>
+                      {!f.quedoEnPana && <Boton variante="peligro" tamano="sm" onClick={() => marcarPana(f.id)}>Marcar en pana</Boton>}
+                    </div>
+                  )}
                 </div>
               ))}
-              {fleteros.length === 0 && (
-                <p className="px-4 py-10 text-center text-[12px] text-zinc-400">Sin fleteros todavía.</p>
-              )}
             </div>
           </div>
         )}

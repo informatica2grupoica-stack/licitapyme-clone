@@ -35,32 +35,32 @@ export function CoencargadosCompras({ negocioId, principalId, coencargados, cand
   const opciones = candidatos.filter(c => c.id !== principalId);
   return (
     <div className="flex items-center gap-1.5 flex-wrap" data-testid="coencargados">
-      {coencargados.map(c => <span key={c.id} className="font-medium text-zinc-700 text-[11.5px]">{c.nombre || `Usuario ${c.id}`}</span>)}
+      {coencargados.map(c => <span key={c.id} className="font-medium text-tinta dark:text-slate-200 text-xs">{c.nombre || `Usuario ${c.id}`}</span>)}
       {puedeEditar && !abierto && (
-        <button type="button" onClick={abrir} className="inline-flex items-center gap-1 text-[11px] font-semibold text-teal-700 hover:text-teal-900">
+        <button type="button" onClick={abrir} className="inline-flex items-center gap-1 text-xs font-semibold text-teal-700 hover:text-teal-900">
           <UserPlus size={12} /> {coencargados.length ? 'Cambiar otros encargados' : 'Sumar otro encargado'}
         </button>
       )}
       {abierto && (
-        <div className="basis-full mt-1.5 rounded-lg border border-zinc-200 bg-zinc-50 p-2.5">
-          <p className="text-[11.5px] font-semibold text-zinc-600 mb-1.5">Elige a todos los que se hacen cargo junto al encargado principal</p>
+        <div className="basis-full mt-1.5 rounded-lg border border-linea dark:border-slate-800 bg-slate-50 dark:bg-slate-950/40 p-2.5">
+          <p className="text-xs font-semibold text-tinta-2 dark:text-slate-400 mb-1.5">Elige a todos los que se hacen cargo junto al encargado principal</p>
           <div className="flex flex-wrap gap-1.5">
             {opciones.map(c => {
               const on = elegidos.has(c.id);
               return (
                 <button key={c.id} type="button" onClick={() => alternar(c.id)} aria-pressed={on}
-                  className={`inline-flex items-center gap-1 text-[11.5px] font-semibold px-2.5 py-1 rounded-full border transition-colors ${on ? 'bg-teal-600 text-white border-teal-600' : 'bg-white text-zinc-600 border-zinc-200 hover:bg-zinc-100'}`}>
-                  {on && <Check size={12} />} {c.nombre || `Usuario ${c.id}`} <span className={on ? 'opacity-80 font-normal' : 'text-zinc-400 font-normal'}>({c.carga})</span>
+                  className={`inline-flex items-center gap-1 text-[11.5px] font-semibold px-2.5 py-1 rounded-full border transition-colors ${on ? 'bg-teal-600 text-white border-teal-600' : 'bg-white dark:bg-slate-900 text-tinta-2 dark:text-slate-400 border-linea dark:border-slate-800 hover:bg-slate-100'}`}>
+                  {on && <Check size={12} />} {c.nombre || `Usuario ${c.id}`} <span className={on ? 'opacity-80 font-normal' : 'text-tinta-2 font-normal'}>({c.carga})</span>
                 </button>
               );
             })}
-            {opciones.length === 0 && <span className="text-[11.5px] text-zinc-400">No hay más personas disponibles.</span>}
+            {opciones.length === 0 && <span className="text-xs text-tinta-2">No hay más personas disponibles.</span>}
           </div>
           <div className="flex items-center gap-2 mt-2">
-            <button type="button" onClick={guardar} disabled={guardando} className="inline-flex items-center gap-1 text-[11.5px] font-semibold text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-50 px-2.5 py-1.5 rounded-lg">
+            <button type="button" onClick={guardar} disabled={guardando} className="inline-flex items-center gap-1 text-xs font-semibold text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-50 px-2.5 py-1.5 rounded-lg">
               {guardando ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />} Guardar
             </button>
-            <button type="button" onClick={() => setAbierto(false)} disabled={guardando} className="text-[11.5px] text-zinc-500 hover:text-zinc-700">Cancelar</button>
+            <button type="button" onClick={() => setAbierto(false)} disabled={guardando} className="text-xs text-tinta-2 dark:text-slate-400 hover:text-tinta">Cancelar</button>
           </div>
         </div>
       )}

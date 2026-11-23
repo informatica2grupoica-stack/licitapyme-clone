@@ -199,14 +199,15 @@ export async function barrerOcCanceladas(): Promise<{ revisadas: number; registr
  * Cancelación a mano del dueño (botón «Licitación cancelada», 12-nov-2026): no hay OC cancelada de por medio
  * (oc_codigo = ''), pero Compras igual tiene que escribir el motivo: les sale el mismo modal.
  */
-export async function registrarCancelacionManual(negocioId: number): Promise<void> {
+export async function registrarCancelacionManual(negocioId: number, fundamento?: { texto: string; usuarioId: number; usuarioNombre: string | null }): Promise<void> {
   const ahora = ahoraChileSQL();
   try {
+    // Si quien cancela ya escribió el motivo, la cancelación nace fundamentada y no dispara el modal.
     await pool.query(
-      `INSERT IGNORE INTO compras_oc_cancelacion (cliente_id, negocio_id, licitacion_codigo, oc_codigo, cancelada_at, cerro_compras, created_at)
-       SELECT COALESCE(n.cliente_id, 1), ca.negocio_id, ca.licitacion_codigo, '', ?, 1, ?
+      `INSERT IGNORE INTO compras_oc_cancelacion (cliente_id, negocio_id, licitacion_codigo, oc_codigo, cancelada_at, cerro_compras, created_at, fundamento, fundamentado_por, fundamentado_por_nombre, fundamentado_at)
+       SELECT COALESCE(n.cliente_id, 1), ca.negocio_id, ca.licitacion_codigo, '', ?, 1, ?, ?, ?, ?, ?
          FROM compras_asignacion ca JOIN negocios n ON n.id = ca.negocio_id WHERE ca.negocio_id = ?`,
-      [ahora.slice(0, 10), ahora, negocioId],
+      [ahora.slice(0, 10), ahora, fundamento?.texto.slice(0, 4000) ?? null, fundamento?.usuarioId ?? null, fundamento?.usuarioNombre ?? null, fundamento ? ahora : null, negocioId],
     );
   } catch (e) { if (!sinTabla(e)) throw e; }
 }

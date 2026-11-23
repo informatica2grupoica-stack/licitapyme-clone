@@ -5,6 +5,7 @@ import { useState } from 'react';
 import { IconFileText as FileText, IconDownload as Download, IconChevronDown as ChevronDown, IconChevronUp as ChevronUp, IconFileZip as FileArchive, IconPhoto as FileImage, IconFile as File, IconJson as FileJson, IconLoader2 as Loader2, IconCloudDownload as DownloadCloud } from '@tabler/icons-react';
 import { DocumentoAdjunto } from '@/app/types/search.types';
 import { descargarDocumento, formatFileSize, getIconForDocument } from '@/app/services/documentosService.client';
+import { Esqueleto } from '@/app/components/ui/kit/Estructura';
 
 interface DocumentosListProps {
   documentos: DocumentoAdjunto[];
@@ -45,21 +46,9 @@ export function DocumentosList({ documentos, codigoLicitacion, loading = false }
 
   if (loading) {
     return (
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-        <div className="px-5 py-3 bg-gray-50 border-b border-gray-200">
-          <div className="h-5 bg-gray-200 rounded w-32 animate-pulse"></div>
-        </div>
-        <div className="p-4 space-y-3">
-          {[1, 2, 3].map(i => (
-            <div key={i} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg animate-pulse">
-              <div className="flex items-center gap-3">
-                <div className="w-5 h-5 bg-gray-200 rounded"></div>
-                <div className="h-4 bg-gray-200 rounded w-48"></div>
-              </div>
-              <div className="w-20 h-4 bg-gray-200 rounded"></div>
-            </div>
-          ))}
-        </div>
+      <div className="rounded-xl border border-linea bg-white shadow-tarjeta overflow-hidden dark:border-slate-800 dark:bg-slate-900">
+        <div className="px-5 py-3 border-b border-linea dark:border-slate-800"><Esqueleto className="h-5 w-32" /></div>
+        <div className="p-4 space-y-3">{[1, 2, 3].map(i => <Esqueleto key={i} className="h-12 rounded-lg" />)}</div>
       </div>
     );
   }

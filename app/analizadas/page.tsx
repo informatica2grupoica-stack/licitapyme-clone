@@ -13,6 +13,9 @@ import { IconWand as Sparkles, IconLoader2 as Loader2, IconChevronRight as Chevr
 import { MultiSelect } from '@/app/components/ui/MultiSelect';
 import { Select } from '@/app/components/ui/Select';
 import { colorUsuario, inicialesUsuario } from '@/app/lib/user-color';
+import { Encabezado, Esqueleto, Vacio } from '@/app/components/ui/kit/Estructura';
+import { Boton } from '@/app/components/ui/kit/Boton';
+import { Estado } from '@/app/components/ui/kit/Tarjeta';
 
 interface Analizada {
   codigo: string; nombre: string; organismo: string; cierre: string | null;
@@ -139,7 +142,10 @@ export default function AnalizadasPage() {
   if (cargandoSesion || (!puedeVer && cargando)) {
     return (
       <AppLayout>
-        <div className="flex flex-col items-center py-20 text-slate-400"><Loader2 size={26} className="animate-spin mb-2" /><p className="text-[13px]">Cargando…</p></div>
+        <div className="max-w-6xl mx-auto space-y-3 p-4 sm:p-6">
+          <Esqueleto className="h-7 w-56" />
+          {[1, 2, 3, 4].map(i => <Esqueleto key={i} className="h-24 rounded-xl" />)}
+        </div>
       </AppLayout>
     );
   }
@@ -147,44 +153,36 @@ export default function AnalizadasPage() {
 
   return (
     <AppLayout breadcrumb={[{ label: 'Dashboard', href: '/dashboard' }, { label: 'Licitaciones analizadas' }]}>
-      <div className="max-w-6xl mx-auto p-4 sm:p-6">
-        <div className="flex items-center justify-between mb-5 gap-3 flex-wrap">
-          <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-cyan-600 flex items-center justify-center"><Sparkles size={18} className="text-white" /></div>
-            <div>
-              <h1 className="text-[18px] font-semibold text-slate-900 leading-tight">Licitaciones analizadas</h1>
-              <p className="text-[12px] text-slate-400">
-                {hayFiltro || q ? `${filtradas.length} de ${lics.length}` : lics.length} con análisis de viabilidad completado
-              </p>
+      <div className="@container max-w-6xl mx-auto p-4 sm:p-6">
+        <Encabezado
+          titulo="Licitaciones analizadas"
+          descripcion={`${hayFiltro || q ? `${filtradas.length} de ${lics.length}` : lics.length} con análisis de viabilidad completado`}
+          acciones={
+            <div className="relative">
+              <Search size={16} stroke={1.75} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input value={q} onChange={e => setQ(e.target.value)} placeholder="Buscar nombre, código, organismo o perfil…" aria-label="Buscar analizadas"
+                className="h-9 w-72 rounded-lg border border-linea bg-white pl-9 pr-3 text-[13px] text-tinta placeholder:text-tinta-3 outline-none focus-visible:ring-2 focus-visible:ring-marca/60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" />
             </div>
-          </div>
-          <div className="relative">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input value={q} onChange={e => setQ(e.target.value)} placeholder="Buscar nombre, código, organismo o perfil…"
-              className="pl-8 pr-3 py-2 text-[13px] border border-slate-200 rounded-lg focus:ring-1 focus:ring-cyan-500 outline-none w-72" />
-          </div>
-        </div>
+          }
+        />
 
         {/* Barra de filtros + orden */}
         {!cargando && lics.length > 0 && (
           <div className="flex flex-wrap items-center gap-2 mb-4">
-            <span className="text-[12px] text-slate-400 font-medium flex items-center gap-1"><Filter size={13} /> Filtrar:</span>
-            <MultiSelect label={fSemaforo.length ? 'Semáforo' : 'Semáforo'} icon={<Gauge size={13} />} options={opciones.semaforo} selected={fSemaforo} onChange={setFSemaforo} />
-            <MultiSelect label={fResultado.length ? 'Veredicto' : 'Veredicto'} icon={<Trophy size={13} />} options={opciones.resultado} selected={fResultado} onChange={setFResultado} />
+            <span className="text-[13px] font-medium text-tinta-2 dark:text-slate-400 flex items-center gap-1.5 mr-1"><Filter size={16} stroke={1.75} className="text-slate-400" /> Filtros</span>
+            <MultiSelect label="Semáforo" icon={<Gauge size={14} />} options={opciones.semaforo} selected={fSemaforo} onChange={setFSemaforo} />
+            <MultiSelect label="Veredicto" icon={<Trophy size={14} />} options={opciones.resultado} selected={fResultado} onChange={setFResultado} />
             {opciones.modalidad.length > 0 && (
-              <MultiSelect label={fModalidad.length ? 'Modalidad' : 'Modalidad'} icon={<Layers size={13} />} options={opciones.modalidad} selected={fModalidad} onChange={setFModalidad} />
+              <MultiSelect label="Modalidad" icon={<Layers size={14} />} options={opciones.modalidad} selected={fModalidad} onChange={setFModalidad} />
             )}
             {opciones.owner.length > 0 && (
-              <MultiSelect label={fOwner.length ? 'Perfil' : 'Perfil'} icon={<Users size={13} />} options={opciones.owner} selected={fOwner} onChange={setFOwner} minWidth={220} />
+              <MultiSelect label="Perfil" icon={<Users size={14} />} options={opciones.owner} selected={fOwner} onChange={setFOwner} minWidth={220} />
             )}
             {hayFiltro && (
-              <button onClick={limpiar}
-                className="inline-flex items-center gap-1 text-[12px] font-semibold text-red-600 bg-red-50 border border-red-200 hover:bg-red-100 px-2.5 py-2 rounded-lg transition-colors">
-                <X size={12} /> Limpiar
-              </button>
+              <Boton variante="fantasma" onClick={limpiar} icono={<X size={16} stroke={1.75} />}>Limpiar</Boton>
             )}
             <div className="inline-flex items-center gap-1.5 ml-auto">
-              <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-400"><ArrowUpDown size={12} /> Ordenar</span>
+              <span className="inline-flex items-center gap-1.5 text-[13px] text-tinta-2 dark:text-slate-400"><ArrowUpDown size={16} stroke={1.75} className="text-slate-400" /> Ordenar</span>
               <Select value={orden} onChange={v => setOrden(v as Orden)}
                 options={[
                   { value: 'reciente', label: 'Análisis reciente' },
@@ -200,84 +198,79 @@ export default function AnalizadasPage() {
         )}
 
         {cargando ? (
-          <div className="flex flex-col items-center py-20 text-slate-400"><Loader2 size={26} className="animate-spin mb-2" /><p className="text-[13px]">Cargando…</p></div>
+          <div className="space-y-2">{[1, 2, 3, 4].map(i => <Esqueleto key={i} className="h-24 rounded-xl" />)}</div>
         ) : filtradas.length === 0 ? (
-          <div className="flex flex-col items-center py-20 bg-white rounded-2xl border border-slate-200 text-center">
-            <Sparkles size={26} className="text-slate-300 mb-2" />
-            {hayFiltro || q ? (
-              <>
-                <p className="text-[14px] font-semibold text-slate-700">Sin resultados</p>
-                <p className="text-[12px] text-slate-400 mt-1 max-w-sm">Ninguna analizada coincide con la búsqueda o los filtros.</p>
-              </>
-            ) : (
-              <>
-                <p className="text-[14px] font-semibold text-slate-700">Aún no hay licitaciones analizadas</p>
-                <p className="text-[12px] text-slate-400 mt-1 max-w-sm">Entra a una licitación del radar → Viabilidad → “Analizar”. Aparecerán aquí.</p>
-              </>
-            )}
-          </div>
+          <Vacio icono={<Sparkles size={28} stroke={1.75} />}
+            titulo={hayFiltro || q ? 'Sin resultados' : 'Aún no hay licitaciones analizadas'}
+            texto={hayFiltro || q ? 'Ninguna analizada coincide con la búsqueda o los filtros.' : 'Entra a una licitación del radar → Viabilidad → «Analizar». Aparecerán aquí.'}
+            accion={hayFiltro || q ? <Boton tamano="sm" onClick={() => { limpiar(); setQ(''); }}>Quitar filtros</Boton> : undefined} />
         ) : (
           <div className="space-y-2">
             {filtradas.map((l, i) => {
-              const sem = SEM[l.semaforo || ''] || { bg: 'bg-zinc-400', text: 'text-zinc-600', label: '—' };
+              const sem = SEM[l.semaforo || ''] || { bg: 'bg-zinc-400', text: 'text-tinta-2 dark:text-slate-400', label: '—' };
+              const semHex = SEM_HEX[l.semaforo || ''] || '#94a3b8';
               const res = l.resultado ? RES[l.resultado] : null;
+              const nivel = l.nivel ? RES[l.nivel] : null;
               const ownerKey = l.owner_email || l.owner_nombre || '';
               return (
                 <Link key={l.codigo} href={`/licitacion/${encodeURIComponent(l.codigo)}`}
                   style={{ '--stagger-i': Math.min(i, 12) } as React.CSSProperties}
-                  className="stagger-item flex items-stretch gap-3.5 bg-white border border-slate-200 rounded-xl p-3.5 hover:border-cyan-300 hover:shadow-sm transition-all group">
-                  {/* Nivel (v4) o score (análisis anteriores) */}
-                  {l.nivel && RES[l.nivel] ? (
-                    <div className={`w-12 h-12 rounded-xl ${RES[l.nivel].bg} flex items-center justify-center text-white flex-shrink-0 self-center text-center px-0.5`} title={l.accion || ''}>
-                      <span className="text-[9.5px] font-semibold leading-tight">{RES[l.nivel].label}</span>
-                    </div>
-                  ) : (
-                  <div className={`w-12 h-12 rounded-xl ${sem.bg} flex flex-col items-center justify-center text-white flex-shrink-0 self-center`}>
-                    <span className="text-[15px] font-semibold leading-none">{l.score ?? '—'}</span>
-                    <span className="text-[8px] opacity-80">/100</span>
+                  className="stagger-item group flex items-stretch gap-4 rounded-xl border border-linea bg-white p-4 shadow-tarjeta transition-[box-shadow,border-color] duration-150 hover:border-teal-300 hover:shadow-tarjeta-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marca/60 dark:border-slate-800 dark:bg-slate-900">
+                  {/* Nivel (v4) o score (análisis anteriores): número/nivel grande con punto de color, sin bloque sólido */}
+                  <div className="flex w-20 flex-shrink-0 flex-col items-start justify-center" title={l.accion || ''}>
+                    {nivel ? (
+                      <>
+                        <span className="text-[13px] font-semibold leading-tight text-tinta dark:text-slate-100">{nivel.label.charAt(0) + nivel.label.slice(1).toLowerCase()}</span>
+                        <span className="mt-1 h-1.5 w-12 rounded-full" style={{ backgroundColor: nivel.hex }} aria-hidden />
+                      </>
+                    ) : (
+                      <>
+                        <span className="text-[22px] font-semibold leading-none tracking-tight tabular-nums text-tinta dark:text-slate-50">{l.score ?? '—'}<span className="text-xs font-normal text-tinta-2"> /100</span></span>
+                        <span className="mt-1.5 h-1.5 w-12 rounded-full" style={{ backgroundColor: semHex }} aria-hidden />
+                      </>
+                    )}
                   </div>
-                  )}
 
                   {/* Identidad + análisis */}
                   <div className="min-w-0 flex-1">
-                    <p className="text-[14px] font-semibold text-slate-800 truncate group-hover:text-cyan-700">{l.nombre}</p>
-                    <div className="flex items-center gap-2 flex-wrap mt-0.5 text-[11.5px] text-slate-400">
+                    <p className="text-[15px] font-semibold text-tinta dark:text-slate-100 truncate group-hover:text-marca">{l.nombre}</p>
+                    <div className="flex items-center gap-x-3 gap-y-0.5 flex-wrap mt-0.5 text-xs text-tinta-2 dark:text-slate-400">
                       <span className="font-mono">{l.codigo}</span>
-                      {l.organismo && <span className="flex items-center gap-1 truncate max-w-[220px]"><Building2 size={11} />{l.organismo}</span>}
-                      <span className="flex items-center gap-1" title="Cierre de recepción de ofertas"><Calendar size={11} />Cierre {soloFecha(l.cierre)}</span>
+                      {l.organismo && <span className="flex items-center gap-1 truncate max-w-[220px]"><Building2 size={14} stroke={1.75} />{l.organismo}</span>}
+                      <span className="flex items-center gap-1" title="Cierre de recepción de ofertas"><Calendar size={14} stroke={1.75} />Cierre {soloFecha(l.cierre)}</span>
                     </div>
-                    <div className="flex items-center gap-2 flex-wrap mt-1.5">
+                    <div className="flex items-center gap-x-3 gap-y-1 flex-wrap mt-2 text-xs">
                       {res
-                        ? <span className={`text-[10px] font-semibold text-white px-1.5 py-0.5 rounded ${res.bg}`}>{res.label}</span>
-                        : <span className="text-[10px] font-semibold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">SIN VEREDICTO</span>}
-                      <span className={`text-[11px] font-semibold ${sem.text}`}>{sem.label}</span>
-                      {l.presupuesto != null && <span className="inline-flex items-center gap-1 text-[11px] text-emerald-700 font-semibold"><Wallet size={11} />{fmt(l.presupuesto)}</span>}
-                      {l.modalidad && <span className="text-[10px] text-slate-500 bg-slate-50 border border-slate-200 px-1.5 py-0.5 rounded-full">{modalidadLabel(l.modalidad)}</span>}
-                      {l.n_lineas != null && <span className="text-[10px] text-slate-500">{l.n_lineas} línea{l.n_lineas === 1 ? '' : 's'}</span>}
-                      {l.confianza != null && <span className="text-[10px] text-slate-400" title="Confianza del análisis">conf. {Math.round(l.confianza * 100)}%</span>}
+                        ? <span className="font-medium text-tinta dark:text-slate-100"><Estado color={res.hex}>{res.label.charAt(0) + res.label.slice(1).toLowerCase()}</Estado></span>
+                        : <span className="text-tinta-2 dark:text-slate-400">Sin veredicto</span>}
+                      <span className="font-medium text-tinta-2 dark:text-slate-300"><Estado color={semHex}>{sem.label}</Estado></span>
+                      {l.presupuesto != null && <span className="inline-flex items-center gap-1 font-medium text-tinta dark:text-slate-100 tabular-nums"><Wallet size={14} stroke={1.75} className="text-slate-400" />{fmt(l.presupuesto)}</span>}
+                      {l.modalidad && <span className="text-tinta-2 dark:text-slate-400">{modalidadLabel(l.modalidad)}</span>}
+                      {l.n_lineas != null && <span className="text-tinta-2 dark:text-slate-400">{l.n_lineas} línea{l.n_lineas === 1 ? '' : 's'}</span>}
+                      {l.confianza != null && <span className="text-tinta-2 dark:text-slate-400" title="Confianza del análisis">conf. {Math.round(l.confianza * 100)}%</span>}
                     </div>
                   </div>
 
                   {/* Dueño + fecha/hora de análisis (columna derecha) */}
-                  <div className="hidden md:flex flex-col items-end justify-center gap-1 flex-shrink-0 w-[190px] border-l border-slate-100 pl-3">
+                  <div className="hidden @3xl:flex flex-col items-end justify-center gap-1 flex-shrink-0 w-[200px] border-l border-linea dark:border-slate-800 pl-4">
                     {ownerKey ? (
-                      <span className="inline-flex items-center gap-1.5 text-[11.5px] font-semibold text-slate-600">
+                      <span className="inline-flex items-center gap-1.5 text-xs font-medium text-tinta dark:text-slate-200">
                         <span style={{ background: colorUsuario(ownerKey) }} className="inline-flex items-center justify-center w-5 h-5 rounded-full text-white text-[8px] font-semibold flex-shrink-0">
                           {inicialesUsuario(l.owner_nombre, l.owner_email)}
                         </span>
                         <span className="truncate max-w-[140px]">{l.owner_nombre || l.owner_email}</span>
                       </span>
                     ) : (
-                      <span className="text-[11px] text-slate-300 italic">Sin asignar</span>
+                      <span className="text-xs text-tinta-3">Sin asignar</span>
                     )}
-                    <span className="inline-flex items-center gap-1 text-[11px] text-slate-500" title={`Analizada el ${fechaHora(l.analizado_at)}`}>
-                      {l.reanalizada ? <RefreshCw size={11} className="text-cyan-400" /> : <Clock size={11} className="text-slate-400" />}
+                    <span className="inline-flex items-center gap-1 text-xs text-tinta-2 dark:text-slate-400 tabular-nums" title={`Analizada el ${fechaHora(l.analizado_at)}`}>
+                      {l.reanalizada ? <RefreshCw size={14} stroke={1.75} className="text-slate-400" /> : <Clock size={14} stroke={1.75} className="text-slate-400" />}
                       {fechaHora(l.analizado_at)}
                     </span>
-                    <span className="text-[9.5px] text-slate-300">{l.reanalizada ? 're-analizada' : 'analizada'} · {l.esquema}</span>
+                    <span className="text-xs text-tinta-3">{l.reanalizada ? 'Re-analizada' : 'Analizada'} · {l.esquema}</span>
                   </div>
 
-                  <ChevronRight size={18} className="text-slate-300 group-hover:text-cyan-500 flex-shrink-0 self-center" />
+                  <ChevronRight size={18} stroke={1.75} className="text-slate-300 group-hover:text-marca flex-shrink-0 self-center" />
                 </Link>
               );
             })}

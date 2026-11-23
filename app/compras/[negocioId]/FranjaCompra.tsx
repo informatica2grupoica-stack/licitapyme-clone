@@ -39,7 +39,7 @@ export function FranjaCompra({ negocioId, incidenciasAbiertas, onIrEntrega, onIr
     <div className="flex flex-wrap items-center gap-2" data-testid="franja-compra">
       {RELOJ_ENTREGA_ACTIVO && (
       <button type="button" onClick={onIrEntrega}
-        className={`inline-flex items-center gap-2 ${compacto ? 'text-[12px] px-2.5 py-1.5' : 'text-[13px] px-3 py-2'} font-semibold rounded-lg border transition-colors hover:shadow-sm ${fijado ? ESTILO[reloj.color!] : haySugerido ? 'border-teal-300 bg-teal-50 text-teal-800' : 'border-zinc-200 bg-white text-zinc-500'}`}>
+        className={`inline-flex items-center gap-2 ${compacto ? 'text-[12px] px-2.5 py-1.5' : 'text-[13px] px-3 py-2'} font-semibold rounded-lg border transition-colors hover:shadow-sm ${fijado ? ESTILO[reloj.color!] : haySugerido ? 'border-teal-300 bg-teal-50 text-teal-800' : 'border-linea dark:border-slate-800 bg-white dark:bg-slate-900 text-tinta-2 dark:text-slate-400'}`}>
         {fijado ? <Clock size={15} /> : haySugerido ? <Sparkles size={15} /> : <Clock size={15} />}
         {fijado
           ? (reloj.color === 'ENTREGADO'

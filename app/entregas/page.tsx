@@ -16,6 +16,9 @@ import { MultiSelect } from '@/app/components/ui/MultiSelect';
 import { Select } from '@/app/components/ui/Select';
 import { colorUsuario } from '@/app/lib/user-color';
 import { DocumentViewerModal, type VisorDoc } from '@/app/components/DocumentViewerModal';
+import { Encabezado, Esqueleto, Vacio } from '@/app/components/ui/kit/Estructura';
+import { Boton } from '@/app/components/ui/kit/Boton';
+import { Estado } from '@/app/components/ui/kit/Tarjeta';
 import { IconTrophy as Trophy, IconLoader2 as Loader2, IconInbox as Inbox, IconCircleCheck as CheckCircle2, IconClock as Clock, IconBuilding as Building2, IconUser as User, IconFileText as FileText, IconUsers as Users, IconAlertTriangle as AlertTriangle, IconExternalLink as ExternalLink, IconChevronDown as ChevronDown, IconChevronRight as ChevronRight, IconSearch as Search, IconFilter as Filter, IconX as X, IconCalendar as Calendar, IconBriefcase as Briefcase, IconArrowsUpDown as ArrowUpDown, IconShieldExclamation as ShieldAlert, IconEye as Eye, IconPaperclip as Paperclip, IconDownload as Download } from '@tabler/icons-react';
 
 interface Entrega {
@@ -185,27 +188,18 @@ export default function EntregasPage() {
 
   return (
     <AppLayout title="Entregas" breadcrumb={[{ label: 'Entregas' }]}>
-      <div className="max-w-5xl mx-auto px-4 py-6">
-        <div className="flex items-start justify-between gap-3 mb-6 flex-wrap">
-          <div className="flex items-start gap-3">
-            <div className="w-10 h-10 rounded-xl bg-amber-50 border border-amber-200 flex items-center justify-center flex-shrink-0">
-              <Trophy size={19} className="text-amber-500" />
-            </div>
-            <div>
-              <h1 className="text-[19px] font-semibold text-zinc-900">Entrega de proyectos</h1>
-              <p className="text-[13px] text-zinc-500 mt-0.5">
-                {hayFiltro || q ? `${filtradas.length} de ${entregas.length}` : 'Proyectos ganados'} según el acta de Mercado Público, con lo que se comprometió al postular.
-              </p>
-            </div>
-          </div>
-          {entregas.length > 0 && (
+      <div className="@container max-w-5xl mx-auto p-4 sm:p-6 lg:p-8">
+        <Encabezado
+          titulo="Entrega de proyectos"
+          descripcion={`${hayFiltro || q ? `${filtradas.length} de ${entregas.length}` : 'Proyectos ganados'} según el acta de Mercado Público, con lo que se comprometió al postular.`}
+          acciones={entregas.length > 0 ? (
             <div className="relative">
-              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
-              <input value={q} onChange={e => setQ(e.target.value)} placeholder="Buscar nombre, código, organismo, responsable o empresa…"
-                className="pl-8 pr-3 py-2 text-[13px] border border-zinc-200 rounded-lg focus:ring-1 focus:ring-amber-500 outline-none w-80" />
+              <Search size={16} stroke={1.75} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input value={q} onChange={e => setQ(e.target.value)} placeholder="Buscar nombre, código, organismo o empresa…" aria-label="Buscar entregas"
+                className="h-9 w-80 rounded-lg border border-linea bg-white pl-9 pr-3 text-[13px] text-tinta placeholder:text-tinta-3 outline-none focus-visible:ring-2 focus-visible:ring-marca/60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" />
             </div>
-          )}
-        </div>
+          ) : undefined}
+        />
 
         {pendientes.length > 0 && (
           <Banner variante="warning" className="mb-5">
@@ -219,7 +213,7 @@ export default function EntregasPage() {
 
         {!loading && entregas.length > 0 && (
           <div className="flex flex-wrap items-center gap-2 mb-4">
-            <span className="text-[12px] text-zinc-400 font-medium flex items-center gap-1"><Filter size={13} /> Filtrar:</span>
+            <span className="text-[13px] font-medium text-tinta-2 dark:text-slate-400 flex items-center gap-1.5 mr-1"><Filter size={16} stroke={1.75} className="text-slate-400" /> Filtros</span>
             {opciones.responsable.length > 0 && (
               <MultiSelect label="Responsable" icon={<Users size={13} />} options={opciones.responsable} selected={fResponsable} onChange={setFResponsable} minWidth={220} />
             )}
@@ -227,29 +221,26 @@ export default function EntregasPage() {
               <MultiSelect label="Empresa" icon={<Briefcase size={13} />} options={opciones.empresa} selected={fEmpresa} onChange={setFEmpresa} minWidth={220} />
             )}
             <MultiSelect label="Estado" icon={<CheckCircle2 size={13} />} options={opciones.estado} selected={fEstado} onChange={setFEstado} minWidth={190} />
-            <div className="flex items-center gap-1.5 border border-zinc-200 rounded-lg px-2.5 py-1">
-              <Calendar size={13} className="text-zinc-400 flex-shrink-0" />
-              <span className="text-[11px] font-semibold text-zinc-500">Ganado</span>
+            <div className="flex h-9 items-center gap-1.5 border border-linea dark:border-slate-700 rounded-lg px-2.5 bg-white dark:bg-slate-900">
+              <Calendar size={16} stroke={1.75} className="text-slate-400 flex-shrink-0" />
+              <span className="text-[13px] text-tinta-2 dark:text-slate-400">Ganado</span>
               <input type="date" value={fechaDesde} onChange={e => setFechaDesde(e.target.value)}
                 max={fechaHasta || undefined}
-                className="text-[12px] text-zinc-700 bg-transparent outline-none w-[118px]" title="Ganado desde" />
-              <span className="text-zinc-300">–</span>
+                className="text-[13px] text-tinta dark:text-slate-100 bg-transparent outline-none w-[118px]" title="Ganado desde" />
+              <span className="text-tinta-3">–</span>
               <input type="date" value={fechaHasta} onChange={e => setFechaHasta(e.target.value)}
                 min={fechaDesde || undefined}
-                className="text-[12px] text-zinc-700 bg-transparent outline-none w-[118px]" title="Ganado hasta" />
+                className="text-[13px] text-tinta dark:text-slate-100 bg-transparent outline-none w-[118px]" title="Ganado hasta" />
               {(fechaDesde || fechaHasta) && (
                 <button onClick={() => { setFechaDesde(''); setFechaHasta(''); }}
-                  title="Quitar rango de fecha" className="text-zinc-400 hover:text-red-600 flex-shrink-0"><X size={12} /></button>
+                  title="Quitar rango de fecha" aria-label="Quitar rango de fecha" className="text-slate-400 hover:text-urgente flex-shrink-0"><X size={16} stroke={1.75} /></button>
               )}
             </div>
             {hayFiltro && (
-              <button onClick={limpiarFiltros}
-                className="inline-flex items-center gap-1 text-[12px] font-semibold text-red-600 bg-red-50 border border-red-200 hover:bg-red-100 px-2.5 py-2 rounded-lg transition-colors">
-                <X size={12} /> Limpiar
-              </button>
+              <Boton variante="fantasma" onClick={limpiarFiltros} icono={<X size={16} stroke={1.75} />}>Limpiar</Boton>
             )}
             <div className="inline-flex items-center gap-1.5 ml-auto">
-              <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-zinc-400"><ArrowUpDown size={12} /> Ordenar</span>
+              <span className="inline-flex items-center gap-1.5 text-[13px] text-tinta-2 dark:text-slate-400"><ArrowUpDown size={16} stroke={1.75} className="text-slate-400" /> Ordenar</span>
               <Select value={orden} onChange={v => setOrden(v as Orden)}
                 options={[
                   { value: 'reciente', label: 'Ganado reciente' },
@@ -262,117 +253,98 @@ export default function EntregasPage() {
         )}
 
         {loading ? (
-          <div className="flex items-center justify-center py-20 text-zinc-400">
-            <Loader2 size={22} className="animate-spin" />
-          </div>
+          <div className="space-y-3">{[1, 2, 3].map(i => <Esqueleto key={i} className="h-20 rounded-xl" />)}</div>
         ) : entregas.length === 0 ? (
-          <div className="text-center py-20">
-            <Inbox size={34} className="mx-auto text-zinc-300" />
-            <p className="text-[14px] font-semibold text-zinc-600 mt-3">Todavía no hay proyectos ganados por entregar</p>
-            <p className="text-[12.5px] text-zinc-400 mt-1 max-w-md mx-auto">
-              Cuando Mercado Público publique un acta donde ganemos, el proyecto aparece acá
-              automáticamente con su resumen ejecutivo.
-            </p>
-          </div>
+          <Vacio icono={<Inbox size={28} stroke={1.75} />} titulo="Todavía no hay proyectos ganados por entregar"
+            texto="Cuando Mercado Público publique un acta donde ganemos, el proyecto aparece acá automáticamente con su resumen ejecutivo." />
         ) : filtradas.length === 0 ? (
-          <div className="text-center py-20">
-            <Search size={34} className="mx-auto text-zinc-300" />
-            <p className="text-[14px] font-semibold text-zinc-600 mt-3">Sin resultados</p>
-            <p className="text-[12.5px] text-zinc-400 mt-1 max-w-md mx-auto">
-              Ningún proyecto coincide con la búsqueda o los filtros.
-            </p>
-          </div>
+          <Vacio icono={<Search size={28} stroke={1.75} />} titulo="Sin resultados" texto="Ningún proyecto coincide con la búsqueda o los filtros."
+            accion={<Boton tamano="sm" onClick={() => { limpiarFiltros(); setQ(''); }}>Quitar filtros</Boton>} />
         ) : (
           <div className="space-y-3">
             {filtradas.map(e => {
               const expandida = abierta === e.negocioId;
               const r = e.resumen || {};
               return (
-                <div key={e.negocioId} className="bg-white border border-zinc-200 rounded-xl overflow-hidden">
+                <div key={e.negocioId} className="bg-white dark:bg-slate-900 border border-linea dark:border-slate-800 shadow-tarjeta rounded-xl overflow-hidden">
                   {/* ── Cabecera de la tarjeta ── */}
                   <button
                     onClick={() => setAbierta(expandida ? null : e.negocioId)}
-                    className="w-full px-4 py-3.5 flex items-start gap-3 text-left hover:bg-zinc-50 transition-colors"
+                    aria-expanded={expandida}
+                    className="w-full px-4 py-3.5 flex items-start gap-3 text-left hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-marca/60"
                   >
-                    <span className="mt-0.5 text-zinc-400 flex-shrink-0">
-                      {expandida ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                    <span className="mt-0.5 text-slate-400 flex-shrink-0">
+                      {expandida ? <ChevronDown size={16} stroke={1.75} /> : <ChevronRight size={16} stroke={1.75} />}
                     </span>
                     <div className="flex-1 min-w-0">
-                      <p className="text-[14px] font-semibold text-zinc-900 leading-snug">
+                      <p className="text-[15px] font-semibold text-tinta dark:text-slate-100 leading-snug">
                         {e.licitacionNombre || e.licitacionCodigo}
                       </p>
-                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1.5 text-[11.5px] text-zinc-500">
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1.5 text-xs text-tinta-2 dark:text-slate-400">
                         <span className="font-mono">{e.licitacionCodigo}</span>
-                        {e.organismo && <span className="inline-flex items-center gap-1"><Building2 size={11} />{e.organismo}</span>}
+                        {e.organismo && <span className="inline-flex items-center gap-1"><Building2 size={14} stroke={1.75} />{e.organismo}</span>}
                         {/* "Ganado el" = la fecha del ACTA de MP (cuándo se adjudicó de verdad),
                             NO `abiertaAt`, que es cuándo ESTE sistema abrió la entrega. En las
                             entregas cargadas retroactivamente esas dos fechas no tienen nada que
                             ver: `abiertaAt` sería el día del backfill. Solo se cae a `abiertaAt`
                             si el acta todavía no trae fecha. */}
                         <span>Ganado el {r.fechaAdjudicacion ? fechaHora(r.fechaAdjudicacion) : fecha(e.abiertaAt)}</span>
-                        <span className="inline-flex items-center gap-1 font-semibold text-emerald-700">
+                        <span className="inline-flex items-center gap-1 font-semibold text-tinta dark:text-slate-100 tabular-nums">
                           {clp(r.montoNuestro)}
                         </span>
                       </div>
                     </div>
                     <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
-                      {e.miAcuse ? (
-                        <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-700">
-                          <CheckCircle2 size={11} /> Recibido
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-700">
-                          <Clock size={11} /> Falta tu acuse
-                        </span>
-                      )}
-                      <span className="inline-flex items-center gap-1 text-[11px] text-zinc-500">
-                        <Users size={11} /> {e.acusados}/{e.totalAcuses} recibieron
+                      <span className="text-xs font-medium text-tinta dark:text-slate-100">
+                        {e.miAcuse
+                          ? <Estado color="#16a34a">Recibido</Estado>
+                          : <Estado color="#d97706">Falta tu acuse</Estado>}
+                      </span>
+                      <span className="inline-flex items-center gap-1 text-xs text-tinta-2 dark:text-slate-400 tabular-nums">
+                        <Users size={14} stroke={1.75} /> {e.acusados}/{e.totalAcuses} recibieron
                       </span>
                     </div>
                   </button>
 
                   {/* ── Resumen ejecutivo ── */}
                   {expandida && (
-                    <div className="border-t border-zinc-100 px-4 py-4 bg-zinc-50/60 space-y-4">
+                    <div className="border-t border-linea dark:border-slate-800 px-4 py-4 space-y-4">
                       {Array.isArray(r.faltantes) && r.faltantes.length > 0 && (
-                        <div className="flex items-start gap-2 text-[12px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                          <AlertTriangle size={13} className="mt-0.5 flex-shrink-0" />
-                          <div>
-                            <p className="font-semibold">Este resumen quedó incompleto:</p>
-                            <ul className="mt-1 space-y-0.5 list-disc list-inside">
-                              {r.faltantes.map((f: string, i: number) => <li key={i}>{f}</li>)}
-                            </ul>
-                          </div>
-                        </div>
+                        <Banner variante="warning">
+                          <p className="font-semibold">Este resumen quedó incompleto:</p>
+                          <ul className="mt-1 space-y-0.5 list-disc list-inside">
+                            {r.faltantes.map((f: string, i: number) => <li key={i}>{f}</li>)}
+                          </ul>
+                        </Banner>
                       )}
 
                       {/* Qué ganamos / por qué */}
-                      <div className="grid sm:grid-cols-3 gap-3">
+                      <dl className="grid grid-cols-2 @xl:grid-cols-3 gap-x-4 gap-y-3">
                         <Dato etiqueta="Ofertamos" valor={clp(r.montoOfertado)} />
                         <Dato etiqueta="Nos adjudicaron" valor={clp(r.montoNuestro)} destacado />
                         <Dato etiqueta="Competencia" valor={r.numeroOferentes != null ? `${r.numeroOferentes} oferentes` : '—'} />
                         <Dato etiqueta="Empresa del grupo" valor={r.empresaNombre || '—'} />
                         <Dato etiqueta="Responsable" valor={r.responsableNombre || '—'} />
                         <Dato etiqueta="Total adjudicado" valor={clp(r.montoAdjudicadoTotal)} />
-                      </div>
+                      </dl>
 
                       {/* Multas por atraso — plata en juego si el proyecto se retrasa. Sacadas por
                           la IA de viabilidad al postular (Módulo Plazos); rojo a propósito, no es
                           un dato informativo más. */}
                       {r.multas && (r.multas.costoPorDia || r.multas.estructura) && (
-                        <div className="flex items-start gap-2.5 text-[12.5px] text-red-800 bg-red-50 border border-red-200 rounded-lg px-3 py-2.5">
-                          <ShieldAlert size={15} className="mt-0.5 flex-shrink-0 text-red-500" />
+                        <div className="flex items-start gap-2.5 text-[13px] text-red-800 bg-red-50 border border-red-200 rounded-lg px-3.5 py-3 dark:bg-red-950/30 dark:border-red-900 dark:text-red-200">
+                          <ShieldAlert size={16} stroke={1.75} className="mt-0.5 flex-shrink-0 text-urgente" />
                           <div className="space-y-0.5">
                             <p className="font-semibold">Multas por atraso</p>
                             {r.multas.estructura && <p>{r.multas.estructura}</p>}
-                            <p className="flex flex-wrap gap-x-3 text-[11.5px]">
-                              {r.multas.costoPorDia && <span><span className="text-red-500">Por día:</span> {r.multas.costoPorDia}</span>}
-                              {r.multas.costoMaximo && <span><span className="text-red-500">Tope:</span> {r.multas.costoMaximo}</span>}
+                            <p className="flex flex-wrap gap-x-3 text-xs">
+                              {r.multas.costoPorDia && <span><span className="text-red-700 dark:text-red-300">Por día:</span> {r.multas.costoPorDia}</span>}
+                              {r.multas.costoMaximo && <span><span className="text-red-700 dark:text-red-300">Tope:</span> {r.multas.costoMaximo}</span>}
                             </p>
                             {r.multas.umbralTermino && (
-                              <p className="text-[11.5px]"><span className="text-red-500">Término anticipado:</span> {r.multas.umbralTermino}</p>
+                              <p className="text-xs"><span className="text-red-700 dark:text-red-300">Término anticipado:</span> {r.multas.umbralTermino}</p>
                             )}
-                            {r.multas.fuente && <p className="text-[10.5px] text-red-400">Fuente: {r.multas.fuente}</p>}
+                            {r.multas.fuente && <p className="text-xs text-red-700 dark:text-red-300">Fuente: {r.multas.fuente}</p>}
                           </div>
                         </div>
                       )}
@@ -381,8 +353,8 @@ export default function EntregasPage() {
                         <Seccion titulo="Garantías comprometidas">
                           <ul className="space-y-1">
                             {r.garantias.map((g: any, i: number) => (
-                              <li key={i} className="text-[12.5px] text-zinc-700">
-                                <span className="text-zinc-500">{g.titulo}:</span> {g.descripcion || '—'}
+                              <li key={i} className="text-[13px] text-tinta dark:text-slate-200">
+                                <span className="text-tinta-2 dark:text-slate-400">{g.titulo}:</span> {g.descripcion || '—'}
                               </li>
                             ))}
                           </ul>
@@ -394,8 +366,8 @@ export default function EntregasPage() {
                         <Seccion titulo="Riesgos detectados por la viabilidad IA">
                           <ul className="space-y-1">
                             {[...(r.riesgosViabilidad || []), ...(r.alertasViabilidad || [])].map((txt: string, i: number) => (
-                              <li key={i} className="flex items-start gap-1.5 text-[12.5px] text-zinc-700">
-                                <AlertTriangle size={11} className="mt-0.5 flex-shrink-0 text-amber-500" />
+                              <li key={i} className="flex items-start gap-1.5 text-[13px] text-tinta dark:text-slate-200">
+                                <AlertTriangle size={14} stroke={1.75} className="mt-0.5 flex-shrink-0 text-alerta" />
                                 {txt}
                               </li>
                             ))}
@@ -407,9 +379,9 @@ export default function EntregasPage() {
                         <Seccion titulo="Otros adjudicados en esta licitación">
                           <ul className="space-y-1">
                             {r.competidoresAdjudicados.map((c: any, i: number) => (
-                              <li key={i} className="text-[12.5px] text-zinc-700">
+                              <li key={i} className="text-[13px] text-tinta dark:text-slate-200">
                                 {c.proveedor || c.rut || 'Sin identificar'}
-                                <span className="text-zinc-400"> · {c.lineas} línea{c.lineas !== 1 ? 's' : ''}</span>
+                                <span className="text-tinta-2"> · {c.lineas} línea{c.lineas !== 1 ? 's' : ''}</span>
                               </li>
                             ))}
                           </ul>
@@ -420,8 +392,8 @@ export default function EntregasPage() {
                         <Seccion titulo="Plazos comprometidos">
                           <ul className="space-y-1">
                             {r.plazosComprometidos.map((p: any, i: number) => (
-                              <li key={i} className="text-[12.5px] text-zinc-700">
-                                <span className="text-zinc-500">{p.titulo}:</span> {p.valor || '—'}
+                              <li key={i} className="text-[13px] text-tinta dark:text-slate-200">
+                                <span className="text-tinta-2 dark:text-slate-400">{p.titulo}:</span> {p.valor || '—'}
                               </li>
                             ))}
                           </ul>
@@ -432,8 +404,8 @@ export default function EntregasPage() {
                         <Seccion titulo="Compromisos de postventa">
                           <ul className="space-y-1">
                             {r.compromisosPostventa.map((p: any, i: number) => (
-                              <li key={i} className="text-[12.5px] text-zinc-700">
-                                <span className="text-zinc-500">{p.titulo}:</span> {p.descripcion || '—'}
+                              <li key={i} className="text-[13px] text-tinta dark:text-slate-200">
+                                <span className="text-tinta-2 dark:text-slate-400">{p.titulo}:</span> {p.descripcion || '—'}
                               </li>
                             ))}
                           </ul>
@@ -442,18 +414,18 @@ export default function EntregasPage() {
 
                       {r.contactosCliente && (
                         <Seccion titulo="Contacto del cliente">
-                          <div className="text-[12.5px] text-zinc-700 space-y-0.5">
+                          <div className="text-[13px] text-tinta dark:text-slate-200 space-y-0.5">
                             <p>{r.contactosCliente.organismo || '—'}{r.contactosCliente.unidad ? ` · ${r.contactosCliente.unidad}` : ''}</p>
                             {r.contactosCliente.direccion && (
-                              <p className="text-zinc-500">
+                              <p className="text-tinta-2 dark:text-slate-400">
                                 {r.contactosCliente.direccion}
                                 {r.contactosCliente.comuna ? `, ${r.contactosCliente.comuna}` : ''}
                                 {r.contactosCliente.region ? `, ${r.contactosCliente.region}` : ''}
                               </p>
                             )}
                             {r.contactosCliente.usuarioNombre && (
-                              <p className="inline-flex items-center gap-1 text-zinc-600">
-                                <User size={11} /> {r.contactosCliente.usuarioNombre}
+                              <p className="inline-flex items-center gap-1 text-tinta-2 dark:text-slate-400">
+                                <User size={14} stroke={1.75} /> {r.contactosCliente.usuarioNombre}
                                 {r.contactosCliente.usuarioCargo ? ` — ${r.contactosCliente.usuarioCargo}` : ''}
                               </p>
                             )}
@@ -463,9 +435,9 @@ export default function EntregasPage() {
 
                       {r.matrizTecnica && r.matrizTecnica.total > 0 && (
                         <Seccion titulo="Matriz técnica aprobada">
-                          <p className="text-[12.5px] text-zinc-700">
+                          <p className="text-[13px] text-tinta dark:text-slate-200">
                             {r.matrizTecnica.cumplen} cumplen · {r.matrizTecnica.conComplemento} con complemento ·{' '}
-                            {r.matrizTecnica.noCumplen} no cumplen <span className="text-zinc-400">(de {r.matrizTecnica.total})</span>
+                            {r.matrizTecnica.noCumplen} no cumplen <span className="text-tinta-2">(de {r.matrizTecnica.total})</span>
                           </p>
                         </Seccion>
                       )}
@@ -476,15 +448,15 @@ export default function EntregasPage() {
                         <Seccion titulo="Documentos">
                           <ul className="space-y-1">
                             {r.documentosPropios.map((d: any, i: number) => (
-                              <li key={i} className="flex items-center gap-2 text-[12.5px] text-zinc-700">
-                                <Paperclip size={11} className="text-zinc-400 flex-shrink-0" />
+                              <li key={i} className="flex items-center gap-2 text-[13px] text-tinta dark:text-slate-200">
+                                <Paperclip size={14} stroke={1.75} className="text-slate-400 flex-shrink-0" />
                                 <span className="truncate flex-1">{d.nombre}</span>
-                                {d.subidoPorNombre && <span className="text-[10.5px] text-zinc-400 flex-shrink-0">subió {d.subidoPorNombre}</span>}
+                                {d.subidoPorNombre && <span className="text-xs text-tinta-2 flex-shrink-0">subió {d.subidoPorNombre}</span>}
                                 <button
                                   onClick={() => setVisorDoc({ nombre: d.nombre, url: d.url })}
-                                  className="inline-flex items-center gap-1 text-[11px] font-semibold text-teal-600 hover:text-teal-700 flex-shrink-0"
+                                  className="inline-flex items-center gap-1 text-xs font-medium text-marca hover:underline flex-shrink-0"
                                 >
-                                  <Eye size={11} /> Ver
+                                  <Eye size={14} stroke={1.75} /> Ver
                                 </button>
                               </li>
                             ))}
@@ -496,14 +468,14 @@ export default function EntregasPage() {
                         {r.urlActa && (
                           <a
                             href={r.urlActa} target="_blank" rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-semibold text-zinc-600 border border-zinc-200 bg-white hover:bg-zinc-50 transition-colors"
+                            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-linea bg-white px-3 text-[13px] font-medium text-tinta shadow-tarjeta transition-colors hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marca/60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800"
                           >
-                            <FileText size={12} /> Ver acta en Mercado Público <ExternalLink size={11} />
+                            <FileText size={16} stroke={1.75} /> Ver acta en Mercado Público <ExternalLink size={14} stroke={1.75} />
                           </a>
                         )}
                         <a
                           href={`/negocios/${e.negocioId}`}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-semibold text-zinc-600 border border-zinc-200 bg-white hover:bg-zinc-50 transition-colors"
+                          className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-linea bg-white px-3 text-[13px] font-medium text-tinta shadow-tarjeta transition-colors hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marca/60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800"
                         >
                           Abrir el negocio
                         </a>
@@ -511,20 +483,15 @@ export default function EntregasPage() {
                             se archiva con el proyecto. El PDF sale del resumen CONGELADO. */}
                         <a
                           href={`/api/entregas/pdf?negocioId=${e.negocioId}`}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-semibold text-zinc-600 border border-zinc-200 bg-white hover:bg-zinc-50 transition-colors"
+                          className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-linea bg-white px-3 text-[13px] font-medium text-tinta shadow-tarjeta transition-colors hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marca/60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800"
                         >
-                          <Download size={12} /> Descargar resumen (PDF)
+                          <Download size={16} stroke={1.75} /> Descargar resumen (PDF)
                         </a>
                         {!e.miAcuse && (
-                          <button
-                            onClick={() => acusar(e.negocioId)}
-                            disabled={enviando === e.negocioId}
-                            className="ml-auto inline-flex items-center gap-2 px-4 py-1.5 rounded-lg text-[12.5px] font-semibold text-white bg-amber-600 hover:bg-amber-700 disabled:opacity-60 transition-colors"
-                          >
-                            {enviando === e.negocioId
-                              ? <><Loader2 size={13} className="animate-spin" /> Registrando…</>
-                              : 'Acuso recibo'}
-                          </button>
+                          <Boton variante="primario" className="ml-auto" onClick={() => acusar(e.negocioId)} disabled={enviando === e.negocioId}
+                            icono={enviando === e.negocioId ? <Loader2 size={16} className="animate-spin" /> : undefined}>
+                            {enviando === e.negocioId ? 'Registrando…' : 'Acuso recibo'}
+                          </Boton>
                         )}
                       </div>
                     </div>
@@ -543,9 +510,9 @@ export default function EntregasPage() {
 
 function Dato({ etiqueta, valor, destacado }: { etiqueta: string; valor: string; destacado?: boolean }) {
   return (
-    <div className="bg-white border border-zinc-200 rounded-lg px-3 py-2">
-      <p className="text-[10.5px] font-semibold text-zinc-400">{etiqueta}</p>
-      <p className={`text-[13px] mt-0.5 ${destacado ? 'font-semibold text-emerald-700' : 'font-semibold text-zinc-800'}`}>{valor}</p>
+    <div className="min-w-0">
+      <dt className="text-[11px] text-tinta-2 dark:text-slate-400">{etiqueta}</dt>
+      <dd className={`mt-0.5 truncate text-[13px] tabular-nums ${destacado ? 'font-semibold text-tinta dark:text-slate-50' : 'font-medium text-tinta dark:text-slate-100'}`}>{valor}</dd>
     </div>
   );
 }
@@ -553,7 +520,7 @@ function Dato({ etiqueta, valor, destacado }: { etiqueta: string; valor: string;
 function Seccion({ titulo, children }: { titulo: string; children: React.ReactNode }) {
   return (
     <div>
-      <p className="text-[10.5px] font-semibold text-zinc-400 mb-1.5">{titulo}</p>
+      <p className="text-[13px] font-medium text-tinta dark:text-slate-100 mb-1.5">{titulo}</p>
       {children}
     </div>
   );

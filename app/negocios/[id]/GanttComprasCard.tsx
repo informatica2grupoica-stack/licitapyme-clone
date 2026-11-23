@@ -142,6 +142,18 @@ export function GanttComprasCard({ tareas, hitos = null, plegable = true }: { ta
     );
   }
 
+  // Cuadrícula de fondo: una línea por día (siempre, aunque el eje rotule cada 2 o 7 días) y
+  // sábado/domingo sombreados, para poder leer a qué día cae cada barra.
+  const diasTotal = Math.round(total / MS_DIA);
+  const dowInicio = new Date(inicio).getUTCDay();
+  const FINDE = 'rgba(100,116,139,0.10)';
+  const franjaFinde = (idx: number) => `linear-gradient(to right, transparent ${(idx / 7) * 100}%, ${FINDE} ${(idx / 7) * 100}%, ${FINDE} ${((idx + 1) / 7) * 100}%, transparent ${((idx + 1) / 7) * 100}%)`;
+  const cuadricula: React.CSSProperties = {
+    // Con rangos largos (100+ días) cada día mide pocos píxeles: la línea se aclara para no ensuciar.
+    backgroundImage: [`linear-gradient(to right, rgba(100,116,139,${diasTotal <= 31 ? 0.28 : diasTotal <= 60 ? 0.18 : 0.1}) 1px, transparent 1px)`, franjaFinde((6 - dowInicio + 7) % 7), franjaFinde((0 - dowInicio + 7) % 7)].join(', '),
+    backgroundSize: `${100 / diasTotal}% 100%, ${700 / diasTotal}% 100%, ${700 / diasTotal}% 100%`,
+    backgroundRepeat: 'repeat-x',
+  };
   const pct = (t: number) => `${Math.min(100, Math.max(0, ((t - inicio) / total) * 100))}%`;
   const pctAncho = (a: number, b: number) => `${Math.max(0, ((Math.min(b, inicio + total) - Math.max(a, inicio)) / total) * 100)}%`;
   const todas = Object.values(filasPorFase).flat();
@@ -243,8 +255,7 @@ export function GanttComprasCard({ tareas, hitos = null, plegable = true }: { ta
               <p className="text-[11.5px] font-semibold text-zinc-800">Proyecto completo</p>
               <p className="text-[9.5px] text-zinc-500 leading-snug">{estadoPlazo}</p>
             </div>
-            <div className="relative" style={{ height: 52 + 12 * maxNivel }}>
-              {marcas.map((m, i) => <div key={i} className="absolute top-0 bottom-0 w-px bg-zinc-200/70" style={{ left: pct(m) }} />)}
+            <div className="relative" style={{ height: 52 + 12 * maxNivel, ...cuadricula }}>
               {/* Antes de la OC */}
               <div className="absolute top-4 h-4 rounded-l-full bg-amber-100 overflow-hidden" title={`Antes de la OC: ${fmtCorta(adj)} → ${fmtCorta(finPre)}`}
                 style={{ left: pct(adj), width: pctAncho(adj, finPre) }}>
@@ -310,8 +321,7 @@ export function GanttComprasCard({ tareas, hitos = null, plegable = true }: { ta
                             {t.responsableNombre && <span className="inline-flex items-center gap-0.5 ml-1"><UserFilled size={9} className="inline -mt-0.5" /> {t.responsableNombre}</span>}
                           </p>
                         </div>
-                        <div className="relative h-6">
-                          {marcas.map((m, i) => <div key={i} className="absolute top-0 bottom-0 w-px bg-zinc-100" style={{ left: pct(m) }} />)}
+                        <div className="relative h-8" style={cuadricula}>
                           <div className="absolute top-0 bottom-0 w-0.5 bg-rose-300 z-10" style={{ left: pct(hoy) }} />
                           {conBarra ? (<>
                             <div

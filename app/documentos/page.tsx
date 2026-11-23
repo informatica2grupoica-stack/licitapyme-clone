@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { AppLayout } from '@/app/components/AppLayout';
 import { IconFileText as FileText, IconFolderOpen as FolderOpen, IconExternalLink as ExternalLink, IconDownload as Download, IconSearch as Search, IconRefresh as RefreshCw, IconAlertCircle as AlertCircle, IconBuilding as Building2, IconFile as File, IconPaperclip as Paperclip } from '@tabler/icons-react';
+import { Esqueleto } from '@/app/components/ui/kit/Estructura';
 
 interface DocumentoItem {
   licitacion_codigo: string;
@@ -148,12 +149,7 @@ export default function DocumentosPage() {
         {/* Loading */}
         {loading && (
           <div className="space-y-3">
-            {[1, 2, 3].map(i => (
-              <div key={i} className="bg-white rounded-xl border border-gray-100 p-5 animate-pulse">
-                <div className="h-4 bg-gray-200 rounded w-1/3 mb-3" />
-                <div className="h-3 bg-gray-100 rounded w-1/2" />
-              </div>
-            ))}
+            {[1, 2, 3].map(i => <Esqueleto key={i} className="h-24 rounded-xl" />)}
           </div>
         )}
 

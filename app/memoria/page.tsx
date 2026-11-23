@@ -18,6 +18,10 @@ import { useConfirm } from '@/app/components/ui/confirm';
 import { useToast } from '@/app/components/ui/toast';
 import { StatCard } from '@/app/components/ui/StatCard';
 import { IconLibrary as Library, IconSearch as Search, IconLoader2 as Loader2, IconPlus as Plus, IconTrash as Trash2, IconDeviceFloppy as Save, IconX as X, IconFileText as FileText, IconReceipt as Receipt, IconBuilding as Building2, IconCalendar as Calendar, IconPackage as Package, IconInbox as Inbox, IconInfoCircle as Info, IconBolt as Zap } from '@tabler/icons-react';
+import { Encabezado, Esqueleto, Vacio } from '@/app/components/ui/kit/Estructura';
+import { Boton } from '@/app/components/ui/kit/Boton';
+import { Indicador } from '@/app/components/ui/kit/Indicador';
+import { Lista } from '@/app/components/ui/kit/Aparecer';
 
 interface Caso {
   id: number;
@@ -167,74 +171,64 @@ export default function MemoriaPage() {
     cargar();
   };
 
-  const inputCls = 'w-full border border-slate-200 rounded-lg px-3 py-2 text-[13px] outline-none focus:ring-2 focus:ring-teal-400';
+  const inputCls = 'h-9 w-full rounded-lg border border-linea bg-white px-3 text-[13px] text-tinta placeholder:text-tinta-3 outline-none focus-visible:ring-2 focus-visible:ring-marca/60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100';
+  const SUPERFICIE = 'rounded-xl border border-linea bg-white shadow-tarjeta dark:bg-slate-900 dark:border-slate-800';
+  const rotulo = 'block text-[13px] font-medium text-tinta dark:text-slate-200';
 
   return (
     <AppLayout>
-      <div className="max-w-6xl mx-auto px-4 py-6">
-        <div className="flex items-start justify-between gap-3 mb-5">
-          <div>
-            <h1 className="text-[19px] font-semibold text-slate-800 inline-flex items-center gap-2">
-              <Library size={20} className="text-teal-600" /> Memoria histórica
-            </h1>
-            <p className="text-[12.5px] text-slate-500 mt-0.5">
-              Lo que ya ejecutamos: órdenes de compra con su factura. Sirve de prueba de experiencia y de punto de partida para cotizar.
-            </p>
-          </div>
-          {isAdmin && (
-            <button onClick={() => setCreando(v => !v)}
-              className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-white bg-teal-600 hover:bg-teal-700 px-3.5 py-2 rounded-lg transition-colors flex-shrink-0">
-              {creando ? <X size={14} /> : <Plus size={14} />} {creando ? 'Cancelar' : 'Cargar experiencia'}
-            </button>
-          )}
-        </div>
+      <div className="@container max-w-6xl mx-auto p-4 sm:p-6 lg:p-8">
+        <Encabezado
+          titulo="Memoria histórica"
+          descripcion="Lo que ya ejecutamos: órdenes de compra con su factura. Sirve de prueba de experiencia y de punto de partida para cotizar."
+          acciones={isAdmin ? (
+            <Boton variante={creando ? 'secundario' : 'primario'} onClick={() => setCreando(v => !v)} icono={creando ? <X size={16} stroke={1.75} /> : <Plus size={16} stroke={1.75} />}>
+              {creando ? 'Cancelar' : 'Cargar experiencia'}
+            </Boton>
+          ) : undefined}
+        />
 
         {/* ── Resumen ─────────────────────────────────────────────────────── */}
         {resumen && resumen.casos > 0 && (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
-            <StatCard icon={<Package size={16} />} label="Casos cargados" value={resumen.casos} color="teal"
-              sub={resumen.desde ? `desde ${fmtFecha(resumen.desde)}` : undefined} />
-            <StatCard icon={<Receipt size={16} />} label="Monto histórico" value={resumen.montoTotal} color="#0d9488" formato={fmtCLP} />
-            <StatCard icon={<Building2 size={16} />} label="Entidades" value={resumen.entidades} color="#0891b2" />
-            <StatCard icon={<FileText size={16} />} label="Con factura" value={resumen.conFactura} color="#059669"
-              sub={`de ${resumen.casos} casos`} />
-          </div>
+          <Lista className="grid grid-cols-2 @2xl:grid-cols-4 gap-3 mb-5">
+            <Indicador rotulo="Casos cargados" valor={resumen.casos} detalle={resumen.desde ? `desde ${fmtFecha(resumen.desde)}` : undefined} />
+            <Indicador rotulo="Monto histórico" valor={resumen.montoTotal} formato={fmtCLP} />
+            <Indicador rotulo="Entidades" valor={resumen.entidades} />
+            <Indicador rotulo="Con factura" valor={resumen.conFactura} detalle={`de ${resumen.casos} casos`} />
+          </Lista>
         )}
 
         {/* ── Buscador de producto ────────────────────────────────────────── */}
-        <div className="rounded-xl border border-slate-200 bg-white p-4 mb-5">
-          <p className="text-[13px] font-semibold text-slate-700 mb-2">¿Ya vendimos esto antes?</p>
+        <div className={`${SUPERFICIE} p-5 mb-5`}>
+          <h2 className="text-[15px] font-semibold text-tinta dark:text-slate-100 mb-3">¿Ya vendimos esto antes?</h2>
           <div className="flex gap-2">
             <input value={consulta} onChange={e => setConsulta(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter') buscarProducto(); }}
               placeholder="Ej: notebook, taladro percutor, impresora multifuncional…"
               className={inputCls} />
-            <button onClick={buscarProducto} disabled={buscando}
-              className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-white bg-slate-800 hover:bg-slate-900 disabled:bg-slate-300 px-4 py-2 rounded-lg transition-colors flex-shrink-0">
-              {buscando ? <Loader2 size={14} className="animate-spin" /> : <Search size={14} />} Buscar
-            </button>
+            <Boton variante="primario" onClick={buscarProducto} disabled={buscando} icono={buscando ? <Loader2 size={16} className="animate-spin" /> : <Search size={16} stroke={1.75} />}>Buscar</Boton>
           </div>
 
           {resPrecios && (
-            <div className="mt-3 flex flex-wrap items-center gap-2 text-[12px]">
-              <span className="inline-flex items-center gap-1 font-medium text-emerald-700">
+            <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px]">
+              <span className="inline-flex items-center gap-1 font-medium text-exito">
                 Ya lo vendimos {resPrecios.veces} vez{resPrecios.veces === 1 ? '' : 'es'}
               </span>
-              <span className="text-slate-600">
+              <span className="text-tinta-2 dark:text-slate-400">
                 Precio típico <b>{fmtCLP(resPrecios.mediana)}</b>
-                <span className="text-slate-400"> (rango {fmtCLP(resPrecios.min)} – {fmtCLP(resPrecios.max)}, {resPrecios.conPrecio} con precio)</span>
+                <span className="text-tinta-2"> (rango {fmtCLP(resPrecios.min)} – {fmtCLP(resPrecios.max)}, {resPrecios.conPrecio} con precio)</span>
               </span>
             </div>
           )}
 
           {coincidencias != null && (
             coincidencias.length === 0 ? (
-              <p className="mt-3 text-[12.5px] text-slate-500">Sin experiencia previa cargada para eso.</p>
+              <p className="mt-3 text-[13px] text-tinta-2 dark:text-slate-400">Sin experiencia previa cargada para eso.</p>
             ) : (
               <div className="mt-3 overflow-x-auto">
-                <table className="w-full text-[12px]">
+                <table className="w-full text-[13px]">
                   <thead>
-                    <tr className="text-slate-400 text-left">
+                    <tr className="text-tinta-2 dark:text-slate-400 text-left text-xs">
                       <th className="font-medium py-1 pr-2">Producto</th>
                       <th className="font-medium py-1 pr-2 w-[110px]">Precio unit.</th>
                       <th className="font-medium py-1 pr-2 w-[150px]">Entidad</th>
@@ -244,23 +238,23 @@ export default function MemoriaPage() {
                   </thead>
                   <tbody>
                     {coincidencias.map(c => (
-                      <tr key={c.itemId} className="border-t border-slate-100 text-slate-700">
+                      <tr key={c.itemId} className="border-t border-linea dark:border-slate-800 text-tinta dark:text-slate-200">
                         <td className="py-1.5 pr-2">
                           <span className="block truncate max-w-[260px]" title={c.descripcion}>{c.descripcion}</span>
                           {(c.marca || c.modelo) && (
-                            <span className="text-[10.5px] text-slate-400">{[c.marca, c.modelo].filter(Boolean).join(' · ')}</span>
+                            <span className="text-xs text-tinta-2 dark:text-slate-400">{[c.marca, c.modelo].filter(Boolean).join(' · ')}</span>
                           )}
                         </td>
                         <td className="py-1.5 pr-2 tabular-nums font-semibold">{fmtCLP(c.precioUnitario)}</td>
                         <td className="py-1.5 pr-2 truncate max-w-[150px]" title={c.entidadNombre}>{c.entidadNombre}</td>
-                        <td className="py-1.5 pr-2 font-mono text-[10.5px] text-slate-500">{c.ocNumero}</td>
-                        <td className="py-1.5 text-slate-500">{fmtFecha(c.ocFecha)}</td>
+                        <td className="py-1.5 pr-2 font-mono text-xs text-tinta-2 dark:text-slate-400">{c.ocNumero}</td>
+                        <td className="py-1.5 text-tinta-2 dark:text-slate-400">{fmtFecha(c.ocFecha)}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
-                <p className="mt-2 text-[11px] text-slate-400 inline-flex items-start gap-1">
-                  <Info size={11} className="flex-shrink-0 mt-0.5" />
+                <p className="mt-2 text-xs text-tinta-2 dark:text-slate-400 inline-flex items-start gap-1.5">
+                  <Info size={14} stroke={1.75} className="flex-shrink-0 mt-px" />
                   Haberlo vendido antes no significa que esta licitación convenga: el análisis de viabilidad manda.
                 </p>
               </div>
@@ -270,50 +264,50 @@ export default function MemoriaPage() {
 
         {/* ── Alta de caso (admin) ────────────────────────────────────────── */}
         {creando && isAdmin && (
-          <div className="rounded-xl border border-teal-200 bg-teal-50/40 p-4 mb-5">
-            <p className="text-[13px] font-semibold text-slate-700 mb-3">Nuevo caso de experiencia</p>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className={`${SUPERFICIE} p-5 mb-5`}>
+            <h2 className="text-[15px] font-semibold text-tinta dark:text-slate-100 mb-3">Nuevo caso de experiencia</h2>
+            <div className="grid grid-cols-1 @xl:grid-cols-3 gap-3">
               <label className="block">
-                <span className="text-[11px] font-semibold text-slate-600">N° de orden de compra *</span>
+                <span className={rotulo}>N° de orden de compra</span>
                 <input value={form.ocNumero} onChange={e => setForm(f => ({ ...f, ocNumero: e.target.value }))} className={`mt-1 ${inputCls}`} />
               </label>
               <label className="block">
-                <span className="text-[11px] font-semibold text-slate-600">Fecha de la OC</span>
+                <span className={rotulo}>Fecha de la OC <span className="font-normal text-tinta-2">(opcional)</span></span>
                 <input type="date" value={form.ocFecha} onChange={e => setForm(f => ({ ...f, ocFecha: e.target.value }))} className={`mt-1 ${inputCls}`} />
               </label>
               <label className="block">
-                <span className="text-[11px] font-semibold text-slate-600">Monto total</span>
+                <span className={rotulo}>Monto total <span className="font-normal text-tinta-2">(opcional)</span></span>
                 <input inputMode="numeric" value={form.monto} onChange={e => setForm(f => ({ ...f, monto: e.target.value }))} placeholder="$" className={`mt-1 ${inputCls}`} />
               </label>
-              <label className="block sm:col-span-2">
-                <span className="text-[11px] font-semibold text-slate-600">Entidad (mandante) *</span>
+              <label className="block @xl:col-span-2">
+                <span className={rotulo}>Entidad (mandante)</span>
                 <input value={form.entidadNombre} onChange={e => setForm(f => ({ ...f, entidadNombre: e.target.value }))} className={`mt-1 ${inputCls}`} />
               </label>
               <label className="block">
-                <span className="text-[11px] font-semibold text-slate-600">RUT de la entidad</span>
+                <span className={rotulo}>RUT de la entidad <span className="font-normal text-tinta-2">(opcional)</span></span>
                 <input value={form.entidadRut} onChange={e => setForm(f => ({ ...f, entidadRut: e.target.value }))} className={`mt-1 ${inputCls}`} />
               </label>
               <label className="block">
-                <span className="text-[11px] font-semibold text-slate-600">Línea de negocio</span>
+                <span className={rotulo}>Línea de negocio <span className="font-normal text-tinta-2">(opcional)</span></span>
                 <input value={form.categoria} onChange={e => setForm(f => ({ ...f, categoria: e.target.value }))} className={`mt-1 ${inputCls}`} />
               </label>
               <label className="block">
-                <span className="text-[11px] font-semibold text-slate-600">Licitación (si la hubo)</span>
+                <span className={rotulo}>Licitación <span className="font-normal text-tinta-2">(si la hubo)</span></span>
                 <input value={form.licitacionCodigo} onChange={e => setForm(f => ({ ...f, licitacionCodigo: e.target.value }))}
                   placeholder="1234-56-LE26" className={`mt-1 ${inputCls}`} />
               </label>
               <label className="block">
-                <span className="text-[11px] font-semibold text-slate-600">Descripción</span>
+                <span className={rotulo}>Descripción <span className="font-normal text-tinta-2">(opcional)</span></span>
                 <input value={form.descripcion} onChange={e => setForm(f => ({ ...f, descripcion: e.target.value }))} className={`mt-1 ${inputCls}`} />
               </label>
             </div>
 
-            <p className="text-[11px] font-semibold text-slate-600 mt-4 mb-1.5">Productos de esta OC</p>
+            <p className="text-[13px] font-medium text-tinta dark:text-slate-200 mt-5 mb-2">Productos de esta OC</p>
             <div className="space-y-2">
               {items.map((it, i) => (
-                <div key={i} className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                <div key={i} className="grid grid-cols-2 @xl:grid-cols-5 gap-2">
                   <input value={it.descripcion} onChange={e => setItems(a => a.map((x, j) => j === i ? { ...x, descripcion: e.target.value } : x))}
-                    placeholder="Producto" className={`sm:col-span-2 ${inputCls}`} />
+                    placeholder="Producto" className={`@xl:col-span-2 ${inputCls}`} />
                   <input value={it.marca} onChange={e => setItems(a => a.map((x, j) => j === i ? { ...x, marca: e.target.value } : x))}
                     placeholder="Marca" className={inputCls} />
                   <input value={it.cantidad} inputMode="numeric" onChange={e => setItems(a => a.map((x, j) => j === i ? { ...x, cantidad: e.target.value } : x))}
@@ -322,108 +316,92 @@ export default function MemoriaPage() {
                     <input value={it.precioUnitario} inputMode="numeric" onChange={e => setItems(a => a.map((x, j) => j === i ? { ...x, precioUnitario: e.target.value } : x))}
                       placeholder="P. unitario" className={inputCls} />
                     {items.length > 1 && (
-                      <button onClick={() => setItems(a => a.filter((_, j) => j !== i))} title="Quitar línea"
-                        className="text-slate-300 hover:text-rose-600 px-1 rounded-lg hover:bg-rose-50 transition-colors flex-shrink-0">
-                        <X size={14} />
+                      <button onClick={() => setItems(a => a.filter((_, j) => j !== i))} title="Quitar línea" aria-label="Quitar línea"
+                        className="flex h-9 w-9 items-center justify-center text-slate-400 hover:text-urgente rounded-lg hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors flex-shrink-0">
+                        <X size={16} stroke={1.75} />
                       </button>
                     )}
                   </div>
                 </div>
               ))}
             </div>
-            <button onClick={() => setItems(a => [...a, { ...ITEM_VACIO }])}
-              className="mt-2 inline-flex items-center gap-1 text-[11.5px] font-semibold text-teal-600 hover:bg-teal-100/60 px-2 py-1 rounded-lg transition-colors">
-              <Plus size={12} /> Agregar producto
-            </button>
+            <Boton variante="fantasma" tamano="sm" className="mt-2" onClick={() => setItems(a => [...a, { ...ITEM_VACIO }])} icono={<Plus size={16} stroke={1.75} />}>Agregar producto</Boton>
 
-            <div className="flex items-center justify-end gap-2 mt-4">
-              <button onClick={() => setCreando(false)}
-                className="inline-flex items-center gap-1 text-[12.5px] font-semibold text-slate-600 hover:bg-slate-200/60 px-3 py-1.5 rounded-lg transition-colors">
-                <X size={13} /> Cancelar
-              </button>
-              <button onClick={guardar} disabled={guardando}
-                className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-white bg-teal-600 hover:bg-teal-700 disabled:bg-slate-300 px-3.5 py-1.5 rounded-lg transition-colors">
-                {guardando ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />} Guardar caso
-              </button>
+            <div className="flex items-center justify-end gap-2 mt-5">
+              <Boton onClick={() => setCreando(false)}>Cancelar</Boton>
+              <Boton variante="primario" onClick={guardar} disabled={guardando} icono={guardando ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} stroke={1.75} />}>
+                {guardando ? 'Guardando…' : 'Guardar caso'}
+              </Boton>
             </div>
           </div>
         )}
 
         {/* ── Listado de casos ────────────────────────────────────────────── */}
-        <div className="flex items-center gap-2 mb-2">
-          <input value={filtro} onChange={e => setFiltro(e.target.value)}
+        <div className="flex items-center gap-3 mb-3">
+          <input value={filtro} aria-label="Filtrar casos" onChange={e => setFiltro(e.target.value)}
             placeholder="Filtrar por OC, entidad o descripción…"
             className={`${inputCls} max-w-sm`} />
-          <span className="text-[11.5px] text-slate-400">{casos.length} caso{casos.length === 1 ? '' : 's'}</span>
+          <span className="text-xs text-tinta-2 dark:text-slate-400 tabular-nums">{casos.length} caso{casos.length === 1 ? '' : 's'}</span>
         </div>
 
         {cargando ? (
-          <p className="text-[12.5px] text-slate-400 inline-flex items-center gap-1.5 py-6">
-            <Loader2 size={13} className="animate-spin" /> Cargando…
-          </p>
+          <div className="space-y-2">{[1, 2, 3, 4].map(i => <Esqueleto key={i} className="h-11 rounded-lg" />)}</div>
         ) : casos.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/60 px-4 py-10 text-center">
-            <Inbox size={22} className="mx-auto text-slate-300 mb-2" />
-            <p className="text-[13px] font-semibold text-slate-600">La memoria está vacía</p>
-            <p className="text-[12px] text-slate-500 mt-0.5">
-              {isAdmin
-                ? 'Carga la primera orden de compra ejecutada para empezar a construir el histórico.'
-                : 'Todavía no hay experiencia cargada.'}
-            </p>
-          </div>
+          <Vacio icono={<Inbox size={28} stroke={1.75} />} titulo="La memoria está vacía"
+            texto={isAdmin ? 'Carga la primera orden de compra ejecutada para empezar a construir el histórico.' : 'Todavía no hay experiencia cargada.'} />
         ) : (
-          <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
-            <table className="w-full text-[12.5px]">
-              <thead className="bg-slate-50 text-slate-500">
+          <div className={`${SUPERFICIE} overflow-hidden`}>
+            <table className="w-full text-[13px]">
+              <thead className="text-tinta-2 dark:text-slate-400 text-xs">
                 <tr className="text-left">
-                  <th className="font-medium px-3 py-2">OC</th>
-                  <th className="font-medium px-3 py-2">Entidad</th>
-                  <th className="font-medium px-3 py-2 w-[130px]">Línea de negocio</th>
-                  <th className="font-medium px-3 py-2 text-right w-[120px]">Monto</th>
-                  <th className="font-medium px-3 py-2 w-[100px]">Fecha</th>
-                  <th className="font-medium px-3 py-2 w-[110px]">Respaldo</th>
+                  <th className="font-medium px-3 h-10">OC</th>
+                  <th className="font-medium px-3 h-10">Entidad</th>
+                  <th className="font-medium px-3 h-10 w-[130px]">Línea de negocio</th>
+                  <th className="font-medium px-3 h-10 text-right w-[120px]">Monto</th>
+                  <th className="font-medium px-3 h-10 w-[100px]">Fecha</th>
+                  <th className="font-medium px-3 h-10 w-[110px]">Respaldo</th>
                   {isAdmin && <th className="w-[40px]" />}
                 </tr>
               </thead>
               <tbody>
                 {casos.map(c => (
-                  <tr key={c.id} className="border-t border-slate-100 text-slate-700 hover:bg-slate-50/60">
-                    <td className="px-3 py-2 font-mono text-[11.5px]">
+                  <tr key={c.id} className="h-11 border-t border-linea dark:border-slate-800 text-tinta dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                    <td className="px-3 py-2 font-mono text-xs">
                       <span className="flex items-center gap-1.5">
                         {c.oc_numero}
                         {c.origen && c.origen !== 'MANUAL' && (
                           <span
                             title={`Cargado automático desde ${c.origen}`}
-                            className="inline-flex items-center gap-0.5 text-[9.5px] font-medium text-cyan-700 font-sans">
-                            <Zap size={9} /> {c.origen}
+                            className="inline-flex items-center gap-0.5 text-xs font-medium text-tinta-2 font-sans">
+                            <Zap size={14} stroke={1.75} /> {c.origen}
                           </span>
                         )}
                       </span>
                     </td>
                     <td className="px-3 py-2 truncate max-w-[220px]" title={c.entidad_nombre}>{c.entidad_nombre}</td>
-                    <td className="px-3 py-2 text-slate-500 truncate max-w-[130px]">{c.categoria || '—'}</td>
+                    <td className="px-3 py-2 text-tinta-2 dark:text-slate-400 truncate max-w-[130px]">{c.categoria || '—'}</td>
                     <td className="px-3 py-2 text-right tabular-nums font-semibold">{fmtCLP(c.monto)}</td>
-                    <td className="px-3 py-2 text-slate-500 inline-flex items-center gap-1">
-                      <Calendar size={11} className="text-slate-300" />{fmtFecha(c.oc_fecha)}
+                    <td className="px-3 py-2 text-tinta-2 dark:text-slate-400 whitespace-nowrap tabular-nums">
+                      {fmtFecha(c.oc_fecha)}
                     </td>
                     <td className="px-3 py-2">
-                      <span className="inline-flex items-center gap-2 text-[11px]">
-                        <span className={c.n_items > 0 ? 'text-slate-600' : 'text-slate-300'} title={`${c.n_items} producto(s)`}>
-                          <Package size={12} className="inline" /> {c.n_items}
+                      <span className="inline-flex items-center gap-2 text-xs">
+                        <span className={c.n_items > 0 ? 'text-tinta-2 dark:text-slate-400' : 'text-slate-300'} title={`${c.n_items} producto(s)`}>
+                          <Package size={14} stroke={1.75} className="inline" /> {c.n_items}
                         </span>
                         {/* Sin factura, el caso NO sirve como prueba de experiencia ante MP:
                             se marca en ámbar para que se note lo que falta completar. */}
-                        <span className={c.n_facturas > 0 ? 'text-emerald-600' : 'text-amber-500'}
+                        <span className={c.n_facturas > 0 ? 'text-exito' : 'text-alerta'}
                           title={c.n_facturas > 0 ? `${c.n_facturas} factura(s)` : 'Sin factura cargada: aún no sirve como respaldo'}>
-                          <Receipt size={12} className="inline" /> {c.n_facturas}
+                          <Receipt size={14} stroke={1.75} className="inline" /> {c.n_facturas}
                         </span>
                       </span>
                     </td>
                     {isAdmin && (
                       <td className="px-2 py-2">
-                        <button onClick={() => borrar(c)} title="Borrar caso"
-                          className="text-slate-300 hover:text-rose-600 p-1 rounded-lg hover:bg-rose-50 transition-colors">
-                          <Trash2 size={13} />
+                        <button onClick={() => borrar(c)} title="Borrar caso" aria-label="Borrar caso"
+                          className="flex h-8 w-8 items-center justify-center text-slate-400 hover:text-urgente rounded-lg hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors">
+                          <Trash2 size={16} stroke={1.75} />
                         </button>
                       </td>
                     )}

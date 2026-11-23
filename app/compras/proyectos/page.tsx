@@ -234,14 +234,14 @@ export default function ProyectosObumaPage() {
             </p>
             <div className="grid grid-cols-2 gap-3 @4xl:grid-cols-4">
               {Array.from({ length: 4 }).map((_, i) => (
-                <div key={i} className="rounded-xl border border-linea bg-white px-4 py-3.5 shadow-tarjeta dark:border-slate-800 dark:bg-slate-900">
+                <div key={i} className="rounded-xl border border-linea bg-white dark:bg-slate-900 px-4 py-3.5 shadow-tarjeta dark:border-slate-800 dark:bg-slate-900">
                   <Esqueleto className="h-3 w-24" /><Esqueleto className="mt-3 h-7 w-28" />
                 </div>
               ))}
             </div>
             <div className="mt-5 space-y-3">
               {Array.from({ length: 3 }).map((_, i) => (
-                <div key={i} className="rounded-xl border border-linea bg-white px-4 py-3.5 shadow-tarjeta dark:border-slate-800 dark:bg-slate-900">
+                <div key={i} className="rounded-xl border border-linea bg-white dark:bg-slate-900 px-4 py-3.5 shadow-tarjeta dark:border-slate-800 dark:bg-slate-900">
                   <Esqueleto className="h-4 w-2/3" /><Esqueleto className="mt-2 h-3 w-1/3" />
                   <div className="mt-4 grid grid-cols-4 gap-3"><Esqueleto className="h-8" /><Esqueleto className="h-8" /><Esqueleto className="h-8" /><Esqueleto className="h-8" /></div>
                 </div>
@@ -282,7 +282,7 @@ export default function ProyectosObumaPage() {
             </Lista>
 
             {/* Filtros */}
-            <div className="mt-5 mb-5 rounded-xl border border-linea bg-white p-3 shadow-tarjeta dark:border-slate-800 dark:bg-slate-900">
+            <div className="mt-5 mb-5 rounded-xl border border-linea bg-white dark:bg-slate-900 p-3 shadow-tarjeta dark:border-slate-800 dark:bg-slate-900">
               <div className="overflow-x-auto">
                 <Pestanas id="proyectos-estado" valor={estadoFiltro} onCambio={setEstadoFiltro}
                   opciones={[
@@ -295,7 +295,7 @@ export default function ProyectosObumaPage() {
                   <Search size={16} stroke={1.75} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
                   <input value={q} onChange={e => setQ(e.target.value)} placeholder="Buscar por nombre, cliente, referencia o licitación…"
                     aria-label="Buscar proyectos"
-                    className="h-9 w-full rounded-lg border border-linea bg-white pl-9 pr-8 text-sm text-tinta placeholder:text-tinta-3 focus:outline-none focus:ring-2 focus:ring-marca/60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" />
+                    className="h-9 w-full rounded-lg border border-linea bg-white dark:bg-slate-900 pl-9 pr-8 text-sm text-tinta placeholder:text-tinta-3 focus:outline-none focus:ring-2 focus:ring-marca/60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" />
                   {q && (
                     <button onClick={() => setQ('')} aria-label="Limpiar búsqueda" title="Limpiar búsqueda"
                       className="absolute right-1.5 top-1/2 -translate-y-1/2 inline-flex h-6 w-6 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-tinta dark:hover:bg-slate-800">
@@ -373,7 +373,7 @@ function TarjetaProyecto({ p }: { p: ProyectoObuma }) {
         </div>
         {p.tieneProyectoReal && p.precioNeto != null && (
           <div className="text-right">
-            <p className="text-[11px] text-tinta-2 dark:text-slate-400">Precio de venta (neto)</p>
+            <p className="text-xs text-tinta-2 dark:text-slate-400">Precio de venta (neto)</p>
             <p className="text-lg font-semibold tracking-tight tabular-nums text-tinta dark:text-slate-50">{fmtCLP(p.precioNeto)}</p>
           </div>
         )}
@@ -390,16 +390,16 @@ function TarjetaProyecto({ p }: { p: ProyectoObuma }) {
 
       <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2.5 border-t border-linea/80 pt-3 @3xl:grid-cols-4 dark:border-slate-800">
         <Dato rotulo="OC vigentes (neto)">
-          {fmtCLP(vig?.neto ?? 0)}<span className="block text-[11px] font-normal text-tinta-2 dark:text-slate-400">{vig?.cantidad ?? 0} OC</span>
+          {fmtCLP(vig?.neto ?? 0)}<span className="block text-xs font-normal text-tinta-2 dark:text-slate-400">{vig?.cantidad ?? 0} OC</span>
         </Dato>
         <Dato rotulo="Comprometido sin factura (neto)">
-          {fmtCLP(pend?.neto ?? 0)}<span className="block text-[11px] font-normal text-tinta-2 dark:text-slate-400">{pend?.cantidad ?? 0} OC emitidas</span>
+          {fmtCLP(pend?.neto ?? 0)}<span className="block text-xs font-normal text-tinta-2 dark:text-slate-400">{pend?.cantidad ?? 0} OC emitidas</span>
         </Dato>
         <Dato rotulo="Gasto contabilizado (neto)">
-          {fmtCLP(docsNeto)}<span className="block text-[11px] font-normal text-tinta-2 dark:text-slate-400">{p.cantidadFacturas} documentos</span>
+          {fmtCLP(docsNeto)}<span className="block text-xs font-normal text-tinta-2 dark:text-slate-400">{p.cantidadFacturas} documentos</span>
         </Dato>
         <Dato rotulo="OC anuladas (no suman)">
-          {anul?.cantidad ? fmtCLP(anul.total) : '—'}<span className="block text-[11px] font-normal text-tinta-2 dark:text-slate-400">{anul?.cantidad ? `${anul.cantidad} OC, con IVA` : 'ninguna'}</span>
+          {anul?.cantidad ? fmtCLP(anul.total) : '—'}<span className="block text-xs font-normal text-tinta-2 dark:text-slate-400">{anul?.cantidad ? `${anul.cantidad} OC, con IVA` : 'ninguna'}</span>
         </Dato>
       </dl>
 
@@ -522,7 +522,7 @@ function FilaOc({ oc, centro }: { oc: OcDelProyecto; centro?: string }) {
   return (
     <li>
       <button type="button" onClick={alternar} disabled={!oc.folio} aria-expanded={oc.folio ? abierta : undefined}
-        className="flex w-full items-start justify-between gap-3 rounded-lg px-2 py-2 text-left transition-colors duration-150 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marca/60 disabled:cursor-default disabled:hover:bg-transparent dark:hover:bg-slate-800">
+        className="flex w-full items-start justify-between gap-3 rounded-lg px-2 py-2 text-left transition-colors duration-150 hover:bg-slate-50 dark:hover:bg-slate-950/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marca/60 disabled:cursor-default disabled:hover:bg-transparent dark:hover:bg-slate-800">
         <span className="min-w-0">
           <span className="block truncate text-[13px] font-medium text-tinta dark:text-slate-100">{oc.proveedorNombre || 'Proveedor sin nombre'}</span>
           <span className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-tinta-2 dark:text-slate-400">
@@ -535,7 +535,7 @@ function FilaOc({ oc, centro }: { oc: OcDelProyecto; centro?: string }) {
         </span>
         <span className="flex-shrink-0 text-right">
           <span className={`block text-[13px] font-semibold tabular-nums ${anulada ? 'text-tinta-3 line-through' : 'text-tinta dark:text-slate-50'}`}>{fmtCLP(oc.neto ?? oc.total)}</span>
-          <span className="block text-[11px] tabular-nums text-tinta-2 dark:text-slate-400">{fmtCLP(oc.total)} con IVA</span>
+          <span className="block text-xs tabular-nums text-tinta-2 dark:text-slate-400">{fmtCLP(oc.total)} con IVA</span>
         </span>
       </button>
       {abierta && oc.folio && (
@@ -583,7 +583,7 @@ function FilaDocumento({ d }: { d: DocumentoDelProyecto }) {
       </span>
       <span className="flex-shrink-0 text-right">
         <span className={`block text-[13px] font-semibold tabular-nums ${resta ? 'text-urgente' : 'text-tinta dark:text-slate-50'}`}>{fmtCLP(d.neto ?? d.total)}</span>
-        <span className="block text-[11px] tabular-nums text-tinta-2 dark:text-slate-400">{fmtCLP(d.total)} con IVA{resta ? ' · resta' : ''}</span>
+        <span className="block text-xs tabular-nums text-tinta-2 dark:text-slate-400">{fmtCLP(d.total)} con IVA{resta ? ' · resta' : ''}</span>
       </span>
     </li>
   );

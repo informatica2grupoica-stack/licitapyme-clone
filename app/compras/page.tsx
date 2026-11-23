@@ -21,6 +21,8 @@ import { fechaHoraParaExcel, hojaDeFilas } from '@/app/lib/exportar-fechas';
 import { GanttComprasCard } from '@/app/negocios/[id]/GanttComprasCard';
 import type { FaseTarea, HitosGantt as HitosPlan } from '@/app/lib/compras-plan';
 import { IconShoppingCart as ShoppingCart, IconLoader2 as Loader2, IconBuilding as Building2, IconArrowUpRight as ArrowUpRight, IconSearch as Search, IconFilter as Filter, IconX as X, IconCalendar as Calendar, IconUsers as Users, IconArrowsUpDown as ArrowUpDown, IconAlertTriangle as AlertTriangle, IconClock as Clock, IconUserPlus as UserPlus, IconCircleCheck as CheckCircle2, IconChartBar as BarChart3, IconChevronLeft as ChevronLeft, IconChevronRight as ChevronRight, IconChevronsLeft as ChevronsLeft, IconChevronsRight as ChevronsRight, IconList as List, IconPackage as PackageCheck, IconCircleX as XCircle, IconArrowBackUp as Undo2, IconPencil as Pencil, IconTimeline as GanttChart, IconChartLine as LineChart, IconZoomIn as ZoomIn, IconZoomOut as ZoomOut, IconDiamond as Diamond, IconCalendarClock as CalendarClock, IconDownload as Download, IconShieldCheck as ShieldCheck } from '@tabler/icons-react';
+import { Esqueleto, Vacio } from '@/app/components/ui/kit/Estructura';
+import { Pestanas } from '@/app/components/ui/kit/Pestanas';
 
 type CierreLegado = 'ENTREGADA' | 'NO_REALIZADA' | 'PRECOMPRA_SIN_ADJUDICAR' | 'OC_CANCELADA';
 type EstadoTareaGantt = 'PENDIENTE' | 'EN_CURSO' | 'HECHA';
@@ -41,6 +43,7 @@ interface ComprasFila {
   tareasTotal: number; tareasHechas: number; tareasVencidas: number;
   ocFecha: string | null;
   cierreLegado: CierreLegado | null;
+  estadoCompra: EstadoDeLaCompra;   // Abierta / En proceso / Entregada / Pagada / Cancelada (migration-203)
   precompra: boolean;
   adjudicacionEstimadaAt: string | null;
   plazoEntregaDias: number | null;
@@ -62,28 +65,28 @@ function VistaAvancesCompras({ negocios }: { negocios: ComprasFila[] }) {
   const promedio = filas.length ? Math.round(filas.reduce((s, x) => s + x.pct, 0) / filas.length) : 0;
   const color = (pct: number, venc: number) => venc > 0 ? 'bg-rose-500' : pct >= 100 ? 'bg-emerald-600' : pct >= 50 ? 'bg-teal-600' : 'bg-amber-500';
   return (
-    <div className="rounded-xl border border-zinc-200 bg-white overflow-hidden">
-      <div className="flex items-center justify-between px-4 py-2.5 border-b border-zinc-100 bg-zinc-50">
-        <span className="text-[12px] font-semibold text-zinc-600">{filas.length} licitaciones en trabajo</span>
-        <span className="text-[12px] text-zinc-500">Avance promedio <b className="text-zinc-800 tabular-nums">{promedio}%</b></span>
+    <div className="rounded-xl border border-linea dark:border-slate-800 bg-white dark:bg-slate-900 overflow-hidden">
+      <div className="flex items-center justify-between px-4 py-2.5 border-b border-linea dark:border-slate-800 bg-slate-50 dark:bg-slate-950/40">
+        <span className="text-[12px] font-semibold text-tinta-2 dark:text-slate-400">{filas.length} licitaciones en trabajo</span>
+        <span className="text-[12px] text-tinta-2 dark:text-slate-400">Avance promedio <b className="text-tinta dark:text-slate-100 tabular-nums">{promedio}%</b></span>
       </div>
-      <ul className="divide-y divide-zinc-100">
+      <ul className="divide-y divide-linea dark:divide-slate-800">
         {filas.map(({ f, pct }) => (
           <li key={f.negocioId}>
-            <Link href={`/compras/${f.negocioId}`} className="flex items-center gap-4 px-4 py-3 hover:bg-zinc-50 transition-colors">
+            <Link href={`/compras/${f.negocioId}`} className="flex items-center gap-4 px-4 py-3 hover:bg-slate-50 transition-colors">
               <span className="min-w-0 flex-1">
-                <span className="block text-[13px] font-semibold text-zinc-900 truncate">{f.licitacionNombre || f.licitacionCodigo}</span>
-                <span className="block text-[11.5px] text-zinc-500 truncate">
+                <span className="block text-[13px] font-semibold text-tinta dark:text-slate-100 truncate">{f.licitacionNombre || f.licitacionCodigo}</span>
+                <span className="block text-xs text-tinta-2 dark:text-slate-400 truncate">
                   {f.licitacionCodigo}{f.asignadoNombre ? ` · ${f.asignadoNombre}` : ' · Sin asignar'}
                   {f.tareasVencidas > 0 ? ` · ${f.tareasVencidas} tarea(s) vencida(s)` : ''}
                 </span>
               </span>
-              <span className="hidden sm:block w-48 h-2 rounded-full bg-zinc-100 overflow-hidden flex-shrink-0">
+              <span className="hidden sm:block w-48 h-2 rounded-full bg-slate-100 overflow-hidden flex-shrink-0">
                 <span className={`block h-full ${color(pct, f.tareasVencidas)}`} style={{ width: `${pct}%` }} />
               </span>
               <span className="w-24 text-right flex-shrink-0">
-                <span className="block text-[15px] font-semibold tabular-nums text-zinc-900">{pct}%</span>
-                <span className="block text-[11px] text-zinc-500 tabular-nums">{f.tareasTotal > 0 ? `${f.tareasHechas}/${f.tareasTotal} tareas` : 'sin tareas'}</span>
+                <span className="block text-[15px] font-semibold tabular-nums text-tinta dark:text-slate-100">{pct}%</span>
+                <span className="block text-xs text-tinta-2 dark:text-slate-400 tabular-nums">{f.tareasTotal > 0 ? `${f.tareasHechas}/${f.tareasTotal} tareas` : 'sin tareas'}</span>
               </span>
             </Link>
           </li>
@@ -93,11 +96,16 @@ function VistaAvancesCompras({ negocios }: { negocios: ComprasFila[] }) {
   );
 }
 
+import { EstadoCompraControl, EtiquetaEstadoCompra } from './EstadoCompraControl';
+import { ETIQUETA_ESTADO_COMPRA, type EstadoCompra as EstadoDeLaCompra } from '@/app/lib/compras-estado-core';
+
 const SS_COMPRAS_FILTROS = 'compras:filtros:v1';
 // Pestañas de Compras (11-nov-2026): abierta = sin marca de cierre; cerrada = entregada; cancelada = OC cancelada por el organismo o no realizada.
-type EstadoCompra = 'abiertas' | 'cerradas' | 'canceladas' | 'todas';
-const estadoDeCompra = (f: { cierreLegado: CierreLegado | null }): Exclude<EstadoCompra, 'todas'> =>
-  !f.cierreLegado ? 'abiertas' : f.cierreLegado === 'OC_CANCELADA' || f.cierreLegado === 'NO_REALIZADA' ? 'canceladas' : 'cerradas';
+type EstadoCompra = 'abiertas' | 'en_proceso' | 'entregadas' | 'cerradas' | 'canceladas' | 'todas';
+// Estado de la compra (23-nov-2026): Abierta → En proceso → Entregada → Cerrada (= Pagada) o Cancelada.
+const estadoDeCompra = (f: { estadoCompra: EstadoDeLaCompra }): Exclude<EstadoCompra, 'todas'> =>
+  f.estadoCompra === 'EN_PROCESO' ? 'en_proceso' : f.estadoCompra === 'ENTREGADA' ? 'entregadas'
+    : f.estadoCompra === 'PAGADA' ? 'cerradas' : f.estadoCompra === 'CANCELADA' ? 'canceladas' : 'abiertas';
 
 // "Urgente" = Cadena de Urgencia (§3.7/§15.2): el plazo de entrega OFERTADO es menor a 3 días —
 // no es una cuenta regresiva desde hoy, es que el compromiso mismo era muy corto. Un solo texto
@@ -211,13 +219,13 @@ function AccionesCierreLegado({ f, onCambio }: { f: ComprasFila; onCambio: () =>
     return (
       <div className="flex items-center gap-2">
         <span className={`inline-flex items-center gap-1 text-xs font-medium ${
-          f.cierreLegado === 'ENTREGADA' ? 'text-emerald-700' : 'text-zinc-500'
+          f.cierreLegado === 'ENTREGADA' ? 'text-emerald-700' : 'text-tinta-2 dark:text-slate-400'
         }`}>
           {f.cierreLegado === 'ENTREGADA' ? <PackageCheck size={11} /> : <XCircle size={11} />}
           {f.cierreLegado === 'ENTREGADA' ? 'Licitación cerrada' : f.cierreLegado === 'PRECOMPRA_SIN_ADJUDICAR' ? 'Pre-compra sin adjudicar' : f.cierreLegado === 'OC_CANCELADA' ? 'Cancelada (OC cancelada)' : 'Cancelada (no realizada)'}
         </span>
         <button onClick={deshacer} disabled={cargando} title="Deshacer"
-          className="text-zinc-400 hover:text-zinc-600 disabled:opacity-50"><Undo2 size={13} /></button>
+          className="text-tinta-2 hover:text-zinc-600 disabled:opacity-50"><Undo2 size={13} /></button>
       </div>
     );
   }
@@ -234,13 +242,13 @@ function AccionesCierreLegado({ f, onCambio }: { f: ComprasFila; onCambio: () =>
   };
   return (
     <div className="flex items-center gap-1.5">
-      <span className="text-[10.5px] text-zinc-400 mr-0.5">Solo tú:</span>
+      <span className="text-xs text-tinta-2 mr-0.5">Solo tú:</span>
       <button onClick={() => pedir('ENTREGADA')} disabled={cargando} title="Cierra la licitación (queda en la pestaña Cerradas). Se puede deshacer."
-        className={`inline-flex items-center gap-1 text-[11px] font-semibold disabled:opacity-50 px-2 py-1 rounded-lg transition-colors ${confirmar === 'ENTREGADA' ? 'text-white bg-emerald-600' : 'text-emerald-700 bg-emerald-50 hover:bg-emerald-100'}`}>
+        className={`inline-flex items-center gap-1 text-xs font-semibold disabled:opacity-50 px-2 py-1 rounded-lg transition-colors ${confirmar === 'ENTREGADA' ? 'text-white bg-emerald-600' : 'text-emerald-700 bg-emerald-50 hover:bg-emerald-100'}`}>
         <PackageCheck size={11} /> {confirmar === 'ENTREGADA' ? '¿Confirmar cierre?' : 'Cerrar licitación'}
       </button>
       <button onClick={() => pedir('NO_REALIZADA')} disabled={cargando} title="Marca la licitación como cancelada (queda en la pestaña Canceladas). Se puede deshacer."
-        className={`inline-flex items-center gap-1 text-[11px] font-semibold disabled:opacity-50 px-2 py-1 rounded-lg transition-colors ${confirmar === 'NO_REALIZADA' ? 'text-white bg-zinc-600' : 'text-zinc-500 bg-zinc-100 hover:bg-zinc-200'}`}>
+        className={`inline-flex items-center gap-1 text-xs font-semibold disabled:opacity-50 px-2 py-1 rounded-lg transition-colors ${confirmar === 'NO_REALIZADA' ? 'text-white bg-zinc-600' : 'text-tinta-2 dark:text-slate-400 bg-slate-100 hover:bg-slate-200'}`}>
         <XCircle size={11} /> {confirmar === 'NO_REALIZADA' ? '¿Confirmar cancelación?' : 'Licitación cancelada'}
       </button>
     </div>
@@ -258,18 +266,18 @@ interface ObumaDeCerrada {
   documentos: { folio: string; tipo: string; proveedor: string | null; total: number; fecha: string | null; observacion: string | null }[];
 }
 function PanelObumaCerrada({ o, negocioId }: { o: ObumaDeCerrada | undefined; negocioId: number }) {
-  if (!o) return <p className="text-[11.5px] text-zinc-400 border-t border-zinc-100 pt-2">Cargando datos de Obuma…</p>;
+  if (!o) return <p className="text-xs text-tinta-2 border-t border-linea dark:border-slate-800 pt-2">Cargando datos de Obuma…</p>;
   const p = o.proyecto;
-  if (!p && o.ocs.length === 0) return <p className="text-[11.5px] text-zinc-400 border-t border-zinc-100 pt-2">Sin datos en Obuma: no hay proyecto ni órdenes de compra de esta licitación.</p>;
+  if (!p && o.ocs.length === 0) return <p className="text-xs text-tinta-2 border-t border-linea dark:border-slate-800 pt-2">Sin datos en Obuma: no hay proyecto ni órdenes de compra de esta licitación.</p>;
   const margen = p && p.precioNeto && p.costo != null ? p.precioNeto - p.costo : null;
   const dato = (etq: string, v: string) => (
-    <div className="min-w-[92px]"><p className="text-[10px] text-zinc-400">{etq}</p><p className="text-[12.5px] font-semibold text-zinc-800 tabular-nums">{v}</p></div>
+    <div className="min-w-[92px]"><p className="text-xs text-tinta-2">{etq}</p><p className="text-[12.5px] font-semibold text-tinta dark:text-slate-100 tabular-nums">{v}</p></div>
   );
   return (
-    <div className="border-t border-zinc-100 pt-2 space-y-2">
-      <p className="text-[11.5px] text-zinc-500">
-        <span className="font-semibold text-zinc-700">Obuma</span>
-        {p ? <> · Proyecto <span className="font-semibold text-zinc-700">#{p.folio ?? '—'}</span> · {p.estado ?? 'sin estado'}{p.fechaIngreso ? ` · creado ${fmtFecha(p.fechaIngreso)}` : ''}</> : ' · sin proyecto asociado'}
+    <div className="border-t border-linea dark:border-slate-800 pt-2 space-y-2">
+      <p className="text-xs text-tinta-2 dark:text-slate-400">
+        <span className="font-semibold text-tinta dark:text-slate-200">Obuma</span>
+        {p ? <> · Proyecto <span className="font-semibold text-tinta dark:text-slate-200">#{p.folio ?? '—'}</span> · {p.estado ?? 'sin estado'}{p.fechaIngreso ? ` · creado ${fmtFecha(p.fechaIngreso)}` : ''}</> : ' · sin proyecto asociado'}
         {p?.cliente ? <> · {p.cliente}</> : null}
       </p>
       <div className="flex flex-wrap gap-x-5 gap-y-1.5">
@@ -282,47 +290,47 @@ function PanelObumaCerrada({ o, negocioId }: { o: ObumaDeCerrada | undefined; ne
         {p && p.cantidadFacturas > 0 && dato('Facturas de compra', `${p.cantidadFacturas} · ${fmtCLP(p.totalFacturado)}`)}
       </div>
       {o.ocs.length > 0 && (
-        <details className="text-[11.5px]">
+        <details className="text-xs">
           <summary className="cursor-pointer text-teal-700 font-semibold">Ver las {o.ocs.length} orden(es) de compra y sus facturas</summary>
-          <div className="mt-1.5 divide-y divide-zinc-100 border border-zinc-100 rounded-lg">
+          <div className="mt-1.5 divide-y divide-linea dark:divide-slate-800 border border-linea dark:border-slate-800 rounded-lg">
             {o.ocs.map((c, i) => (
               <div key={i} className="px-2.5 py-1.5">
                 <div className="flex items-center justify-between gap-3">
-                  <span className="text-zinc-700 truncate">OC {c.folio ?? '—'}{c.fecha ? ` · ${fmtFecha(c.fecha)}` : ''} · {c.proveedor ?? 'sin proveedor'}{c.estado ? ` · ${c.estado}` : ''}</span>
-                  <span className="font-semibold text-zinc-800 tabular-nums flex-shrink-0">{fmtCLP(c.total)}</span>
+                  <span className="text-tinta dark:text-slate-200 truncate">OC {c.folio ?? '—'}{c.fecha ? ` · ${fmtFecha(c.fecha)}` : ''} · {c.proveedor ?? 'sin proveedor'}{c.estado ? ` · ${c.estado}` : ''}</span>
+                  <span className="font-semibold text-tinta dark:text-slate-100 tabular-nums flex-shrink-0">{fmtCLP(c.total)}</span>
                 </div>
                 {c.facturas.map((fa, j) => (
-                  <div key={j} className="flex items-center justify-between gap-3 pl-4 text-zinc-500">
+                  <div key={j} className="flex items-center justify-between gap-3 pl-4 text-tinta-2 dark:text-slate-400">
                     <span className="truncate">Factura {fa.tipo ? `T${fa.tipo} ` : ''}N° {fa.folio}{fa.fecha ? ` · ${fmtFecha(fa.fecha)}` : ''}{fa.xml ? <> · <a href={fa.xml} target="_blank" rel="noreferrer" className="text-teal-700 hover:underline">XML</a></> : null}</span>
                     <span className="tabular-nums flex-shrink-0">{fmtCLP(fa.total)}</span>
                   </div>
                 ))}
-                {c.facturas.length === 0 && <p className="pl-4 text-zinc-400">Sin factura enlazada en Obuma</p>}
+                {c.facturas.length === 0 && <p className="pl-4 text-tinta-2">Sin factura enlazada en Obuma</p>}
               </div>
             ))}
           </div>
         </details>
       )}
       {o.documentos.length > 0 && (
-        <details className="text-[11.5px]">
+        <details className="text-xs">
           <summary className="cursor-pointer text-teal-700 font-semibold">Ver los {o.documentos.length} documento(s) contabilizados en el proyecto</summary>
-          <div className="mt-1.5 divide-y divide-zinc-100 border border-zinc-100 rounded-lg">
+          <div className="mt-1.5 divide-y divide-linea dark:divide-slate-800 border border-linea dark:border-slate-800 rounded-lg">
             {o.documentos.map((d, i) => (
               <div key={i} className="flex items-center justify-between gap-3 px-2.5 py-1.5">
-                <span className="text-zinc-600 truncate">{d.tipo === '61' ? 'Nota de crédito' : d.tipo === '33' ? 'Factura' : d.tipo === '0' ? 'Gasto' : `Doc ${d.tipo}`} {d.folio}{d.fecha ? ` · ${fmtFecha(d.fecha)}` : ''} · {d.proveedor ?? d.observacion ?? 'gasto propio'}</span>
-                <span className="font-semibold text-zinc-800 tabular-nums flex-shrink-0">{fmtCLP(d.total)}</span>
+                <span className="text-tinta-2 dark:text-slate-400 truncate">{d.tipo === '61' ? 'Nota de crédito' : d.tipo === '33' ? 'Factura' : d.tipo === '0' ? 'Gasto' : `Doc ${d.tipo}`} {d.folio}{d.fecha ? ` · ${fmtFecha(d.fecha)}` : ''} · {d.proveedor ?? d.observacion ?? 'gasto propio'}</span>
+                <span className="font-semibold text-tinta dark:text-slate-100 tabular-nums flex-shrink-0">{fmtCLP(d.total)}</span>
               </div>
             ))}
           </div>
         </details>
       )}
-      <Link href={`/compras/${negocioId}`} className="inline-block text-[11.5px] font-semibold text-teal-700 hover:underline">Abrir el resumen del negocio →</Link>
+      <Link href={`/compras/${negocioId}`} className="inline-block text-xs font-semibold text-teal-700 hover:underline">Abrir el resumen del negocio →</Link>
     </div>
   );
 }
 
-function FilaCompras({ f, esJefeDeVentas, esAdmin, puedeCerrar, candidatos, onAsignado, ultimaUrgente, obuma }: {
-  f: ComprasFila; esJefeDeVentas: boolean; esAdmin: boolean; puedeCerrar: boolean; candidatos: Candidato[]; onAsignado: () => void; ultimaUrgente?: boolean; obuma?: ObumaDeCerrada;
+function FilaCompras({ f, esJefeDeVentas, esAdmin, puedeCerrar, puedeEstado, candidatos, onAsignado, ultimaUrgente, obuma }: {
+  f: ComprasFila; esJefeDeVentas: boolean; esAdmin: boolean; puedeCerrar: boolean; puedeEstado: boolean; candidatos: Candidato[]; onAsignado: () => void; ultimaUrgente?: boolean; obuma?: ObumaDeCerrada;
 }) {
   const toast = useToast();
   const [asignando, setAsignando] = useState(false);
@@ -353,25 +361,25 @@ function FilaCompras({ f, esJefeDeVentas, esAdmin, puedeCerrar, candidatos, onAs
   };
 
   return (
-    <div className={`bg-white rounded-xl border overflow-hidden ${f.urgente ? 'border-rose-200' : 'border-zinc-200'}`}>
+    <div className={`bg-white dark:bg-slate-900 rounded-xl border overflow-hidden ${f.urgente ? 'border-rose-200' : 'border-linea dark:border-slate-800'}`}>
       <ModalElegirEncargado open={modalEncargado} onClose={() => setModalEncargado(false)} candidatos={candidatos}
         actualId={f.asignadoA ?? null} guardando={asignando} onConfirmar={asignar} />
       <div className="flex items-center justify-between gap-3 px-4 py-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <p className="text-[11px] font-mono text-zinc-400">{f.licitacionCodigo}</p>
+            <p className="text-xs font-mono text-tinta-2">{f.licitacionCodigo}</p>
             {ultimaUrgente && <ChipUltimaGanada />}
             {f.precompra && (
               <span title="Posible adjudicación: se puede cotizar y costear, pero aún no emitir órdenes de compra ni crear SKU en Obuma."
-                className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-600 cursor-help">
+                className="inline-flex items-center gap-1.5 text-xs font-medium text-tinta-2 dark:text-slate-400 cursor-help">
                 <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />Pre-compra
               </span>
             )}
-            <span className="text-[10.5px] text-zinc-500" title={f.precompra ? 'Fecha estimada de adjudicación según Mercado Público' : `Ganado ${fmtFecha(f.ganadoAt)}`}>{f.precompra
+            <span className="text-xs text-tinta-2 dark:text-slate-400" title={f.precompra ? 'Fecha estimada de adjudicación según Mercado Público' : `Ganado ${fmtFecha(f.ganadoAt)}`}>{f.precompra
                 ? (f.adjudicacionEstimadaAt ? <>Adjudicación estimada <b className="font-semibold">{fmtFechaCorta(f.adjudicacionEstimadaAt)}</b></> : 'Sin fecha de adjudicación informada')
                 : <>Ganada <b className="font-semibold">{haceCuanto(f.ganadoAt)}</b> · {diaHoraCorta(f.ganadoAt)}</>}</span>
             {f.ocFecha && (
-              <span className="inline-flex items-center gap-1 text-[10.5px] text-emerald-600">
+              <span className="inline-flex items-center gap-1 text-xs text-emerald-600">
                 <PackageCheck size={11} /> OC {fmtFechaCorta(f.ocFecha)}
               </span>
             )}
@@ -385,15 +393,15 @@ function FilaCompras({ f, esJefeDeVentas, esAdmin, puedeCerrar, candidatos, onAs
               // usuario, 16-sep-2026: necesita ver los días de TODAS las licitaciones de Compras
               // para transcribirlos al Auditor Técnico.
               <span title="Plazo de entrega ofertado"
-                className="inline-flex items-center gap-1 text-xs text-zinc-500">
+                className="inline-flex items-center gap-1 text-xs text-tinta-2 dark:text-slate-400">
                 <Clock size={10} /> Entrega: {f.plazoEntregaDias} día(s)
               </span>
             )}
           </div>
-          <Link href={`/compras/${f.negocioId}`} className="block text-[13.5px] font-semibold text-zinc-900 hover:text-teal-700 leading-snug mt-0.5">
+          <Link href={`/compras/${f.negocioId}`} className="block text-[13.5px] font-semibold text-tinta dark:text-slate-100 hover:text-teal-700 leading-snug mt-0.5">
             {f.licitacionNombre || f.licitacionCodigo}
           </Link>
-          <div className="flex items-center gap-3 mt-1 text-[11.5px] text-zinc-500 flex-wrap">
+          <div className="flex items-center gap-3 mt-1 text-xs text-tinta-2 dark:text-slate-400 flex-wrap">
             {f.licitacionOrganismo && <span className="flex items-center gap-1"><Building2 size={11} /> {f.licitacionOrganismo}</span>}
             {f.tareasTotal > 0 && (
               <span className={`flex items-center gap-1 ${f.tareasVencidas > 0 ? 'text-rose-600 font-semibold' : ''}`}>
@@ -404,38 +412,41 @@ function FilaCompras({ f, esJefeDeVentas, esAdmin, puedeCerrar, candidatos, onAs
           </div>
         </div>
         <div className="flex items-center gap-3 flex-shrink-0">
-          <span className="text-[12px] font-semibold text-zinc-600">{fmtCLP(f.montoNuestro)}</span>
-          <Link href={`/compras/${f.negocioId}`} className="text-zinc-400 hover:text-teal-600"><ArrowUpRight size={16} /></Link>
+          <span className="text-[12px] font-semibold text-tinta-2 dark:text-slate-400">{fmtCLP(f.montoNuestro)}</span>
+          <Link href={`/compras/${f.negocioId}`} className="text-tinta-2 hover:text-teal-600"><ArrowUpRight size={16} /></Link>
         </div>
       </div>
 
-      <div className="border-t border-zinc-100 px-4 py-2.5 bg-zinc-50/60 flex items-center justify-between gap-3 flex-wrap">
+      <div className="border-t border-linea dark:border-slate-800 px-4 py-2.5 bg-slate-50 flex items-center justify-between gap-3 flex-wrap">
         {f.asignadoA ? (
-          <p className="text-[12px] text-zinc-600 flex items-center gap-1.5">
+          <p className="text-[12px] text-tinta-2 dark:text-slate-400 flex items-center gap-1.5">
             <AvatarAsignado nombre={f.asignadoNombre} seed={f.asignadoA} />
-            <span className="font-semibold text-zinc-800">{f.asignadoNombre}</span>
-            <span className="text-zinc-400"> — asignado {fmtFecha(f.asignadoAt || f.ganadoAt)}</span>
+            <span className="font-semibold text-tinta dark:text-slate-100">{f.asignadoNombre}</span>
+            <span className="text-tinta-2"> — asignado {fmtFecha(f.asignadoAt || f.ganadoAt)}</span>
             {esAdmin && (
               <button onClick={() => setModalEncargado(true)} title="Cambiar encargado"
-                className="text-zinc-400 hover:text-teal-600"><Pencil size={12} /></button>
+                className="text-tinta-2 hover:text-teal-600"><Pencil size={12} /></button>
             )}
           </p>
         ) : (
           <div className="flex items-center gap-2 flex-wrap">
-            <span className={`text-[11.5px] flex items-center gap-1 ${vencimientoPasado ? 'text-rose-600 font-semibold' : 'text-amber-600'}`}>
+            <span className={`text-xs flex items-center gap-1 ${vencimientoPasado ? 'text-rose-600 font-semibold' : 'text-amber-600'}`}>
               <Clock size={12} /> {vencimientoPasado ? 'Plazo vencido — se asigna solo' : `Sin asignar (vence ${fmtFecha(f.vencimientoAsignacionAt)})`}
             </span>
             {esJefeDeVentas && (
               <>
                 <button onClick={() => setModalEncargado(true)} disabled={asignando}
-                  className="inline-flex items-center gap-1 text-[11.5px] font-semibold text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-50 px-2.5 py-1.5 rounded-lg">
+                  className="inline-flex items-center gap-1 text-xs font-semibold text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-50 px-2.5 py-1.5 rounded-lg">
                   <UserPlus size={12} /> Elegir encargado
                 </button>
               </>
             )}
           </div>
         )}
-        {puedeCerrar && <AccionesCierreLegado f={f} onCambio={onAsignado} />}
+        {/* Estado de la compra (23-nov-2026): Abierta → En proceso → Entregada → Pagada, o Cancelada con motivo. */}
+        {!f.precompra && !f.cierreLegado && <EstadoCompraControl negocioId={f.negocioId} estado={f.estadoCompra} puede={puedeEstado} onCambio={onAsignado} />}
+        {/* Deshacer un cierre/cancelación: solo el dueño. */}
+        {puedeCerrar && !!f.cierreLegado && <AccionesCierreLegado f={f} onCambio={onAsignado} />}
       </div>
       {f.cierreLegado && !f.precompra && <div className="px-4 pb-3"><PanelObumaCerrada o={obuma} negocioId={f.negocioId} /></div>}
     </div>
@@ -465,70 +476,70 @@ function TarjetaDiaCompras({ f, compacta = false }: { f: ComprasFila; compacta?:
     return (
       <Link href={`/compras/${f.negocioId}`}
         title={`${f.licitacionNombre || f.licitacionCodigo} — ${fmtCLP(f.montoNuestro)}`}
-        className={`block rounded-md border border-zinc-200 bg-white px-1.5 py-1 shadow-sm transition-all hover:shadow-md ${f.urgente ? 'ring-1 ring-rose-100' : ''}`}>
-        <p className="text-[10px] font-semibold text-zinc-900 leading-snug line-clamp-2">{f.licitacionNombre || f.licitacionCodigo}</p>
+        className={`block rounded-md border border-linea dark:border-slate-800 bg-white dark:bg-slate-900 px-1.5 py-1 shadow-tarjeta transition-all hover:shadow-tarjeta-hover ${f.urgente ? 'ring-1 ring-rose-100' : ''}`}>
+        <p className="text-xs font-semibold text-tinta dark:text-slate-100 leading-snug line-clamp-2">{f.licitacionNombre || f.licitacionCodigo}</p>
         <div className="flex items-center justify-between gap-1 mt-0.5">
           <span className="text-[9.5px] font-semibold text-teal-700 flex-shrink-0">{fmtCLPCorto(f.montoNuestro)}</span>
           {f.urgente ? (
-            <span title={explicacionUrgente(f)} className="inline-flex items-center gap-0.5 text-[10px] font-medium text-rose-700 flex-shrink-0 cursor-help">
+            <span title={explicacionUrgente(f)} className="inline-flex items-center gap-0.5 text-xs font-medium text-rose-700 flex-shrink-0 cursor-help">
               <AlertTriangle size={7} /> {f.plazoEntregaDias != null ? `${f.plazoEntregaDias}d` : 'Urg'}
             </span>
           ) : f.plazoEntregaDias != null && (
-            <span title="Plazo de entrega ofertado" className="text-[10px] text-zinc-400 flex-shrink-0">{f.plazoEntregaDias}d</span>
+            <span title="Plazo de entrega ofertado" className="text-xs text-tinta-2 flex-shrink-0">{f.plazoEntregaDias}d</span>
           )}
         </div>
         <div className="flex items-center gap-1 mt-0.5">
           <AvatarAsignado nombre={f.asignadoNombre} seed={f.asignadoA ?? f.asignadoNombre} size={13} />
-          <span className="text-[9px] font-medium text-zinc-500 truncate">{f.asignadoNombre || 'Sin asignar'}</span>
+          <span className="text-xs font-medium text-tinta-2 dark:text-slate-400 truncate">{f.asignadoNombre || 'Sin asignar'}</span>
         </div>
       </Link>
     );
   }
   return (
     <Link href={`/compras/${f.negocioId}`}
-      className={`block rounded-lg border border-zinc-200 bg-white px-2.5 py-2 shadow-sm transition-all hover:shadow-md hover:-translate-y-0.5 ${f.urgente ? 'ring-1 ring-rose-100' : ''}`}>
+      className={`block rounded-lg border border-linea dark:border-slate-800 bg-white dark:bg-slate-900 px-2.5 py-2 shadow-tarjeta transition-all hover:shadow-tarjeta-hover hover:-translate-y-0.5 ${f.urgente ? 'ring-1 ring-rose-100' : ''}`}>
       <div className="flex items-center justify-between gap-1">
-        <p className="text-[9.5px] font-mono text-zinc-400">{f.licitacionCodigo}</p>
+        <p className="text-[9.5px] font-mono text-tinta-2">{f.licitacionCodigo}</p>
         {f.cierreLegado ? (
-          <span className={`inline-flex items-center gap-0.5 text-[10px] font-medium flex-shrink-0 ${
-            f.cierreLegado === 'ENTREGADA' ? 'text-emerald-700' : 'text-zinc-500'
+          <span className={`inline-flex items-center gap-0.5 text-xs font-medium flex-shrink-0 ${
+            f.cierreLegado === 'ENTREGADA' ? 'text-emerald-700' : 'text-tinta-2 dark:text-slate-400'
           }`}>
             {f.cierreLegado === 'ENTREGADA' ? <PackageCheck size={8} /> : <XCircle size={8} />}
             {f.cierreLegado === 'ENTREGADA' ? 'Cerrada' : 'Cancelada'}
           </span>
         ) : f.urgente ? (
           <span title={explicacionUrgente(f)}
-            className="inline-flex items-center gap-0.5 text-[10px] font-medium text-rose-700 flex-shrink-0 cursor-help">
+            className="inline-flex items-center gap-0.5 text-xs font-medium text-rose-700 flex-shrink-0 cursor-help">
             <AlertTriangle size={8} /> Urgente{f.plazoEntregaDias != null ? ` · ${f.plazoEntregaDias}d` : ''}
           </span>
         ) : f.plazoEntregaDias != null && (
           <span title="Plazo de entrega ofertado"
-            className="inline-flex items-center gap-0.5 text-[10px] text-zinc-500 flex-shrink-0">
+            className="inline-flex items-center gap-0.5 text-xs text-tinta-2 dark:text-slate-400 flex-shrink-0">
             <Clock size={8} /> {f.plazoEntregaDias}d
           </span>
         )}
       </div>
-      <p className="text-[12px] font-semibold text-zinc-900 leading-snug line-clamp-2 mt-0.5">{f.licitacionNombre || f.licitacionCodigo}</p>
+      <p className="text-[12px] font-semibold text-tinta dark:text-slate-100 leading-snug line-clamp-2 mt-0.5">{f.licitacionNombre || f.licitacionCodigo}</p>
       {f.licitacionOrganismo && (
-        <p className="text-[9.5px] text-zinc-500 flex items-center gap-1 mt-0.5 truncate"><Building2 size={9} className="flex-shrink-0" /> {f.licitacionOrganismo}</p>
+        <p className="text-[9.5px] text-tinta-2 dark:text-slate-400 flex items-center gap-1 mt-0.5 truncate"><Building2 size={9} className="flex-shrink-0" /> {f.licitacionOrganismo}</p>
       )}
       <div className="flex items-center justify-between gap-1 mt-1.5">
-        <span className="text-[11px] font-semibold text-teal-700">{fmtCLP(f.montoNuestro)}</span>
+        <span className="text-xs font-semibold text-teal-700">{fmtCLP(f.montoNuestro)}</span>
         {f.tareasTotal > 0 && (
-          <span className={`text-[11px] tabular-nums ${f.tareasVencidas > 0 ? 'text-rose-700 font-medium' : 'text-zinc-500'}`}>{f.tareasHechas}/{f.tareasTotal} tareas</span>
+          <span className={`text-xs tabular-nums ${f.tareasVencidas > 0 ? 'text-rose-700 font-medium' : 'text-tinta-2 dark:text-slate-400'}`}>{f.tareasHechas}/{f.tareasTotal} tareas</span>
         )}
       </div>
-      <div className="flex items-center gap-1.5 mt-1.5 pt-1.5 border-t border-zinc-100">
+      <div className="flex items-center gap-1.5 mt-1.5 pt-1.5 border-t border-linea dark:border-slate-800">
         <AvatarAsignado nombre={f.asignadoNombre} seed={f.asignadoA ?? f.asignadoNombre} size={17} />
-        <span className="text-[10px] font-semibold text-zinc-600 truncate">{f.asignadoNombre || 'Sin asignar'}</span>
+        <span className="text-xs font-semibold text-tinta-2 dark:text-slate-400 truncate">{f.asignadoNombre || 'Sin asignar'}</span>
       </div>
       {/* Quien postuló/preparó la licitación en Negocios (negocios.asignado_a) — persona distinta
          del encargado de Compras de arriba, que la ejecuta recién después de ganada. Pedido
          explícito del usuario, 15-sep-2026. */}
       {f.postuladoPorNombre && (
-        <div className="flex items-center gap-1.5 mt-1 text-[9.5px] text-zinc-400 truncate">
+        <div className="flex items-center gap-1.5 mt-1 text-[9.5px] text-tinta-2 truncate">
           <Users size={11} className="flex-shrink-0" />
-          <span className="truncate">Postuló: <span className="font-semibold text-zinc-500">{f.postuladoPorNombre}</span></span>
+          <span className="truncate">Postuló: <span className="font-semibold text-tinta-2 dark:text-slate-400">{f.postuladoPorNombre}</span></span>
         </div>
       )}
     </Link>
@@ -542,10 +553,10 @@ function TarjetaDiaCompras({ f, compacta = false }: { f: ComprasFila; compacta?:
 function VistaUrgentesCompras({ negocios }: { negocios: ComprasFila[] }) {
   return (
     <div className="space-y-3">
-      <p className="text-[11.5px] text-rose-600 flex items-center gap-1.5">
+      <p className="text-xs text-rose-600 flex items-center gap-1.5">
         <AlertTriangle size={12} /> {explicacionUrgente({ plazoEntregaDias: null } as ComprasFila)}
       </p>
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 @xl:grid-cols-2 @4xl:grid-cols-3 gap-3">
         {negocios.map(f => <TarjetaDiaCompras key={f.negocioId} f={f} />)}
       </div>
     </div>
@@ -564,14 +575,14 @@ function GrillaMesCompras({ mes, porDia, hoy, compacta, onAbrirDia }: {
   const MOSTRAR_MAX = compacta ? 1 : 2; // con varios meses a la vista, un cupo por día basta — el resto queda en "+N más"
 
   return (
-    <div className="bg-white border border-zinc-200 rounded-2xl shadow-sm overflow-hidden">
-      <div className={`text-center border-b border-zinc-200 ${compacta ? 'py-1.5' : 'py-2.5'}`}>
-        <span className={`font-semibold tracking-tight text-zinc-900 capitalize ${compacta ? 'text-[12.5px]' : 'text-[14px]'}`}>{MESES[mes.month()]} {mes.year()}</span>
+    <div className="bg-white dark:bg-slate-900 border border-linea dark:border-slate-800 rounded-2xl shadow-tarjeta overflow-hidden">
+      <div className={`text-center border-b border-linea dark:border-slate-800 ${compacta ? 'py-1.5' : 'py-2.5'}`}>
+        <span className={`font-semibold tracking-tight text-tinta dark:text-slate-100 capitalize ${compacta ? 'text-[12.5px]' : 'text-[14px]'}`}>{MESES[mes.month()]} {mes.year()}</span>
       </div>
       <div className={compacta ? 'p-1.5' : 'p-3'}>
         <div className={`grid grid-cols-7 ${compacta ? 'gap-1 mb-1' : 'gap-1.5 mb-1.5'}`}>
           {SEMANA.map(d => (
-            <div key={d} className={`text-center font-medium text-zinc-400 ${compacta ? 'text-[9px] py-0.5' : 'text-[10.5px] py-1'}`}>
+            <div key={d} className={`text-center font-medium text-tinta-2 ${compacta ? 'text-xs py-0.5' : 'text-xs py-1'}`}>
               {compacta ? d[0] : d}
             </div>
           ))}
@@ -588,23 +599,23 @@ function GrillaMesCompras({ mes, porDia, hoy, compacta, onAbrirDia }: {
             return (
               <div key={k}
                 className={`${compacta ? 'min-h-[86px]' : 'min-h-[150px]'} rounded-lg border p-1 flex flex-col gap-1 transition-colors ${
-                  fueraMes ? 'bg-zinc-50/50 border-zinc-100'
+                  fueraMes ? 'bg-slate-50 border-linea dark:border-slate-800'
                   : esHoy ? 'border-teal-400 bg-teal-50/40 ring-1 ring-teal-200'
-                  : items.length > 0 ? 'border-zinc-200 bg-white shadow-sm' : 'border-zinc-100 bg-zinc-50/30'
+                  : items.length > 0 ? 'border-linea dark:border-slate-800 bg-white dark:bg-slate-900 shadow-tarjeta' : 'border-linea dark:border-slate-800 bg-slate-50'
                 }`}>
                 <div className="flex items-center justify-between px-0.5">
                   <span className={esHoy
-                    ? `bg-teal-600 text-white rounded-full inline-flex items-center justify-center font-semibold shadow-sm ${compacta ? 'w-4.5 h-4.5 text-[9.5px]' : 'w-5.5 h-5.5 text-[11px]'}`
-                    : `font-semibold ${fueraMes ? 'text-zinc-300' : 'text-zinc-600'} ${compacta ? 'text-[10px]' : 'text-[11.5px]'}`}>{d.date()}</span>
+                    ? `bg-teal-600 text-white rounded-full inline-flex items-center justify-center font-semibold shadow-tarjeta ${compacta ? 'w-4.5 h-4.5 text-[9.5px]' : 'w-5.5 h-5.5 text-[11px]'}`
+                    : `font-semibold ${fueraMes ? 'text-tinta-2' : 'text-tinta-2 dark:text-slate-400'} ${compacta ? 'text-xs' : 'text-xs'}`}>{d.date()}</span>
                   {items.length > 0 && (
-                    <span className={`font-semibold tabular-nums ${hayUrgente ? 'text-rose-700' : 'text-zinc-500'} ${compacta ? 'text-[10px]' : 'text-[11px]'}`}>{items.length}</span>
+                    <span className={`font-semibold tabular-nums ${hayUrgente ? 'text-rose-700' : 'text-tinta-2 dark:text-slate-400'} ${compacta ? 'text-xs' : 'text-xs'}`}>{items.length}</span>
                   )}
                 </div>
                 <div className="flex flex-col gap-1 flex-1 min-h-0">
                   {visibles.map(f => <TarjetaDiaCompras key={f.negocioId} f={f} compacta={compacta} />)}
                   {resto > 0 && (
                     <button onClick={() => onAbrirDia(k)}
-                      className={`font-semibold text-teal-700 hover:bg-teal-50 rounded-md transition-colors ${compacta ? 'text-[10px] py-0.5' : 'text-xs py-1'}`}>
+                      className={`font-semibold text-teal-700 hover:bg-teal-50 rounded-md transition-colors ${compacta ? 'text-xs py-0.5' : 'text-xs py-1'}`}>
                       +{resto} más
                     </button>
                   )}
@@ -661,39 +672,39 @@ function VistaMensualCompras({ negocios, onAbrirDia, mesesVista }: {
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-between px-5 py-3 bg-white border border-zinc-200 rounded-xl shadow-tarjeta">
+      <div className="flex items-center justify-between px-5 py-3 bg-white dark:bg-slate-900 border border-linea dark:border-slate-800 rounded-xl shadow-tarjeta">
         <div className="flex items-center gap-0.5">
           <button onClick={() => mesAnteriorConDatos && setMes(dayjs(`${mesAnteriorConDatos}-01`))} disabled={!mesAnteriorConDatos}
             title="Saltar al mes anterior con negocios ganados" aria-label="Ganada anterior"
-            className="p-1.5 rounded-lg hover:bg-zinc-100 text-zinc-500 hover:text-zinc-900 disabled:opacity-30 disabled:hover:bg-transparent transition-colors"><ChevronsLeft size={16} /></button>
+            className="p-1.5 rounded-lg hover:bg-slate-100 text-tinta-2 dark:text-slate-400 hover:text-tinta disabled:opacity-30 disabled:hover:bg-transparent transition-colors"><ChevronsLeft size={16} /></button>
           <button onClick={() => setMes(m => m.subtract(1, 'month'))} aria-label="Mes anterior"
-            className="p-1.5 rounded-lg hover:bg-zinc-100 text-zinc-500 hover:text-zinc-900 transition-colors"><ChevronLeft size={18} /></button>
+            className="p-1.5 rounded-lg hover:bg-slate-100 text-tinta-2 dark:text-slate-400 hover:text-tinta transition-colors"><ChevronLeft size={18} /></button>
         </div>
         <div className="flex items-center gap-2.5">
-          <span className="text-[15px] font-semibold tracking-tight text-zinc-900 capitalize">{rango}</span>
+          <span className="text-[15px] font-semibold tracking-tight text-tinta dark:text-slate-100 capitalize">{rango}</span>
           {/* Siempre visible (antes se ocultaba en el mes actual y eso confundía — parecía que
               "Hoy" fallaba justo en septiembre). Acá queda deshabilitado en vez de desaparecer. */}
           <button onClick={() => setMes(dayjs().startOf('month'))} disabled={esMesActual}
             className={`text-xs font-semibold px-2 py-1 rounded-md transition-colors ${
-              esMesActual ? 'text-zinc-300 cursor-default' : 'text-teal-700 hover:bg-teal-50'
+              esMesActual ? 'text-tinta-2 cursor-default' : 'text-teal-700 hover:bg-teal-50'
             }`}>Hoy</button>
           {/* Saltar directo a cualquier mes — pedido explícito del usuario, 16-sep-2026: antes solo
               se podía avanzar/retroceder de a uno. Con la ventana de varios meses este mes elegido
               queda como el PRIMERO del rango. */}
           <input type="month" value={mes.format('YYYY-MM')} onChange={e => e.target.value && setMes(dayjs(`${e.target.value}-01`))}
             title="Ir a un mes específico" aria-label="Ir a un mes específico"
-            className="text-xs font-medium text-zinc-700 border border-zinc-200 rounded-md px-2 py-1 outline-none cursor-pointer" />
+            className="text-xs font-medium text-tinta dark:text-slate-200 border border-linea dark:border-slate-800 rounded-md px-2 py-1 outline-none cursor-pointer" />
         </div>
         <div className="flex items-center gap-0.5">
           <button onClick={() => setMes(m => m.add(1, 'month'))} aria-label="Mes siguiente"
-            className="p-1.5 rounded-lg hover:bg-zinc-100 text-zinc-500 hover:text-zinc-900 transition-colors"><ChevronRight size={18} /></button>
+            className="p-1.5 rounded-lg hover:bg-slate-100 text-tinta-2 dark:text-slate-400 hover:text-tinta transition-colors"><ChevronRight size={18} /></button>
           <button onClick={() => mesSiguienteConDatos && setMes(dayjs(`${mesSiguienteConDatos}-01`))} disabled={!mesSiguienteConDatos}
             title="Saltar al mes siguiente con negocios ganados" aria-label="Ganada siguiente"
-            className="p-1.5 rounded-lg hover:bg-zinc-100 text-zinc-500 hover:text-zinc-900 disabled:opacity-30 disabled:hover:bg-transparent transition-colors"><ChevronsRight size={16} /></button>
+            className="p-1.5 rounded-lg hover:bg-slate-100 text-tinta-2 dark:text-slate-400 hover:text-tinta disabled:opacity-30 disabled:hover:bg-transparent transition-colors"><ChevronsRight size={16} /></button>
         </div>
       </div>
       <div className={`grid gap-3 ${
-        mesesVista === 1 ? 'grid-cols-1' : mesesVista === 2 ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3'
+        mesesVista === 1 ? 'grid-cols-1' : mesesVista === 2 ? 'grid-cols-1 @4xl:grid-cols-2' : 'grid-cols-1 @xl:grid-cols-2 @4xl:grid-cols-3'
       }`}>
         {mesesARenderizar.map(m => (
           <GrillaMesCompras key={m.format('YYYY-MM')} mes={m} porDia={porDia} hoy={hoy} compacta={compacta} onAbrirDia={onAbrirDia} />
@@ -707,10 +718,10 @@ function ModalDiaCompras({ dia, negocios, onClose }: { dia: string; negocios: Co
   useCerrarConEsc(onClose);
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" onClick={onClose}>
-      <div className="bg-white rounded-xl shadow-flotante max-w-2xl w-full max-h-[92vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-5 py-4 bg-white border-b border-zinc-200 sticky top-0">
-          <p className="text-[15px] font-semibold tracking-tight text-zinc-900">{dayjs(dia).date()} de {MESES[dayjs(dia).month()]}</p>
-          <button onClick={onClose} aria-label="Cerrar" className="text-zinc-400 hover:text-zinc-700"><X size={16} /></button>
+      <div className="bg-white dark:bg-slate-900 rounded-xl shadow-flotante max-w-2xl w-full max-h-[92vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 bg-white dark:bg-slate-900 border-b border-linea dark:border-slate-800 sticky top-0">
+          <p className="text-[15px] font-semibold tracking-tight text-tinta dark:text-slate-100">{dayjs(dia).date()} de {MESES[dayjs(dia).month()]}</p>
+          <button onClick={onClose} aria-label="Cerrar" className="text-tinta-2 hover:text-tinta"><X size={16} /></button>
         </div>
         <div className="p-3 space-y-2">
           {negocios.map(f => <TarjetaDiaCompras key={f.negocioId} f={f} />)}
@@ -797,21 +808,21 @@ function calcularHitosGantt(f: ComprasFila): HitosGantt {
 // Estado sin pastilla: texto con punto de color (skill licitank-ui, regla 2).
 function mk(texto: string, clase: string) {
   const tono = /rose/.test(clase) ? ['text-rose-700', 'bg-rose-500'] : /amber/.test(clase) ? ['text-amber-700', 'bg-amber-500']
-    : /emerald/.test(clase) ? ['text-emerald-700', 'bg-emerald-500'] : /teal/.test(clase) ? ['text-teal-700', 'bg-teal-600'] : ['text-zinc-500', 'bg-zinc-400'];
+    : /emerald/.test(clase) ? ['text-emerald-700', 'bg-emerald-500'] : /teal/.test(clase) ? ['text-teal-700', 'bg-teal-600'] : ['text-tinta-2 dark:text-slate-400', 'bg-zinc-400'];
   return { texto, clase, texto_clase: tono[0], punto: tono[1] };
 }
 function estadoEntregaGantt(f: ComprasFila, h: HitosGantt): { texto: string; clase: string; texto_clase: string; punto: string } {
   if (f.cierreLegado === 'ENTREGADA') return mk('Entregada', 'bg-emerald-50 text-emerald-700 border-emerald-200');
-  if (f.cierreLegado === 'NO_REALIZADA') return mk('No realizada', 'bg-zinc-100 text-zinc-500 border-zinc-200');
+  if (f.cierreLegado === 'NO_REALIZADA') return mk('No realizada', 'bg-slate-100 text-tinta-2 dark:text-slate-400 border-linea dark:border-slate-800');
   if (f.cierreLegado === 'OC_CANCELADA') return mk('OC cancelada', 'bg-rose-50 text-rose-700 border-rose-200');
-  if (f.cierreLegado === 'PRECOMPRA_SIN_ADJUDICAR') return mk('Pre-compra sin adjudicar', 'bg-zinc-100 text-zinc-500 border-zinc-200');
-  if (f.precompra) return mk('Pre-compra (sin adjudicar aún)', 'bg-slate-50 text-slate-700 border-slate-200');
-  if (h.porValidar) return mk('Inicio del plazo por validar', 'bg-zinc-100 text-zinc-600 border-zinc-200');
+  if (f.cierreLegado === 'PRECOMPRA_SIN_ADJUDICAR') return mk('Pre-compra sin adjudicar', 'bg-slate-100 text-tinta-2 dark:text-slate-400 border-linea dark:border-slate-800');
+  if (f.precompra) return mk('Pre-compra (sin adjudicar aún)', 'bg-slate-50 dark:bg-slate-950/40 text-tinta dark:text-slate-200 border-linea dark:border-slate-800');
+  if (h.porValidar) return mk('Inicio del plazo por validar', 'bg-slate-100 text-tinta-2 dark:text-slate-400 border-linea dark:border-slate-800');
   if (h.faltaAceptar) return mk('Falta aceptar la OC', 'bg-amber-50 text-amber-800 border-amber-200');
   if (h.esperandoOC) return h.ocAtrasada
     ? mk(`OC atrasada ${diasEntre(h.aceptacionOCLimite, dayjs())} d`, 'bg-rose-50 text-rose-700 border-rose-200')
     : mk('Esperando OC', 'bg-amber-50 text-amber-800 border-amber-200');
-  if (!h.entrega) return mk('Sin plazo de entrega', 'bg-zinc-50 text-zinc-400 border-zinc-200');
+  if (!h.entrega) return mk('Sin plazo de entrega', 'bg-slate-50 dark:bg-slate-950/40 text-tinta-2 border-linea dark:border-slate-800');
   const d = h.entrega.diff(dayjs().startOf('day'), 'day');
   if (d < 0) return mk(`Vencida hace ${-d} d`, 'bg-rose-50 text-rose-700 border-rose-200');
   if (d === 0) return mk('Entrega hoy', 'bg-rose-50 text-rose-700 border-rose-200');
@@ -823,6 +834,24 @@ function colorEstadoTareaGantt(t: TareaGantt): string {
   if (t.estado === 'HECHA') return '#10b981'; // emerald-500
   if (t.estado === 'EN_CURSO') return '#f59e0b'; // amber-500
   return '#a1a1aa';                       // zinc-400
+}
+
+// Cuadrícula de fondo de cada fila: una línea por día y sábado/domingo sombreados, alineados con
+// los números de la regla de arriba (la regla parte en `inicioRango`, que no siempre es domingo).
+function cuadriculaDias(inicioRango: dayjs.Dayjs, pxDia: number): React.CSSProperties {
+  const dow = inicioRango.day();
+  const FINDE = 'rgba(100,116,139,0.10)';
+  const franja = (idx: number) =>
+    `linear-gradient(to right, transparent ${idx * pxDia}px, ${FINDE} ${idx * pxDia}px, ${FINDE} ${(idx + 1) * pxDia}px, transparent ${(idx + 1) * pxDia}px)`;
+  return {
+    backgroundImage: [
+      'linear-gradient(to right, rgba(100,116,139,0.28) 1px, transparent 1px)',
+      franja((6 - dow + 7) % 7),
+      franja((0 - dow + 7) % 7),
+    ].join(', '),
+    backgroundSize: `${pxDia}px 100%, ${7 * pxDia}px 100%, ${7 * pxDia}px 100%`,
+    backgroundRepeat: 'repeat-x',
+  };
 }
 
 function FilaGantt({ f, inicioRango, pxDia, onSeleccionar, seleccionada, ultimaUrgente }: {
@@ -841,14 +870,14 @@ function FilaGantt({ f, inicioRango, pxDia, onSeleccionar, seleccionada, ultimaU
   const colorBarraEntrega = noRealizada ? '#a1a1aa' : entregada ? '#10b981' : h.entregaVencida || f.urgente ? '#e11d48' : '#0d9488';
 
   return (
-    <div className={`flex border-b border-zinc-300 transition-colors ${seleccionada ? 'bg-teal-50/60' : 'hover:bg-teal-50/30'}`} style={{ height: ALTO_FILA_GANTT }}>
+    <div className={`flex border-b border-linea transition-colors ${seleccionada ? 'bg-teal-50/60' : 'hover:bg-teal-50/30'}`} style={{ height: ALTO_FILA_GANTT }}>
       <div
-        className={`sticky left-0 z-10 flex items-stretch gap-3 px-4 py-3 border-r border-zinc-200 flex-shrink-0 overflow-hidden ${seleccionada ? 'bg-teal-50/60' : 'bg-white'}`}
+        className={`sticky left-0 z-10 flex items-stretch gap-3 px-4 py-3 border-r border-linea dark:border-slate-800 flex-shrink-0 overflow-hidden ${seleccionada ? 'bg-teal-50/60' : 'bg-white dark:bg-slate-900'}`}
         style={{ width: ANCHO_ETIQUETA_GANTT }}>
         <div className="min-w-0 flex-1 flex flex-col">
           <div className="flex items-start justify-between gap-2">
             {lugarCorto(f)
-              ? <p className="flex items-center gap-1.5 text-[12px] font-semibold text-zinc-900 min-w-0" title={[f.licitacionOrganismo, f.licitacionRegion].filter(Boolean).join(' · ')}>
+              ? <p className="flex items-center gap-1.5 text-[12px] font-semibold text-tinta dark:text-slate-100 min-w-0" title={[f.licitacionOrganismo, f.licitacionRegion].filter(Boolean).join(' · ')}>
                   <Building2 size={13} className="flex-shrink-0 text-slate-400" />
                   <span className="truncate">{lugarCorto(f)}</span>
                 </p>
@@ -856,60 +885,63 @@ function FilaGantt({ f, inicioRango, pxDia, onSeleccionar, seleccionada, ultimaU
             {(() => {
               const e = estadoEntregaGantt(f, h);
               return (
-                <span className={`flex items-center gap-1.5 text-xs font-medium whitespace-nowrap flex-shrink-0 ${e.texto_clase}`}>
-                  <span className={`w-1.5 h-1.5 rounded-full ${e.punto}`} />{e.texto}
+                <span className="flex items-center gap-2 flex-shrink-0">
+                  {!f.precompra && !f.cierreLegado && <EtiquetaEstadoCompra estado={f.estadoCompra} />}
+                  <span className={`flex items-center gap-1.5 text-xs font-medium whitespace-nowrap ${e.texto_clase}`}>
+                    <span className={`w-1.5 h-1.5 rounded-full ${e.punto}`} />{e.texto}
+                  </span>
                 </span>
               );
             })()}
           </div>
           <Link href={`/compras/${f.negocioId}`} title="Abrir la licitación de compra"
-            className="mt-1.5 h-[38px] text-[13px] font-semibold leading-[19px] line-clamp-2 overflow-hidden text-zinc-900 hover:text-teal-700 hover:underline">{f.licitacionNombre || f.licitacionCodigo}</Link>
+            className="mt-1.5 h-[38px] text-[13px] font-semibold leading-[19px] line-clamp-2 overflow-hidden text-tinta dark:text-slate-100 hover:text-teal-700 hover:underline">{f.licitacionNombre || f.licitacionCodigo}</Link>
           <div className="mt-auto grid grid-cols-3 gap-x-3 pt-1.5">
             <div className="min-w-0">
-              <p className="text-[11px] text-slate-400">Código</p>
-              <p className="flex items-center gap-1 text-xs font-mono text-zinc-700 truncate">{f.licitacionCodigo}
+              <p className="text-xs text-slate-400">Código</p>
+              <p className="flex items-center gap-1 text-xs font-mono text-tinta dark:text-slate-200 truncate">{f.licitacionCodigo}
                 {f.urgente && <AlertTriangle size={11} className="text-rose-600 flex-shrink-0" aria-label="Entrega rápida" />}
                 {f.reloj?.prorrogado && <CalendarClock size={11} className="text-amber-500 flex-shrink-0" />}</p>
             </div>
             <div className="min-w-0">
-              <p className="text-[11px] text-slate-400">Monto</p>
-              <p className="text-xs font-semibold tabular-nums text-zinc-800">{fmtCLPCorto(f.montoNuestro)}</p>
+              <p className="text-xs text-slate-400">Monto</p>
+              <p className="text-xs font-semibold tabular-nums text-tinta dark:text-slate-100">{fmtCLPCorto(f.montoNuestro)}</p>
             </div>
             <div className="min-w-0">
-              <p className="text-[11px] text-slate-400">{f.precompra ? 'Adjudicación est.' : ultimaUrgente ? 'Última ganada' : 'Ganada'}</p>
-              <p className="text-xs text-zinc-700 truncate" title={f.precompra ? 'Fecha estimada de adjudicación según Mercado Público' : `Ganado ${fmtFecha(f.ganadoAt)}`}>
+              <p className="text-xs text-slate-400">{f.precompra ? 'Adjudicación est.' : ultimaUrgente ? 'Última ganada' : 'Ganada'}</p>
+              <p className="text-xs text-tinta dark:text-slate-200 truncate" title={f.precompra ? 'Fecha estimada de adjudicación según Mercado Público' : `Ganado ${fmtFecha(f.ganadoAt)}`}>
                 {f.precompra ? (f.adjudicacionEstimadaAt ? dayjs(f.adjudicacionEstimadaAt.slice(0, 10)).format('DD-MM-YYYY') : 'Sin fecha') : haceCuanto(f.ganadoAt)}
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-2 mt-2 pt-2 border-t border-zinc-100">
+          <div className="flex items-center gap-2 mt-2 pt-2 border-t border-linea dark:border-slate-800">
             <AvatarAsignado nombre={f.asignadoNombre} seed={f.asignadoA ?? f.asignadoNombre} size={20} />
-            <span className="text-xs text-zinc-600 truncate flex-1" title="Encargado">{f.asignadoNombre || 'Sin asignar'}</span>
+            <span className="text-xs text-tinta-2 dark:text-slate-400 truncate flex-1" title="Encargado">{f.asignadoNombre || 'Sin asignar'}</span>
             {f.tareasTotal > 0 && (
               <span className="flex items-center gap-1.5 flex-shrink-0" title="Tareas hechas / total">
-                <span className="w-14 h-1 rounded-full bg-zinc-100 overflow-hidden"><span className={`block h-full ${f.tareasVencidas > 0 ? 'bg-rose-500' : 'bg-teal-600'}`} style={{ width: `${Math.round((f.tareasHechas / f.tareasTotal) * 100)}%` }} /></span>
-                <span className={`text-xs tabular-nums ${f.tareasVencidas > 0 ? 'text-rose-600 font-medium' : 'text-zinc-500'}`}>{f.tareasHechas}/{f.tareasTotal}{f.tareasVencidas > 0 ? ` · ${f.tareasVencidas} venc.` : ''}</span>
+                <span className="w-14 h-1 rounded-full bg-slate-100 overflow-hidden"><span className={`block h-full ${f.tareasVencidas > 0 ? 'bg-rose-500' : 'bg-teal-600'}`} style={{ width: `${Math.round((f.tareasHechas / f.tareasTotal) * 100)}%` }} /></span>
+                <span className={`text-xs tabular-nums ${f.tareasVencidas > 0 ? 'text-rose-600 font-medium' : 'text-tinta-2 dark:text-slate-400'}`}>{f.tareasHechas}/{f.tareasTotal}{f.tareasVencidas > 0 ? ` · ${f.tareasVencidas} venc.` : ''}</span>
               </span>
             )}
           </div>
         </div>
         <button type="button" onClick={onSeleccionar} title="Ver el detalle del Gantt (todas las tareas)" aria-label="Ver el detalle del Gantt"
-          className="self-start flex-shrink-0 p-1.5 rounded-md text-zinc-400 hover:text-teal-700 hover:bg-teal-50 transition-colors"><GanttChart size={15} /></button>
+          className="self-start flex-shrink-0 p-1.5 rounded-md text-tinta-2 hover:text-teal-700 hover:bg-teal-50 transition-colors"><GanttChart size={15} /></button>
       </div>
-      <div className="relative flex-1" style={{ minWidth: 0 }}>
+      <div className="relative flex-1" style={{ minWidth: 0, ...cuadriculaDias(inicioRango, pxDia) }}>
         {(() => {
           // UNA sola barra por licitación, con texto: primero «esperando la OC» (o «OC recibida»), después el plazo de entrega.
           // Antes había barra, puntos, rombo y fechas sueltas sin rótulo y no se entendían. Las tareas se ven en el panel (clic en la fila).
           // Pre-compra: aún no hay adjudicación, así que NO se arma la secuencia OC → entrega. Solo se marca la fecha estimada que informa Mercado Público.
           if (f.precompra) {
-            if (!f.adjudicacionEstimadaAt) return <span className="absolute text-[11px] text-zinc-400 whitespace-nowrap" style={{ left: 12, top: CENTRO_FILA_GANTT - 7 }}>Mercado Público no informa fecha de adjudicación</span>;
+            if (!f.adjudicacionEstimadaAt) return <span className="absolute text-xs text-tinta-2 whitespace-nowrap" style={{ left: 12, top: CENTRO_FILA_GANTT - 7 }}>Mercado Público no informa fecha de adjudicación</span>;
             const dAdj = dayjs(f.adjudicacionEstimadaAt.slice(0, 10));
             const xa = x(dAdj);
             const dd = dAdj.diff(dayjs().startOf('day'), 'day');
             return (
               <>
-                <Diamond size={18} className="absolute text-slate-500 fill-slate-100" style={{ left: xa - 9, top: CENTRO_FILA_GANTT - 9 }} />
-                <span className="absolute text-[11px] font-semibold text-slate-700 whitespace-nowrap" style={{ left: xa + 14, top: CENTRO_FILA_GANTT - 7 }}>
+                <Diamond size={18} className="absolute text-tinta-2 dark:text-slate-400 fill-slate-100" style={{ left: xa - 9, top: CENTRO_FILA_GANTT - 9 }} />
+                <span className="absolute text-xs font-semibold text-tinta dark:text-slate-200 whitespace-nowrap" style={{ left: xa + 14, top: CENTRO_FILA_GANTT - 7 }}>
                   {`Adjudicación estimada ${dAdj.format('DD-MM')} · ${dd < 0 ? `atrasada ${-dd} d` : dd === 0 ? 'hoy' : `en ${dd} d`}`}
                 </span>
               </>
@@ -936,14 +968,14 @@ function FilaGantt({ f, inicioRango, pxDia, onSeleccionar, seleccionada, ultimaU
           const colorEntrega = noRealizada ? GRIS : entregada ? '#10b981' : h.entregaVencida ? ROJO : h.entrega && h.entrega.diff(hoy, 'day') <= 3 ? '#f59e0b' : TEAL;
 
           const Tramo = ({ left, width, color, texto, title, borde }: { left: number; width: number; color: string; texto: string; title: string; borde?: boolean }) => (
-            <div title={title} className="absolute flex items-center justify-center overflow-hidden rounded-md text-[10px] font-medium whitespace-nowrap"
+            <div title={title} className="absolute flex items-center justify-center overflow-hidden rounded-md text-xs font-medium whitespace-nowrap"
               style={{ left, width: Math.max(width, 6), top: CENTRO_FILA_GANTT - 11, height: 22, background: borde ? 'transparent' : color, border: borde ? `1.5px dashed ${color}` : undefined, color: borde ? color : '#fff' }}>
               {width >= 80 ? texto : ''}
             </div>
           );
           // Rótulo corto con fecha. Cada fase tiene su propia altura (dos arriba, dos abajo), así nunca se pisan ni se cortan.
           const Rotulo = ({ left, lado, texto, color, title }: { left: number; lado: number; texto: string; color: string; title?: string }) => (
-            <span title={title ?? texto} className="absolute text-[11px] font-medium leading-[14px] whitespace-nowrap"
+            <span title={title ?? texto} className="absolute text-xs font-medium leading-[14px] whitespace-nowrap"
               style={{ left, top: CENTRO_FILA_GANTT + lado, color }}>{texto}</span>
           );
 
@@ -1000,40 +1032,40 @@ function FilaGantt({ f, inicioRango, pxDia, onSeleccionar, seleccionada, ultimaU
 function PanelDetalleGantt({ f, onClose }: { f: ComprasFila; onClose: () => void }) {
   const h = calcularHitosGantt(f);
   return (
-    <div className="flex flex-col bg-white border border-zinc-200 rounded-xl shadow-flotante overflow-hidden w-full max-w-5xl" style={{ maxHeight: '92vh' }} onClick={e => e.stopPropagation()}>
-      <div className="flex items-start justify-between gap-2 px-6 py-4 border-b border-zinc-200">
+    <div className="flex flex-col bg-white dark:bg-slate-900 border border-linea dark:border-slate-800 rounded-xl shadow-flotante overflow-hidden w-full max-w-5xl" style={{ maxHeight: '92vh' }} onClick={e => e.stopPropagation()}>
+      <div className="flex items-start justify-between gap-2 px-6 py-4 border-b border-linea dark:border-slate-800">
         <div className="min-w-0">
-          <p className="text-[17px] font-semibold tracking-tight text-zinc-900 leading-snug">{f.licitacionNombre || f.licitacionCodigo}</p>
-          <p className="text-xs font-mono text-zinc-400 mt-0.5">{f.licitacionCodigo}</p>
+          <p className="text-[17px] font-semibold tracking-tight text-tinta dark:text-slate-100 leading-snug">{f.licitacionNombre || f.licitacionCodigo}</p>
+          <p className="text-xs font-mono text-tinta-2 mt-0.5">{f.licitacionCodigo}</p>
         </div>
-        <button onClick={onClose} title="Cerrar" className="text-zinc-400 hover:text-zinc-700 flex-shrink-0"><X size={16} /></button>
+        <button onClick={onClose} title="Cerrar" className="text-tinta-2 hover:text-tinta flex-shrink-0"><X size={16} /></button>
       </div>
       <div className="overflow-y-auto px-6 py-4 space-y-4">
         <div className="grid grid-cols-3 gap-1.5 text-center">
-          <div className="bg-zinc-50 rounded-lg py-1.5">
-            <p className="text-[11px] text-zinc-400">Adjudicación</p>
-            <p className="text-[11px] font-semibold text-zinc-700">{h.adjudicacion.format('DD-MM-YY')}</p>
+          <div className="bg-slate-50 dark:bg-slate-950/40 rounded-lg py-1.5">
+            <p className="text-xs text-tinta-2">Adjudicación</p>
+            <p className="text-xs font-semibold text-tinta dark:text-slate-200">{h.adjudicacion.format('DD-MM-YY')}</p>
           </div>
           <div className="bg-amber-50 rounded-lg py-1.5">
-            <p className="text-[11px] text-amber-500">Aceptar OC</p>
-            <p className="text-[11px] font-semibold text-amber-700">{h.aceptacionOCLimite.format('DD-MM-YY')}{h.aceptacionOCEstimada && '*'}</p>
+            <p className="text-xs text-amber-500">Aceptar OC</p>
+            <p className="text-xs font-semibold text-amber-700">{h.aceptacionOCLimite.format('DD-MM-YY')}{h.aceptacionOCEstimada && '*'}</p>
           </div>
           <div className={`rounded-lg py-1.5 ${h.entregaVencida ? 'bg-rose-50' : 'bg-teal-50'}`}>
-            <p className={`text-[11px] ${h.entregaVencida ? 'text-rose-500' : 'text-teal-600'}`}>Entrega</p>
-            <p className={`text-[11px] font-semibold ${h.entregaVencida ? 'text-rose-700' : 'text-teal-800'}`}>{h.entrega ? h.entrega.format('DD-MM-YY') : h.porValidar ? 'Por validar' : h.esperandoOC ? (h.faltaAceptar ? 'Al aceptar la OC' : 'Al llegar la OC') : '— sin dato'}</p>
+            <p className={`text-xs ${h.entregaVencida ? 'text-rose-500' : 'text-teal-600'}`}>Entrega</p>
+            <p className={`text-xs font-semibold ${h.entregaVencida ? 'text-rose-700' : 'text-teal-800'}`}>{h.entrega ? h.entrega.format('DD-MM-YY') : h.porValidar ? 'Por validar' : h.esperandoOC ? (h.faltaAceptar ? 'Al aceptar la OC' : 'Al llegar la OC') : '— sin dato'}</p>
           </div>
         </div>
-        {h.aceptacionOCEstimada && <p className="text-[10px] text-zinc-400">*Estimado — tope legal (5 días corridos), sin dato en las bases.</p>}
+        {h.aceptacionOCEstimada && <p className="text-xs text-tinta-2">*Estimado — tope legal (5 días corridos), sin dato en las bases.</p>}
 
         {/* Reloj de Entrega (spec §15) — dice si la fecha de arriba es oficial o solo estimada, y
             si ya se registró una prórroga. Si no está fijado, apunta a dónde fijarlo. */}
         {f.reloj?.fechaLimiteVigente ? (
           <div className={`rounded-lg border px-3 py-2 ${f.reloj.prorrogado ? 'bg-amber-50 border-amber-200' : 'bg-emerald-50 border-emerald-200'}`}>
-            <p className={`text-[11px] font-semibold flex items-center gap-1.5 ${f.reloj.prorrogado ? 'text-amber-700' : 'text-emerald-700'}`}>
+            <p className={`text-xs font-semibold flex items-center gap-1.5 ${f.reloj.prorrogado ? 'text-amber-700' : 'text-emerald-700'}`}>
               <CalendarClock size={12} /> {f.reloj.prorrogado ? 'Plazo prorrogado' : 'Reloj de Entrega fijado'}
             </p>
             {f.reloj.prorrogado && (
-              <p className="text-[10.5px] text-amber-700 mt-0.5">
+              <p className="text-xs text-amber-700 mt-0.5">
                 Nuevo plazo {dayjs(f.reloj.fechaLimiteVigente).format('DD-MM-YYYY')}
                 {f.reloj.prorrogaMotivo && ` — ${f.reloj.prorrogaMotivo}`}
                 {f.reloj.prorrogaAutorizadoPorNombre && ` (autorizó ${f.reloj.prorrogaAutorizadoPorNombre})`}.
@@ -1041,8 +1073,8 @@ function PanelDetalleGantt({ f, onClose }: { f: ComprasFila; onClose: () => void
             )}
           </div>
         ) : (
-          <div className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2">
-            <p className="text-[10.5px] text-zinc-500">
+          <div className="rounded-lg border border-linea dark:border-slate-800 bg-slate-50 dark:bg-slate-950/40 px-3 py-2">
+            <p className="text-xs text-tinta-2 dark:text-slate-400">
               {h.porValidar
                 ? <>Las bases no dicen desde cuándo corre el plazo de entrega ({f.plazoEntregaDias} días): hay que validarlo antes de tener fecha.</>
                 : h.esperandoOC
@@ -1054,11 +1086,11 @@ function PanelDetalleGantt({ f, onClose }: { f: ComprasFila; onClose: () => void
         )}
 
         <div>
-          <p className="text-xs text-zinc-500 mb-1.5">Todas las tareas ({f.tareasGantt.length})</p>
+          <p className="text-xs text-tinta-2 dark:text-slate-400 mb-1.5">Todas las tareas ({f.tareasGantt.length})</p>
           <GanttComprasCard tareas={f.tareasGantt} hitos={f.hitosGantt} plegable={false} />
         </div>
 
-        <Link href={`/compras/${f.negocioId}`} className="flex items-center justify-center gap-1.5 text-[11.5px] font-semibold text-teal-700 hover:text-teal-800 bg-teal-50 hover:bg-teal-100 rounded-lg py-2 transition-colors">
+        <Link href={`/compras/${f.negocioId}`} className="flex items-center justify-center gap-1.5 text-xs font-semibold text-teal-700 hover:text-teal-800 bg-teal-50 hover:bg-teal-100 rounded-lg py-2 transition-colors">
           Ver negocio completo <ArrowUpRight size={13} />
         </Link>
       </div>
@@ -1069,8 +1101,8 @@ function PanelDetalleGantt({ f, onClose }: { f: ComprasFila; onClose: () => void
 // Franja que separa «entrega rápida» (urgentes) del resto. Se queda pegada a la izquierda mientras se desliza la línea de tiempo.
 function SeparadorGrupoCompras({ urgente, n }: { urgente: boolean; n: number }) {
   return (
-    <div className={`flex items-center border-b ${urgente ? 'bg-rose-50 border-rose-100' : 'bg-zinc-50 border-zinc-200'}`} style={{ height: 28 }}>
-      <div className={`sticky left-0 z-10 flex items-center gap-2 px-3 text-xs font-semibold ${urgente ? 'text-rose-700' : 'text-zinc-500'}`}>
+    <div className={`flex items-center border-b ${urgente ? 'bg-rose-50 border-rose-100' : 'bg-slate-50 dark:bg-slate-950/40 border-linea dark:border-slate-800'}`} style={{ height: 28 }}>
+      <div className={`sticky left-0 z-10 flex items-center gap-2 px-3 text-xs font-semibold ${urgente ? 'text-rose-700' : 'text-tinta-2 dark:text-slate-400'}`}>
         {urgente ? <AlertTriangle size={12} /> : <ShoppingCart size={12} />}
         {urgente ? 'Entrega rápida' : 'Resto de las licitaciones'} · {n}
         {urgente && <span className="font-medium normal-case tracking-normal text-rose-500">plazo menor a 3 días · la más reciente primero</span>}
@@ -1086,9 +1118,9 @@ function FaseOC({ n, estado, titulo, fecha, nota }: { n: number; estado: 'ok' | 
   return (
     <div className="min-w-0 pr-3">
       <div className={`h-1 rounded-full mb-2 ${barra}`} />
-      <p className="text-xs text-zinc-500"><span className="font-semibold text-zinc-700 tabular-nums mr-1">{n}.</span>{titulo}</p>
-      <p className={`text-sm font-semibold tabular-nums ${estado === 'atraso' ? 'text-rose-700' : estado === 'sin' ? 'text-zinc-400' : 'text-zinc-900'}`}>{fecha}</p>
-      <p className={`text-xs ${estado === 'atraso' ? 'text-rose-600' : 'text-zinc-500'}`}>{nota}</p>
+      <p className="text-xs text-tinta-2 dark:text-slate-400"><span className="font-semibold text-tinta dark:text-slate-200 tabular-nums mr-1">{n}.</span>{titulo}</p>
+      <p className={`text-sm font-semibold tabular-nums ${estado === 'atraso' ? 'text-rose-700' : estado === 'sin' ? 'text-tinta-2' : 'text-tinta dark:text-slate-100'}`}>{fecha}</p>
+      <p className={`text-xs ${estado === 'atraso' ? 'text-rose-600' : 'text-tinta-2 dark:text-slate-400'}`}>{nota}</p>
     </div>
   );
 }
@@ -1133,28 +1165,28 @@ function FilaFasesCompras({ f, onDetalle }: { f: ComprasFila; onDetalle: () => v
           nota={h.porValidar ? 'Las bases no dicen desde cuándo' : f.plazoEntregaDias != null ? `${dias(f.plazoEntregaDias)} desde ${desde ?? 'la OC'}` : 'Sin plazo de entrega'} />;
 
   return (
-    <div className="bg-white border border-zinc-200 rounded-xl shadow-tarjeta px-5 py-4">
+    <div className="bg-white dark:bg-slate-900 border border-linea dark:border-slate-800 rounded-xl shadow-tarjeta px-5 py-4">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           {lugarCorto(f) && (
-            <p className="flex items-center gap-1.5 text-[12px] font-semibold text-zinc-900" title={[f.licitacionOrganismo, f.licitacionRegion].filter(Boolean).join(' · ')}>
+            <p className="flex items-center gap-1.5 text-[12px] font-semibold text-tinta dark:text-slate-100" title={[f.licitacionOrganismo, f.licitacionRegion].filter(Boolean).join(' · ')}>
               <Building2 size={13} className="text-slate-400 flex-shrink-0" />{lugarCorto(f)}
             </p>
           )}
-          <Link href={`/compras/${f.negocioId}`} title="Abrir la licitación de compra" className="block text-[15px] font-semibold tracking-tight text-zinc-900 hover:text-teal-700 hover:underline">
+          <Link href={`/compras/${f.negocioId}`} title="Abrir la licitación de compra" className="block text-[15px] font-semibold tracking-tight text-tinta dark:text-slate-100 hover:text-teal-700 hover:underline">
             {f.licitacionNombre || f.licitacionCodigo}
           </Link>
-          <p className="text-xs text-zinc-500 mt-0.5"><span className="font-mono">{f.licitacionCodigo}</span> · <span className="tabular-nums">{fmtCLPCorto(f.montoNuestro)}</span> · {f.asignadoNombre || 'Sin asignar'}</p>
+          <p className="text-xs text-tinta-2 dark:text-slate-400 mt-0.5"><span className="font-mono">{f.licitacionCodigo}</span> · <span className="tabular-nums">{fmtCLPCorto(f.montoNuestro)}</span> · {f.asignadoNombre || 'Sin asignar'}</p>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
           <span className={`flex items-center gap-1.5 text-xs font-medium whitespace-nowrap ${e.texto_clase}`}><span className={`w-1.5 h-1.5 rounded-full ${e.punto}`} />{e.texto}</span>
           <button type="button" onClick={onDetalle} title="Ver el detalle del Gantt (todas las tareas)" aria-label="Ver el detalle del Gantt"
-            className="p-1.5 rounded-md text-zinc-400 hover:text-teal-700 hover:bg-teal-50 transition-colors"><GanttChart size={15} /></button>
+            className="p-1.5 rounded-md text-tinta-2 hover:text-teal-700 hover:bg-teal-50 transition-colors"><GanttChart size={15} /></button>
         </div>
       </div>
-      <div className="grid grid-cols-2 @xl:grid-cols-4 gap-y-3 mt-3">{fase1}{fase2}{fase3}{fase4}</div>
+      <div className="grid grid-cols-2 @3xl:grid-cols-4 gap-y-3 mt-3">{fase1}{fase2}{fase3}{fase4}</div>
       {f.tareasTotal > 0 && (
-        <div className="flex items-center gap-4 mt-3 pt-3 border-t border-zinc-100 text-xs text-zinc-500">
+        <div className="flex items-center gap-4 mt-3 pt-3 border-t border-linea dark:border-slate-800 text-xs text-tinta-2 dark:text-slate-400">
           <span className="tabular-nums">Tareas {f.tareasHechas}/{f.tareasTotal}</span>
           {f.tareasVencidas > 0 && <span className="text-rose-600 font-medium tabular-nums">{f.tareasVencidas} vencidas</span>}
         </div>
@@ -1244,14 +1276,14 @@ function VistaGanttCompras({ negocios, ultimaUrgenteId, modo, setModo }: { negoc
 
   return (
     <div className="space-y-2">
-      <div className="flex items-center gap-1 border-b border-zinc-200" role="tablist">
+      <div className="flex items-center gap-1 border-b border-linea dark:border-slate-800" role="tablist">
         {([
           { key: 'plazos', label: 'Por plazo de entrega', ayuda: 'Primero las de entrega rápida; la línea de tiempo se centra en hoy' },
           { key: 'ultimas', label: 'Desde las últimas ganadas', ayuda: 'De la más reciente a la más antigua; la línea de tiempo parte en la última ganada' },
           { key: 'fases', label: 'Fases de la OC', ayuda: 'Adjudicación → llega la OC → se acepta la OC → plazo de entrega, solo con datos reales' },
         ] as const).map(t => (
           <button key={t.key} role="tab" aria-selected={modo === t.key} onClick={() => setModo(t.key)} title={t.ayuda}
-            className={`text-[13px] font-semibold px-3.5 py-2 -mb-px border-b-2 transition-colors ${modo === t.key ? 'border-teal-600 text-teal-700' : 'border-transparent text-zinc-500 hover:text-zinc-700'}`}>
+            className={`text-[13px] font-semibold px-3.5 py-2 -mb-px border-b-2 transition-colors ${modo === t.key ? 'border-teal-600 text-teal-700' : 'border-transparent text-tinta-2 dark:text-slate-400 hover:text-tinta'}`}>
             {t.label}
           </button>
         ))}
@@ -1262,7 +1294,7 @@ function VistaGanttCompras({ negocios, ultimaUrgenteId, modo, setModo }: { negoc
         </div>
       ) : (<>
       <div className="flex items-center justify-between flex-wrap gap-2">
-        <p className="text-[11.5px] text-zinc-400">
+        <p className="text-xs text-tinta-2">
           {negocios.length} licitación(es) · adjudicación → aceptación de OC → entrega, con tareas marcadas en el camino. Usa el botón del Gantt de cada tarjeta para ver todas sus tareas.
         </p>
         <div className="flex items-center gap-2">
@@ -1270,35 +1302,35 @@ function VistaGanttCompras({ negocios, ultimaUrgenteId, modo, setModo }: { negoc
             className="text-xs font-semibold text-teal-700 hover:bg-teal-50 px-2.5 py-1.5 rounded-md transition-colors">Última ganada</button>
           <button onClick={() => irAHoy(true)} title="Volver a centrar en hoy"
             className="text-xs font-semibold text-teal-700 hover:bg-teal-50 px-2.5 py-1.5 rounded-md transition-colors">Hoy</button>
-          <div className="inline-flex items-center bg-zinc-100 rounded-lg p-0.5">
+          <div className="inline-flex items-center bg-slate-100 rounded-lg p-0.5">
             <button onClick={() => setDensidad('compacta')} title="Zoom compacto"
-              className={`p-1.5 rounded-md transition-colors ${densidad === 'compacta' ? 'bg-white text-teal-700 shadow-sm' : 'text-zinc-500 hover:text-zinc-700'}`}><ZoomOut size={14} /></button>
+              className={`p-1.5 rounded-md transition-colors ${densidad === 'compacta' ? 'bg-white dark:bg-slate-900 text-teal-700 shadow-tarjeta' : 'text-tinta-2 dark:text-slate-400 hover:text-tinta'}`}><ZoomOut size={14} /></button>
             <button onClick={() => setDensidad('normal')}
-              className={`text-[11px] font-semibold px-2 py-1.5 rounded-md transition-colors ${densidad === 'normal' ? 'bg-white text-teal-700 shadow-sm' : 'text-zinc-500 hover:text-zinc-700'}`}>Normal</button>
+              className={`text-xs font-semibold px-2 py-1.5 rounded-md transition-colors ${densidad === 'normal' ? 'bg-white dark:bg-slate-900 text-teal-700 shadow-tarjeta' : 'text-tinta-2 dark:text-slate-400 hover:text-tinta'}`}>Normal</button>
             <button onClick={() => setDensidad('amplia')} title="Zoom amplio"
-              className={`p-1.5 rounded-md transition-colors ${densidad === 'amplia' ? 'bg-white text-teal-700 shadow-sm' : 'text-zinc-500 hover:text-zinc-700'}`}><ZoomIn size={14} /></button>
+              className={`p-1.5 rounded-md transition-colors ${densidad === 'amplia' ? 'bg-white dark:bg-slate-900 text-teal-700 shadow-tarjeta' : 'text-tinta-2 dark:text-slate-400 hover:text-tinta'}`}><ZoomIn size={14} /></button>
           </div>
         </div>
       </div>
 
       <div className="flex items-start gap-3">
-        <div className="flex-1 bg-white border border-zinc-200 rounded-2xl shadow-sm overflow-hidden min-w-0">
+        <div className="flex-1 bg-white dark:bg-slate-900 border border-linea dark:border-slate-800 rounded-2xl shadow-tarjeta overflow-hidden min-w-0">
           <div ref={scrollRef} className="overflow-x-auto">
             <div style={{ width: ANCHO_ETIQUETA_GANTT + anchoTimeline }}>
               {/* Regla de meses + días — sticky arriba mientras se hace scroll vertical. */}
-              <div className="sticky top-0 z-20 flex bg-white border-b border-zinc-200" style={{ height: ALTO_REGLA_MESES + ALTO_REGLA_DIAS }}>
-                <div className="sticky left-0 z-30 bg-white border-r border-zinc-200 flex-shrink-0" style={{ width: ANCHO_ETIQUETA_GANTT }} />
+              <div className="sticky top-0 z-20 flex bg-white dark:bg-slate-900 border-b border-linea dark:border-slate-800" style={{ height: ALTO_REGLA_MESES + ALTO_REGLA_DIAS }}>
+                <div className="sticky left-0 z-30 bg-white dark:bg-slate-900 border-r border-linea dark:border-slate-800 flex-shrink-0" style={{ width: ANCHO_ETIQUETA_GANTT }} />
                 <div className="relative flex-1">
                   {/* Días: un número por casilla; fin de semana sombreado, hoy resaltado. */}
-                  <div className="absolute inset-x-0 bottom-0 border-t border-zinc-100" style={{ height: ALTO_REGLA_DIAS }}>
+                  <div className="absolute inset-x-0 bottom-0 border-t border-linea dark:border-slate-800" style={{ height: ALTO_REGLA_DIAS }}>
                     {Array.from({ length: totalDias }, (_, i) => {
                       const d = inicioRango.add(i, 'day');
                       const finde = d.day() === 0 || d.day() === 6;
                       const esHoy = d.isSame(dayjs(), 'day');
                       return (
                         <div key={i} title={d.format('dddd DD-MM-YYYY')}
-                          className={`absolute inset-y-0 flex items-center justify-center text-[10px] leading-none ${
-                            esHoy ? 'bg-rose-500 text-white font-semibold rounded-sm' : finde ? 'bg-zinc-100 text-zinc-400' : 'text-zinc-500'
+                          className={`absolute inset-y-0 flex items-center justify-center text-xs leading-none ${
+                            esHoy ? 'bg-rose-500 text-white font-semibold rounded-sm' : finde ? 'bg-slate-100 text-tinta-2' : 'text-tinta-2 dark:text-slate-400'
                           }`}
                           style={{ left: i * pxDia, width: pxDia }}>
                           {d.date()}
@@ -1307,12 +1339,12 @@ function VistaGanttCompras({ negocios, ultimaUrgenteId, modo, setModo }: { negoc
                     })}
                   </div>
                   {meses.map(m => (
-                    <div key={m.label} className={`absolute top-0 ${m.par ? 'bg-zinc-50' : 'bg-white'}`}
+                    <div key={m.label} className={`absolute top-0 ${m.par ? 'bg-slate-50 dark:bg-slate-950/40' : 'bg-white dark:bg-slate-900'}`}
                       style={{ left: m.x, width: m.w, height: ALTO_REGLA_MESES, borderLeft: '1px solid #f4f4f5' }}>
                       {/* Etiqueta "pegajosa": al desplazarse dentro de un mes ancho, su nombre se queda
                           pegado al borde de la columna fija en vez de desaparecer por la izquierda —
                           pero sin salirse de los límites de SU mes (se lo pasa al siguiente al llegar). */}
-                      <div className={`sticky h-full flex items-center px-2 text-[11px] font-semibold capitalize ${m.par ? 'text-zinc-500' : 'text-zinc-400'}`}
+                      <div className={`sticky h-full flex items-center px-2 text-xs font-semibold capitalize ${m.par ? 'text-tinta-2 dark:text-slate-400' : 'text-tinta-2'}`}
                         style={{ left: ANCHO_ETIQUETA_GANTT + 8 }}>
                         {m.label}
                       </div>
@@ -1347,8 +1379,8 @@ function VistaGanttCompras({ negocios, ultimaUrgenteId, modo, setModo }: { negoc
         </div>
       )}
 
-      {modo !== 'fases' && <div className="flex items-center gap-4 flex-wrap text-[11px] text-zinc-500">
-        <span className="font-semibold text-zinc-600">Cada barra empieza el día que se ganó:</span>
+      {modo !== 'fases' && <div className="flex items-center gap-4 flex-wrap text-xs text-tinta-2 dark:text-slate-400">
+        <span className="font-semibold text-tinta-2 dark:text-slate-400">Cada barra empieza el día que se ganó:</span>
         <span className="flex items-center gap-1.5"><span className="w-4 h-3 rounded-sm" style={{ background: '#fbbf24' }} /> Esperando la OC del cliente</span>
         <span className="flex items-center gap-1.5"><span className="w-4 h-3 rounded-sm" style={{ background: '#34d399' }} /> OC ya recibida</span>
         <span className="flex items-center gap-1.5"><span className="w-4 h-3 rounded-sm bg-teal-600" /> Plazo de entrega (naranja si quedan 3 días o menos, rojo si venció)</span>
@@ -1427,7 +1459,7 @@ export default function ComprasPage() {
         if (typeof f.soloUrgentes === 'boolean') setSoloUrgentes(f.soloUrgentes);
         if (typeof f.soloSinAsignar === 'boolean') setSoloSinAsignar(f.soloSinAsignar);
         if (typeof f.soloFielCumplimiento === 'boolean') setSoloFielCumplimiento(f.soloFielCumplimiento);
-        if (f.estado === 'abiertas' || f.estado === 'cerradas' || f.estado === 'canceladas' || f.estado === 'todas') setEstado(f.estado);
+        if (['abiertas', 'en_proceso', 'entregadas', 'cerradas', 'canceladas', 'todas'].includes(f.estado)) setEstado(f.estado);
         if (typeof f.fechaDesde === 'string') setFechaDesde(f.fechaDesde);
         if (typeof f.fechaHasta === 'string') setFechaHasta(f.fechaHasta);
         if (f.orden === 'reciente' || f.orden === 'antiguo' || f.orden === 'monto_desc' || f.orden === 'monto_asc') setOrden(f.orden);
@@ -1453,17 +1485,17 @@ export default function ComprasPage() {
 
   // Datos de Obuma de lo cerrado/cancelado: se piden una sola vez, cuando se abre una pestaña que no es «Abiertas».
   useEffect(() => {
-    if (estado === 'abiertas' || obumaCierre) return;
+    if (estado === 'abiertas' || estado === 'en_proceso' || estado === 'entregadas' || obumaCierre) return;
     let vivo = true;
     fetch('/api/compras/cerradas').then(r => r.json()).then(d => { if (vivo) setObumaCierre(d?.obuma ?? {}); }).catch(() => { if (vivo) setObumaCierre({}); });
     return () => { vivo = false; };
   }, [estado, obumaCierre]);
   const nPorEstado = useMemo(() => {
-    const n = { abiertas: 0, cerradas: 0, canceladas: 0, todas: 0 };
+    const n = { abiertas: 0, en_proceso: 0, entregadas: 0, cerradas: 0, canceladas: 0, todas: 0 };
     for (const f of negocios) { if (f.precompra) continue; n[estadoDeCompra(f)]++; n.todas++; }
     return n;
   }, [negocios]);
-  const nGanadas = nPorEstado.abiertas;
+  const nGanadas = nPorEstado.abiertas + nPorEstado.en_proceso + nPorEstado.entregadas;   // todo lo que sigue vivo (aún no pagada ni cancelada)
   const nPrecompras = useMemo(() => negocios.filter(f => f.precompra && !f.cierreLegado).length, [negocios]);
   const hayFiltro = fAsignado.length > 0 || fOrganismo.length > 0 || fRegion.length > 0 || fPostulador.length > 0 || fOC !== 'todos'
     || !!montoMin || !!montoMax || !!plazoMin || !!plazoMax || soloTareasVencidas
@@ -1621,6 +1653,7 @@ export default function ComprasPage() {
           'Región': f.licitacionRegion || '',
           'Postuló': f.postuladoPorNombre || '',
           'Urgente': f.urgente ? 'Sí' : 'No',
+          'Estado de la compra': f.precompra ? 'Pre-compra' : ETIQUETA_ESTADO_COMPRA[f.estadoCompra],
           'Cierre': f.cierreLegado === 'ENTREGADA' ? 'Cerrada' : f.cierreLegado ? 'Cancelada' : 'Abierta',
         };
       });
@@ -1644,7 +1677,7 @@ export default function ComprasPage() {
   if (cargandoSesion || (!puedeVer && loading)) {
     return (
       <AppLayout breadcrumb={[{ label: 'Compras' }]}>
-        <div className="flex items-center justify-center min-h-[60vh]"><Loader2 className="w-6 h-6 animate-spin text-zinc-400" /></div>
+        <div className="p-4 sm:p-6 max-w-5xl mx-auto space-y-3"><Esqueleto className="h-7 w-40" />{[1, 2, 3, 4].map(i => <Esqueleto key={i} className="h-24 rounded-xl" />)}</div>
       </AppLayout>
     );
   }
@@ -1656,66 +1689,49 @@ export default function ComprasPage() {
         vista === 'gantt' ? 'max-w-[1700px]' : vista === 'mes' && mesesVista > 1 ? 'max-w-[1600px]' : vista === 'mes' ? 'max-w-7xl' : 'max-w-5xl'
       }`}>
         <div className="flex items-center justify-between gap-3 flex-wrap">
-          <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-lg bg-teal-50 flex items-center justify-center flex-shrink-0">
-              <ShoppingCart size={17} className="text-teal-600" />
-            </div>
-            <div>
-              <h1 className="text-[16px] font-semibold text-zinc-900 leading-tight">Compras</h1>
-              <p className="text-[12px] text-zinc-500">
-                {negocios.length === 0 ? 'Sin negocios ganados todavía'
-                  : hayFiltro || q || estado !== 'abiertas' ? `${filtrados.length} negocio(s)`
-                  : `${nGanadas} negocio(s) abierto(s)${nPrecompras > 0 ? ` · ${nPrecompras} pre-compra(s)` : ''}`}
-              </p>
-            </div>
+          <div>
+            <h1 className="text-[22px] font-semibold tracking-tight leading-tight text-tinta dark:text-slate-50">Compras</h1>
+            <p className="mt-1 text-sm text-tinta-2 dark:text-slate-400">
+              {negocios.length === 0 ? 'Sin negocios ganados todavía'
+                : hayFiltro || q || estado !== 'abiertas' ? `${filtrados.length} negocio(s)`
+                : `${nGanadas} negocio(s) abierto(s)${nPrecompras > 0 ? ` · ${nPrecompras} pre-compra(s)` : ''}`}
+            </p>
           </div>
           <div className="flex items-center gap-2">
             {negocios.length > 0 && (
               <button onClick={exportarExcel} disabled={exportando || filtrados.length === 0}
-                className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-zinc-600 bg-white border border-zinc-200 hover:bg-zinc-50 disabled:opacity-50 px-3 py-2 rounded-lg transition-colors"
+                className="inline-flex h-9 items-center gap-2 rounded-lg border border-linea bg-white px-3.5 text-sm font-medium text-tinta shadow-tarjeta transition-colors hover:bg-slate-50 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marca/60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800"
                 title="Descargar en Excel los negocios que se ven con los filtros actuales">
-                {exportando ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />} Exportar Excel
+                {exportando ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} stroke={1.75} />} Exportar Excel
               </button>
             )}
             {esJefeDeVentas && (
               <Link href="/compras/dashboard"
-                className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-zinc-600 bg-white border border-zinc-200 hover:bg-zinc-50 px-3 py-2 rounded-lg transition-colors"
+                className="inline-flex h-9 items-center gap-2 rounded-lg border border-linea bg-white px-3.5 text-sm font-medium text-tinta shadow-tarjeta transition-colors hover:bg-slate-50 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marca/60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800"
                 title="Cuellos de botella y estadística de gestión — solo jefatura">
-                <BarChart3 size={13} /> Dashboard
+                <BarChart3 size={16} stroke={1.75} /> Dashboard
               </Link>
             )}
             {esJefeDeVentas && (
               <Link href="/compras/analitica"
-                className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-zinc-600 bg-white border border-zinc-200 hover:bg-zinc-50 px-3 py-2 rounded-lg transition-colors"
+                className="inline-flex h-9 items-center gap-2 rounded-lg border border-linea bg-white px-3.5 text-sm font-medium text-tinta shadow-tarjeta transition-colors hover:bg-slate-50 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marca/60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800"
                 title="Gráficos de todo Compras: ganado, entregas, encargados, OC, tareas, gastos y proveedores">
-                <LineChart size={13} /> Analítica
+                <LineChart size={16} stroke={1.75} /> Analítica
               </Link>
             )}
             {negocios.length > 0 && (
-              <div className="inline-flex items-center bg-zinc-100 rounded-lg p-0.5">
-                {([
-                  { key: 'gantt', label: 'Gantt', icon: <GanttChart size={13} /> },
-                  { key: 'lista', label: 'Lista', icon: <List size={13} /> },
-                  { key: 'mes', label: 'Mes', icon: <Calendar size={13} /> },
-                ] as const).map(v => (
-                  <button key={v.key} onClick={() => setVista(v.key)}
-                    className={`inline-flex items-center gap-1.5 text-[12px] font-semibold px-2.5 py-1.5 rounded-md transition-colors ${
-                      vista === v.key ? 'bg-white text-teal-700 shadow-sm' : 'text-zinc-500 hover:text-zinc-700'
-                    }`}>
-                    {v.icon} {v.label}
-                  </button>
-                ))}
-              </div>
+              <Pestanas id="vista-compras" valor={vista} onCambio={setVista}
+                opciones={[{ valor: 'gantt', etiqueta: 'Gantt' }, { valor: 'lista', etiqueta: 'Lista' }, { valor: 'mes', etiqueta: 'Mes' }]} />
             )}
             {negocios.length > 0 && vista === 'mes' && !soloUrgentes && (
               // Ver varios meses a la vez — pedido explícito del usuario, 16-sep-2026: planificar
               // entregas con más rango sin ir mes a mes. Con 2 o 3 meses las tarjetas del día pasan
               // a la variante compacta (ver TarjetaDiaCompras) para que quepan sin perder los datos.
-              <div className="inline-flex items-center bg-zinc-100 rounded-lg p-0.5" title="Meses a la vez">
+              <div className="inline-flex items-center bg-slate-100 rounded-lg p-0.5" title="Meses a la vez">
                 {([1, 2, 3] as const).map(n => (
                   <button key={n} onClick={() => setMesesVista(n)}
                     className={`text-[12px] font-semibold px-2.5 py-1.5 rounded-md transition-colors ${
-                      mesesVista === n ? 'bg-white text-teal-700 shadow-sm' : 'text-zinc-500 hover:text-zinc-700'
+                      mesesVista === n ? 'bg-white dark:bg-slate-900 text-teal-700 shadow-tarjeta' : 'text-tinta-2 dark:text-slate-400 hover:text-tinta'
                     }`}>
                     {n} mes{n > 1 ? 'es' : ''}
                   </button>
@@ -1724,9 +1740,9 @@ export default function ComprasPage() {
             )}
             {negocios.length > 0 && (
               <div className="relative">
-                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
+                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-tinta-2" />
                 <input value={q} onChange={e => setQ(e.target.value)} placeholder="Buscar nombre, código, organismo o encargado…"
-                  className="pl-8 pr-3 py-2 text-[13px] border border-zinc-200 rounded-lg focus:ring-1 focus:ring-teal-500 outline-none w-72" />
+                  className="pl-8 pr-3 py-2 text-[13px] border border-linea dark:border-slate-800 rounded-lg focus:ring-1 focus:ring-teal-500 outline-none w-72" />
               </div>
             )}
           </div>
@@ -1735,21 +1751,23 @@ export default function ComprasPage() {
         {error && <Banner variante="error" accion={{ label: 'Reintentar', onClick: cargar }}>{error}</Banner>}
 
         {!loading && negocios.length > 0 && (
-          <div className="flex items-center gap-1 border-b border-zinc-200" role="tablist">
+          <div className="flex items-center gap-1 border-b border-linea dark:border-slate-800" role="tablist">
             {([
               { key: 'abiertas', label: 'Abiertas', n: nPorEstado.abiertas, clase: 'border-teal-600 text-teal-700' },
+              { key: 'en_proceso', label: 'En proceso', n: nPorEstado.en_proceso, clase: 'border-teal-600 text-teal-700' },
+              { key: 'entregadas', label: 'Entregadas', n: nPorEstado.entregadas, clase: 'border-amber-500 text-amber-700' },
               { key: 'cerradas', label: 'Cerradas', n: nPorEstado.cerradas, clase: 'border-emerald-600 text-emerald-700' },
               { key: 'canceladas', label: 'Canceladas', n: nPorEstado.canceladas, clase: 'border-rose-600 text-rose-700' },
-              { key: 'todas', label: 'Todas', n: nPorEstado.todas, clase: 'border-zinc-700 text-zinc-800' },
-              { key: 'precompras', label: 'Pre-compras (POSIBLE ADJ)', n: nPrecompras, clase: 'border-slate-600 text-slate-700' },
-              { key: 'avances', label: 'Licitaciones por avances', n: nPorEstado.abiertas, clase: 'border-teal-600 text-teal-700' },
+              { key: 'todas', label: 'Todas', n: nPorEstado.todas, clase: 'border-zinc-700 text-tinta dark:text-slate-100' },
+              { key: 'precompras', label: 'Pre-compras (POSIBLE ADJ)', n: nPrecompras, clase: 'border-slate-600 text-tinta dark:text-slate-200' },
+              { key: 'avances', label: 'Licitaciones por avances', n: nGanadas, clase: 'border-teal-600 text-teal-700' },
             ] as const).map(t => {
               const activa = t.key === 'precompras' ? ambito === 'precompras' : t.key === 'avances' ? ambito === 'avances' : ambito === 'ganadas' && estado === t.key;
               return (
               <button key={t.key} role="tab" aria-selected={activa}
                 onClick={() => { if (t.key === 'precompras') setAmbito('precompras'); else if (t.key === 'avances') setAmbito('avances'); else { setAmbito('ganadas'); setEstado(t.key); } }}
                 className={`inline-flex items-center gap-2 text-[13px] font-semibold px-3.5 py-2 -mb-px border-b-2 transition-colors ${
-                  activa ? t.clase : 'border-transparent text-zinc-500 hover:text-zinc-700'
+                  activa ? t.clase : 'border-transparent text-tinta-2 dark:text-slate-400 hover:text-tinta'
                 }`}>
                 {t.label}
                 <span className={`text-xs font-semibold tabular-nums`}>{t.n}</span>
@@ -1761,7 +1779,7 @@ export default function ComprasPage() {
 
         {!loading && negocios.length > 0 && (
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-[12px] text-zinc-400 font-medium flex items-center gap-1"><Filter size={13} /> Filtrar:</span>
+            <span className="text-[12px] text-tinta-2 font-medium flex items-center gap-1"><Filter size={13} /> Filtrar:</span>
             {opciones.asignado.length > 0 && (
               <MultiSelect label="Encargado" icon={<Users size={13} />} options={opciones.asignado} selected={fAsignado} onChange={setFAsignado} minWidth={220} />
             )}
@@ -1774,82 +1792,82 @@ export default function ComprasPage() {
             {opciones.region.length > 0 && (
               <MultiSelect label="Comuna / región" icon={<Building2 size={13} />} options={opciones.region} selected={fRegion} onChange={setFRegion} minWidth={240} />
             )}
-            <div className="inline-flex items-center bg-zinc-100 rounded-lg p-0.5" title="Orden de compra">
+            <div className="inline-flex items-center bg-slate-100 rounded-lg p-0.5" title="Orden de compra">
               {([
                 { key: 'todos', label: 'OC: todas' },
                 { key: 'con', label: 'Con OC' },
                 { key: 'sin', label: 'Sin OC' },
               ] as const).map(o => (
                 <button key={o.key} onClick={() => setFOC(o.key)}
-                  className={`text-[11.5px] font-semibold px-2 py-1.5 rounded-md transition-colors ${
-                    fOC === o.key ? 'bg-white text-teal-700 shadow-sm' : 'text-zinc-500 hover:text-zinc-700'
+                  className={`text-xs font-semibold px-2 py-1.5 rounded-md transition-colors ${
+                    fOC === o.key ? 'bg-white dark:bg-slate-900 text-teal-700 shadow-tarjeta' : 'text-tinta-2 dark:text-slate-400 hover:text-tinta'
                   }`}>{o.label}</button>
               ))}
             </div>
             <button onClick={() => setSoloTareasVencidas(v => !v)}
               className={`inline-flex items-center gap-1 text-[12px] font-semibold px-2.5 py-2 rounded-lg border transition-colors ${
-                soloTareasVencidas ? 'text-rose-700 bg-rose-50 border-rose-200' : 'text-zinc-500 bg-white border-zinc-200 hover:bg-zinc-50'
+                soloTareasVencidas ? 'text-rose-700 bg-rose-50 border-rose-200' : 'text-tinta-2 dark:text-slate-400 bg-white dark:bg-slate-900 border-linea dark:border-slate-800 hover:bg-slate-50'
               }`}>
               <CheckCircle2 size={12} /> Tareas vencidas
             </button>
             <button onClick={() => setSoloUrgentes(v => !v)}
               className={`inline-flex items-center gap-1 text-[12px] font-semibold px-2.5 py-2 rounded-lg border transition-colors ${
-                soloUrgentes ? 'text-rose-700 bg-rose-50 border-rose-200' : 'text-zinc-500 bg-white border-zinc-200 hover:bg-zinc-50'
+                soloUrgentes ? 'text-rose-700 bg-rose-50 border-rose-200' : 'text-tinta-2 dark:text-slate-400 bg-white dark:bg-slate-900 border-linea dark:border-slate-800 hover:bg-slate-50'
               }`}>
               <AlertTriangle size={12} /> Urgentes
             </button>
             <button onClick={() => setSoloSinAsignar(v => !v)}
               className={`inline-flex items-center gap-1 text-[12px] font-semibold px-2.5 py-2 rounded-lg border transition-colors ${
-                soloSinAsignar ? 'text-amber-700 bg-amber-50 border-amber-200' : 'text-zinc-500 bg-white border-zinc-200 hover:bg-zinc-50'
+                soloSinAsignar ? 'text-amber-700 bg-amber-50 border-amber-200' : 'text-tinta-2 dark:text-slate-400 bg-white dark:bg-slate-900 border-linea dark:border-slate-800 hover:bg-slate-50'
               }`}>
               <Clock size={12} /> Sin asignar
             </button>
             <button onClick={() => setSoloFielCumplimiento(v => !v)}
               title="Solo licitaciones cuyas bases exigen boleta de garantía de fiel cumplimiento"
               className={`inline-flex items-center gap-1 text-[12px] font-semibold px-2.5 py-2 rounded-lg border transition-colors ${
-                soloFielCumplimiento ? 'text-teal-700 bg-teal-50 border-teal-200' : 'text-zinc-500 bg-white border-zinc-200 hover:bg-zinc-50'
+                soloFielCumplimiento ? 'text-teal-700 bg-teal-50 border-teal-200' : 'text-tinta-2 dark:text-slate-400 bg-white dark:bg-slate-900 border-linea dark:border-slate-800 hover:bg-slate-50'
               }`}>
               <ShieldCheck size={12} /> Fiel cumplimiento
             </button>
-            <div className="flex items-center gap-1.5 border border-zinc-200 rounded-lg px-2.5 py-1">
-              <Calendar size={13} className="text-zinc-400 flex-shrink-0" />
-              <span className="text-[11px] font-semibold text-zinc-500">Ganado</span>
+            <div className="flex items-center gap-1.5 border border-linea dark:border-slate-800 rounded-lg px-2.5 py-1">
+              <Calendar size={13} className="text-tinta-2 flex-shrink-0" />
+              <span className="text-xs font-semibold text-tinta-2 dark:text-slate-400">Ganado</span>
               <input type="date" value={fechaDesde} onChange={e => setFechaDesde(e.target.value)}
                 max={fechaHasta || undefined}
-                className="text-[12px] text-zinc-700 bg-transparent outline-none w-[118px]" title="Ganado desde" />
-              <span className="text-zinc-300">–</span>
+                className="text-[12px] text-tinta dark:text-slate-200 bg-transparent outline-none w-[118px]" title="Ganado desde" />
+              <span className="text-tinta-2">–</span>
               <input type="date" value={fechaHasta} onChange={e => setFechaHasta(e.target.value)}
                 min={fechaDesde || undefined}
-                className="text-[12px] text-zinc-700 bg-transparent outline-none w-[118px]" title="Ganado hasta" />
+                className="text-[12px] text-tinta dark:text-slate-200 bg-transparent outline-none w-[118px]" title="Ganado hasta" />
               {(fechaDesde || fechaHasta) && (
                 <button onClick={() => { setFechaDesde(''); setFechaHasta(''); }}
-                  title="Quitar rango de fecha" className="text-zinc-400 hover:text-red-600 flex-shrink-0"><X size={12} /></button>
+                  title="Quitar rango de fecha" className="text-tinta-2 hover:text-red-600 flex-shrink-0"><X size={12} /></button>
               )}
             </div>
-            <div className="flex items-center gap-1.5 border border-zinc-200 rounded-lg px-2.5 py-1">
-              <span className="text-[11px] font-semibold text-zinc-500">Monto</span>
+            <div className="flex items-center gap-1.5 border border-linea dark:border-slate-800 rounded-lg px-2.5 py-1">
+              <span className="text-xs font-semibold text-tinta-2 dark:text-slate-400">Monto</span>
               <input type="number" min={0} placeholder="Mín" value={montoMin} onChange={e => setMontoMin(e.target.value)}
-                className="text-[12px] text-zinc-700 bg-transparent outline-none w-[72px]" title="Monto mínimo" />
-              <span className="text-zinc-300">–</span>
+                className="text-[12px] text-tinta dark:text-slate-200 bg-transparent outline-none w-[72px]" title="Monto mínimo" />
+              <span className="text-tinta-2">–</span>
               <input type="number" min={0} placeholder="Máx" value={montoMax} onChange={e => setMontoMax(e.target.value)}
-                className="text-[12px] text-zinc-700 bg-transparent outline-none w-[72px]" title="Monto máximo" />
+                className="text-[12px] text-tinta dark:text-slate-200 bg-transparent outline-none w-[72px]" title="Monto máximo" />
               {(montoMin || montoMax) && (
                 <button onClick={() => { setMontoMin(''); setMontoMax(''); }}
-                  title="Quitar rango de monto" className="text-zinc-400 hover:text-red-600 flex-shrink-0"><X size={12} /></button>
+                  title="Quitar rango de monto" className="text-tinta-2 hover:text-red-600 flex-shrink-0"><X size={12} /></button>
               )}
             </div>
-            <div className="flex items-center gap-1.5 border border-zinc-200 rounded-lg px-2.5 py-1">
-              <Clock size={13} className="text-zinc-400 flex-shrink-0" />
-              <span className="text-[11px] font-semibold text-zinc-500">Entrega</span>
+            <div className="flex items-center gap-1.5 border border-linea dark:border-slate-800 rounded-lg px-2.5 py-1">
+              <Clock size={13} className="text-tinta-2 flex-shrink-0" />
+              <span className="text-xs font-semibold text-tinta-2 dark:text-slate-400">Entrega</span>
               <input type="number" min={0} placeholder="Mín" value={plazoMin} onChange={e => setPlazoMin(e.target.value)}
-                className="text-[12px] text-zinc-700 bg-transparent outline-none w-[50px]" title="Días de entrega mínimo" />
-              <span className="text-zinc-300">–</span>
+                className="text-[12px] text-tinta dark:text-slate-200 bg-transparent outline-none w-[50px]" title="Días de entrega mínimo" />
+              <span className="text-tinta-2">–</span>
               <input type="number" min={0} placeholder="Máx" value={plazoMax} onChange={e => setPlazoMax(e.target.value)}
-                className="text-[12px] text-zinc-700 bg-transparent outline-none w-[50px]" title="Días de entrega máximo" />
-              <span className="text-[11px] text-zinc-400">días</span>
+                className="text-[12px] text-tinta dark:text-slate-200 bg-transparent outline-none w-[50px]" title="Días de entrega máximo" />
+              <span className="text-xs text-tinta-2">días</span>
               {(plazoMin || plazoMax) && (
                 <button onClick={() => { setPlazoMin(''); setPlazoMax(''); }}
-                  title="Quitar rango de plazo de entrega" className="text-zinc-400 hover:text-red-600 flex-shrink-0"><X size={12} /></button>
+                  title="Quitar rango de plazo de entrega" className="text-tinta-2 hover:text-red-600 flex-shrink-0"><X size={12} /></button>
               )}
             </div>
             {hayFiltro && (
@@ -1859,7 +1877,7 @@ export default function ComprasPage() {
               </button>
             )}
             <div className="inline-flex items-center gap-1.5 ml-auto">
-              <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-zinc-400"><ArrowUpDown size={12} /> Ordenar</span>
+              <span className="inline-flex items-center gap-1 text-xs font-semibold text-tinta-2"><ArrowUpDown size={12} /> Ordenar</span>
               <Select value={orden} onChange={v => setOrden(v as Orden)}
                 options={[
                   { value: 'reciente', label: 'Ganado reciente' },
@@ -1877,27 +1895,19 @@ export default function ComprasPage() {
             <AlertTriangle size={18} className="text-rose-600 flex-shrink-0" />
             <span className="min-w-0 flex-1">
               <span className="block text-xs font-semibold text-rose-700">{ultimaUrgente.urgente ? 'Entrega rápida · ' : ''}La última que se ganó{urgentes.length > 0 ? ` · ${urgentes.length} de entrega rápida` : ''}</span>
-              <span className="block text-[13px] font-semibold text-zinc-900 truncate">{ultimaUrgente.licitacionNombre || ultimaUrgente.licitacionCodigo}</span>
-              <span className="block text-[11.5px] text-zinc-600">{ultimaUrgente.licitacionCodigo} · ganada {haceCuanto(ultimaUrgente.ganadoAt)} ({diaHoraCorta(ultimaUrgente.ganadoAt)}){ultimaUrgente.plazoEntregaDias != null ? ` · entrega en ${ultimaUrgente.plazoEntregaDias} día(s)` : ''}</span>
+              <span className="block text-[13px] font-semibold text-tinta dark:text-slate-100 truncate">{ultimaUrgente.licitacionNombre || ultimaUrgente.licitacionCodigo}</span>
+              <span className="block text-xs text-tinta-2 dark:text-slate-400">{ultimaUrgente.licitacionCodigo} · ganada {haceCuanto(ultimaUrgente.ganadoAt)} ({diaHoraCorta(ultimaUrgente.ganadoAt)}){ultimaUrgente.plazoEntregaDias != null ? ` · entrega en ${ultimaUrgente.plazoEntregaDias} día(s)` : ''}</span>
             </span>
             <span className="text-[12px] font-semibold text-rose-700 flex-shrink-0 inline-flex items-center gap-1">Abrir <ArrowUpRight size={14} /></span>
           </Link>
         )}
 
         {loading ? (
-          <div className="flex items-center justify-center py-16"><Loader2 className="w-5 h-5 animate-spin text-zinc-400" /></div>
+          <div className="space-y-3">{[1, 2, 3, 4].map(i => <Esqueleto key={i} className="h-24 rounded-xl" />)}</div>
         ) : negocios.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-16 text-center gap-2">
-            <ShoppingCart size={28} className="text-zinc-300" />
-            <p className="text-[13.5px] font-semibold text-zinc-500">Todavía no hay ningún negocio ganado</p>
-            <p className="text-[12px] text-zinc-400">Cuando Mercado Público confirme que ganamos, aparece acá para asignar encargado.</p>
-          </div>
+          <Vacio icono={<ShoppingCart size={28} stroke={1.75} />} titulo="Todavía no hay ningún negocio ganado" texto="Cuando Mercado Público confirme que ganamos, aparece acá para asignar encargado." />
         ) : filtrados.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-16 text-center gap-2">
-            <Search size={28} className="text-zinc-300" />
-            <p className="text-[13.5px] font-semibold text-zinc-500">{ambito === 'precompras' && nPrecompras === 0 ? 'No hay pre-compras abiertas' : 'Sin resultados'}</p>
-            <p className="text-[12px] text-zinc-400">{ambito === 'precompras' && nPrecompras === 0 ? 'Se abren solas cuando una licitación pasa a POSIBLE ADJ.' : 'Ningún negocio coincide con la búsqueda o los filtros.'}</p>
-          </div>
+          <Vacio icono={<Search size={28} stroke={1.75} />} titulo={ambito === 'precompras' && nPrecompras === 0 ? 'No hay pre-compras abiertas' : 'Sin resultados'} texto={ambito === 'precompras' && nPrecompras === 0 ? 'Se abren solas cuando una licitación pasa a POSIBLE ADJ.' : 'Ningún negocio coincide con la búsqueda o los filtros.'} />
         ) : ambito === 'avances' ? (
           <VistaAvancesCompras negocios={filtrados} />
         ) : soloUrgentes ? (
@@ -1911,11 +1921,11 @@ export default function ComprasPage() {
             {filtrados.map((f, i) => (
               <Fragment key={f.negocioId}>
                 {(i === 0 || filtrados[i - 1].urgente !== f.urgente) && (
-                  <p className={`text-xs font-semibold pt-1 flex items-center gap-1.5 ${f.urgente ? 'text-rose-700' : 'text-zinc-500'}`}>
+                  <p className={`text-xs font-semibold pt-1 flex items-center gap-1.5 ${f.urgente ? 'text-rose-700' : 'text-tinta-2 dark:text-slate-400'}`}>
                     {f.urgente ? <><AlertTriangle size={12} /> Entrega rápida · {urgentes.length}</> : <>Resto de las licitaciones · {filtrados.length - urgentes.length}</>}
                   </p>
                 )}
-                <FilaCompras f={f} esJefeDeVentas={esJefeDeVentas} esAdmin={esAdmin} puedeCerrar={puedeCerrar} candidatos={candidatos} onAsignado={cargar} ultimaUrgente={f.negocioId === ultimaUrgente?.negocioId} obuma={obumaCierre?.[f.negocioId]} />
+                <FilaCompras f={f} esJefeDeVentas={esJefeDeVentas} esAdmin={esAdmin} puedeCerrar={puedeCerrar} puedeEstado={esJefeDeVentas || esAdmin || puedeCerrar || (!!f.asignadoA && f.asignadoA === usuario?.id)} candidatos={candidatos} onAsignado={cargar} ultimaUrgente={f.negocioId === ultimaUrgente?.negocioId} obuma={obumaCierre?.[f.negocioId]} />
               </Fragment>
             ))}
           </div>

@@ -26,7 +26,7 @@ type Orden = 'licitaciones' | 'monto';
 
 const SERIE = ['#0d9488', '#475569', '#d97706', '#0891b2', '#ea580c', '#db2777'];
 const OTROS = '__otros';
-const TARJETA = 'rounded-xl border border-linea bg-white px-4 py-3.5 shadow-tarjeta dark:border-slate-800 dark:bg-slate-900';
+const TARJETA = 'rounded-xl border border-linea bg-white dark:bg-slate-900 px-4 py-3.5 shadow-tarjeta dark:border-slate-800 dark:bg-slate-900';
 
 const fmtCLP = (n: number) => new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n);
 const fmtMM = (n: number) => Math.abs(n) < 1_000_000 ? fmtCLP(n) : `$${(n / 1_000_000).toLocaleString('es-CL', { maximumFractionDigits: 1 })} MM`;
@@ -44,26 +44,26 @@ function FilaCompetidor({ c, color }: { c: Competidor; color: string }) {
   return (
     <li>
       <button type="button" onClick={() => setAbierta(v => !v)} aria-expanded={abierta}
-        className={`flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left transition-colors duration-150 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marca/60 dark:hover:bg-slate-800 ${abierta ? 'bg-slate-50 dark:bg-slate-800' : ''}`}>
+        className={`flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left transition-colors duration-150 hover:bg-slate-50 dark:hover:bg-slate-950/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marca/60 dark:hover:bg-slate-800 ${abierta ? 'bg-slate-50 dark:bg-slate-800' : ''}`}>
         <span aria-hidden style={{ backgroundColor: color }} className="h-2 w-2 flex-shrink-0 rounded-full" />
         <span className="min-w-0 flex-1">
           <span className="block truncate text-[13px] font-medium text-tinta dark:text-slate-100" title={c.nombre}>{c.nombre}</span>
-          {c.rut && <span className="block text-[11px] tabular-nums text-tinta-2 dark:text-slate-400">RUT {c.rut}</span>}
+          {c.rut && <span className="block text-xs tabular-nums text-tinta-2 dark:text-slate-400">RUT {c.rut}</span>}
         </span>
         <span className="flex-shrink-0 text-right">
           <span className="block text-[13px] font-semibold tabular-nums text-tinta dark:text-slate-50">{c.licitaciones} {c.licitaciones !== 1 ? 'licitaciones' : 'licitación'}</span>
-          <span className="block text-[11px] tabular-nums text-tinta-2 dark:text-slate-400">se llevó {fmtMM(c.monto)}</span>
+          <span className="block text-xs tabular-nums text-tinta-2 dark:text-slate-400">se llevó {fmtMM(c.monto)}</span>
         </span>
         <ChevronDown size={16} stroke={1.75} aria-hidden className={`flex-shrink-0 text-slate-400 transition-transform duration-150 ${abierta ? 'rotate-180' : ''}`} />
       </button>
       <div className="colapsable" data-abierto={abierta ? '1' : '0'}>
         <div className="colapsable-inner">
           <div className="px-2 pb-3 pt-1">
-            <p className="text-[11px] text-tinta-2 dark:text-slate-400">Nos ganó cuando postulamos con</p>
+            <p className="text-xs text-tinta-2 dark:text-slate-400">Nos ganó cuando postulamos con</p>
             <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-[13px] text-tinta dark:text-slate-100">
               {porEmpresa.map(([emp, n]) => <span key={emp}>{emp} <span className="font-semibold tabular-nums">{n}</span></span>)}
             </div>
-            <p className="mt-3 text-[11px] text-tinta-2 dark:text-slate-400">En estas licitaciones</p>
+            <p className="mt-3 text-xs text-tinta-2 dark:text-slate-400">En estas licitaciones</p>
             <ul className="mt-1 divide-y divide-linea dark:divide-slate-800">
               {c.detalle.map(d => (
                 <li key={d.codigo} className="flex items-start justify-between gap-3 py-1.5">
@@ -81,7 +81,7 @@ function FilaCompetidor({ c, color }: { c: Competidor; color: string }) {
                   </div>
                   <div className="flex-shrink-0 text-right">
                     <p className="text-[13px] font-semibold tabular-nums text-tinta dark:text-slate-50">{fmtCLP(d.monto)}</p>
-                    <p className="text-[11px] tabular-nums text-tinta-2 dark:text-slate-400">{d.lineas === d.lineasTotal ? 'toda la licitación' : `${d.lineas} de ${d.lineasTotal} líneas`}</p>
+                    <p className="text-xs tabular-nums text-tinta-2 dark:text-slate-400">{d.lineas === d.lineasTotal ? 'toda la licitación' : `${d.lineas} de ${d.lineasTotal} líneas`}</p>
                   </div>
                 </li>
               ))}
@@ -111,7 +111,7 @@ function EfectividadPorEmpresa({ filas }: { filas: PorEmpresa[] }) {
                 <span style={{ width: `${total ? (f.ganadas / total) * 100 : 0}%`, backgroundColor: '#059669' }} />
                 <span style={{ width: `${total ? (f.perdidas / total) * 100 : 0}%`, backgroundColor: '#dc2626' }} />
               </div>
-              <p className="mt-1 text-[11px] tabular-nums text-tinta-2 dark:text-slate-400">
+              <p className="mt-1 text-xs tabular-nums text-tinta-2 dark:text-slate-400">
                 {f.ganadas} ganadas · {f.perdidas} perdidas · {total} con resultado{f.montoGanado ? ` · ganó ${fmtMM(f.montoGanado)}` : ''}
               </p>
             </li>
@@ -281,7 +281,7 @@ export default function CompetenciaPage() {
                     <div className="relative w-56">
                       <Search size={16} stroke={1.75} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                       <input value={q} onChange={e => setQ(e.target.value)} placeholder="Buscar nombre o RUT…" aria-label="Buscar competidor"
-                        className="h-9 w-full rounded-lg border border-linea bg-white pl-9 pr-8 text-sm text-tinta placeholder:text-tinta-3 focus:outline-none focus:ring-2 focus:ring-marca/60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" />
+                        className="h-9 w-full rounded-lg border border-linea bg-white dark:bg-slate-900 pl-9 pr-8 text-sm text-tinta placeholder:text-tinta-3 focus:outline-none focus:ring-2 focus:ring-marca/60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" />
                       {q && (
                         <button onClick={() => setQ('')} aria-label="Limpiar búsqueda"
                           className="absolute right-1.5 top-1/2 inline-flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-tinta dark:hover:bg-slate-800">

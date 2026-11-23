@@ -4,6 +4,10 @@ import { useCallback, useEffect, useState } from 'react';
 import { AppLayout } from '@/app/components/AppLayout';
 import { useSession } from '@/app/lib/session-context';
 import { useToast } from '@/app/components/ui/toast';
+import { Banner } from '@/app/components/ui/Banner';
+import { Boton } from '@/app/components/ui/kit/Boton';
+import { Encabezado, Esqueleto } from '@/app/components/ui/kit/Estructura';
+import { Estado as EstadoPunto } from '@/app/components/ui/kit/Tarjeta';
 import { IconBrandWhatsapp as Whatsapp, IconLoader2 as Loader2, IconPlugConnectedX as Desvincular, IconRefresh as Refrescar, IconSend as Send } from '@tabler/icons-react';
 
 type Estado = 'open' | 'connecting' | 'close' | 'sin_instancia';
@@ -14,8 +18,10 @@ interface Datos {
 }
 
 const TIPO: Record<string, string> = { ganada: 'Ganada', perdida: 'Perdida', estado_mp: 'Cerrada/revocada/desierta', apertura: 'Apertura', oc: 'Orden de compra', oc_vencer: 'OC por vencer', cierra_pronto: 'Cierra pronto', radar: 'Radar' };
-const ESTADO: Record<string, string> = { pendiente: 'text-amber-600', enviado: 'text-emerald-600', error: 'text-red-600' };
+const ESTADO_COLOR: Record<string, string> = { pendiente: '#d97706', enviado: '#16a34a', error: '#dc2626' };
+const ESTADO_TEXTO: Record<string, string> = { pendiente: 'Pendiente', enviado: 'Enviado', error: 'Con error' };
 const fmtNumero = (n: string | null | undefined) => (n && /^56\d{9}$/.test(n) ? `+56 ${n[2]} ${n.slice(3, 7)} ${n.slice(7)}` : n ? `+${n}` : '');
+const SUPERFICIE = 'rounded-xl border border-linea bg-white shadow-tarjeta dark:bg-slate-900 dark:border-slate-800';
 
 export default function AvisosWhatsappPage() {
   const { usuario } = useSession();
@@ -69,74 +75,77 @@ export default function AvisosWhatsappPage() {
 
   return (
     <AppLayout breadcrumb={[{ label: 'Dashboard', href: '/dashboard' }, { label: 'Avisos por WhatsApp' }]}>
-      <div className="p-4 sm:p-6 lg:p-8 max-w-3xl mx-auto space-y-4">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-emerald-50 flex items-center justify-center text-emerald-600"><Whatsapp size={20} /></div>
-          <div>
-            <h1 className="text-[15px] font-semibold text-slate-900">Avisos por WhatsApp</h1>
-            <p className="text-xs text-slate-500">Desde el número de la empresa, a quien corresponde: ganadas, perdidas, estados, aperturas, órdenes de compra, cierres y radar</p>
-          </div>
-        </div>
+      <div className="@container p-4 sm:p-6 lg:p-8 max-w-3xl mx-auto space-y-4">
+        <Encabezado
+          titulo="Avisos por WhatsApp"
+          descripcion="Desde el número de la empresa, a quien corresponde: ganadas, perdidas, estados, aperturas, órdenes de compra, cierres y radar."
+        />
 
-        {error && <div className="px-4 py-3 rounded-xl text-[13px] bg-red-50 border border-red-200 text-red-700">{error}</div>}
-        {d && !d.configurado && <div className="px-4 py-3 rounded-xl text-[13px] bg-amber-50 border border-amber-200 text-amber-800">El servicio de WhatsApp no está configurado en este servidor (faltan EVOLUTION_API_URL y EVOLUTION_API_KEY).</div>}
-        {d?.configurado && d.migracion === false && <div className="px-4 py-3 rounded-xl text-[13px] bg-amber-50 border border-amber-200 text-amber-800">Falta aplicar la migración 178 (tablas de avisos): <code>node scripts/aplicar-migration-178.mjs</code></div>}
-        {!d && !error && <div className="flex justify-center py-12 text-slate-400"><Loader2 className="animate-spin" /></div>}
+        {error && <Banner variante="error">{error}</Banner>}
+        {d && !d.configurado && <Banner variante="warning">El servicio de WhatsApp no está configurado en este servidor (faltan EVOLUTION_API_URL y EVOLUTION_API_KEY).</Banner>}
+        {d?.configurado && d.migracion === false && <Banner variante="warning">Falta aplicar la migración 178 (tablas de avisos): <code>node scripts/aplicar-migration-178.mjs</code></Banner>}
+        {!d && !error && <div className="space-y-3"><Esqueleto className="h-32 rounded-xl" /><Esqueleto className="h-40 rounded-xl" /></div>}
 
         {d?.configurado && (
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
-            <p className="text-[11px] font-semibold text-slate-400 mb-3">Número emisor</p>
+          <div className={`${SUPERFICIE} p-5`}>
+            <h2 className="text-[15px] font-semibold text-tinta dark:text-slate-100 mb-3">Número emisor</h2>
             {d.estado === 'open' ? (
               <div className="flex flex-wrap items-center gap-3">
-                <span className="inline-flex items-center gap-1.5 text-[13px] font-semibold text-emerald-700"><span className="w-2 h-2 rounded-full bg-emerald-500" /> Conectado {d.numero ? `· ${fmtNumero(d.numero)}` : ''}</span>
+                <span className="text-[13px] font-medium text-tinta dark:text-slate-100">
+                  <EstadoPunto color="#16a34a">Conectado {d.numero ? `· ${fmtNumero(d.numero)}` : ''}</EstadoPunto>
+                </span>
                 <span className="flex-1" />
-                <button type="button" onClick={prueba} disabled={!!ocupado} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 text-[12px] font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60">
-                  {ocupado === 'prueba' ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />} Enviarme una prueba
-                </button>
-                <button type="button" onClick={desvincular} disabled={!!ocupado} className="inline-flex items-center gap-1.5 text-[12px] text-slate-500 hover:text-red-600"><Desvincular size={14} /> Desvincular</button>
+                <Boton onClick={prueba} disabled={!!ocupado} icono={ocupado === 'prueba' ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} stroke={1.75} />}>Enviarme una prueba</Boton>
+                <Boton variante="peligro" onClick={desvincular} disabled={!!ocupado} icono={<Desvincular size={16} stroke={1.75} />}>Desvincular</Boton>
               </div>
             ) : (
               <div className="text-center py-2">
                 {qr?.img ? (
                   <>
-                    <img src={qr.img} alt="Código QR de WhatsApp" className="w-60 h-60 mx-auto rounded-lg border border-slate-200" />
-                    <p className="text-[13px] font-semibold text-slate-800 mt-3">Escanéalo desde el celular del número emisor</p>
-                    <p className="text-[12px] text-slate-500 mt-1">WhatsApp → Dispositivos vinculados → Vincular un dispositivo. Vence en ~1 minuto.</p>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={qr.img} alt="Código QR de WhatsApp" className="w-60 h-60 mx-auto rounded-lg border border-linea dark:border-slate-700" />
+                    <p className="text-[13px] font-medium text-tinta dark:text-slate-100 mt-3">Escanéalo desde el celular del número emisor</p>
+                    <p className="text-xs text-tinta-2 dark:text-slate-400 mt-1">WhatsApp → Dispositivos vinculados → Vincular un dispositivo. Vence en ~1 minuto.</p>
                   </>
                 ) : (
-                  <p className="text-[13px] text-slate-600 mb-3">No hay un número vinculado. Vincula el celular desde el que saldrán los avisos.</p>
+                  <p className="text-[13px] text-tinta-2 dark:text-slate-300 mb-3">No hay un número vinculado. Vincula el celular desde el que saldrán los avisos.</p>
                 )}
-                <button type="button" onClick={conectar} disabled={!!ocupado} className="mt-3 inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white font-semibold rounded-xl text-[13px]">
-                  {ocupado === 'qr' ? <Loader2 size={14} className="animate-spin" /> : qr?.img ? <Refrescar size={14} /> : <Whatsapp size={14} />} {qr?.img ? 'Generar otro código' : 'Mostrar código QR'}
-                </button>
+                <div className="mt-3">
+                  <Boton variante="primario" onClick={conectar} disabled={!!ocupado}
+                    icono={ocupado === 'qr' ? <Loader2 size={16} className="animate-spin" /> : qr?.img ? <Refrescar size={16} stroke={1.75} /> : <Whatsapp size={16} stroke={1.75} />}>
+                    {qr?.img ? 'Generar otro código' : 'Mostrar código QR'}
+                  </Boton>
+                </div>
               </div>
             )}
-            <p className="text-[11.5px] text-slate-400 mt-4 leading-snug">
+            <p className="text-xs text-tinta-2 dark:text-slate-400 mt-4 leading-snug">
               Se vincula como un dispositivo más de WhatsApp (conexión no oficial): úsalo con un número de la empresa que ya conozcan tus contactos, solo para avisar al equipo. Los envíos salen de a uno, con pausa y un tope diario.
             </p>
           </div>
         )}
 
         {r && (
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
-            <div className="flex flex-wrap items-center gap-x-6 gap-y-1 mb-3 text-[12.5px] text-slate-600">
-              <span><b className="text-slate-900">{r.enviadosHoy}</b> enviados hoy (tope {r.topeDiario})</span>
-              <span><b className="text-slate-900">{r.pendientes}</b> pendientes</span>
-              {r.errores > 0 && <span className="text-red-600"><b>{r.errores}</b> con error</span>}
+          <div className={`${SUPERFICIE} p-5`}>
+            <div className="flex flex-wrap items-center gap-x-6 gap-y-1 mb-3 text-[13px] text-tinta-2 dark:text-slate-300">
+              <span><b className="font-semibold text-tinta dark:text-slate-50 tabular-nums">{r.enviadosHoy}</b> enviados hoy (tope {r.topeDiario})</span>
+              <span><b className="font-semibold text-tinta dark:text-slate-50 tabular-nums">{r.pendientes}</b> pendientes</span>
+              {r.errores > 0 && <span className="text-urgente"><b className="font-semibold tabular-nums">{r.errores}</b> con error</span>}
               <span className="flex-1" />
-              {r.pendientes > 0 && <button type="button" onClick={reintentar} disabled={!!ocupado} className="text-[12px] font-semibold text-teal-600 hover:text-teal-800">Reintentar ahora</button>}
+              {r.pendientes > 0 && <Boton variante="fantasma" tamano="sm" onClick={reintentar} disabled={!!ocupado}>Reintentar ahora</Boton>}
             </div>
-            {r.ultimos.length === 0 ? <p className="text-[12.5px] text-slate-400">Aún no se ha enviado ningún aviso.</p> : (
-              <table className="w-full text-[12.5px]">
-                <thead><tr className="text-left text-[11px] text-slate-400"><th className="py-1.5 font-semibold">Aviso</th><th className="font-semibold">Licitación</th><th className="font-semibold">Para</th><th className="font-semibold">Estado</th></tr></thead>
-                <tbody>{r.ultimos.map(f => (
-                  <tr key={f.id} className="border-t border-slate-100">
-                    <td className="py-1.5">{TIPO[f.tipo] ?? f.tipo}</td>
-                    <td className="font-mono text-[11.5px]">{f.licitacion_codigo}</td>
-                    <td className="truncate max-w-[140px]">{f.nombre ?? '—'}</td>
-                    <td className={`font-semibold ${ESTADO[f.estado] ?? ''}`} title={f.error ?? ''}>{f.estado}</td>
-                  </tr>))}</tbody>
-              </table>
+            {r.ultimos.length === 0 ? <p className="text-[13px] text-tinta-2 dark:text-slate-400">Aún no se ha enviado ningún aviso.</p> : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-[13px]">
+                  <thead><tr className="text-left text-[11px] text-tinta-2 dark:text-slate-400"><th className="h-9 font-medium">Aviso</th><th className="font-medium">Licitación</th><th className="font-medium">Para</th><th className="font-medium">Estado</th></tr></thead>
+                  <tbody>{r.ultimos.map(f => (
+                    <tr key={f.id} className="h-11 border-t border-linea dark:border-slate-800 text-tinta dark:text-slate-100">
+                      <td>{TIPO[f.tipo] ?? f.tipo}</td>
+                      <td className="font-mono text-xs">{f.licitacion_codigo}</td>
+                      <td className="truncate max-w-[140px]">{f.nombre ?? <span className="text-tinta-3">—</span>}</td>
+                      <td title={f.error ?? ''}><EstadoPunto color={ESTADO_COLOR[f.estado] ?? '#64748b'}>{ESTADO_TEXTO[f.estado] ?? f.estado}</EstadoPunto></td>
+                    </tr>))}</tbody>
+                </table>
+              </div>
             )}
           </div>
         )}

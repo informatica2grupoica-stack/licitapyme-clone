@@ -12,6 +12,7 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useToast } from '@/app/components/ui/toast';
 import { ModalElegirEncargado } from './ModalElegirEncargado';
+import { EstadoCompraControl, ModalPasarEnProceso } from '../EstadoCompraControl';
 import { Banner } from '@/app/components/ui/Banner';
 import { DocumentViewerModal, type VisorDoc } from '@/app/components/DocumentViewerModal';
 import { useCosteoFlotante } from '@/app/components/CosteoFlotanteContext';
@@ -263,15 +264,15 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
   };
 
   if (loading) {
-    return <div className="flex items-center justify-center py-16"><Loader2 className="w-5 h-5 animate-spin text-zinc-400" /></div>;
+    return <div className="flex items-center justify-center py-16"><Loader2 className="w-5 h-5 animate-spin text-tinta-2" /></div>;
   }
   if (error) return <Banner variante="error" accion={{ label: 'Reintentar', onClick: recargar }}>{error}</Banner>;
   if (!asignacion) {
     return (
       <div className="flex flex-col items-center justify-center py-16 text-center gap-2">
-        <ShoppingCart size={28} className="text-zinc-300" />
-        <p className="text-[13.5px] font-semibold text-zinc-500">Compras todavía no se abre para este negocio</p>
-        <p className="text-[12px] text-zinc-400 max-w-sm">Se abre automáticamente apenas Mercado Público confirma que ganamos.</p>
+        <ShoppingCart size={28} className="text-tinta-2" />
+        <p className="text-[13.5px] font-semibold text-tinta-2 dark:text-slate-400">Compras todavía no se abre para este negocio</p>
+        <p className="text-[12px] text-tinta-2 max-w-sm">Se abre automáticamente apenas Mercado Público confirma que ganamos.</p>
       </div>
     );
   }
@@ -329,26 +330,30 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
         negocio={{ codigo: asignacion.licitacionCodigo, nombre: licitacionNombre }}
         onClose={() => setModalEncargado(false)} candidatos={candidatos}
         actualId={asignacion.asignadoA ?? null} guardando={asignando} onConfirmar={asignar} />
+      {/* Licitación «Abierta» con encargado: no se toca nada hasta pasarla a «En proceso» (23-nov-2026). Sin X; el servidor también lo exige. */}
+      {asignacion.estadoCompra === 'ABIERTA' && !asignacion.precompra && !!asignacion.asignadoA && puedeOperar && (
+        <ModalPasarEnProceso negocioId={negocioId} codigo={asignacion.licitacionCodigo} nombre={licitacionNombre} onCambio={recargar} />
+      )}
       {/* Cabecera + encargado en UNA tarjeta (antes dos cajas apiladas: en un notebook se comían la
           primera pantalla antes de llegar al flujo). */}
-      <div className="bg-white rounded-xl border border-zinc-200 shadow-tarjeta overflow-hidden">
+      <div className="bg-white dark:bg-slate-900 rounded-xl border border-linea dark:border-slate-800 shadow-tarjeta overflow-hidden">
       <div className="flex items-center gap-3 px-4 py-3">
         <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${asignacion.urgente ? 'bg-rose-50' : 'bg-teal-50'}`}>
           <ShoppingCart size={18} className={asignacion.urgente ? 'text-rose-600' : 'text-teal-600'} />
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <h2 className="text-[17px] font-semibold tracking-tight text-zinc-900 leading-tight">
+            <h2 className="text-[17px] font-semibold tracking-tight text-tinta dark:text-slate-100 leading-tight">
               {licitacionNombre || `Negocio #${negocioId}`}
             </h2>
             {asignacion.urgente && (
-              <span className="inline-flex items-center gap-1 text-[10.5px] font-medium text-rose-700">
+              <span className="inline-flex items-center gap-1 text-xs font-medium text-rose-700">
                 <AlertTriangle size={11} /> Cadena de Urgencia
               </span>
             )}
           </div>
-          <p className="text-[12px] text-zinc-500 flex items-center gap-x-2 gap-y-0.5 flex-wrap mt-0.5">
-            <span className="font-medium text-zinc-700 tabular-nums">{asignacion.licitacionCodigo}</span>
+          <p className="text-[12px] text-tinta-2 dark:text-slate-400 flex items-center gap-x-2 gap-y-0.5 flex-wrap mt-0.5">
+            <span className="font-medium text-tinta dark:text-slate-200 tabular-nums">{asignacion.licitacionCodigo}</span>
             {licitacionOrganismo && <span>· {licitacionOrganismo}</span>}
             <span>· Ganado {fmtFecha(asignacion.ganadoAt)}</span>
             <Link href={`/negocios/${negocioId}`} className="inline-flex items-center gap-0.5 text-teal-700 hover:text-teal-800 font-semibold">
@@ -356,6 +361,9 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
             </Link>
           </p>
         </div>
+        {!asignacion.precompra && !!asignacion.asignadoA && (
+          <EstadoCompraControl negocioId={negocioId} estado={asignacion.estadoCompra} puede={puedeOperar} onCambio={recargar} />
+        )}
         <button
           onClick={() => flot.abrir(negocioId, asignacion.licitacionCodigo)}
           className="flex-shrink-0 inline-flex items-center gap-1.5 text-[12px] font-semibold text-white bg-teal-600 hover:bg-teal-700 px-3 py-2 rounded-lg transition-colors"
@@ -367,22 +375,22 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
 
       {/* Encargado: chico, una sola línea (pedido explícito, 17-sep-2026: "en encargado debe ser
           pequeño") — ahora es la fila de abajo de la tarjeta de cabecera. */}
-      <div id="compras-encargado" className="bg-zinc-50/70 border-t border-zinc-100 px-4 py-2 flex items-center gap-2 flex-wrap text-[12px] scroll-mt-4">
-        <span className="text-[11px] font-medium text-zinc-400 flex-shrink-0">Encargado</span>
+      <div id="compras-encargado" className="bg-slate-50 border-t border-linea dark:border-slate-800 px-4 py-2 flex items-center gap-2 flex-wrap text-[12px] scroll-mt-4">
+        <span className="text-xs font-medium text-tinta-2 flex-shrink-0">Encargado</span>
         {asignacion.asignadoA ? (
           <div className="flex items-center gap-1.5 flex-wrap flex-1 min-w-0">
-            <span className="font-semibold text-zinc-800">{asignacion.asignadoNombre}</span>
-            <span className="text-zinc-400 text-[11px]">— {fmtFecha(asignacion.asignadoAt)}{asignacion.asignadoPor == null ? ' · automático' : ''}</span>
+            <span className="font-semibold text-tinta dark:text-slate-100">{asignacion.asignadoNombre}</span>
+            <span className="text-tinta-2 text-xs">— {fmtFecha(asignacion.asignadoAt)}{asignacion.asignadoPor == null ? ' · automático' : ''}</span>
             {esAdmin && (
               <button onClick={() => setModalEncargado(true)}
-                className="text-[11px] font-semibold text-teal-700 hover:text-teal-800">Cambiar</button>
+                className="text-xs font-semibold text-teal-700 hover:text-teal-800">Cambiar</button>
             )}
             <CoencargadosCompras negocioId={negocioId} principalId={asignacion.asignadoA} coencargados={asignacion.coencargados || []} candidatos={candidatos}
               puedeEditar={esAdmin || esJefeDeVentas} onCambio={recargar} />
           </div>
         ) : (
           <div className="flex items-center gap-2 flex-wrap flex-1">
-            <span className="text-[11.5px] text-zinc-500 flex items-center gap-1">
+            <span className="text-xs text-tinta-2 dark:text-slate-400 flex items-center gap-1">
               <Clock size={12} className={vencimientoPasado ? 'text-rose-500' : 'text-amber-500'} />
               {vencimientoPasado
                 ? 'Plazo vencido — se asignará automáticamente al de menor carga.'
@@ -391,7 +399,7 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
             {esJefeDeVentas && (
               <>
                 <button onClick={() => setModalEncargado(true)} disabled={asignando}
-                  className="inline-flex items-center gap-1 text-[11.5px] font-semibold text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-50 px-2.5 py-1.5 rounded-lg transition-colors">
+                  className="inline-flex items-center gap-1 text-xs font-semibold text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-50 px-2.5 py-1.5 rounded-lg transition-colors">
                   <UserPlus size={12} /> Elegir encargado
                 </button>
               </>
@@ -405,14 +413,14 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
       {/* Se unió con el reloj de entrega y las incidencias (antes: banner alto + chips aparte, con la
           incidencia repetida dos veces). Superficie blanca; el color va solo en ícono, reloj y botón.
           El detalle largo queda en el tooltip. */}
-      <div className="bg-white rounded-xl border border-zinc-200 shadow-tarjeta px-3.5 py-2.5 flex items-center gap-x-3 gap-y-2 flex-wrap">
+      <div className="bg-white dark:bg-slate-900 rounded-xl border border-linea dark:border-slate-800 shadow-tarjeta px-3.5 py-2.5 flex items-center gap-x-3 gap-y-2 flex-wrap">
         <span className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${
           paso.tono === 'alerta' ? 'bg-rose-50 text-rose-600' : paso.tono === 'ok' ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'}`}>
           {paso.tono === 'ok' ? <Check size={18} /> : paso.tono === 'alerta' ? <AlertTriangle size={18} /> : <Target size={18} />}
         </span>
         <div className="flex-1 min-w-[200px]" title={paso.detalle}>
-          <p className="text-[11px] text-zinc-400 leading-none">{paso.tono === 'ok' ? 'Todo en orden' : 'Siguiente paso'}</p>
-          <p className="text-[14px] font-semibold tracking-tight text-zinc-900 leading-snug mt-1 truncate">{paso.titulo}</p>
+          <p className="text-xs text-tinta-2 leading-none">{paso.tono === 'ok' ? 'Todo en orden' : 'Siguiente paso'}</p>
+          <p className="text-[14px] font-semibold tracking-tight text-tinta dark:text-slate-100 leading-snug mt-1 truncate">{paso.titulo}</p>
         </div>
         <FranjaCompra compacto ocultarIncidencias={/incidencia/i.test(paso.titulo)} negocioId={negocioId} incidenciasAbiertas={resumenFases?.entrega.incidenciasAbiertas ?? 0}
           version={tareas.filter(t => t.estado === 'HECHA').length}
@@ -432,21 +440,21 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
       {/* Resumen ejecutivo, justo después del Gantt (pedido explícito, 17-sep-2026: "despues el
           resumen que es super importante") — antes quedaba escondido abajo de todo. */}
       {r && (
-        <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
-          <div className="w-full flex items-center justify-between px-4 py-3 hover:bg-zinc-50 transition-colors">
+        <div className="bg-white dark:bg-slate-900 rounded-xl border border-linea dark:border-slate-800 overflow-hidden">
+          <div className="w-full flex items-center justify-between px-4 py-3 hover:bg-slate-50 transition-colors">
             <button onClick={() => setResumenAbierto(v => !v)} className="flex-1 flex items-center justify-between text-left">
-              <p className="text-[12.5px] font-semibold text-zinc-700">Resumen ejecutivo</p>
+              <p className="text-[12.5px] font-semibold text-tinta dark:text-slate-200">Resumen ejecutivo</p>
             </button>
             <div className="flex items-center gap-2 pl-2">
               {puedeOperar && (
                 <button onClick={regenerarResumen} disabled={regenerando}
                   title="Vuelve a leer el costeo, los contactos del cliente y los plazos de las bases. El resumen no se actualiza solo: es una foto del momento de ganar."
-                  className="flex items-center gap-1 text-[11px] font-semibold text-zinc-400 hover:text-teal-700 disabled:opacity-50">
+                  className="flex items-center gap-1 text-xs font-semibold text-tinta-2 hover:text-teal-700 disabled:opacity-50">
                   {regenerando ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />} Volver a armar
                 </button>
               )}
               <button onClick={() => setResumenAbierto(v => !v)}>
-                {resumenAbierto ? <ChevronUp size={15} className="text-zinc-400" /> : <ChevronDown size={15} className="text-zinc-400" />}
+                {resumenAbierto ? <ChevronUp size={15} className="text-tinta-2" /> : <ChevronDown size={15} className="text-tinta-2" />}
               </button>
             </div>
           </div>
@@ -458,78 +466,78 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
             const margenBajo = r.margenPrevisto != null && r.margenPrevisto < 20;
             const excedePresupuesto = r.presupuestoProyecto != null && r.montoCosteado != null && r.montoCosteado > r.presupuestoProyecto;
             return (
-            <div className="border-t border-zinc-100 px-4 py-3 space-y-3">
+            <div className="border-t border-linea dark:border-slate-800 px-4 py-3 space-y-3">
               {/* Tres cifras principales — grandes, a color. Monto costeado va acá (pedido explícito,
                   22-sep-2026: es la cifra más importante para el encargado de Compras) en el lugar
                   que antes tenía Presupuesto del proyecto, que baja a las secundarias. Los montos
                   se guardan NETOS (ver construirResumenEjecutivoCompras en compras.ts) — se
                   especifica también el equivalente con IVA (×1,19) para no tener que calcularlo a mano. */}
-              <div className="grid grid-cols-1 @xl:grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 @2xl:grid-cols-3 gap-3">
                 <button type="button" onClick={alternarGanadas} aria-expanded={ganadasAbierto} title="Ver las líneas que se ganaron"
-                  className="group text-left rounded-xl px-3.5 py-3 bg-white border border-zinc-200 hover:border-emerald-400 hover:shadow-sm transition cursor-pointer">
-                  <p className="text-[12px] font-semibold text-zinc-500 flex items-center gap-1.5">
+                  className="group text-left rounded-xl px-3.5 py-3 bg-white dark:bg-slate-900 border border-linea dark:border-slate-800 hover:border-emerald-400 hover:shadow-sm transition cursor-pointer">
+                  <p className="text-[12px] font-semibold text-tinta-2 dark:text-slate-400 flex items-center gap-1.5">
                     <span className="w-6 h-6 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center"><DollarSign size={14} /></span> Precio de venta ganado
-                    <span className="ml-auto text-[11.5px] font-semibold text-emerald-700 flex items-center gap-0.5 opacity-80 group-hover:opacity-100">{ganadasAbierto ? 'Ocultar' : 'Ver líneas'} {ganadasAbierto ? <ChevronUp size={13} /> : <ChevronDown size={13} />}</span>
+                    <span className="ml-auto text-xs font-semibold text-emerald-700 flex items-center gap-0.5 opacity-80 group-hover:opacity-100">{ganadasAbierto ? 'Ocultar' : 'Ver líneas'} {ganadasAbierto ? <ChevronUp size={13} /> : <ChevronDown size={13} />}</span>
                   </p>
-                  <p className="text-[21px] leading-tight font-semibold text-zinc-900 mt-1 tabular-nums">{fmtCLP(r.montoNuestro)} <span className="text-[12px] font-semibold text-zinc-400">neto</span></p>
-                  {r.montoNuestro != null && <p className="text-[12px] text-zinc-500 mt-0.5 tabular-nums">{fmtCLP(Math.round(r.montoNuestro * 1.19))} con IVA</p>}
+                  <p className="text-[21px] leading-tight font-semibold text-tinta dark:text-slate-100 mt-1 tabular-nums">{fmtCLP(r.montoNuestro)} <span className="text-[12px] font-semibold text-tinta-2">neto</span></p>
+                  {r.montoNuestro != null && <p className="text-[12px] text-tinta-2 dark:text-slate-400 mt-0.5 tabular-nums">{fmtCLP(Math.round(r.montoNuestro * 1.19))} con IVA</p>}
                 </button>
-                <div className={`rounded-xl px-3.5 py-3 border ${excedePresupuesto ? 'bg-amber-50/60 border-amber-300' : 'bg-white border-zinc-200'}`}>
-                  <p className="text-[12px] font-semibold text-zinc-500 flex items-center gap-1.5">
-                    <span className={`w-6 h-6 rounded-lg flex items-center justify-center ${excedePresupuesto ? 'bg-amber-100 text-amber-600' : 'bg-slate-100 text-slate-600'}`}><Calculator size={14} /></span> Monto costeado
-                    {excedePresupuesto && <span className="ml-auto text-[11px] font-semibold text-amber-700 flex items-center gap-1"><AlertTriangle size={12} /> Sobre el presupuesto</span>}
+                <div className={`rounded-xl px-3.5 py-3 border ${excedePresupuesto ? 'bg-amber-50/60 border-amber-300' : 'bg-white dark:bg-slate-900 border-linea dark:border-slate-800'}`}>
+                  <p className="text-[12px] font-semibold text-tinta-2 dark:text-slate-400 flex items-center gap-1.5">
+                    <span className={`w-6 h-6 rounded-lg flex items-center justify-center ${excedePresupuesto ? 'bg-amber-100 text-amber-600' : 'bg-slate-100 text-tinta-2 dark:text-slate-400'}`}><Calculator size={14} /></span> Monto costeado
+                    {excedePresupuesto && <span className="ml-auto text-xs font-semibold text-amber-700 flex items-center gap-1"><AlertTriangle size={12} /> Sobre el presupuesto</span>}
                   </p>
-                  <p className="text-[21px] leading-tight font-semibold text-zinc-900 mt-1 tabular-nums">
-                    {r.existeCosteo ? <>{fmtCLP(r.montoCosteado)} <span className="text-[12px] font-semibold text-zinc-400">neto</span></> : <span className="text-[18px] text-zinc-400">Sin costeo</span>}
+                  <p className="text-[21px] leading-tight font-semibold text-tinta dark:text-slate-100 mt-1 tabular-nums">
+                    {r.existeCosteo ? <>{fmtCLP(r.montoCosteado)} <span className="text-[12px] font-semibold text-tinta-2">neto</span></> : <span className="text-[18px] text-tinta-2">Sin costeo</span>}
                   </p>
-                  {r.existeCosteo && r.montoCosteado != null && <p className="text-[12px] text-zinc-500 mt-0.5 tabular-nums">{fmtCLP(Math.round(r.montoCosteado * 1.19))} con IVA{r.costoDesdeCompraAprobada && <span className="text-zinc-400"> · según la compra aprobada (sin costeo)</span>}</p>}
+                  {r.existeCosteo && r.montoCosteado != null && <p className="text-[12px] text-tinta-2 dark:text-slate-400 mt-0.5 tabular-nums">{fmtCLP(Math.round(r.montoCosteado * 1.19))} con IVA{r.costoDesdeCompraAprobada && <span className="text-tinta-2"> · según la compra aprobada (sin costeo)</span>}</p>}
                   {r.costeoGanado && (
-                    <p className="text-[11.5px] text-emerald-700 font-semibold mt-1" title={`Postulamos ${r.costeoGanado.postuladas.length} líneas (costeo de ${fmtCLP(r.costeoGanado.costoPostulado)} neto); el acta de Mercado Público nos adjudicó solo ${r.costeoGanado.ganadas.length}.${r.costeoGanado.filasSinLinea ? ' Hay filas del costeo sin número de línea: revisa que el monto sea el correcto.' : ''}`}>
+                    <p className="text-xs text-emerald-700 font-semibold mt-1" title={`Postulamos ${r.costeoGanado.postuladas.length} líneas (costeo de ${fmtCLP(r.costeoGanado.costoPostulado)} neto); el acta de Mercado Público nos adjudicó solo ${r.costeoGanado.ganadas.length}.${r.costeoGanado.filasSinLinea ? ' Hay filas del costeo sin número de línea: revisa que el monto sea el correcto.' : ''}`}>
                       {r.costeoGanado.ganadas.length === 1 ? 'Solo la línea ' : 'Solo las líneas '}{r.costeoGanado.ganadas.join(', ')} · de {r.costeoGanado.postuladas.length} postuladas
-                      <span className="block font-normal text-zinc-400">Costeo de lo postulado: {fmtCLP(r.costeoGanado.costoPostulado)} neto</span>
+                      <span className="block font-normal text-tinta-2">Costeo de lo postulado: {fmtCLP(r.costeoGanado.costoPostulado)} neto</span>
                     </p>
                   )}
                 </div>
-                <div className={`rounded-xl px-3.5 py-3 border ${margenBajo ? 'bg-rose-50/60 border-rose-300' : 'bg-white border-zinc-200'}`}>
-                  <p className="text-[12px] font-semibold text-zinc-500 flex items-center gap-1.5">
+                <div className={`rounded-xl px-3.5 py-3 border ${margenBajo ? 'bg-rose-50/60 border-rose-300' : 'bg-white dark:bg-slate-900 border-linea dark:border-slate-800'}`}>
+                  <p className="text-[12px] font-semibold text-tinta-2 dark:text-slate-400 flex items-center gap-1.5">
                     <span className={`w-6 h-6 rounded-lg flex items-center justify-center ${margenBajo ? 'bg-rose-100 text-rose-600' : 'bg-teal-50 text-teal-600'}`}><Gauge size={14} /></span> Margen previsto
-                    {margenBajo && <span className="ml-auto text-[11px] font-semibold text-rose-700 flex items-center gap-1"><AlertTriangle size={12} /> Bajo el piso</span>}
+                    {margenBajo && <span className="ml-auto text-xs font-semibold text-rose-700 flex items-center gap-1"><AlertTriangle size={12} /> Bajo el piso</span>}
                   </p>
-                  <p className={`text-[21px] leading-tight font-semibold mt-1 tabular-nums ${margenBajo ? 'text-rose-700' : 'text-zinc-900'}`}>
-                    {r.margenPrevisto != null ? `${r.margenPrevisto}%` : <span className="text-[18px] text-zinc-400">Sin costeo</span>}
+                  <p className={`text-[21px] leading-tight font-semibold mt-1 tabular-nums ${margenBajo ? 'text-rose-700' : 'text-tinta dark:text-slate-100'}`}>
+                    {r.margenPrevisto != null ? `${r.margenPrevisto}%` : <span className="text-[18px] text-tinta-2">Sin costeo</span>}
                   </p>
                   {r.margenPrevisto != null && (
                     <div className="mt-2.5">
-                      <div className="relative h-1.5 rounded-full bg-zinc-100">
+                      <div className="relative h-1.5 rounded-full bg-slate-100">
                         <div className={`h-full rounded-full ${margenOk ? 'bg-teal-500' : 'bg-rose-500'}`} style={{ width: `${Math.max(4, Math.min(100, (r.margenPrevisto / 40) * 100))}%` }} />
                         <span className="absolute -top-0.5 h-2.5 w-px bg-zinc-400" style={{ left: '50%' }} title="Piso del 20 %" />
                       </div>
-                      <p className="text-[11px] text-zinc-400 mt-1">Piso del 20 %</p>
+                      <p className="text-xs text-tinta-2 mt-1">Piso del 20 %</p>
                     </div>
                   )}
                 </div>
               </div>
 
               {ganadasAbierto && (
-                <div className="rounded-xl border border-emerald-200 bg-white overflow-hidden">
-                  <p className="px-3 py-2 text-[11px] font-semibold text-emerald-800 bg-emerald-50 border-b border-emerald-100">
+                <div className="rounded-xl border border-emerald-200 bg-white dark:bg-slate-900 overflow-hidden">
+                  <p className="px-3 py-2 text-xs font-semibold text-emerald-800 bg-emerald-50 border-b border-emerald-100">
                     Líneas que se ganaron según el acta de Mercado Público
                   </p>
                   {cargandoGanadas ? (
                     <div className="flex items-center justify-center py-5"><Loader2 size={16} className="animate-spin text-emerald-600" /></div>
                   ) : !ganadas || ganadas.length === 0 ? (
-                    <p className="px-3 py-3 text-[11.5px] text-zinc-500">El acta todavía no detalla las líneas adjudicadas a nosotros (puede ser una adjudicación global o el acta aún no está en el sistema).</p>
+                    <p className="px-3 py-3 text-xs text-tinta-2 dark:text-slate-400">El acta todavía no detalla las líneas adjudicadas a nosotros (puede ser una adjudicación global o el acta aún no está en el sistema).</p>
                   ) : (
-                    <div className="divide-y divide-zinc-100">
+                    <div className="divide-y divide-linea dark:divide-slate-800">
                       {ganadas.map((g, i) => {
                         const total = (g.montoUnitario ?? 0) * (g.cantidad ?? 1);
                         return (
                           <div key={g.correlativo ?? i} className="px-3 py-2 flex items-start justify-between gap-3">
                             <div className="min-w-0">
-                              <p className="text-[12px] font-semibold text-zinc-800">
+                              <p className="text-[12px] font-semibold text-tinta dark:text-slate-100">
                                 {g.correlativo != null && <span className="text-emerald-700">Línea {g.correlativo} · </span>}{g.descripcion || g.producto || 'Producto sin nombre'}
                               </p>
-                              <p className="text-[10.5px] text-zinc-400">
+                              <p className="text-xs text-tinta-2">
                                 {[g.producto && g.descripcion && g.producto !== g.descripcion ? `Rubro MP: ${g.producto}` : null,
                                   g.cantidad != null ? `${g.cantidad}${g.unidad ? ` ${g.unidad}` : ''}` : null,
                                   g.montoUnitario != null ? `${fmtCLP(g.montoUnitario)} unitario neto` : null].filter(Boolean).join(' · ')}
@@ -540,13 +548,13 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
                         );
                       })}
                       <div className="px-3 py-2 flex items-center justify-between bg-emerald-50/50">
-                        <p className="text-[11px] font-semibold text-emerald-800">{ganadas.length} línea(s) ganada(s)</p>
+                        <p className="text-xs font-semibold text-emerald-800">{ganadas.length} línea(s) ganada(s)</p>
                         <p className="text-[12px] font-semibold text-emerald-800">{fmtCLP(ganadas.reduce((s, g) => s + (g.montoUnitario ?? 0) * (g.cantidad ?? 1), 0))} neto</p>
                       </div>
                     </div>
                   )}
                   {perdidasActa.length > 0 && (
-                    <p className="px-3 py-2 text-[10.5px] text-zinc-500 bg-zinc-50 border-t border-zinc-100">
+                    <p className="px-3 py-2 text-xs text-tinta-2 dark:text-slate-400 bg-slate-50 dark:bg-slate-950/40 border-t border-linea dark:border-slate-800">
                       No ganadas (adjudicadas a otro proveedor): {perdidasActa.map(l => `Línea ${l.correlativo}${l.proveedor ? ` → ${l.proveedor}` : ''}`).join(' · ')}.
                     </p>
                   )}
@@ -554,7 +562,7 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
               )}
 
               {/* Datos del proyecto: una sola tarjeta con columnas etiqueta/valor (antes 4 cajas de colores distintos). */}
-              <div className="rounded-xl border border-zinc-200 bg-zinc-100 overflow-hidden grid grid-cols-1 @xl:grid-cols-6 gap-px">
+              <div className="rounded-xl border border-linea dark:border-slate-800 bg-slate-100 overflow-hidden grid grid-cols-1 @2xl:grid-cols-6 gap-px">
                 {([
                   { icono: <Building2 size={13} />, etiqueta: 'Empresa adjudicada', valor: r.empresaNombre || '—', extra: r.empresaRut ? `RUT ${r.empresaRut}` : null },
                   { icono: <UserPlus size={13} />, etiqueta: 'Asistente comercial', valor: r.responsableNombre || '—', extra: null },
@@ -563,53 +571,53 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
                   { icono: <Hourglass size={13} />, etiqueta: 'Desde cuándo corre', valor: r.hitoInicioPlazo || '—', extra: null },
                 ] as Array<{ icono: React.ReactNode; etiqueta: string; valor: string; extra: string | null }>).map((d, i) => (
                   // 3 arriba (empresa, asistente, presupuesto) y 2 abajo (plazo, desde cuándo corre: texto largo).
-                  <div key={d.etiqueta} className={`bg-white px-4 py-3 min-w-0 ${i < 3 ? '@xl:col-span-2' : '@xl:col-span-3'}`}>
-                    <p className="text-[11.5px] font-medium text-zinc-500 flex items-center gap-1.5">{d.icono} {d.etiqueta}</p>
-                    <p className="text-[14px] font-semibold text-zinc-900 mt-1 leading-snug break-words">{d.valor}</p>
-                    {d.extra && <p className="text-[11.5px] text-zinc-500 mt-0.5">{d.extra}</p>}
+                  <div key={d.etiqueta} className={`bg-white dark:bg-slate-900 px-4 py-3 min-w-0 ${i < 3 ? '@2xl:col-span-2' : '@2xl:col-span-3'}`}>
+                    <p className="text-xs font-medium text-tinta-2 dark:text-slate-400 flex items-center gap-1.5">{d.icono} {d.etiqueta}</p>
+                    <p className="text-[14px] font-semibold text-tinta dark:text-slate-100 mt-1 leading-snug break-words">{d.valor}</p>
+                    {d.extra && <p className="text-xs text-tinta-2 dark:text-slate-400 mt-0.5">{d.extra}</p>}
                   </div>
                 ))}
               </div>
 
               {/* Condiciones críticas de las bases: una sola franja delgada, tres celdas. El valor va en
                   negrita; ámbar solo cuando las bases exigen algo. */}
-              <div className="grid grid-cols-1 @xl:grid-cols-3 gap-px rounded-lg border border-amber-300 bg-amber-200 overflow-hidden">
+              <div className="grid grid-cols-1 @2xl:grid-cols-3 gap-px rounded-lg border border-amber-300 bg-amber-200 overflow-hidden">
                 {([
                   { rotulo: 'Boleta de fiel cumplimiento', valor: r.requiereBoletaFielCumplimiento ? 'Sí' : 'No', exige: !!r.requiereBoletaFielCumplimiento },
                   { rotulo: 'Firma de contrato', valor: r.requiereFirmaContrato ? 'Sí' : 'No', exige: !!r.requiereFirmaContrato },
                   { rotulo: 'Plazo para aceptar la OC', valor: r.plazoAceptacionOC, exige: true },
                 ] as Array<{ rotulo: string; valor: string; exige: boolean }>).map(c => (
-                  <div key={c.rotulo} className={`px-3 py-2.5 min-w-0 flex items-baseline gap-2 ${c.exige ? 'bg-amber-50' : 'bg-white'}`}>
+                  <div key={c.rotulo} className={`px-3 py-2.5 min-w-0 flex items-baseline gap-2 ${c.exige ? 'bg-amber-50' : 'bg-white dark:bg-slate-900'}`}>
                     <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 translate-y-[-1px] ${c.exige ? 'bg-amber-500' : 'bg-zinc-300'}`} />
-                    <p className={`text-[12.5px] min-w-0 ${c.exige ? 'text-amber-900/80' : 'text-zinc-500'}`}>{c.rotulo}: <b className={`text-[13.5px] font-semibold ${c.exige ? 'text-amber-950' : 'text-zinc-500'}`}>{c.valor}</b></p>
+                    <p className={`text-[12.5px] min-w-0 ${c.exige ? 'text-amber-900/80' : 'text-tinta-2 dark:text-slate-400'}`}>{c.rotulo}: <b className={`text-[13.5px] font-semibold ${c.exige ? 'text-amber-950' : 'text-tinta-2 dark:text-slate-400'}`}>{c.valor}</b></p>
                   </div>
                 ))}
               </div>
 
               {r.contactosCliente && (
-                <div className="rounded-xl border border-zinc-200 overflow-hidden">
-                  <div className="px-4 py-3 bg-zinc-50/70 border-b border-zinc-100">
-                    <p className="text-[13px] font-semibold text-zinc-800 flex items-center gap-1.5"><Building2 size={14} className="text-slate-400" /> Contactos del cliente</p>
-                    <p className="text-[12.5px] text-zinc-600 mt-0.5">
+                <div className="rounded-xl border border-linea dark:border-slate-800 overflow-hidden">
+                  <div className="px-4 py-3 bg-slate-50 border-b border-linea dark:border-slate-800">
+                    <p className="text-[13px] font-semibold text-tinta dark:text-slate-100 flex items-center gap-1.5"><Building2 size={14} className="text-slate-400" /> Contactos del cliente</p>
+                    <p className="text-[12.5px] text-tinta-2 dark:text-slate-400 mt-0.5">
                       {[r.contactosCliente.organismo, r.contactosCliente.unidad].filter(Boolean).join(' · ')}
-                      {(r.contactosCliente.rut || facturacionActa?.rut) && <span className="text-zinc-500"> · RUT {r.contactosCliente.rut || facturacionActa?.rut}</span>}
+                      {(r.contactosCliente.rut || facturacionActa?.rut) && <span className="text-tinta-2 dark:text-slate-400"> · RUT {r.contactosCliente.rut || facturacionActa?.rut}</span>}
                     </p>
                     {[r.contactosCliente.direccion, r.contactosCliente.comuna, r.contactosCliente.region].filter(Boolean).length > 0 && (
-                      <p className="text-[11.5px] text-zinc-400">{[r.contactosCliente.direccion, r.contactosCliente.comuna, r.contactosCliente.region].filter(Boolean).join(', ')}</p>
+                      <p className="text-xs text-tinta-2">{[r.contactosCliente.direccion, r.contactosCliente.comuna, r.contactosCliente.region].filter(Boolean).join(', ')}</p>
                     )}
                   </div>
-                  <div className="grid grid-cols-1 @xl:grid-cols-3 @xl:divide-x divide-y @xl:divide-y-0 divide-zinc-100">
+                  <div className="grid grid-cols-1 @2xl:grid-cols-3 @xl:divide-x divide-y @xl:divide-y-0 divide-linea dark:divide-slate-800">
                     {([
                       { rol: 'Contraparte', nombre: r.contactosCliente.usuarioNombre, datos: [r.contactosCliente.usuarioCargo, r.contactosCliente.usuarioTelefono, r.contactosCliente.usuarioEmail] },
                       { rol: 'Responsable del contrato', nombre: r.contactosCliente.responsableContratoNombre, datos: [r.contactosCliente.responsableContratoEmail, r.contactosCliente.responsableContratoFono] },
                       { rol: 'Responsable de pagos', nombre: r.contactosCliente.responsablePagoNombre, datos: [r.contactosCliente.responsablePagoEmail] },
                     ] as const).map(({ rol, nombre, datos }) => nombre ? (
                       <div key={rol} className="px-4 py-3 min-w-0">
-                        <p className="text-[11.5px] font-medium text-zinc-500 flex items-center gap-1.5"><UserCircle size={13} /> {rol}</p>
-                        <p className="text-[13px] font-semibold text-zinc-900 mt-1">{nombre}</p>
+                        <p className="text-xs font-medium text-tinta-2 dark:text-slate-400 flex items-center gap-1.5"><UserCircle size={13} /> {rol}</p>
+                        <p className="text-[13px] font-semibold text-tinta dark:text-slate-100 mt-1">{nombre}</p>
                         {datos.filter(Boolean).map(d => (
-                          <p key={String(d)} className="text-[12px] text-zinc-500 break-words flex items-center gap-1.5 mt-0.5">
-                            {String(d).includes('@') ? <Mail size={12} className="flex-shrink-0 text-zinc-400" /> : /\d/.test(String(d)) ? <Phone size={12} className="flex-shrink-0 text-zinc-400" /> : null}
+                          <p key={String(d)} className="text-[12px] text-tinta-2 dark:text-slate-400 break-words flex items-center gap-1.5 mt-0.5">
+                            {String(d).includes('@') ? <Mail size={12} className="flex-shrink-0 text-tinta-2" /> : /\d/.test(String(d)) ? <Phone size={12} className="flex-shrink-0 text-tinta-2" /> : null}
                             {d}
                           </p>
                         ))}
@@ -627,14 +635,14 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
       {/* Orden de compra del cliente, junto al resumen ejecutivo (pedido explícito, 17-sep-2026:
           "eso metelo a resumen igual") — antes quedaba abajo de todo, separada. */}
       <DocumentViewerModal doc={visorOC} onClose={() => setVisorOC(null)} />
-      <div id="compras-oc" className="bg-white rounded-xl border border-zinc-200 shadow-tarjeta overflow-hidden scroll-mt-4">
+      <div id="compras-oc" className="bg-white dark:bg-slate-900 rounded-xl border border-linea dark:border-slate-800 shadow-tarjeta overflow-hidden scroll-mt-4">
         <div>
         <div className="flex items-start justify-between gap-3 px-4 py-3 flex-wrap">
           <div className="min-w-0 flex-1">
-            <p className="text-[13px] font-semibold text-zinc-800 flex items-center gap-2 flex-wrap">
+            <p className="text-[13px] font-semibold text-tinta dark:text-slate-100 flex items-center gap-2 flex-wrap">
               <FileText size={15} className="text-slate-400" /> Orden de compra del cliente
               {oc.origen === 'mp' && (
-                <span className="inline-flex items-center gap-1 text-[11px] font-medium text-teal-700">
+                <span className="inline-flex items-center gap-1 text-xs font-medium text-teal-700">
                   <Zap size={11} /> Llegó sola desde Mercado Público
                 </span>
               )}
@@ -642,12 +650,12 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
             {oc.numero || oc.aceptadaAt ? (
               <>
                 <dl className="mt-2.5 grid grid-cols-2 @2xl:grid-cols-5 gap-x-6 gap-y-2.5">
-                  {oc.numero && <div><dt className="text-[11px] text-zinc-500">N° de la orden</dt><dd className="text-[13px] font-semibold text-zinc-900 tabular-nums mt-0.5">{oc.numero}</dd></div>}
-                  {oc.monto != null && <div><dt className="text-[11px] text-zinc-500">Monto con IVA</dt><dd className="text-[13px] font-semibold text-zinc-900 tabular-nums mt-0.5">{fmtCLP(oc.monto)}</dd></div>}
-                  {oc.emitidaAt && <div><dt className="text-[11px] text-zinc-500">Emitida</dt><dd className="text-[13px] font-semibold text-zinc-900 tabular-nums mt-0.5">{oc.emitidaAt}</dd></div>}
-                  <div><dt className="text-[11px] text-zinc-500">Aceptada</dt>
+                  {oc.numero && <div><dt className="text-xs text-tinta-2 dark:text-slate-400">N° de la orden</dt><dd className="text-[13px] font-semibold text-tinta dark:text-slate-100 tabular-nums mt-0.5">{oc.numero}</dd></div>}
+                  {oc.monto != null && <div><dt className="text-xs text-tinta-2 dark:text-slate-400">Monto con IVA</dt><dd className="text-[13px] font-semibold text-tinta dark:text-slate-100 tabular-nums mt-0.5">{fmtCLP(oc.monto)}</dd></div>}
+                  {oc.emitidaAt && <div><dt className="text-xs text-tinta-2 dark:text-slate-400">Emitida</dt><dd className="text-[13px] font-semibold text-tinta dark:text-slate-100 tabular-nums mt-0.5">{oc.emitidaAt}</dd></div>}
+                  <div><dt className="text-xs text-tinta-2 dark:text-slate-400">Aceptada</dt>
                     <dd className={`text-[13px] font-semibold tabular-nums mt-0.5 ${oc.aceptadaAt ? 'text-emerald-700' : 'text-amber-600'}`}>{oc.aceptadaAt || 'Todavía no'}</dd></div>
-                  {oc.estadoMp && <div><dt className="text-[11px] text-zinc-500">Estado en Mercado Público</dt><dd className="text-[13px] font-semibold text-zinc-900 mt-0.5">{oc.estadoMp}</dd></div>}
+                  {oc.estadoMp && <div><dt className="text-xs text-tinta-2 dark:text-slate-400">Estado en Mercado Público</dt><dd className="text-[13px] font-semibold text-tinta dark:text-slate-100 mt-0.5">{oc.estadoMp}</dd></div>}
                 </dl>
                 <div className="flex items-center gap-x-4 gap-y-1 mt-3 flex-wrap">
                   {ocMp?.url && (
@@ -665,7 +673,7 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
                 </div>
               </>
             ) : (
-              <p className="text-[12px] text-zinc-400 mt-1">
+              <p className="text-[12px] text-tinta-2 mt-1">
                 Todavía no llega. El sistema la busca solo en Mercado Público y la carga acá apenas aparece.
               </p>
             )}
@@ -715,17 +723,17 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
           const rutMostrado = filas.find(([k]) => k === 'RUT')?.[1];
           const otroTitular = fa?.facturaRut && rutPlano(fa.facturaRut) !== rutPlano(rutMostrado) ? fa : null;
           return (
-            <div className="border-t border-zinc-100 px-4 py-3 space-y-2.5">
+            <div className="border-t border-linea dark:border-slate-800 px-4 py-3 space-y-2.5">
               {otroTitular && (
                 <Banner variante="warning">
                   <span className="font-semibold">La factura va a nombre de {otroTitular.facturaANombre}, RUT {otroTitular.facturaRut}</span>, no del comprador. Lo dice la resolución de adjudicación.
-                  {otroTitular.facturaCita && <span className="block mt-0.5 text-[11px] italic">“{otroTitular.facturaCita}…”</span>}
+                  {otroTitular.facturaCita && <span className="block mt-0.5 text-xs italic">“{otroTitular.facturaCita}…”</span>}
                 </Banner>
               )}
               <div>
-                <p className="text-[13px] font-semibold text-zinc-800">Datos para facturar <span className="text-[11px] font-normal text-zinc-400">· {origen}</span></p>
+                <p className="text-[13px] font-semibold text-tinta dark:text-slate-100">Datos para facturar <span className="text-xs font-normal text-tinta-2">· {origen}</span></p>
                 {/* Tres grupos con título (antes una grilla corrida: la dirección quedaba entre el giro y el correo). */}
-                <div className="mt-3 grid grid-cols-1 @3xl:grid-cols-3 gap-4 @3xl:gap-0 @3xl:divide-x divide-zinc-100">
+                <div className="mt-3 grid grid-cols-1 @3xl:grid-cols-3 gap-4 @3xl:gap-0 @3xl:divide-x divide-linea dark:divide-slate-800">
                   {([
                     ['Cliente', ['Razón social', 'RUT', 'Giro', 'Unidad']],
                     ['Contacto', ['Contacto', 'Teléfono', 'Correo']],
@@ -735,12 +743,12 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
                     if (items.length === 0) return null;
                     return (
                       <section key={titulo} className={`min-w-0 ${gi > 0 ? '@3xl:pl-5' : ''} ${gi < 2 ? '@3xl:pr-5' : ''}`}>
-                        <h4 className="text-[12px] font-semibold text-teal-700 pb-1.5 mb-2 border-b border-zinc-100">{titulo}</h4>
+                        <h4 className="text-[12px] font-semibold text-teal-700 pb-1.5 mb-2 border-b border-linea dark:border-slate-800">{titulo}</h4>
                         <dl className="space-y-2.5">
                           {items.map(([k, v]) => (
                             <div key={k} className="min-w-0">
-                              <dt className="text-[11px] text-zinc-500">{k}</dt>
-                              <dd className="text-[13px] font-medium text-zinc-900 break-words mt-0.5">{v}</dd>
+                              <dt className="text-xs text-tinta-2 dark:text-slate-400">{k}</dt>
+                              <dd className="text-[13px] font-medium text-tinta dark:text-slate-100 break-words mt-0.5">{v}</dd>
                             </div>
                           ))}
                         </dl>
@@ -764,49 +772,49 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
         )}
 
         {ocAbierta && puedeOperar && (
-          <div className="border-t border-zinc-100 px-4 py-3 space-y-2.5">
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-              <label className="text-[11px] font-semibold text-zinc-500">
+          <div className="border-t border-linea dark:border-slate-800 px-4 py-3 space-y-2.5">
+            <div className="grid grid-cols-2 @xl:grid-cols-4 gap-2.5">
+              <label className="text-xs font-semibold text-tinta-2 dark:text-slate-400">
                 N° de la OC
                 <input value={ocForm.numero} onChange={e => setOcForm(f => ({ ...f, numero: e.target.value }))}
-                  className="mt-0.5 w-full text-[12.5px] font-normal text-zinc-800 border border-zinc-200 rounded-lg px-2 py-1.5 focus:ring-1 focus:ring-teal-500 outline-none" />
+                  className="mt-0.5 w-full text-[12.5px] font-normal text-tinta dark:text-slate-100 border border-linea dark:border-slate-800 rounded-lg px-2 py-1.5 focus:ring-1 focus:ring-teal-500 outline-none" />
               </label>
-              <label className="text-[11px] font-semibold text-zinc-500">
+              <label className="text-xs font-semibold text-tinta-2 dark:text-slate-400">
                 Emitida
                 <input type="date" value={ocForm.emitidaAt} onChange={e => setOcForm(f => ({ ...f, emitidaAt: e.target.value }))}
-                  className="mt-0.5 w-full text-[12.5px] font-normal text-zinc-800 border border-zinc-200 rounded-lg px-2 py-1.5 focus:ring-1 focus:ring-teal-500 outline-none" />
+                  className="mt-0.5 w-full text-[12.5px] font-normal text-tinta dark:text-slate-100 border border-linea dark:border-slate-800 rounded-lg px-2 py-1.5 focus:ring-1 focus:ring-teal-500 outline-none" />
               </label>
-              <label className="text-[11px] font-semibold text-zinc-500">
+              <label className="text-xs font-semibold text-tinta-2 dark:text-slate-400">
                 Aceptada en el portal
                 <input type="date" value={ocForm.aceptadaAt} onChange={e => setOcForm(f => ({ ...f, aceptadaAt: e.target.value }))}
                   title="Al anotarla, la tarea 'Aceptación de la orden de compra' queda hecha sola."
-                  className="mt-0.5 w-full text-[12.5px] font-normal text-zinc-800 border border-zinc-200 rounded-lg px-2 py-1.5 focus:ring-1 focus:ring-teal-500 outline-none" />
+                  className="mt-0.5 w-full text-[12.5px] font-normal text-tinta dark:text-slate-100 border border-linea dark:border-slate-800 rounded-lg px-2 py-1.5 focus:ring-1 focus:ring-teal-500 outline-none" />
               </label>
-              <label className="text-[11px] font-semibold text-zinc-500">
+              <label className="text-xs font-semibold text-tinta-2 dark:text-slate-400">
                 Monto de la OC
                 <input inputMode="numeric" value={ocForm.monto} onChange={e => setOcForm(f => ({ ...f, monto: e.target.value }))}
                   placeholder="Neto o total, como venga"
-                  className="mt-0.5 w-full text-[12.5px] font-normal text-zinc-800 border border-zinc-200 rounded-lg px-2 py-1.5 focus:ring-1 focus:ring-teal-500 outline-none" />
+                  className="mt-0.5 w-full text-[12.5px] font-normal text-tinta dark:text-slate-100 border border-linea dark:border-slate-800 rounded-lg px-2 py-1.5 focus:ring-1 focus:ring-teal-500 outline-none" />
               </label>
             </div>
-            <label className="flex items-start gap-2 text-[12px] text-zinc-700">
+            <label className="flex items-start gap-2 text-[12px] text-tinta dark:text-slate-200">
               <input type="checkbox" checked={ocForm.difiere} onChange={e => setOcForm(f => ({ ...f, difiere: e.target.checked }))}
                 className="mt-0.5 accent-teal-600" />
               <span>
                 <span className="font-semibold">El alcance o el monto difiere de lo que ofertamos.</span>
-                <span className="text-zinc-400"> Caso típico: se ofertaron 10 productos y el presupuesto alcanzó para 5. Manda la OC.</span>
+                <span className="text-tinta-2"> Caso típico: se ofertaron 10 productos y el presupuesto alcanzó para 5. Manda la OC.</span>
               </span>
             </label>
             <textarea value={ocForm.observacion} onChange={e => setOcForm(f => ({ ...f, observacion: e.target.value }))}
               rows={2} placeholder="En qué difiere, o cualquier nota de la orden de compra…"
-              className="w-full text-[12.5px] text-zinc-800 border border-zinc-200 rounded-lg px-2 py-1.5 focus:ring-1 focus:ring-teal-500 outline-none" />
+              className="w-full text-[12.5px] text-tinta dark:text-slate-100 border border-linea dark:border-slate-800 rounded-lg px-2 py-1.5 focus:ring-1 focus:ring-teal-500 outline-none" />
             <div className="flex items-center gap-2">
               <button onClick={guardarOC} disabled={guardandoOC}
                 className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-50 px-3 py-1.5 rounded-lg transition-colors">
                 {guardandoOC ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />} Guardar
               </button>
               {oc.actualizadaAt && (
-                <span className="text-[10.5px] text-zinc-400">Última vez: {fmtFecha(oc.actualizadaAt)}{oc.registradaPorNombre ? ` · ${oc.registradaPorNombre}` : ''}</span>
+                <span className="text-xs text-tinta-2">Última vez: {fmtFecha(oc.actualizadaAt)}{oc.registradaPorNombre ? ` · ${oc.registradaPorNombre}` : ''}</span>
               )}
             </div>
           </div>
@@ -823,11 +831,11 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
           Se muestra recién cuando hay encargado: antes no hay nada que hacer en ninguno de los 7
           pasos. */}
       {!asignacion.asignadoA ? (
-        <div className="flex items-center gap-2 text-[12.5px] text-zinc-400 bg-zinc-50 border border-zinc-100 rounded-xl px-4 py-6 justify-center text-center">
+        <div className="flex items-center gap-2 text-[12.5px] text-tinta-2 bg-slate-50 dark:bg-slate-950/40 border border-linea dark:border-slate-800 rounded-xl px-4 py-6 justify-center text-center">
           Asigna un encargado para ver Tareas, Costeo, Aprobación y el resto del flujo.
         </div>
       ) : (
-        <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
+        <div className="bg-white dark:bg-slate-900 rounded-xl border border-linea dark:border-slate-800 overflow-hidden">
           <div id="compras-flujo" className="px-3 sm:px-5 pt-4 pb-3 flex items-start justify-between gap-3 flex-wrap scroll-mt-4">
             <div className="overflow-x-auto -mt-2 pt-3 px-2 -mx-2 pb-1">
               <div className="flex items-start min-w-max">
@@ -836,20 +844,20 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
                   const { badge, estado } = calcFase(f.key);
                   const ESTADO_STYLE = {
                     alerta: 'bg-rose-50 border-rose-500 text-rose-600', pendiente: 'bg-amber-50 border-amber-400 text-amber-600',
-                    ok: 'bg-emerald-50 border-emerald-500 text-emerald-600', neutral: 'bg-white border-zinc-300 text-zinc-400',
+                    ok: 'bg-emerald-50 border-emerald-500 text-emerald-600', neutral: 'bg-white dark:bg-slate-900 border-linea text-tinta-2',
                   } as const;
                                     return (
                     <div key={f.key} className="flex items-start">
                       {i > 0 && <div className={`h-0.5 w-6 sm:w-12 mt-[30px] flex-shrink-0 ${calcFase(pasosFlujo[i - 1].key).estado === 'ok' ? 'bg-emerald-300' : 'bg-zinc-200'}`} />}
                       <button onClick={() => setFaseActiva(f.key)} aria-current={activa ? 'step' : undefined}
-                        className={`group flex flex-col items-center gap-1.5 flex-shrink-0 px-1.5 py-2 w-[110px] rounded-xl transition-colors ${activa ? 'bg-teal-50' : 'hover:bg-zinc-50'}`}>
+                        className={`group flex flex-col items-center gap-1.5 flex-shrink-0 px-1.5 py-2 w-[110px] rounded-xl transition-colors ${activa ? 'bg-teal-50' : 'hover:bg-slate-50'}`}>
                         <span className={`relative inline-flex items-center justify-center w-10 h-10 rounded-full border-2 text-[15px] font-semibold transition-all ${ESTADO_STYLE[estado]} ${activa ? '' : 'group-hover:border-zinc-500'}`}>
                           {estado === 'ok' ? <Check size={18} strokeWidth={3} /> : estado === 'alerta' ? '!' : i + 1}
                           {badge != null && badge > 0 && estado !== 'ok' && (
                             <span className={`absolute -top-1.5 -right-1.5 text-[10px] font-semibold min-w-[18px] h-[18px] px-1 rounded-full flex items-center justify-center ring-2 ring-white text-white ${estado === 'alerta' ? 'bg-rose-500' : 'bg-amber-400'}`}>{badge}</span>
                           )}
                         </span>
-                        <span className={`text-[12.5px] leading-tight text-center ${activa ? 'font-semibold text-teal-800' : 'font-medium text-zinc-600 group-hover:text-zinc-900'}`}>{f.label}</span>
+                        <span className={`text-[12.5px] leading-tight text-center ${activa ? 'font-semibold text-teal-800' : 'font-medium text-tinta-2 dark:text-slate-400 group-hover:text-tinta'}`}>{f.label}</span>
                       </button>
                     </div>
                   );
@@ -862,16 +870,16 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
                 return (
                   <button key={f.key} onClick={() => (f.key === 'obuma' ? setResumenObumaAbierto(true) : setFaseActiva(f.key))} aria-current={activa ? 'page' : undefined}
                     title={f.key === 'obuma' ? 'Ver lo que ya se creó en Obuma desde Licitank' : undefined}
-                    className={`inline-flex items-center gap-1.5 text-[12.5px] font-semibold px-3 py-1.5 rounded-lg border transition-colors ${activa ? 'bg-teal-600 border-teal-600 text-white' : 'bg-white border-zinc-200 text-zinc-600 hover:border-teal-300 hover:text-teal-700'}`}>
+                    className={`inline-flex items-center gap-1.5 text-[12.5px] font-semibold px-3 py-1.5 rounded-lg border transition-colors ${activa ? 'bg-teal-600 border-teal-600 text-white' : 'bg-white dark:bg-slate-900 border-linea dark:border-slate-800 text-tinta-2 dark:text-slate-400 hover:border-teal-300 hover:text-teal-700'}`}>
                     <Icon size={14} /> {f.label}
                   </button>
                 );
               })}
             </div>
           </div>
-          <div className="px-4 py-2.5 border-t border-zinc-100 flex items-baseline gap-x-2.5 gap-y-0.5 flex-wrap">
-            <h3 className="text-[14px] font-semibold tracking-tight text-zinc-900">{FASES.find(f => f.key === faseActiva)?.label}</h3>
-            <p className="text-[12.5px] text-zinc-500">{FASES.find(f => f.key === faseActiva)?.descripcion}</p>
+          <div className="px-4 py-2.5 border-t border-linea dark:border-slate-800 flex items-baseline gap-x-2.5 gap-y-0.5 flex-wrap">
+            <h3 className="text-[14px] font-semibold tracking-tight text-tinta dark:text-slate-100">{FASES.find(f => f.key === faseActiva)?.label}</h3>
+            <p className="text-[12.5px] text-tinta-2 dark:text-slate-400">{FASES.find(f => f.key === faseActiva)?.descripcion}</p>
           </div>
           <div className="p-3 sm:p-4 space-y-3">
             {faseActiva === 'tareas' && (
@@ -912,13 +920,13 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
                   contenido: (
                     <div className="space-y-6">
                       <section className="space-y-2">
-                        <p className="text-[13px] font-semibold text-zinc-800"><span className="inline-flex w-5 h-5 mr-1.5 rounded-full bg-teal-600 text-white text-[11px] items-center justify-center">1</span>Emite las órdenes de compra a los proveedores</p>
+                        <p className="text-[13px] font-semibold text-tinta dark:text-slate-100"><span className="inline-flex w-5 h-5 mr-1.5 rounded-full bg-teal-600 text-white text-[11px] items-center justify-center">1</span>Emite las órdenes de compra a los proveedores</p>
                         <RepartoAdminCard negocioId={negocioId} puedeOperar={puedeOperar || esAdministracion} parte="oc" />
                         {/* OC que emite una empresa del grupo sin Obuma (Comercial MP → Inversiones Claro); no se muestra si el negocio va por Obuma. */}
                         <OcPropiaCard negocioId={negocioId} puedeOperar={puedeOperar || esAdministracion} />
                       </section>
                       <section className="space-y-2">
-                        <p className="text-[13px] font-semibold text-zinc-800"><span className="inline-flex w-5 h-5 mr-1.5 rounded-full bg-teal-600 text-white text-[11px] items-center justify-center">2</span>Avance: pagos, facturas y proyecto en Obuma</p>
+                        <p className="text-[13px] font-semibold text-tinta dark:text-slate-100"><span className="inline-flex w-5 h-5 mr-1.5 rounded-full bg-teal-600 text-white text-[11px] items-center justify-center">2</span>Avance: pagos, facturas y proyecto en Obuma</p>
                         <RepartoAdminCard negocioId={negocioId} puedeOperar={puedeOperar || esAdministracion} parte="hitos" />
                       </section>
                     </div>
@@ -985,8 +993,8 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
               const ant = pasosFlujo[i - 1], sig = pasosFlujo[i + 1];
               if (!ant && !sig) return null;
               return (
-                <div className="flex items-center justify-between gap-3 pt-3 border-t border-zinc-100">
-                  {ant ? <button type="button" onClick={() => irAFaseFlujo(ant.key)} className="text-[12.5px] font-semibold text-zinc-500 hover:text-zinc-800">← {ant.label}</button> : <span />}
+                <div className="flex items-center justify-between gap-3 pt-3 border-t border-linea dark:border-slate-800">
+                  {ant ? <button type="button" onClick={() => irAFaseFlujo(ant.key)} className="text-[12.5px] font-semibold text-tinta-2 dark:text-slate-400 hover:text-tinta">← {ant.label}</button> : <span />}
                   {sig && <button type="button" onClick={() => irAFaseFlujo(sig.key)} className="inline-flex items-center gap-1.5 text-[13px] font-semibold text-teal-700 hover:text-teal-800">Siguiente: {sig.label} <ArrowRight size={15} /></button>}
                 </div>
               );

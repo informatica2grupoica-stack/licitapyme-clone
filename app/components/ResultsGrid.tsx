@@ -8,6 +8,7 @@ import { useState } from 'react';
 import { useSession } from '@/app/lib/session-context';
 import { estadoEfectivoCodigo } from '@/app/lib/estado-mp';
 import { AsignarNegocioModal } from '@/app/components/AsignarNegocioModal';
+import { Esqueleto } from '@/app/components/ui/kit/Estructura';
 
 export interface AsignacionInfo { asignado_a: number; asignado_nombre: string | null; }
 
@@ -41,22 +42,7 @@ const ESTADO_STYLE: Record<string, { label: string; cls: string; dot: string }> 
 };
 
 function SkeletonCard() {
-  return (
-    <div className="bg-white rounded-xl border border-slate-200 p-5 animate-pulse">
-      <div className="flex justify-between mb-3">
-        <div className="h-4 bg-gray-200 rounded w-2/3" />
-        <div className="h-5 bg-slate-100 rounded-full w-20" />
-      </div>
-      <div className="h-5 bg-gray-200 rounded w-full mb-2" />
-      <div className="h-4 bg-slate-100 rounded w-4/5 mb-4" />
-      <div className="grid grid-cols-2 gap-3">
-        <div className="h-4 bg-slate-100 rounded w-full" />
-        <div className="h-4 bg-slate-100 rounded w-full" />
-        <div className="h-4 bg-slate-100 rounded w-full" />
-        <div className="h-4 bg-slate-100 rounded w-full" />
-      </div>
-    </div>
-  );
+  return <Esqueleto className="h-44 rounded-xl" />;
 }
 
 export function ResultsGrid({ opportunities, loading = false, onFavoriteToggle, asignaciones = {}, onAsignada }: ResultsGridProps) {

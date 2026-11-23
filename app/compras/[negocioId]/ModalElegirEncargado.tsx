@@ -70,7 +70,7 @@ function Contenido({ onClose, candidatos, actualId, guardando, onConfirmar, obli
 
       {negocio && (
         <div className="mt-4 pt-3 border-t border-linea dark:border-slate-800">
-          <p className="text-[11px] text-tinta-3">Negocio</p>
+          <p className="text-xs text-tinta-3">Negocio</p>
           <p className="text-[13px] text-tinta dark:text-slate-100 truncate"><span className="font-mono tabular-nums">{negocio.codigo}</span>{negocio.nombre ? <span className="text-tinta-2 dark:text-slate-400"> · {negocio.nombre}</span> : null}</p>
         </div>
       )}

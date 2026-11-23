@@ -20,7 +20,7 @@ export function irAPestana(clave: string) {
   if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('compras:pestana', { detail: { clave } }));
 }
 
-const chip = (t?: PestanaDef['tono']) => t === 'alerta' ? 'bg-rose-100 text-rose-700' : t === 'pendiente' ? 'bg-amber-100 text-amber-700' : t === 'ok' ? 'bg-emerald-100 text-emerald-700' : 'bg-zinc-100 text-zinc-600';
+const chip = (t?: PestanaDef['tono']) => t === 'alerta' ? 'bg-rose-100 text-rose-700' : t === 'pendiente' ? 'bg-amber-100 text-amber-700' : t === 'ok' ? 'bg-emerald-100 text-emerald-700' : 'bg-zinc-100 text-tinta-2 dark:text-slate-400';
 
 export function Pestanas({ id, pestanas, inicial }: { id: string; pestanas: PestanaDef[]; inicial?: string }) {
   const [activa, setActiva] = useState(inicial && pestanas.some(p => p.clave === inicial) ? inicial : pestanas[0]?.clave);
@@ -49,19 +49,19 @@ export function Pestanas({ id, pestanas, inicial }: { id: string; pestanas: Pest
 
   return (
     <div className="space-y-3" data-testid={`pestanas-${id}`}>
-      <div role="tablist" className="flex gap-1 overflow-x-auto border-b border-zinc-200 -mx-1 px-1">
+      <div role="tablist" className="flex gap-1 overflow-x-auto border-b border-linea dark:border-slate-800 -mx-1 px-1">
         {pestanas.map(p => {
           const on = p.clave === actual?.clave;
           return (
             <button key={p.clave} type="button" role="tab" aria-selected={on} onClick={() => elegir(p.clave)} data-testid={`pestana-${p.clave}`}
-              className={`flex-shrink-0 flex items-center gap-1.5 px-3.5 py-2 text-[13px] font-semibold border-b-2 -mb-px transition-colors whitespace-nowrap ${on ? 'border-teal-600 text-teal-800' : 'border-transparent text-zinc-500 hover:text-zinc-800 hover:border-zinc-300'}`}>
+              className={`flex-shrink-0 flex items-center gap-1.5 px-3.5 py-2 text-[13px] font-semibold border-b-2 -mb-px transition-colors whitespace-nowrap ${on ? 'border-teal-600 text-teal-800' : 'border-transparent text-tinta-2 dark:text-slate-400 hover:text-zinc-800 hover:border-zinc-300'}`}>
               {p.titulo}
-              {p.badge != null && p.badge !== '' && <span className={`text-[10.5px] font-semibold px-1.5 py-0.5 rounded-full ${chip(p.tono)}`}>{p.badge}</span>}
+              {p.badge != null && p.badge !== '' && <span className={`text-xs font-semibold px-1.5 py-0.5 rounded-full ${chip(p.tono)}`}>{p.badge}</span>}
             </button>
           );
         })}
       </div>
-      {actual && <p className="text-[12.5px] text-zinc-500 px-1">{actual.ayuda}</p>}
+      {actual && <p className="text-[12.5px] text-tinta-2 dark:text-slate-400 px-1">{actual.ayuda}</p>}
       {pestanas.map(p => (
         <div key={p.clave} role="tabpanel" className={p.clave === actual?.clave ? '[&>div]:!border-0 [&>div]:!shadow-none [&>div]:!rounded-none [&>div]:!bg-transparent' : 'hidden'}>{p.contenido}</div>
       ))}

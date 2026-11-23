@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useLayoutEffect, useCallback, useRef } from 'react';
 import { IconLayoutDashboard as LayoutDashboard, IconSearch as Search, IconUsers as Users, IconLogout as LogOut, IconUser as User, IconMenu as MenuIcon, IconX as X, IconRadar as Radar, IconChevronRight as ChevronRight, IconBriefcase as Briefcase, IconBell as Bell, IconTag as Tag, IconStack2 as Layers, IconHistory as History, IconSettings as Settings, IconCommand as Command, IconBan as Ban, IconActivity as Activity, IconSend as Send, IconBuilding as Building2, IconTrophy as Trophy, IconLayoutSidebarLeftCollapse as PanelLeftClose, IconLayoutSidebarLeftExpand as PanelLeftOpen, IconClipboardCheck as ClipboardCheck, IconShoppingCart as ShoppingCart, IconPackage as PackageCheck, IconLibrary as Library, IconStar as Star, IconFolderOpen as FolderOpen, IconReceipt as Receipt, IconFileInvoice as FileInvoice,IconArrowsShuffle as Shuffle, IconSun as Sun, IconMoon as Moon, IconTruck as Truck, IconFolders as Folders, IconBug as Bug, IconCoin as Coin, IconBrain as Brain, IconLock as Lock, IconBrandWhatsapp as Whatsapp, IconChartDots3 as ChartDots } from '@tabler/icons-react';
 import { LicitankIcon } from '@/app/components/LicitankLogo';
 import { Tooltip } from '@/app/components/ui/Tooltip';
@@ -282,8 +282,15 @@ const ANCHO_COLAPSADO = 'lg:w-[76px]';
 //
 // `null` = todavía no se ha leído localStorage (solo antes del primer montaje del cliente).
 let colapsadoCache: boolean | null = null;
+// Cada página monta su propio AppLayout, así que el menú se recrea al navegar y su scroll
+// volvía arriba. Se recuerda aquí (el módulo sobrevive a la navegación) y se restaura al montar.
+let scrollNavCache = 0;
 
 function Sidebar({ mobileOpen, onCloseMobile }: { mobileOpen: boolean; onCloseMobile: () => void }) {
+  const navScrollRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    if (navScrollRef.current) navScrollRef.current.scrollTop = scrollNavCache;
+  }, []);
   const pathname = usePathname();
   const { usuario } = useSession();
   const calza = (item: NavItem) => (item.exact ? pathname === item.href : pathname.startsWith(item.href));
@@ -516,7 +523,8 @@ function Sidebar({ mobileOpen, onCloseMobile }: { mobileOpen: boolean; onCloseMo
         )}
 
         {/* Nav */}
-        <div className="flex-1 overflow-y-auto scrollbar-thin">
+        <div ref={navScrollRef} onScroll={e => { scrollNavCache = e.currentTarget.scrollTop; }}
+          className="flex-1 overflow-y-auto scrollbar-thin">
           <nav className={`pb-2 space-y-5 ${trans} ${angosto ? 'px-3 lg:px-2' : 'px-3'}`}>
             {visibleGroups.map(group => (
               <div key={group.label}>
@@ -833,7 +841,7 @@ export function AppLayout({ children, breadcrumb }: AppLayoutProps) {
             <button onClick={() => setAvisoPerfilCerrado(true)} aria-label="Cerrar aviso" className="p-0.5 hover:bg-teal-100 dark:hover:bg-white/10 rounded"><X size={13} /></button>
           </div>
         )}
-        <main className="flex-1 overflow-y-auto">{children}</main>
+        <main className="@container flex-1 overflow-y-auto">{children}</main>
       </div>
       {/* Bloqueante: licitaciones vencidas sin resolver (postulada/descartadas) */}
       <CierreVencidoModal />

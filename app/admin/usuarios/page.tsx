@@ -11,6 +11,12 @@ import { useConfirm } from '@/app/components/ui/confirm';
 import { useToast } from '@/app/components/ui/toast';
 import { Select } from '@/app/components/ui/Select';
 import { Switch } from '@/app/components/ui/Switch';
+import { Encabezado, Esqueleto, Vacio } from '@/app/components/ui/kit/Estructura';
+import { Boton } from '@/app/components/ui/kit/Boton';
+import { Estado } from '@/app/components/ui/kit/Tarjeta';
+import { Tooltip } from '@/app/components/ui/Tooltip';
+
+const ICONO = 'flex h-8 w-8 items-center justify-center rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marca/60 ';
 
 interface Permisos {
   ver_otros_negocios?: boolean;
@@ -222,21 +228,21 @@ function ModalPermisos({ usuario, onGuardado, onCerrar }: {
   const iniciales = (usuario.nombre || usuario.email)[0].toUpperCase();
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm overlay-in">
-      <div className="bg-white dark:bg-zinc-900 rounded-xl shadow-flotante w-full max-w-6xl max-h-[92vh] flex flex-col modal-in">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 overlay-in">
+      <div className="bg-white dark:bg-slate-900 rounded-xl shadow-flotante w-full max-w-6xl max-h-[92vh] flex flex-col modal-in">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 dark:border-white/10 flex-shrink-0">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-linea dark:border-slate-800 flex-shrink-0">
           <div className="flex items-center gap-3 min-w-0">
-            <div className="w-9 h-9 rounded-full bg-blue-500 flex items-center justify-center text-white text-xs font-semibold flex-shrink-0">
+            <div className="w-9 h-9 rounded-full bg-teal-600 flex items-center justify-center text-white text-xs font-semibold flex-shrink-0">
               {iniciales}
             </div>
             <div className="min-w-0">
-              <h3 className="font-semibold text-gray-900 dark:text-zinc-100 text-base leading-tight">Permisos</h3>
-              <p className="text-xs text-gray-400 dark:text-zinc-500 truncate">{usuario.nombre || usuario.email}</p>
+              <h3 className="font-semibold text-tinta dark:text-slate-100 text-base leading-tight">Permisos</h3>
+              <p className="text-xs text-tinta-2 dark:text-slate-400 truncate">{usuario.nombre || usuario.email}</p>
             </div>
           </div>
-          <button onClick={onCerrar} className="p-1.5 hover:bg-gray-100 dark:hover:bg-white/10 rounded-lg transition-colors flex-shrink-0">
-            <X size={18} className="text-gray-500 dark:text-zinc-400" />
+          <button onClick={onCerrar} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors flex-shrink-0">
+            <X size={18} className="text-tinta-2 dark:text-slate-400" />
           </button>
         </div>
 
@@ -250,17 +256,17 @@ function ModalPermisos({ usuario, onGuardado, onCerrar }: {
 
           {usuario.rol === 'admin' ? (
             <>
-              <p className="text-xs text-gray-500 dark:text-zinc-400">El resto de los permisos granulares no aplica: un admin ya los tiene todos implícitos. Las excepciones son Compras (ver arriba en el catálogo por qué) y «Recibe licitaciones» (quién aparece en el Puente).</p>
-              <div className="rounded-xl border border-gray-100 dark:border-white/10 bg-gray-50/70 dark:bg-white/[0.03] p-3">
-                <div className="flex items-center gap-1.5 mb-1 text-[10.5px] font-semibold text-gray-400 dark:text-zinc-500">
+              <p className="text-xs text-tinta-2 dark:text-slate-400">El resto de los permisos granulares no aplica: un admin ya los tiene todos implícitos. Las excepciones son Compras (ver arriba en el catálogo por qué) y «Recibe licitaciones» (quién aparece en el Puente).</p>
+              <div className="rounded-xl border border-linea dark:border-slate-800 bg-slate-50 dark:bg-slate-950/40 p-3">
+                <div className="flex items-center gap-1.5 mb-1 text-xs font-semibold text-tinta-2 dark:text-slate-400">
                   <Briefcase size={12} /> Flujo comercial
                 </div>
-                <div className="divide-y divide-gray-100 dark:divide-white/[0.06]">
+                <div className="divide-y divide-linea dark:divide-slate-800">
                   {CATALOGO_PERMISOS.filter(p => p.key === CLAVE_COMPRAS_TODO || p.key === 'recibe_licitaciones').map(p => (
                     <div key={p.key} className="flex items-start justify-between gap-2 py-2.5">
                       <span className="min-w-0">
-                        <span className="block text-[12.5px] font-medium text-gray-800 dark:text-zinc-200 leading-snug">{p.label}</span>
-                        <span className="block text-[11px] text-gray-400 dark:text-zinc-500 leading-snug mt-0.5">{p.desc}</span>
+                        <span className="block text-[12.5px] font-medium text-tinta dark:text-slate-100 leading-snug">{p.label}</span>
+                        <span className="block text-xs text-tinta-2 dark:text-slate-400 leading-snug mt-0.5">{p.desc}</span>
                       </span>
                       <Switch checked={valor(p.key)} onChange={() => toggle(p.key)} label={p.label} />
                     </div>
@@ -270,8 +276,8 @@ function ModalPermisos({ usuario, onGuardado, onCerrar }: {
             </>
           ) : (
             <>
-              <p className="text-sm text-gray-600 dark:text-zinc-400">Activa lo que este usuario podrá hacer. Sin permisos, solo ve sus licitaciones asignadas.</p>
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <p className="text-sm text-tinta-2 dark:text-slate-400">Activa lo que este usuario podrá hacer. Sin permisos, solo ve sus licitaciones asignadas.</p>
+              <div className="grid grid-cols-1 @4xl:grid-cols-2 gap-4">
                 {CATEGORIAS_PERMISOS.map(cat => {
                   const claves = clavesDeGrupo(cat.key);
                   const activos = claves.filter(k => valor(k)).length;
@@ -279,20 +285,20 @@ function ModalPermisos({ usuario, onGuardado, onCerrar }: {
                   const destacado = cat.key === 'auditor';
                   return (
                     <div key={cat.key} className={`rounded-xl border p-4 ${destacado
-                      ? 'lg:col-span-2 border-blue-200 dark:border-blue-500/30 bg-blue-50/50 dark:bg-blue-500/[0.06]'
-                      : 'border-gray-200 dark:border-white/10 bg-gray-50/70 dark:bg-white/[0.03]'}`}>
+                      ? '@4xl:col-span-2 border-blue-200 dark:border-blue-500/30 bg-blue-50/50 dark:bg-blue-500/[0.06]'
+                      : 'border-linea dark:border-slate-800 bg-slate-50 dark:bg-slate-950/40'}`}>
                       <div className="flex items-start justify-between gap-3 mb-1">
                         <div className="min-w-0">
-                          <div className="flex items-center gap-2 text-[15px] font-semibold text-gray-900 dark:text-zinc-100">
-                            <cat.icon size={17} className={destacado ? 'text-teal-600 dark:text-teal-400' : 'text-gray-400 dark:text-zinc-500'} />
+                          <div className="flex items-center gap-2 text-[15px] font-semibold text-tinta dark:text-slate-100">
+                            <cat.icon size={17} className={destacado ? 'text-teal-600 dark:text-teal-400' : 'text-tinta-2 dark:text-slate-400'} />
                             {cat.label}
-                            <span className="text-xs font-medium text-gray-400 dark:text-zinc-500">{activos} de {claves.length}</span>
+                            <span className="text-xs font-medium text-tinta-2 dark:text-slate-400">{activos} de {claves.length}</span>
                           </div>
-                          <p className="text-[13px] text-gray-500 dark:text-zinc-400 mt-0.5">{cat.resumen}</p>
+                          <p className="text-[13px] text-tinta-2 dark:text-slate-400 mt-0.5">{cat.resumen}</p>
                         </div>
                         <button type="button" onClick={() => fijarGrupo(cat.key, !todos)}
                           className={`flex-shrink-0 px-3 py-1.5 rounded-lg text-[13px] font-semibold transition-colors ${todos
-                            ? 'border border-gray-200 dark:border-white/15 text-gray-600 dark:text-zinc-300 hover:bg-white dark:hover:bg-white/5'
+                            ? 'border border-linea dark:border-slate-800 text-tinta-2 dark:text-slate-400 hover:bg-white dark:hover:bg-slate-800'
                             : destacado ? 'bg-teal-600 hover:bg-teal-700 text-white' : 'border border-blue-200 dark:border-blue-500/30 text-teal-700 dark:text-teal-300 hover:bg-blue-50 dark:hover:bg-blue-500/10'}`}>
                           {todos ? 'Quitar todo' : destacado ? 'Dar acceso completo al Auditor' : 'Activar todo'}
                         </button>
@@ -306,12 +312,12 @@ function ModalPermisos({ usuario, onGuardado, onCerrar }: {
                           </button>
                         </div>
                       )}
-                      <div className={`grid gap-x-6 ${destacado ? 'md:grid-cols-2' : ''}`}>
+                      <div className={`grid gap-x-6 ${destacado ? '@2xl:grid-cols-2' : ''}`}>
                         {CATALOGO_PERMISOS.filter(p => p.categoria === cat.key).map(p => (
-                          <div key={p.key} className="flex items-start justify-between gap-3 py-3 border-t border-gray-100 dark:border-white/[0.06]">
+                          <div key={p.key} className="flex items-start justify-between gap-3 py-3 border-t border-linea dark:border-white/[0.06]">
                             <span className="min-w-0">
-                              <span className="block text-sm font-semibold text-gray-800 dark:text-zinc-200 leading-snug">{p.label}</span>
-                              <span className="block text-[12.5px] text-gray-500 dark:text-zinc-400 leading-snug mt-0.5">{p.desc}</span>
+                              <span className="block text-sm font-semibold text-tinta dark:text-slate-100 leading-snug">{p.label}</span>
+                              <span className="block text-[12.5px] text-tinta-2 dark:text-slate-400 leading-snug mt-0.5">{p.desc}</span>
                             </span>
                             <Switch checked={valor(p.key)} onChange={() => toggle(p.key)} label={p.label} />
                           </div>
@@ -326,23 +332,23 @@ function ModalPermisos({ usuario, onGuardado, onCerrar }: {
 
           {aviso && !aviso.falla && avisos && (
             <div className="rounded-xl border border-emerald-200 dark:border-emerald-500/30 bg-emerald-50/40 dark:bg-emerald-500/[0.05] p-3">
-              <div className="flex items-center gap-1.5 mb-1 text-[10.5px] font-semibold text-emerald-700 dark:text-emerald-400">
+              <div className="flex items-center gap-1.5 mb-1 text-xs font-semibold text-emerald-700 dark:text-emerald-400">
                 <Whatsapp size={12} /> Avisos por WhatsApp
               </div>
-              <p className="text-[11.5px] text-gray-500 dark:text-zinc-400 leading-snug mb-1">
+              <p className="text-xs text-tinta-2 dark:text-slate-400 leading-snug mb-1">
                 {usuario.rol === 'externo'
                   ? 'Recibe estos avisos solo de las licitaciones que tiene asignadas.'
                   : 'Cada aviso le llega solo si le corresponde por su cargo (encargado de la licitación, administrador, Área Compras o Mercado Público) y lo tiene activado aquí.'}
                 {' '}Se envían al celular de su perfil{aviso.telefono ? <> (<b>{formatearTelefono(aviso.telefono)}</b>)</> : ''}.
               </p>
-              {!aviso.telefono && <p className="text-[11.5px] font-semibold text-amber-600 mb-1">Este perfil no tiene un celular válido: sin él no recibirá avisos. Se agrega en Mi perfil.</p>}
-              {!aviso.activo && <p className="text-[11.5px] font-semibold text-amber-600 mb-1">La cuenta está desactivada: no recibirá avisos.</p>}
-              <div className="divide-y divide-gray-100 dark:divide-white/[0.06]">
+              {!aviso.telefono && <p className="text-xs font-semibold text-amber-600 mb-1">Este perfil no tiene un celular válido: sin él no recibirá avisos. Se agrega en Mi perfil.</p>}
+              {!aviso.activo && <p className="text-xs font-semibold text-amber-600 mb-1">La cuenta está desactivada: no recibirá avisos.</p>}
+              <div className="divide-y divide-linea dark:divide-slate-800">
                 {TIPOS_AVISO.filter(t => alertaAplicaAPerfil(t.tipo, { rol: usuario.rol, area: usuario.area, avisosAdmin: !!parsePermisos(usuario.permisos).avisos_admin })).map(t => (
                   <div key={t.tipo} className="flex items-start justify-between gap-3 py-2">
                     <span className="min-w-0">
-                      <span className="block text-[12.5px] font-medium text-gray-800 dark:text-zinc-200">{t.label}</span>
-                      <span className="block text-[11px] text-gray-400 dark:text-zinc-500 mt-0.5 leading-snug">{t.desc}</span>
+                      <span className="block text-[12.5px] font-medium text-tinta dark:text-slate-100">{t.label}</span>
+                      <span className="block text-xs text-tinta-2 dark:text-slate-400 mt-0.5 leading-snug">{t.desc}</span>
                     </span>
                     <Switch checked={avisos[t.tipo]} onChange={() => setAvisos(a => a && ({ ...a, [t.tipo]: !a[t.tipo] }))} label={t.label} />
                   </div>
@@ -351,14 +357,14 @@ function ModalPermisos({ usuario, onGuardado, onCerrar }: {
             </div>
           )}
 
-          <div className="rounded-xl border border-gray-100 dark:border-white/10 bg-gray-50/70 dark:bg-white/[0.03] p-3">
-            <div className="flex items-center gap-1.5 mb-1 text-[10.5px] font-semibold text-gray-400 dark:text-zinc-500">
+          <div className="rounded-xl border border-linea dark:border-slate-800 bg-slate-50 dark:bg-slate-950/40 p-3">
+            <div className="flex items-center gap-1.5 mb-1 text-xs font-semibold text-tinta-2 dark:text-slate-400">
               <GraduationCap size={12} /> Onboarding
             </div>
             <div className="flex items-start justify-between gap-3 py-1.5">
               <span className="min-w-0">
-                <span className="block text-[12.5px] font-medium text-gray-800 dark:text-zinc-200">Modo principiante</span>
-                <span className="block text-[11px] text-gray-400 dark:text-zinc-500 mt-0.5 leading-snug">
+                <span className="block text-[12.5px] font-medium text-tinta dark:text-slate-100">Modo principiante</span>
+                <span className="block text-xs text-tinta-2 dark:text-slate-400 mt-0.5 leading-snug">
                   Al abrir un análisis, ve primero solo la Tarjeta de Decisión (resumen); el detalle completo queda a un clic. El propio usuario puede salir de este modo desde ahí.
                 </span>
               </span>
@@ -368,10 +374,10 @@ function ModalPermisos({ usuario, onGuardado, onCerrar }: {
         </div>
 
         {/* Footer */}
-        <div className="flex gap-3 px-6 py-4 border-t border-gray-100 dark:border-white/10 flex-shrink-0">
-          <button onClick={onCerrar} className="flex-1 py-2 border border-gray-200 dark:border-white/15 text-gray-700 dark:text-zinc-300 rounded-lg text-sm hover:bg-gray-50 dark:hover:bg-white/5 transition-colors">Cancelar</button>
+        <div className="flex gap-3 px-6 py-4 border-t border-linea dark:border-slate-800 flex-shrink-0">
+          <button onClick={onCerrar} className="flex-1 py-2 border border-linea dark:border-slate-800 text-tinta-2 dark:text-slate-400 rounded-lg text-sm hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">Cancelar</button>
           <button onClick={guardar} disabled={cargando}
-            className="flex-1 py-2 bg-teal-600 hover:bg-teal-700 disabled:bg-gray-300 dark:disabled:bg-zinc-700 text-white rounded-lg text-sm font-semibold flex items-center justify-center gap-1.5 transition-colors">
+            className="flex-1 py-2 bg-teal-600 hover:bg-teal-700 disabled:bg-slate-300 dark:disabled:bg-slate-700 text-white rounded-lg text-sm font-semibold flex items-center justify-center gap-1.5 transition-colors">
             {cargando ? <Loader2 size={14} className="animate-spin" /> : <ShieldCheck size={14} />} Guardar permisos
           </button>
         </div>
@@ -423,12 +429,12 @@ function ModalNuevoUsuario({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm overlay-in">
-      <div className="bg-white dark:bg-zinc-900 rounded-xl shadow-flotante w-full max-w-2xl modal-in">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 dark:border-white/10">
-          <h3 className="font-semibold text-gray-900 dark:text-zinc-100 text-lg">Nuevo usuario</h3>
-          <button onClick={onCerrar} className="p-1.5 hover:bg-gray-100 dark:hover:bg-white/10 rounded-lg transition-colors">
-            <X size={18} className="text-gray-500 dark:text-zinc-400" />
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 overlay-in">
+      <div className="bg-white dark:bg-slate-900 rounded-xl shadow-flotante w-full max-w-2xl modal-in">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-linea dark:border-slate-800">
+          <h3 className="font-semibold text-tinta dark:text-slate-100 text-lg">Nuevo usuario</h3>
+          <button onClick={onCerrar} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors">
+            <X size={18} className="text-tinta-2 dark:text-slate-400" />
           </button>
         </div>
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
@@ -438,27 +444,27 @@ function ModalNuevoUsuario({
             </div>
           )}
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-zinc-300 mb-1">Nombre</label>
+            <label className="block text-sm font-medium text-tinta-2 dark:text-slate-400 mb-1">Nombre</label>
             <div className="relative">
-              <User size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-zinc-500" />
+              <User size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-tinta-2 dark:text-slate-400" />
               <input type="text" value={form.nombre} onChange={e => setForm(p => ({ ...p, nombre: e.target.value }))}
-                placeholder="Juan Pérez" className="w-full pl-8 pr-3 py-2 border border-gray-200 dark:border-white/15 dark:bg-zinc-800 dark:text-zinc-100 rounded-lg text-sm focus:ring-2 focus:ring-teal-500 outline-none" />
+                placeholder="Juan Pérez" className="w-full pl-8 pr-3 py-2 border border-linea dark:border-slate-800 dark:bg-slate-800 dark:text-slate-100 rounded-lg text-sm focus:ring-2 focus:ring-teal-500 outline-none" />
             </div>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-zinc-300 mb-1">Empresa</label>
+            <label className="block text-sm font-medium text-tinta-2 dark:text-slate-400 mb-1">Empresa</label>
             <div className="relative">
-              <Briefcase size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-zinc-500" />
+              <Briefcase size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-tinta-2 dark:text-slate-400" />
               <input type="text" value={form.empresa} onChange={e => setForm(p => ({ ...p, empresa: e.target.value }))}
-                placeholder="Mi Empresa SpA" className="w-full pl-8 pr-3 py-2 border border-gray-200 dark:border-white/15 dark:bg-zinc-800 dark:text-zinc-100 rounded-lg text-sm focus:ring-2 focus:ring-teal-500 outline-none" />
+                placeholder="Mi Empresa SpA" className="w-full pl-8 pr-3 py-2 border border-linea dark:border-slate-800 dark:bg-slate-800 dark:text-slate-100 rounded-lg text-sm focus:ring-2 focus:ring-teal-500 outline-none" />
             </div>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-zinc-300 mb-1">Email *</label>
+            <label className="block text-sm font-medium text-tinta-2 dark:text-slate-400 mb-1">Email *</label>
             <div className="relative">
-              <Mail size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-zinc-500" />
+              <Mail size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-tinta-2 dark:text-slate-400" />
               <input type="email" value={form.email} onChange={e => setForm(p => ({ ...p, email: e.target.value }))}
-                placeholder="usuario@empresa.cl" required className="w-full pl-8 pr-3 py-2 border border-gray-200 dark:border-white/15 dark:bg-zinc-800 dark:text-zinc-100 rounded-lg text-sm focus:ring-2 focus:ring-teal-500 outline-none" />
+                placeholder="usuario@empresa.cl" required className="w-full pl-8 pr-3 py-2 border border-linea dark:border-slate-800 dark:bg-slate-800 dark:text-slate-100 rounded-lg text-sm focus:ring-2 focus:ring-teal-500 outline-none" />
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
@@ -469,31 +475,31 @@ function ModalNuevoUsuario({
               { k: 'area', label: 'Área', icon: Briefcase, ph: 'Compras', type: 'text' },
             ] as const).map(({ k, label, icon: Icon, ph, type }) => (
               <div key={k}>
-                <label className="block text-sm font-medium text-gray-700 dark:text-zinc-300 mb-1">{label}</label>
+                <label className="block text-sm font-medium text-tinta-2 dark:text-slate-400 mb-1">{label}</label>
                 <div className="relative">
-                  <Icon size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-zinc-500" />
+                  <Icon size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-tinta-2 dark:text-slate-400" />
                   <input type={type} value={form[k]} onChange={e => setForm(p => ({ ...p, [k]: e.target.value }))}
                     placeholder={ph} maxLength={k === 'cargo' || k === 'area' ? 100 : 20}
-                    className="w-full pl-8 pr-3 py-2 border border-gray-200 dark:border-white/15 dark:bg-zinc-800 dark:text-zinc-100 rounded-lg text-sm focus:ring-2 focus:ring-teal-500 outline-none" />
+                    className="w-full pl-8 pr-3 py-2 border border-linea dark:border-slate-800 dark:bg-slate-800 dark:text-slate-100 rounded-lg text-sm focus:ring-2 focus:ring-teal-500 outline-none" />
                 </div>
               </div>
             ))}
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-zinc-300 mb-1">Contraseña *</label>
+            <label className="block text-sm font-medium text-tinta-2 dark:text-slate-400 mb-1">Contraseña *</label>
             <div className="relative">
-              <Lock size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-zinc-500" />
+              <Lock size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-tinta-2 dark:text-slate-400" />
               <input type={mostrarPass ? 'text' : 'password'} value={form.password} onChange={e => setForm(p => ({ ...p, password: e.target.value }))}
                 placeholder="Mín. 8 caracteres" required minLength={8}
-                className="w-full pl-8 pr-9 py-2 border border-gray-200 dark:border-white/15 dark:bg-zinc-800 dark:text-zinc-100 rounded-lg text-sm focus:ring-2 focus:ring-teal-500 outline-none" />
+                className="w-full pl-8 pr-9 py-2 border border-linea dark:border-slate-800 dark:bg-slate-800 dark:text-slate-100 rounded-lg text-sm focus:ring-2 focus:ring-teal-500 outline-none" />
               <button type="button" onClick={() => setMostrarPass(!mostrarPass)}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:text-zinc-500 dark:hover:text-zinc-300">
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-tinta-2 hover:text-tinta">
                 {mostrarPass ? <EyeOff size={14} /> : <Eye size={14} />}
               </button>
             </div>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-zinc-300 mb-1">Rol</label>
+            <label className="block text-sm font-medium text-tinta-2 dark:text-slate-400 mb-1">Rol</label>
             <Select value={form.rol} onChange={v => setForm(p => ({ ...p, rol: v as any }))}
               options={[
                 { value: 'usuario', label: 'Usuario' },
@@ -501,16 +507,16 @@ function ModalNuevoUsuario({
                 { value: 'admin', label: 'Administrador' },
               ]} />
             {form.rol === 'externo' && (
-              <p className="mt-1 text-[11px] text-gray-500 dark:text-zinc-500">Solo ve las licitaciones que le asignes; sin logo, sin dashboard, sin buscador. Puede correr la viabilidad pero no re-analizar.</p>
+              <p className="mt-1 text-xs text-tinta-2 dark:text-slate-400">Solo ve las licitaciones que le asignes; sin logo, sin dashboard, sin buscador. Puede correr la viabilidad pero no re-analizar.</p>
             )}
           </div>
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={onCerrar}
-              className="flex-1 py-2 border border-gray-200 dark:border-white/15 text-gray-700 dark:text-zinc-300 rounded-lg text-sm hover:bg-gray-50 dark:hover:bg-white/5 transition-colors">
+              className="flex-1 py-2 border border-linea dark:border-slate-800 text-tinta-2 dark:text-slate-400 rounded-lg text-sm hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
               Cancelar
             </button>
             <button type="submit" disabled={cargando || !form.email || !form.password}
-              className="flex-1 py-2 bg-teal-600 hover:bg-teal-700 disabled:bg-gray-300 dark:disabled:bg-zinc-700 text-white rounded-lg text-sm font-semibold transition-colors flex items-center justify-center gap-1.5">
+              className="flex-1 py-2 bg-teal-600 hover:bg-teal-700 disabled:bg-slate-300 dark:disabled:bg-slate-700 text-white rounded-lg text-sm font-semibold transition-colors flex items-center justify-center gap-1.5">
               {cargando ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
               Crear usuario
             </button>
@@ -565,12 +571,12 @@ function ModalEditarUsuario({ usuario, onGuardado, onCerrar }: {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm overlay-in">
-      <div className="bg-white dark:bg-zinc-900 rounded-xl shadow-flotante w-full max-w-2xl modal-in">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 dark:border-white/10">
-          <h3 className="font-semibold text-gray-900 dark:text-zinc-100 text-lg">Editar usuario</h3>
-          <button onClick={onCerrar} className="p-1.5 hover:bg-gray-100 dark:hover:bg-white/10 rounded-lg transition-colors">
-            <X size={18} className="text-gray-500 dark:text-zinc-400" />
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 overlay-in">
+      <div className="bg-white dark:bg-slate-900 rounded-xl shadow-flotante w-full max-w-2xl modal-in">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-linea dark:border-slate-800">
+          <h3 className="font-semibold text-tinta dark:text-slate-100 text-lg">Editar usuario</h3>
+          <button onClick={onCerrar} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors">
+            <X size={18} className="text-tinta-2 dark:text-slate-400" />
           </button>
         </div>
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
@@ -580,27 +586,27 @@ function ModalEditarUsuario({ usuario, onGuardado, onCerrar }: {
             </div>
           )}
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-zinc-300 mb-1">Nombre</label>
+            <label className="block text-sm font-medium text-tinta-2 dark:text-slate-400 mb-1">Nombre</label>
             <div className="relative">
-              <User size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-zinc-500" />
+              <User size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-tinta-2 dark:text-slate-400" />
               <input type="text" value={form.nombre} onChange={e => setForm(p => ({ ...p, nombre: e.target.value }))}
-                placeholder="Juan Pérez" className="w-full pl-8 pr-3 py-2 border border-gray-200 dark:border-white/15 dark:bg-zinc-800 dark:text-zinc-100 rounded-lg text-sm focus:ring-2 focus:ring-teal-500 outline-none" />
+                placeholder="Juan Pérez" className="w-full pl-8 pr-3 py-2 border border-linea dark:border-slate-800 dark:bg-slate-800 dark:text-slate-100 rounded-lg text-sm focus:ring-2 focus:ring-teal-500 outline-none" />
             </div>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-zinc-300 mb-1">Empresa</label>
+            <label className="block text-sm font-medium text-tinta-2 dark:text-slate-400 mb-1">Empresa</label>
             <div className="relative">
-              <Briefcase size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-zinc-500" />
+              <Briefcase size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-tinta-2 dark:text-slate-400" />
               <input type="text" value={form.empresa} onChange={e => setForm(p => ({ ...p, empresa: e.target.value }))}
-                placeholder="Mi Empresa SpA" className="w-full pl-8 pr-3 py-2 border border-gray-200 dark:border-white/15 dark:bg-zinc-800 dark:text-zinc-100 rounded-lg text-sm focus:ring-2 focus:ring-teal-500 outline-none" />
+                placeholder="Mi Empresa SpA" className="w-full pl-8 pr-3 py-2 border border-linea dark:border-slate-800 dark:bg-slate-800 dark:text-slate-100 rounded-lg text-sm focus:ring-2 focus:ring-teal-500 outline-none" />
             </div>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-zinc-300 mb-1">Email *</label>
+            <label className="block text-sm font-medium text-tinta-2 dark:text-slate-400 mb-1">Email *</label>
             <div className="relative">
-              <Mail size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-zinc-500" />
+              <Mail size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-tinta-2 dark:text-slate-400" />
               <input type="email" value={form.email} onChange={e => setForm(p => ({ ...p, email: e.target.value }))}
-                required className="w-full pl-8 pr-3 py-2 border border-gray-200 dark:border-white/15 dark:bg-zinc-800 dark:text-zinc-100 rounded-lg text-sm focus:ring-2 focus:ring-teal-500 outline-none" />
+                required className="w-full pl-8 pr-3 py-2 border border-linea dark:border-slate-800 dark:bg-slate-800 dark:text-slate-100 rounded-lg text-sm focus:ring-2 focus:ring-teal-500 outline-none" />
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
@@ -611,18 +617,18 @@ function ModalEditarUsuario({ usuario, onGuardado, onCerrar }: {
               { k: 'area', label: 'Área', icon: Briefcase, ph: 'Compras', type: 'text' },
             ] as const).map(({ k, label, icon: Icon, ph, type }) => (
               <div key={k}>
-                <label className="block text-sm font-medium text-gray-700 dark:text-zinc-300 mb-1">{label}</label>
+                <label className="block text-sm font-medium text-tinta-2 dark:text-slate-400 mb-1">{label}</label>
                 <div className="relative">
-                  <Icon size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-zinc-500" />
+                  <Icon size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-tinta-2 dark:text-slate-400" />
                   <input type={type} value={form[k]} onChange={e => setForm(p => ({ ...p, [k]: e.target.value }))}
                     placeholder={ph} maxLength={k === 'cargo' || k === 'area' ? 100 : 20}
-                    className="w-full pl-8 pr-3 py-2 border border-gray-200 dark:border-white/15 dark:bg-zinc-800 dark:text-zinc-100 rounded-lg text-sm focus:ring-2 focus:ring-teal-500 outline-none" />
+                    className="w-full pl-8 pr-3 py-2 border border-linea dark:border-slate-800 dark:bg-slate-800 dark:text-slate-100 rounded-lg text-sm focus:ring-2 focus:ring-teal-500 outline-none" />
                 </div>
               </div>
             ))}
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-zinc-300 mb-1">Rol</label>
+            <label className="block text-sm font-medium text-tinta-2 dark:text-slate-400 mb-1">Rol</label>
             <Select value={form.rol} onChange={v => setForm(p => ({ ...p, rol: v as any }))}
               options={[
                 { value: 'usuario', label: 'Usuario' },
@@ -631,24 +637,24 @@ function ModalEditarUsuario({ usuario, onGuardado, onCerrar }: {
               ]} />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-zinc-300 mb-1">Nueva contraseña</label>
+            <label className="block text-sm font-medium text-tinta-2 dark:text-slate-400 mb-1">Nueva contraseña</label>
             <div className="relative">
-              <Lock size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-zinc-500" />
+              <Lock size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-tinta-2 dark:text-slate-400" />
               <input type={mostrarPass ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)}
                 placeholder="Dejar en blanco para no cambiarla" minLength={8}
-                className="w-full pl-8 pr-9 py-2 border border-gray-200 dark:border-white/15 dark:bg-zinc-800 dark:text-zinc-100 rounded-lg text-sm focus:ring-2 focus:ring-teal-500 outline-none" />
+                className="w-full pl-8 pr-9 py-2 border border-linea dark:border-slate-800 dark:bg-slate-800 dark:text-slate-100 rounded-lg text-sm focus:ring-2 focus:ring-teal-500 outline-none" />
               <button type="button" onClick={() => setMostrarPass(!mostrarPass)}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:text-zinc-500 dark:hover:text-zinc-300">
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-tinta-2 hover:text-tinta">
                 {mostrarPass ? <EyeOff size={14} /> : <Eye size={14} />}
               </button>
             </div>
-            <p className="mt-1 text-[11px] text-gray-500 dark:text-zinc-500">Solo se cambia si escribes una clave nueva (mín. 8 caracteres).</p>
+            <p className="mt-1 text-xs text-tinta-2 dark:text-slate-400">Solo se cambia si escribes una clave nueva (mín. 8 caracteres).</p>
           </div>
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={onCerrar}
-              className="flex-1 py-2 border border-gray-200 dark:border-white/15 text-gray-700 dark:text-zinc-300 rounded-lg text-sm hover:bg-gray-50 dark:hover:bg-white/5 transition-colors">Cancelar</button>
+              className="flex-1 py-2 border border-linea dark:border-slate-800 text-tinta-2 dark:text-slate-400 rounded-lg text-sm hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">Cancelar</button>
             <button type="submit" disabled={cargando || !form.email}
-              className="flex-1 py-2 bg-teal-600 hover:bg-teal-700 disabled:bg-gray-300 dark:disabled:bg-zinc-700 text-white rounded-lg text-sm font-semibold transition-colors flex items-center justify-center gap-1.5">
+              className="flex-1 py-2 bg-teal-600 hover:bg-teal-700 disabled:bg-slate-300 dark:disabled:bg-slate-700 text-white rounded-lg text-sm font-semibold transition-colors flex items-center justify-center gap-1.5">
               {cargando ? <Loader2 size={14} className="animate-spin" /> : <Edit3 size={14} />} Guardar cambios
             </button>
           </div>
@@ -722,146 +728,115 @@ export default function AdminUsuariosPage() {
 
   return (
     <AppLayout breadcrumb={[{ label: 'Dashboard', href: '/dashboard' }, { label: 'Usuarios' }]}>
-      <div className="p-4 sm:p-6 lg:p-8 max-w-6xl mx-auto">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <h1 className="text-2xl font-semibold text-gray-900 dark:text-zinc-100 flex items-center gap-2">
-              <Users size={24} className="text-teal-600 dark:text-teal-400" />
-              Administración de Usuarios
-            </h1>
-            <p className="text-sm text-gray-500 dark:text-zinc-400 mt-1">
-              {cargando ? 'Cargando usuarios…' : `${usuarios.length} usuario${usuarios.length !== 1 ? 's' : ''} registrado${usuarios.length !== 1 ? 's' : ''}`}
-            </p>
-          </div>
-          <button
-            onClick={() => setShowModal(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white font-semibold rounded-lg text-sm transition-colors"
-          >
-            <Plus size={16} />
-            Nuevo usuario
-          </button>
-        </div>
+      <div className="@container p-4 sm:p-6 lg:p-8 max-w-6xl mx-auto">
+        <Encabezado
+          titulo="Administración de usuarios"
+          descripcion={cargando ? 'Cargando usuarios…' : usuarios.length + ' usuario' + (usuarios.length !== 1 ? 's' : '') + ' registrado' + (usuarios.length !== 1 ? 's' : '')}
+          acciones={<Boton variante="primario" onClick={() => setShowModal(true)} icono={<Plus size={16} stroke={1.75} />}>Nuevo usuario</Boton>}
+        />
 
         {/* Tabla */}
-        <div className="bg-white dark:bg-zinc-900 rounded-xl border border-gray-200 dark:border-white/10 shadow-sm overflow-hidden">
+        <div className="bg-white dark:bg-slate-900 rounded-xl border border-linea dark:border-slate-800 shadow-tarjeta overflow-hidden">
           {cargando ? (
-            <div className="flex items-center justify-center py-16 gap-2 text-gray-500 dark:text-zinc-400">
-              <Loader2 size={20} className="animate-spin text-teal-500" /> Cargando usuarios...
-            </div>
+            <div className="space-y-2 p-4">{[1, 2, 3, 4, 5].map(i => <Esqueleto key={i} className="h-11 rounded-lg" />)}</div>
           ) : usuarios.length === 0 ? (
-            <div className="text-center py-16">
-              <Users size={32} className="text-gray-300 dark:text-zinc-700 mx-auto mb-3" />
-              <p className="text-gray-500 dark:text-zinc-400">No hay usuarios registrados</p>
-            </div>
+            <div className="p-5"><Vacio icono={<Users size={28} stroke={1.75} />} titulo="No hay usuarios registrados" texto="Crea el primero con «Nuevo usuario»." /></div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
-                  <tr className="bg-gray-50 dark:bg-white/[0.03] border-b border-gray-100 dark:border-white/10">
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-zinc-400">Usuario</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-zinc-400">Empresa</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-zinc-400">Rol</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-zinc-400">Estado</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-zinc-400">Último acceso</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-zinc-400">Registro</th>
-                    <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 dark:text-zinc-400">Acciones</th>
+                  <tr className="border-b border-linea dark:border-slate-800">
+                    <th className="px-4 h-10 text-left text-[11px] font-medium text-tinta-2 dark:text-slate-400">Usuario</th>
+                    <th className="px-4 h-10 text-left text-[11px] font-medium text-tinta-2 dark:text-slate-400">Empresa</th>
+                    <th className="px-4 h-10 text-left text-[11px] font-medium text-tinta-2 dark:text-slate-400">Rol</th>
+                    <th className="px-4 h-10 text-left text-[11px] font-medium text-tinta-2 dark:text-slate-400">Estado</th>
+                    <th className="px-4 h-10 text-left text-[11px] font-medium text-tinta-2 dark:text-slate-400">Último acceso</th>
+                    <th className="px-4 h-10 text-left text-[11px] font-medium text-tinta-2 dark:text-slate-400">Registro</th>
+                    <th className="px-4 h-10 text-right text-[11px] font-medium text-tinta-2 dark:text-slate-400">Acciones</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-50 dark:divide-white/[0.06]">
+                <tbody className="divide-y divide-linea dark:divide-slate-800">
                   {usuarios.map(u => (
-                    <tr key={u.id} className="hover:bg-gray-50 dark:hover:bg-white/[0.03] transition-colors">
+                    <tr key={u.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2.5">
                           {u.tiene_foto ? (
                             <img src={`/api/perfil/foto?id=${u.id}`} alt="" className="w-8 h-8 rounded-full object-cover flex-shrink-0" />
                           ) : (
-                            <div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center text-white text-xs font-semibold flex-shrink-0">
+                            <div className="w-8 h-8 rounded-full bg-teal-600 flex items-center justify-center text-white text-xs font-semibold flex-shrink-0">
                               {(u.nombre || u.email)[0].toUpperCase()}
                             </div>
                           )}
                           <div>
-                            <p className="text-sm font-medium text-gray-900 dark:text-zinc-100">{u.nombre || '—'}</p>
-                            <p className="text-xs text-gray-400 dark:text-zinc-500">{u.email}</p>
+                            <p className="text-sm font-medium text-tinta dark:text-slate-100">{u.nombre || '—'}</p>
+                            <p className="text-xs text-tinta-2 dark:text-slate-400">{u.email}</p>
                           </div>
                         </div>
                       </td>
                       <td className="px-4 py-3">
-                        <span className="text-sm text-gray-600 dark:text-zinc-400">{u.empresa || '—'}</span>
+                        <span className="text-sm text-tinta-2 dark:text-slate-400">{u.empresa || '—'}</span>
                         {(u.cargo || u.telefono) && (
-                          <p className="text-xs text-gray-400 dark:text-zinc-500">
+                          <p className="text-xs text-tinta-2 dark:text-slate-400">
                             {[u.cargo, u.telefono ? formatearTelefono(u.telefono) : null].filter(Boolean).join(' · ')}
                           </p>
                         )}
                       </td>
                       <td className="px-4 py-3">
-                        <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium ${
-                          u.rol === 'admin' ? 'bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-400' : u.rol === 'externo' ? 'bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-400' : 'bg-gray-100 text-gray-600 dark:bg-white/10 dark:text-zinc-400'
-                        }`}>
-                          {u.rol === 'admin' ? <ShieldCheck size={10} /> : <User size={10} />}
-                          {u.rol === 'admin' ? 'Admin' : u.rol === 'externo' ? 'Externo' : 'Usuario'}
+                        <span className="text-xs font-medium text-tinta dark:text-slate-200">
+                          <Estado color={u.rol === 'admin' ? '#d97706' : u.rol === 'externo' ? '#0891b2' : '#64748b'}>
+                            {u.rol === 'admin' ? 'Admin' : u.rol === 'externo' ? 'Externo' : 'Usuario'}
+                          </Estado>
                         </span>
                         {u.rol !== 'admin' && parsePermisos(u.permisos).compras_auditor && (
-                          <span className="ml-1 inline-flex items-center text-xs font-medium text-teal-700 dark:bg-teal-500/15 dark:text-teal-300">Auditor de Compras</span>
+                          <span className="ml-3 text-xs font-medium text-marca">Auditor de Compras</span>
                         )}
                       </td>
                       <td className="px-4 py-3">
-                        <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium ${
-                          u.activo ? 'bg-green-50 text-green-700 dark:bg-emerald-500/15 dark:text-emerald-400' : 'bg-red-50 text-red-600 dark:bg-red-500/15 dark:text-red-400'
-                        }`}>
-                          {u.activo ? <CheckCircle size={10} /> : <XCircle size={10} />}
-                          {u.activo ? 'Activo' : 'Inactivo'}
+                        <span className="text-xs font-medium text-tinta dark:text-slate-200">
+                          <Estado color={u.activo ? '#16a34a' : '#dc2626'}>{u.activo ? 'Activo' : 'Inactivo'}</Estado>
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-xs text-gray-500 dark:text-zinc-400">{formatFecha(u.ultimo_login)}</td>
-                      <td className="px-4 py-3 text-xs text-gray-500 dark:text-zinc-400">{formatFecha(u.created_at)}</td>
+                      <td className="px-4 py-3 text-xs text-tinta-2 dark:text-slate-400">{formatFecha(u.ultimo_login)}</td>
+                      <td className="px-4 py-3 text-xs text-tinta-2 dark:text-slate-400">{formatFecha(u.created_at)}</td>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-1 justify-end">
                           {/* Editar datos / resetear contraseña */}
-                          <button
-                            onClick={() => setEditUser(u)}
-                            title="Editar / resetear contraseña"
-                            className="p-1.5 text-gray-500 hover:bg-gray-100 dark:text-zinc-400 dark:hover:bg-white/10 rounded-lg transition-colors"
-                          >
-                            <Edit3 size={14} />
-                          </button>
+                          <Tooltip label="Editar / resetear contraseña">
+                            <button onClick={() => setEditUser(u)} aria-label="Editar / resetear contraseña"
+                              className={ICONO + 'text-slate-400 hover:bg-slate-100 hover:text-tinta dark:hover:bg-slate-800'}>
+                              <Edit3 size={16} stroke={1.75} />
+                            </button>
+                          </Tooltip>
                           {/* Editar permisos: para admin solo se ve el modo principiante (los
                               permisos granulares son moot, el admin ya los tiene todos implícitos) */}
-                          <button
-                            onClick={() => setPermisosUser(u)}
-                            title={u.rol === 'admin' ? 'Modo principiante' : 'Editar permisos'}
-                            className="p-1.5 text-teal-600 hover:bg-blue-50 dark:text-teal-400 dark:hover:bg-blue-500/10 rounded-lg transition-colors"
-                          >
-                            <ShieldCheck size={14} />
-                          </button>
+                          <Tooltip label={u.rol === 'admin' ? 'Modo principiante' : 'Editar permisos'}>
+                            <button onClick={() => setPermisosUser(u)} aria-label={u.rol === 'admin' ? 'Modo principiante' : 'Editar permisos'}
+                              className={ICONO + 'text-slate-400 hover:bg-slate-100 hover:text-marca dark:hover:bg-slate-800'}>
+                              <ShieldCheck size={16} stroke={1.75} />
+                            </button>
+                          </Tooltip>
                           {/* No se puede desactivar a sí mismo */}
                           {u.id !== usuario?.id && (
-                            <button
-                              onClick={() => toggleActivo(u)}
-                              disabled={accionando === u.id}
-                              title={u.activo ? 'Desactivar' : 'Activar'}
-                              className={`p-1.5 rounded-lg transition-colors ${
-                                u.activo ? 'text-orange-500 hover:bg-orange-50 dark:hover:bg-orange-500/10' : 'text-green-600 hover:bg-green-50 dark:text-emerald-400 dark:hover:bg-emerald-500/10'
-                              }`}
-                            >
-                              {accionando === u.id ? <Loader2 size={14} className="animate-spin" /> :
-                                u.activo ? <XCircle size={14} /> : <CheckCircle size={14} />}
-                            </button>
+                            <Tooltip label={u.activo ? 'Desactivar' : 'Activar'}>
+                              <button onClick={() => toggleActivo(u)} disabled={accionando === u.id} aria-label={u.activo ? 'Desactivar' : 'Activar'}
+                                className={ICONO + 'disabled:opacity-50 text-slate-400 ' + (u.activo ? 'hover:bg-amber-50 hover:text-alerta dark:hover:bg-amber-950/30' : 'hover:bg-emerald-50 hover:text-exito dark:hover:bg-emerald-950/30')}>
+                                {accionando === u.id ? <Loader2 size={16} className="animate-spin" /> :
+                                  u.activo ? <XCircle size={16} stroke={1.75} /> : <CheckCircle size={16} stroke={1.75} />}
+                              </button>
+                            </Tooltip>
                           )}
                           {/* Eliminar usuario: admin-only ya (esta página entera lo es); confirmación
                               obligatoria ya vive en eliminar() de arriba. */}
                           {u.id !== usuario?.id && (
-                            <button
-                              onClick={() => eliminar(u)}
-                              disabled={accionando === u.id}
-                              title="Eliminar"
-                              className="p-1.5 text-red-500 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-500/10 rounded-lg transition-colors"
-                            >
-                              <Trash2 size={14} />
-                            </button>
+                            <Tooltip label="Eliminar">
+                              <button onClick={() => eliminar(u)} disabled={accionando === u.id} aria-label="Eliminar usuario"
+                                className={ICONO + 'text-slate-400 hover:bg-red-50 hover:text-urgente disabled:opacity-50 dark:hover:bg-red-950/40'}>
+                                <Trash2 size={16} stroke={1.75} />
+                              </button>
+                            </Tooltip>
                           )}
                           {u.id === usuario?.id && (
-                            <span className="text-xs text-gray-400 dark:text-zinc-500 pr-1">(tú)</span>
+                            <span className="text-xs text-tinta-2 dark:text-slate-400 pr-1">(tú)</span>
                           )}
                         </div>
                       </td>

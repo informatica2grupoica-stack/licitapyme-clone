@@ -194,7 +194,6 @@ function HomeContent() {
     <AppLayout breadcrumb={[{ label: 'Buscador' }]}>
       {/* Hero */}
       <div className="bg-slate-900 py-14 px-4 relative overflow-hidden">
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgba(99,102,241,0.15)_0%,transparent_60%)]" />
         <div className="max-w-3xl mx-auto text-center relative z-10">
           <h1 className="text-4xl sm:text-5xl font-semibold text-white mb-4 leading-tight tracking-tight">
             Oportunidades de{' '}

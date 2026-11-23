@@ -47,30 +47,32 @@ export function StatCard({ icon, label, value, sub, color, href, hint, spec, for
   spec?: EspecificacionMetrica; // ficha "cómo se mide" — de dónde sale, cálculo exacto
   formato?: (n: number) => string; // formateador para valores numéricos (p.ej. CLP)
 }) {
+  // El color solo comunica: rojo/ámbar/verde tiñen el número; el resto va neutro (licitank-ui).
   const hex = hexDe(color);
+  const claseNumero = ({ '#dc2626': 'text-urgente', '#e11d48': 'text-urgente', '#d97706': 'text-alerta', '#ea580c': 'text-alerta', '#059669': 'text-exito' } as Record<string, string>)[hex]
+    ?? 'text-tinta dark:text-slate-50';
   // Tamaño ADAPTATIVO por largo del valor final: un monto de 14 chars ("$9.233.366.323")
   // a 26px desborda la tarjeta; achicar es mejor que truncar (patrón de AnaliticaGestion).
   const largo = textoFinal(value, formato).length;
   const clsValor = largo > 12 ? 'text-[17px]' : largo > 9 ? 'text-[21px]' : 'text-[24px] sm:text-[26px]';
   const cuerpo = (
     <div title={spec ? undefined : hint}
-      className={`bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 transition-all duration-200 h-full
-        ${href ? 'hover:shadow-md hover:-translate-y-0.5 cursor-pointer' : 'hover:shadow-md'}`}>
+      className={`bg-white dark:bg-slate-900 border border-linea dark:border-slate-800 rounded-xl shadow-tarjeta p-4 sm:p-5 transition-all duration-150 h-full
+        ${href ? 'hover:shadow-tarjeta-hover hover:-translate-y-px cursor-pointer' : ''}`}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-[11px] text-slate-500 font-semibold mb-1 truncate flex items-center gap-1">
+          <p className="text-[11px] text-tinta-2 dark:text-slate-400 font-medium mb-1.5 truncate flex items-center gap-1">
             {label}
             {spec && <span onClick={(e) => e.preventDefault()}><MetricInfo spec={spec} /></span>}
           </p>
-          <p className={`${clsValor} font-semibold leading-none tabular-nums text-slate-900 break-words`}>
+          <p className={`${clsValor} font-semibold tracking-tight leading-none tabular-nums ${claseNumero} break-words`}>
             <Valor value={value} formato={formato} />
           </p>
-          {sub && <p className="text-xs text-slate-400 mt-1 truncate">{sub}</p>}
+          {sub && <p className="text-xs text-tinta-2 dark:text-slate-400 mt-1.5 truncate">{sub}</p>}
         </div>
-        <div className="w-[42px] h-[42px] rounded-xl flex items-center justify-center flex-shrink-0"
-          style={{ background: hex + '18', color: hex }}>{icon}</div>
+        <div className="flex-shrink-0 text-slate-400 [&>svg]:h-[18px] [&>svg]:w-[18px]" aria-hidden>{icon}</div>
       </div>
     </div>
   );
-  return href ? <Link href={href} className="block h-full">{cuerpo}</Link> : cuerpo;
+  return href ? <Link href={href} className="block h-full rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marca/60">{cuerpo}</Link> : cuerpo;
 }

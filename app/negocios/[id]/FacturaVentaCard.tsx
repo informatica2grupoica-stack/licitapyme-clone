@@ -6,9 +6,10 @@ import { useToast } from '@/app/components/ui/toast';
 import { useCompras } from '@/app/compras/[negocioId]/ComprasContext';
 import { DocumentViewerModal, type VisorDoc } from '@/app/components/DocumentViewerModal';
 import { MiniaturaDoc, urlInline } from './MiniaturaDoc';
-import { IconReceipt as Receipt, IconUpload as Upload, IconLoader2 as Loader2, IconCircleCheck as CheckCircle2, IconTrash as Trash2, IconDownload as Download } from '@tabler/icons-react';
+import { FacturaVisor } from './FacturaVisor';
+import { IconReceipt as Receipt, IconFileCode as FileCode, IconUpload as Upload, IconLoader2 as Loader2, IconCircleCheck as CheckCircle2, IconTrash as Trash2, IconDownload as Download } from '@tabler/icons-react';
 
-interface Factura { id: number; archivoUrl: string; archivoNombre: string; numero: string | null; emitidaAt: string | null; pagadaAt: string | null; subidaPorNombre: string | null; creadaAt: string }
+interface Factura { id: number; archivoUrl: string; archivoNombre: string; numero: string | null; emitidaAt: string | null; pagadaAt: string | null; subidaPorNombre: string | null; creadaAt: string; origen: 'OBUMA' | 'MANUAL'; xmlUrl: string | null }
 
 interface FacturaObuma { tipo: 33 | 34; folio: string; fecha: string; neto: number; total: number; pagado: boolean; anulada: boolean; ocReferida: string | null; yaCargada: boolean }
 
@@ -23,6 +24,7 @@ export function FacturaVentaCard({ negocioId, puedeOperar, razonSocialFactura }:
   const [cargando, setCargando] = useState(true);
   const [subiendo, setSubiendo] = useState(false);
   const [visor, setVisor] = useState<VisorDoc | null>(null);
+  const [verXml, setVerXml] = useState<number | null>(null);
   const [numero, setNumero] = useState('');
   const [emitidaAt, setEmitidaAt] = useState('');
   const [pagadaAt, setPagadaAt] = useState('');
@@ -139,10 +141,18 @@ export function FacturaVentaCard({ negocioId, puedeOperar, razonSocialFactura }:
           <div className="flex gap-4 flex-wrap">
             {facturas.map(f => (
               <div key={f.id} className="flex gap-3">
+                {/* Traída de Obuma (con XML): se ve la factura dibujada por Licitank. Subida a mano: se ve el PDF. */}
                 <MiniaturaDoc src={esPdf(f.archivoNombre) ? urlInline(f.archivoUrl) : null} titulo={f.numero ? `Factura ${f.numero}` : f.archivoNombre.replace(/\.[^.]+$/, '')}
-                  detalle={f.emitidaAt ? `Emitida ${f.emitidaAt}` : f.creadaAt} onAbrir={() => setVisor({ nombre: f.archivoNombre, url: f.archivoUrl })} />
+                  detalle={f.emitidaAt ? `Emitida ${f.emitidaAt}` : f.creadaAt}
+                  onAbrir={() => f.origen === 'OBUMA' && f.xmlUrl ? setVerXml(f.id) : setVisor({ nombre: f.archivoNombre, url: f.archivoUrl })} />
                 <div className="text-[11.5px] text-zinc-500 space-y-1.5 min-w-[170px]">
-                  <p className="text-emerald-700 font-semibold flex items-center gap-1"><CheckCircle2 size={13} /> Subida por {f.subidaPorNombre || '—'}</p>
+                  <p className="text-emerald-700 font-semibold flex items-center gap-1"><CheckCircle2 size={13} /> {f.origen === 'OBUMA' ? 'Traída de Obuma' : `Subida por ${f.subidaPorNombre || '—'}`}</p>
+                  {f.origen === 'OBUMA' && f.xmlUrl && (
+                    <p className="flex items-center gap-3">
+                      <button type="button" onClick={() => setVerXml(f.id)} className="font-semibold text-teal-700 hover:text-teal-900">Ver factura</button>
+                      <button type="button" onClick={() => setVisor({ nombre: f.archivoNombre, url: f.archivoUrl })} className="hover:text-zinc-800">PDF</button>
+                      <a href={f.xmlUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 hover:text-zinc-800"><FileCode size={12} /> XML</a>
+                    </p>)}
                   <label className="block">Pago del cliente
                     <input type="date" defaultValue={f.pagadaAt || ''} disabled={!puedeOperar} onBlur={e => { if (e.target.value !== (f.pagadaAt || '')) guardarPago(f.id, e.target.value); }}
                       className="block mt-0.5 text-[12px] border border-zinc-200 rounded-lg px-2 py-1 text-zinc-700" />
@@ -174,6 +184,7 @@ export function FacturaVentaCard({ negocioId, puedeOperar, razonSocialFactura }:
         {!puedeOperar && facturas.length === 0 && <p className="text-[12px] text-zinc-500">Todavía no se sube la factura de venta.</p>}
       </div>
       <DocumentViewerModal doc={visor} onClose={() => setVisor(null)} />
+      {verXml !== null && <FacturaVisor negocioId={negocioId} urlDatos={`/api/compras/${negocioId}/factura-venta/visor?id=${verXml}`} onCerrar={() => setVerXml(null)} />}
     </div>
   );
 }

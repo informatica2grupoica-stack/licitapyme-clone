@@ -285,7 +285,7 @@ export function ProductosCompraCard({ negocioId, puedeOperar, esJefeDeVentas }: 
                   : [];
               return (
                 <Fragment key={p.id}>
-                  <tr className={`border-b border-zinc-100 align-middle ${fuera ? 'bg-zinc-50/70 text-zinc-400' : rapidas[p.id]?.estado === 'RECHAZADA' ? 'bg-rose-100 animate-pulse border-l-4 border-l-rose-500' : 'hover:bg-zinc-50/60'}`}
+                  <tr className={`border-b border-zinc-100 align-middle ${fuera ? 'bg-zinc-50/70 text-zinc-400' : rapidas[p.id]?.estado === 'RECHAZADA' ? 'bg-rose-100 border-l-4 border-l-rose-500' : 'hover:bg-zinc-50/60'}`}
                     data-testid={`fila-producto-${p.id}`}>
                     <td className="px-4 py-2 text-[12px] text-zinc-400 tabular-nums">{padre || p.esServicio ? '' : lineasUnicas ? (p.correlativo ?? '—') : principales.indexOf(p) + 1}</td>
                     <td className={`py-2 max-w-0 ${padre ? 'pl-8 pr-3' : 'px-3'}`}>

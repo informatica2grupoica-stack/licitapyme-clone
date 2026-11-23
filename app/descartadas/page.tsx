@@ -13,6 +13,10 @@ import { useToast } from '@/app/components/ui/toast';
 import { Select } from '@/app/components/ui/Select';
 import { MultiSelect } from '@/app/components/ui/MultiSelect';
 import { colorUsuario, inicialesUsuario } from '@/app/lib/user-color';
+import { Encabezado, Esqueleto, Vacio } from '@/app/components/ui/kit/Estructura';
+import { Boton } from '@/app/components/ui/kit/Boton';
+import { Datos, Dato } from '@/app/components/ui/kit/Tarjeta';
+import { Banner } from '@/app/components/ui/Banner';
 
 // El motivo se persiste como "<motivo del catálogo> — <comentario libre>". Para el KPI
 // agrupamos por el motivo base (lo anterior al " — ").
@@ -73,6 +77,8 @@ const fmtFecha = (s: string | null) => {
   const d = new Date(s);
   return isNaN(d.getTime()) ? '—' : d.toLocaleDateString('es-CL', { day: '2-digit', month: 'short', year: 'numeric' });
 };
+
+const SUPERFICIE = 'rounded-xl border border-linea bg-white shadow-tarjeta dark:bg-slate-900 dark:border-slate-800';
 
 export default function DescartadasPage() {
   const { usuario, cargando: cargandoSesion } = useSession();
@@ -215,73 +221,67 @@ export default function DescartadasPage() {
   useEffect(() => { if (esAdmin) cargar(); }, [esAdmin]);
 
   if (!cargandoSesion && usuario && !esAdmin) {
-    return <AppLayout breadcrumb={[{ label: 'Descartadas' }]}><div className="p-10 text-center text-sm text-slate-500">Redirigiendo…</div></AppLayout>;
+    return <AppLayout breadcrumb={[{ label: 'Descartadas' }]}><div className="@container p-10 text-center text-sm text-tinta-2 dark:text-slate-400">Redirigiendo…</div></AppLayout>;
   }
 
   return (
     <AppLayout breadcrumb={[{ label: 'Descartadas' }]}>
-      {/* p-4/6/8: mismo padding estándar que el resto de las páginas (antes quedaba pegada a los bordes) */}
-      <div className="p-4 sm:p-6 lg:p-8 max-w-6xl mx-auto space-y-4">
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-red-50 flex items-center justify-center text-red-600">
-              <Ban size={18} />
-            </div>
-            <div>
-              <h1 className="text-[16px] font-semibold text-slate-900">Licitaciones descartadas</h1>
-              <p className="text-xs text-slate-500">Los descartes de Negocios (con responsable) y los del Radar, con quién, cuándo y por qué</p>
-            </div>
-          </div>
-          <button onClick={cargar} disabled={cargando} title="Recargar la lista"
-            className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors">
-            <RefreshCw size={15} className={cargando ? 'animate-spin' : ''} />
-          </button>
-        </div>
+      <div className="@container p-4 sm:p-6 lg:p-8 max-w-6xl mx-auto space-y-4">
+        <Encabezado
+          titulo="Licitaciones descartadas"
+          descripcion="Los descartes de Negocios (con responsable) y los del Radar, con quién, cuándo y por qué."
+          acciones={
+            <Boton onClick={cargar} disabled={cargando} aria-label="Recargar la lista" title="Recargar la lista" className="!px-0 w-9">
+              <RefreshCw size={16} stroke={1.75} className={cargando ? 'animate-spin text-slate-400' : 'text-slate-400'} />
+            </Boton>
+          }
+        />
 
-        {error && <div className="px-4 py-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">{error}</div>}
+        {error && <Banner variante="error">{error}</Banner>}
 
         {/* ── Barra de filtros (buscador + fechas + selección múltiple) ── */}
         {!cargando && (items.length > 0 || radarItems.length > 0) && (
-          <div className="flex flex-wrap items-center gap-2 bg-white border border-slate-200 rounded-xl p-2.5">
-            <span className="text-[12px] text-slate-400 font-medium flex items-center gap-1"><Filter size={13} /> Filtrar:</span>
+          <div className={`flex flex-wrap items-center gap-2 p-3 ${SUPERFICIE}`}>
+            <span className="text-[13px] font-medium text-tinta-2 dark:text-slate-400 flex items-center gap-1.5 mr-1"><Filter size={16} stroke={1.75} className="text-slate-400" /> Filtros</span>
             <div className="relative flex-1 min-w-[210px]">
-              <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+              <Search size={16} stroke={1.75} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
               <input
                 type="text" value={busqueda} onChange={e => setBusqueda(e.target.value)}
                 placeholder="Buscar por nombre, código u organismo…"
+                aria-label="Buscar descartadas"
                 title="Busca en el nombre de la licitación, su código (ej: 1499887-11-LE26) y el organismo. Aplica a ambas secciones."
-                className="w-full pl-8 pr-7 py-2 border border-slate-200 rounded-lg text-[12px] bg-slate-50 focus:ring-2 focus:ring-teal-500/20 focus:border-teal-400 outline-none transition-all"
+                className="h-9 w-full pl-9 pr-8 border border-linea dark:border-slate-700 rounded-lg text-[13px] text-tinta dark:text-slate-100 placeholder:text-tinta-3 bg-white dark:bg-slate-900 focus-visible:ring-2 focus-visible:ring-marca/60 outline-none"
               />
               {busqueda && (
-                <button onClick={() => setBusqueda('')} title="Limpiar búsqueda"
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"><X size={12} /></button>
+                <button onClick={() => setBusqueda('')} title="Limpiar búsqueda" aria-label="Limpiar búsqueda"
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-tinta"><X size={16} stroke={1.75} /></button>
               )}
             </div>
-            <div className="inline-flex items-center gap-1.5 border border-slate-200 rounded-lg px-2 py-[5px] bg-white"
+            <div className="inline-flex h-9 items-center gap-1.5 border border-linea dark:border-slate-700 rounded-lg px-2.5 bg-white dark:bg-slate-900"
               title="Rango de la FECHA DEL DESCARTE (cuándo se descartó, no cuándo cierra la licitación)">
-              <Calendar size={12} className="text-slate-400 flex-shrink-0" />
-              <input type="date" value={fechaDesde} max={fechaHasta || undefined}
+              <Calendar size={16} stroke={1.75} className="text-slate-400 flex-shrink-0" />
+              <input type="date" value={fechaDesde} max={fechaHasta || undefined} aria-label="Descartada desde"
                 onChange={e => setFechaDesde(e.target.value)}
-                className="text-[12px] text-slate-600 outline-none bg-transparent w-[112px]" />
-              <span className="text-slate-300 text-[11px]">→</span>
-              <input type="date" value={fechaHasta} min={fechaDesde || undefined}
+                className="text-[13px] text-tinta dark:text-slate-100 outline-none bg-transparent w-[118px]" />
+              <span className="text-tinta-3 text-xs">→</span>
+              <input type="date" value={fechaHasta} min={fechaDesde || undefined} aria-label="Descartada hasta"
                 onChange={e => setFechaHasta(e.target.value)}
-                className="text-[12px] text-slate-600 outline-none bg-transparent w-[112px]" />
+                className="text-[13px] text-tinta dark:text-slate-100 outline-none bg-transparent w-[118px]" />
               {(fechaDesde || fechaHasta) && (
                 <button onClick={() => { setFechaDesde(''); setFechaHasta(''); }}
-                  title="Limpiar fechas" className="text-slate-400 hover:text-red-500"><X size={12} /></button>
+                  title="Limpiar fechas" aria-label="Limpiar fechas" className="text-slate-400 hover:text-urgente"><X size={16} stroke={1.75} /></button>
               )}
             </div>
             <MultiSelect
               label={filtroUsuario.length ? 'Perfiles' : 'Todos los perfiles'}
-              icon={<Users size={13} />}
+              icon={<Users size={14} />}
               options={kpi.usuarios.map(u => ({ value: String(u.id), label: u.nombre, color: colorUsuario(u.email || u.id), count: u.total }))}
               selected={filtroUsuario}
               onChange={setFiltroUsuario}
             />
             <MultiSelect
               label={filtroMotivo.length ? 'Motivos' : 'Todos los motivos'}
-              icon={<Ban size={13} />}
+              icon={<Ban size={14} />}
               options={kpi.motivos.map(m => ({ value: m.motivo, label: m.motivo, count: m.total }))}
               selected={filtroMotivo}
               onChange={setFiltroMotivo}
@@ -289,19 +289,16 @@ export default function DescartadasPage() {
             {tiposPresentes.length > 0 && (
               <MultiSelect
                 label={filtroTipo.length ? 'Tipos' : 'Todos los tipos'}
-                icon={<Tag size={13} />}
+                icon={<Tag size={14} />}
                 options={tiposPresentes.map(t => ({ value: t, label: t }))}
                 selected={filtroTipo}
                 onChange={setFiltroTipo}
               />
             )}
             {hayFiltro && (
-              <button onClick={limpiarFiltros}
-                className="inline-flex items-center gap-1 text-[12px] font-semibold text-red-600 bg-red-50 border border-red-200 hover:bg-red-100 px-2.5 py-2 rounded-lg transition-colors">
-                <X size={12} /> Limpiar
-              </button>
+              <Boton variante="fantasma" onClick={limpiarFiltros} icono={<X size={16} stroke={1.75} />}>Limpiar</Boton>
             )}
-            <span className="ml-auto text-[12px] text-slate-400 tabular-nums"
+            <span className="ml-auto text-xs text-tinta-2 dark:text-slate-400 tabular-nums"
               title="Descartes de Negocios + descartes del Radar que pasan los filtros actuales">
               {itemsFiltrados.length + radarFiltrados.length}
               {hayFiltro ? ` de ${items.length + radarItems.length}` : ''} descartada{(itemsFiltrados.length + radarFiltrados.length) !== 1 ? 's' : ''}
@@ -309,36 +306,33 @@ export default function DescartadasPage() {
           </div>
         )}
 
-        {/* ── KPI de descartadas: por usuario (cantidad) + motivos, con colores consistentes ── */}
+        {/* ── Descartadas por usuario (cantidad) + motivos: se tocan para filtrar ── */}
         {!cargando && items.length > 0 && (
-          <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+          <div className={`${SUPERFICIE} p-5`}>
             <div className="flex items-center gap-2 mb-3">
-              <BarChart3 size={15} className="text-slate-500" />
-              <h2 className="text-[13px] font-semibold text-slate-800">Descartadas por usuario</h2>
+              <BarChart3 size={18} stroke={1.75} className="text-slate-400" />
+              <h2 className="text-[15px] font-semibold text-tinta dark:text-slate-100">Descartadas por usuario</h2>
               {hayFiltro && (
-                <button onClick={limpiarFiltros}
-                  className="ml-auto inline-flex items-center gap-1 text-[11px] font-semibold text-slate-500 hover:text-slate-700 bg-slate-100 hover:bg-slate-200 px-2 py-1 rounded-lg transition-colors">
-                  <X size={12} /> Limpiar filtros
-                </button>
+                <Boton variante="fantasma" tamano="sm" onClick={limpiarFiltros} className="ml-auto" icono={<X size={16} stroke={1.75} />}>Limpiar filtros</Boton>
               )}
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2.5">
+            <div className="grid grid-cols-1 @2xl:grid-cols-2 gap-x-6 gap-y-2">
               {kpi.usuarios.map(u => {
                 const col = colorUsuario(u.email || u.id);
                 const activo = filtroUsuario.includes(String(u.id));
                 return (
-                  <button key={u.id}
+                  <button key={u.id} aria-pressed={activo}
                     onClick={() => setFiltroUsuario(activo ? filtroUsuario.filter(x => x !== String(u.id)) : [...filtroUsuario, String(u.id)])}
-                    className={`text-left rounded-lg px-2 py-1.5 transition-colors ${activo ? 'bg-slate-100 ring-1 ring-slate-300' : 'hover:bg-slate-50'}`}>
+                    className={`text-left rounded-lg px-2 py-1.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marca/60 ${activo ? 'bg-marca-suave ring-1 ring-teal-300' : 'hover:bg-slate-50 dark:hover:bg-slate-800/50'}`}>
                     <div className="flex items-center gap-2">
                       <span className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-semibold text-white flex-shrink-0" style={{ background: col }}>
                         {inicialesUsuario(u.nombre, u.email)}
                       </span>
-                      <span className="text-[12.5px] font-semibold text-slate-700 truncate flex-1">{u.nombre}</span>
-                      <span className="text-[13px] font-semibold text-slate-900 tabular-nums">{u.total}</span>
+                      <span className="text-[13px] font-medium text-tinta dark:text-slate-200 truncate flex-1">{u.nombre}</span>
+                      <span className="text-[13px] font-semibold text-tinta dark:text-slate-100 tabular-nums">{u.total}</span>
                     </div>
-                    <div className="mt-1 h-1.5 rounded-full bg-slate-100 overflow-hidden">
+                    <div className="mt-1.5 h-1.5 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
                       <div className="h-full rounded-full" style={{ width: `${(u.total / kpi.max) * 100}%`, background: col }} />
                     </div>
                   </button>
@@ -346,18 +340,18 @@ export default function DescartadasPage() {
               })}
             </div>
 
-            {/* Motivos (chips filtrables): cantidad por motivo base sobre todas las descartadas */}
-            <div className="mt-3 pt-3 border-t border-slate-100">
-              <p className="text-[11px] font-semibold text-slate-400 mb-2">Motivos</p>
+            {/* Motivos (filtrables): cantidad por motivo base sobre todas las descartadas */}
+            <div className="mt-4 pt-4 border-t border-linea dark:border-slate-800">
+              <p className="text-[13px] font-medium text-tinta dark:text-slate-100 mb-2">Motivos</p>
               <div className="flex flex-wrap gap-1.5">
                 {kpi.motivos.map(m => {
                   const activo = filtroMotivo.includes(m.motivo);
                   return (
-                    <button key={m.motivo}
+                    <button key={m.motivo} aria-pressed={activo}
                       onClick={() => setFiltroMotivo(activo ? filtroMotivo.filter(x => x !== m.motivo) : [...filtroMotivo, m.motivo])}
-                      className={`inline-flex items-center gap-1.5 text-[11.5px] font-medium px-2.5 py-1 rounded-full border transition-colors ${activo ? 'bg-red-600 border-red-600 text-white' : 'bg-white border-slate-200 text-slate-600 hover:border-red-300 hover:bg-red-50'}`}>
+                      className={`inline-flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-[13px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marca/60 ${activo ? 'border-marca bg-marca-suave text-marca' : 'border-linea bg-white text-tinta-2 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800'}`}>
                       {m.motivo}
-                      <span className={`text-[10.5px] font-semibold tabular-nums ${activo ? 'text-white' : 'text-red-600'}`}>{m.total}</span>
+                      <span className="text-xs font-semibold tabular-nums">{m.total}</span>
                     </button>
                   );
                 })}
@@ -367,85 +361,61 @@ export default function DescartadasPage() {
         )}
 
         {cargando ? (
-          <div className="flex items-center justify-center py-16 gap-2 text-sm text-slate-500">
-            <Loader2 size={16} className="animate-spin text-red-500" /> Cargando descartadas…
-          </div>
+          <div className="space-y-2.5">{[1, 2, 3].map(i => <Esqueleto key={i} className="h-40 rounded-xl" />)}</div>
         ) : items.length === 0 ? (
-          <div className="text-center py-16">
-            <div className="w-12 h-12 bg-slate-100 rounded-2xl flex items-center justify-center mx-auto mb-3">
-              <Ban size={20} className="text-slate-300" />
-            </div>
-            <p className="text-sm font-semibold text-slate-600">No hay licitaciones descartadas</p>
-          </div>
+          <Vacio icono={<Ban size={28} stroke={1.75} />} titulo="No hay licitaciones descartadas" texto="Cuando alguien descarte una licitación de Negocios, aparecerá aquí con su motivo." />
         ) : (
           <div className="space-y-2.5">
-            <p className="text-xs text-slate-400 font-medium">
+            <p className="text-xs text-tinta-2 dark:text-slate-400 tabular-nums">
               {itemsFiltrados.length} descartada{itemsFiltrados.length !== 1 ? 's' : ''}
               {hayFiltro && ` de ${items.length}`}
             </p>
             {itemsFiltrados.length === 0 && (
-              <p className="text-sm text-slate-500 py-6 text-center">Ninguna descartada coincide con el filtro.</p>
+              <p className="text-sm text-tinta-2 dark:text-slate-400 py-6 text-center">Ninguna descartada coincide con el filtro.</p>
             )}
             {itemsFiltrados.map(d => (
-              <div key={d.id} className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+              <div key={d.id} className={`${SUPERFICIE} px-4 py-3.5`}>
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-[11px] font-mono font-semibold text-red-700 bg-red-50 px-1.5 py-0.5 rounded">{d.licitacion_codigo}</span>
-                      {d.licitacion_tipo && <span className="text-[10px] text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">{d.licitacion_tipo}</span>}
-                    </div>
-                    <p className="text-[13.5px] font-semibold text-slate-800 mt-1 leading-snug">{d.licitacion_nombre || '(sin nombre)'}</p>
+                    <p className="flex items-center gap-2 flex-wrap text-xs text-tinta-2 dark:text-slate-400">
+                      <span className="font-mono">{d.licitacion_codigo}</span>
+                      {d.licitacion_tipo && <span>· {d.licitacion_tipo}</span>}
+                    </p>
+                    <p className="text-[15px] font-semibold text-tinta dark:text-slate-100 mt-0.5 leading-snug">{d.licitacion_nombre || '(sin nombre)'}</p>
                     {d.licitacion_organismo && (
-                      <p className="text-xs text-slate-500 mt-0.5 flex items-center gap-1"><Building2 size={11} /> {d.licitacion_organismo}</p>
+                      <p className="text-xs text-tinta-2 dark:text-slate-400 mt-0.5 flex items-center gap-1"><Building2 size={14} stroke={1.75} /> {d.licitacion_organismo}</p>
                     )}
                   </div>
                   <Link href={`/licitacion/${encodeURIComponent(d.licitacion_codigo)}`}
-                    className="flex-shrink-0 inline-flex items-center gap-1 text-[12px] font-semibold text-teal-600 hover:text-teal-800 bg-teal-50 hover:bg-teal-100 px-2.5 py-1.5 rounded-lg transition-colors">
-                    <ExternalLink size={13} /> Ver detalle
+                    className="flex-shrink-0 inline-flex h-8 items-center gap-1.5 rounded-lg border border-linea bg-white px-3 text-[13px] font-medium text-tinta shadow-tarjeta transition-colors hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marca/60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800">
+                    <ExternalLink size={16} stroke={1.75} /> Ver detalle
                   </Link>
                 </div>
 
-                <div className="mt-3 pt-3 border-t border-slate-100 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 text-xs">
-                  <div>
-                    <p className="text-slate-400">Monto</p>
-                    <p className="font-semibold text-slate-700">{fmtMonto(d.licitacion_monto)}</p>
-                  </div>
-                  <div>
-                    <p className="text-slate-400 flex items-center gap-1"><Calendar size={10} /> Cierre</p>
-                    <p className="font-semibold text-slate-700">{fmtFecha(d.licitacion_cierre)}</p>
-                  </div>
-                  <div>
-                    <p className="text-slate-400 flex items-center gap-1"><User size={10} /> Asignada a</p>
-                    <p className="font-semibold text-slate-700 truncate">{d.asignado_nombre || d.asignado_email || '—'}</p>
-                  </div>
-                  <div>
-                    <p className="text-slate-400">Descartó</p>
-                    <p className="font-semibold text-slate-700 truncate">{d.descarte_por_nombre || d.descarte_por_email || '—'} · {fmtFecha(d.descarte_at)}</p>
-                  </div>
-                </div>
+                <Datos columnas={4}>
+                  <Dato rotulo="Monto">{fmtMonto(d.licitacion_monto)}</Dato>
+                  <Dato rotulo="Cierre">{fmtFecha(d.licitacion_cierre)}</Dato>
+                  <Dato rotulo="Asignada a">{d.asignado_nombre || d.asignado_email || undefined}</Dato>
+                  <Dato rotulo="Descartó">{`${d.descarte_por_nombre || d.descarte_por_email || '—'} · ${fmtFecha(d.descarte_at)}`}</Dato>
+                </Datos>
 
-                <div className="mt-2.5 px-3 py-2 bg-red-50/70 border border-red-100 rounded-lg">
-                  <p className="text-[11px] font-semibold text-red-700 mb-0.5">Motivo del descarte</p>
-                  <p className="text-[12.5px] text-slate-700">{d.descarte_motivo || '(sin motivo registrado)'}</p>
+                <div className="mt-3 pt-3 border-t border-linea dark:border-slate-800">
+                  <p className="text-[11px] text-tinta-2 dark:text-slate-400">Motivo del descarte</p>
+                  <p className="mt-0.5 text-[13px] text-tinta dark:text-slate-100">{d.descarte_motivo || '(sin motivo registrado)'}</p>
                 </div>
 
                 {/* Recuperar: reactivar (a ASIGNADO) y opcionalmente reasignar a otro usuario. */}
-                <div className="mt-2.5 pt-2.5 border-t border-slate-100 flex flex-wrap items-center gap-2">
-                  <span className="text-[11px] text-slate-400 font-medium">Volver a trabajar:</span>
+                <div className="mt-3 pt-3 border-t border-linea dark:border-slate-800 flex flex-wrap items-center gap-2">
+                  <span className="text-[13px] text-tinta-2 dark:text-slate-400">Volver a trabajar con</span>
                   <Select
                     value={String(reasignarSel[d.id] ?? d.asignado_a)}
                     onChange={v => setReasignarSel(prev => ({ ...prev, [d.id]: Number(v) }))}
                     minWidth={190}
-                    buttonClassName="!px-2 !py-1.5 !text-xs"
                     options={usuarios.map(u => ({ value: String(u.id), label: u.nombre || u.email }))} />
-                  <button
-                    onClick={() => reactivar(d)}
-                    disabled={procesando === d.id}
-                    className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 disabled:opacity-60 px-3 py-1.5 rounded-lg transition-colors"
-                  >
-                    {procesando === d.id ? <Loader2 size={13} className="animate-spin" /> : <RotateCcw size={13} />}
-                    Reactivar
-                  </button>
+                  <Boton variante="primario" tamano="sm" onClick={() => reactivar(d)} disabled={procesando === d.id}
+                    icono={procesando === d.id ? <Loader2 size={16} className="animate-spin" /> : <RotateCcw size={16} stroke={1.75} />}>
+                    {procesando === d.id ? 'Reactivando…' : 'Reactivar'}
+                  </Boton>
                 </div>
               </div>
             ))}
@@ -455,44 +425,42 @@ export default function DescartadasPage() {
         {/* ── Descartadas desde el RADAR (nunca llegaron a Negocios) ── */}
         {!cargando && radarFiltrados.length > 0 && (
           <div className="pt-2">
-            <div className="flex items-center gap-2 mb-2.5">
-              <h2 className="text-[13px] font-semibold text-slate-800">Descartadas desde el Radar</h2>
-              <span className="text-[11px] font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full tabular-nums">
-                {radarFiltrados.length}{hayFiltro && radarFiltrados.length !== radarItems.length ? ` de ${radarItems.length}` : ''}
+            <div className="flex items-baseline gap-2 flex-wrap mb-3">
+              <h2 className="text-[15px] font-semibold text-tinta dark:text-slate-100">Descartadas desde el Radar</h2>
+              <span className="text-xs text-tinta-2 dark:text-slate-400 tabular-nums">
+                {radarFiltrados.length}{hayFiltro && radarFiltrados.length !== radarItems.length ? ` de ${radarItems.length}` : ''} · sacadas del radar antes de asignarse a un perfil; se pueden restaurar
               </span>
-              <span className="text-[11px] text-slate-400">— sacadas del radar antes de asignarse a un perfil; se pueden restaurar</span>
             </div>
             <div className="space-y-2">
               {radarFiltrados.map(r => (
-                <div key={r.licitacion_codigo} className="bg-white rounded-xl border border-slate-200 p-3.5 shadow-sm">
+                <div key={r.licitacion_codigo} className={`${SUPERFICIE} px-4 py-3.5`}>
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-[11px] font-mono font-semibold text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded">{r.licitacion_codigo}</span>
-                        {r.licitacion_tipo && <span className="text-[10px] text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">{r.licitacion_tipo}</span>}
-                      </div>
-                      <p className="text-[13px] font-semibold text-slate-800 mt-1 leading-snug">{r.licitacion_nombre || '(sin nombre en el radar)'}</p>
-                      <p className="text-[11.5px] text-slate-500 mt-0.5 flex items-center gap-x-3 gap-y-0.5 flex-wrap">
-                        {r.licitacion_organismo && <span className="inline-flex items-center gap-1"><Building2 size={10} /> {r.licitacion_organismo}</span>}
-                        <span>{fmtMonto(r.licitacion_monto)}</span>
-                        {r.licitacion_cierre && <span className="inline-flex items-center gap-1"><Calendar size={10} /> Cierre {fmtFecha(r.licitacion_cierre)}</span>}
+                      <p className="flex items-center gap-2 flex-wrap text-xs text-tinta-2 dark:text-slate-400">
+                        <span className="font-mono">{r.licitacion_codigo}</span>
+                        {r.licitacion_tipo && <span>· {r.licitacion_tipo}</span>}
                       </p>
-                      <p className="text-[11.5px] text-slate-500 mt-1">
-                        <span className="font-semibold text-slate-600">{r.descartada_por_nombre || r.descartada_por_email || '—'}</span>
+                      <p className="text-[15px] font-semibold text-tinta dark:text-slate-100 mt-0.5 leading-snug">{r.licitacion_nombre || '(sin nombre en el radar)'}</p>
+                      <p className="text-xs text-tinta-2 dark:text-slate-400 mt-0.5 flex items-center gap-x-3 gap-y-0.5 flex-wrap">
+                        {r.licitacion_organismo && <span className="inline-flex items-center gap-1"><Building2 size={14} stroke={1.75} /> {r.licitacion_organismo}</span>}
+                        <span className="tabular-nums">{fmtMonto(r.licitacion_monto)}</span>
+                        {r.licitacion_cierre && <span className="inline-flex items-center gap-1"><Calendar size={14} stroke={1.75} /> Cierre {fmtFecha(r.licitacion_cierre)}</span>}
+                      </p>
+                      <p className="text-xs text-tinta-2 dark:text-slate-400 mt-1">
+                        <span className="font-medium text-tinta dark:text-slate-200">{r.descartada_por_nombre || r.descartada_por_email || '—'}</span>
                         {' '}la descartó el {fmtFecha(r.created_at)}{r.motivo ? ` · Motivo: ${r.motivo}` : ' · (sin motivo)'}
                       </p>
                     </div>
                     <div className="flex-shrink-0 flex items-center gap-1.5">
                       <Link href={`/licitacion/${encodeURIComponent(r.licitacion_codigo)}`}
-                        className="inline-flex items-center gap-1 text-[12px] font-semibold text-teal-600 hover:text-teal-800 bg-teal-50 hover:bg-teal-100 px-2.5 py-1.5 rounded-lg transition-colors">
-                        <ExternalLink size={13} /> Ver
+                        className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-linea bg-white px-3 text-[13px] font-medium text-tinta shadow-tarjeta transition-colors hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marca/60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800">
+                        <ExternalLink size={16} stroke={1.75} /> Ver
                       </Link>
-                      <button onClick={() => restaurarRadar(r.licitacion_codigo)} disabled={restaurando === r.licitacion_codigo}
+                      <Boton variante="primario" tamano="sm" onClick={() => restaurarRadar(r.licitacion_codigo)} disabled={restaurando === r.licitacion_codigo}
                         title="Devolverla a la vista base del radar"
-                        className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 disabled:opacity-60 px-2.5 py-1.5 rounded-lg transition-colors">
-                        {restaurando === r.licitacion_codigo ? <Loader2 size={13} className="animate-spin" /> : <RotateCcw size={13} />}
-                        Restaurar
-                      </button>
+                        icono={restaurando === r.licitacion_codigo ? <Loader2 size={16} className="animate-spin" /> : <RotateCcw size={16} stroke={1.75} />}>
+                        {restaurando === r.licitacion_codigo ? 'Restaurando…' : 'Restaurar'}
+                      </Boton>
                     </div>
                   </div>
                 </div>

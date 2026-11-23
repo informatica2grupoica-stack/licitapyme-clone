@@ -50,32 +50,32 @@ export function ResumenObumaModal({ negocioId, onCerrar, onIrGestion, onIrSku }:
 
   return (
     <div className="fixed inset-0 z-[90] bg-black/50 flex items-start justify-center overflow-y-auto p-4" role="dialog" aria-modal="true" onClick={onCerrar} data-testid="resumen-obuma">
-      <div className="bg-white rounded-xl shadow-flotante w-full max-w-2xl my-10" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-5 py-3 border-b border-zinc-200">
+      <div className="bg-white dark:bg-slate-900 rounded-xl shadow-flotante w-full max-w-2xl my-10" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-3 border-b border-linea dark:border-slate-800">
           <div>
-            <p className="text-[15px] font-semibold text-zinc-900 flex items-center gap-1.5"><Zap size={16} className="text-teal-600" /> Lo creado en Obuma</p>
-            <p className="text-[12px] text-zinc-500">Resumen de lo que este negocio ya tiene en Obuma, creado desde Licitank.</p>
+            <p className="text-[15px] font-semibold text-tinta dark:text-slate-100 flex items-center gap-1.5"><Zap size={16} className="text-teal-600" /> Lo creado en Obuma</p>
+            <p className="text-[12px] text-tinta-2 dark:text-slate-400">Resumen de lo que este negocio ya tiene en Obuma, creado desde Licitank.</p>
           </div>
-          <button type="button" onClick={onCerrar} className="text-zinc-400 hover:text-zinc-700" aria-label="Cerrar"><X size={18} /></button>
+          <button type="button" onClick={onCerrar} className="text-tinta-2 hover:text-tinta" aria-label="Cerrar"><X size={18} /></button>
         </div>
 
         <div className="p-5 space-y-5">
           {error && <p className="text-[13px] text-rose-700">{error}</p>}
-          {!datos && !error && <div className="flex items-center justify-center py-8"><Loader2 className="w-5 h-5 animate-spin text-zinc-400" /></div>}
+          {!datos && !error && <div className="flex items-center justify-center py-8"><Loader2 className="w-5 h-5 animate-spin text-tinta-2" /></div>}
           {datos && (
             <>
               <section>
                 <div className="flex items-center justify-between mb-1.5">
-                  <p className="text-[13px] font-semibold text-zinc-800">SKU de los productos</p>
-                  <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${conSku === datos.skus.length && conSku > 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{conSku} de {datos.skus.length}</span>
+                  <p className="text-[13px] font-semibold text-tinta dark:text-slate-100">SKU de los productos</p>
+                  <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${conSku === datos.skus.length && conSku > 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{conSku} de {datos.skus.length}</span>
                 </div>
-                {datos.skus.length === 0 ? <p className="text-[12.5px] text-zinc-400">Todavía no hay productos.</p> : (
-                  <ul className="rounded-lg border border-zinc-200 divide-y divide-zinc-100">
+                {datos.skus.length === 0 ? <p className="text-[12.5px] text-tinta-2">Todavía no hay productos.</p> : (
+                  <ul className="rounded-lg border border-linea dark:border-slate-800 divide-y divide-linea dark:divide-slate-800">
                     {datos.skus.map(s => (
                       <li key={s.productoId} className="px-3 py-2 flex items-center gap-2.5 text-[12.5px]">
-                        {s.codigo ? <Check size={16} className="text-emerald-600 flex-shrink-0" /> : <Pendiente size={16} className="text-zinc-300 flex-shrink-0" />}
-                        <span className="flex-1 min-w-0 truncate text-zinc-800">{s.descripcion}</span>
-                        {s.codigo ? <b className="text-teal-700">{s.codigo}</b> : <span className="text-zinc-400">sin crear</span>}
+                        {s.codigo ? <Check size={16} className="text-emerald-600 flex-shrink-0" /> : <Pendiente size={16} className="text-tinta-2 flex-shrink-0" />}
+                        <span className="flex-1 min-w-0 truncate text-tinta dark:text-slate-100">{s.descripcion}</span>
+                        {s.codigo ? <b className="text-teal-700">{s.codigo}</b> : <span className="text-tinta-2">sin crear</span>}
                       </li>
                     ))}
                   </ul>
@@ -87,17 +87,17 @@ export function ResumenObumaModal({ negocioId, onCerrar, onIrGestion, onIrSku }:
 
               <section>
                 <div className="flex items-center justify-between mb-1.5">
-                  <p className="text-[13px] font-semibold text-zinc-800">Órdenes de compra a proveedores</p>
-                  <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${datos.pendientesOc.length === 0 && datos.ocs.length > 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{datos.ocs.length} emitida{datos.ocs.length === 1 ? '' : 's'}</span>
+                  <p className="text-[13px] font-semibold text-tinta dark:text-slate-100">Órdenes de compra a proveedores</p>
+                  <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${datos.pendientesOc.length === 0 && datos.ocs.length > 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{datos.ocs.length} emitida{datos.ocs.length === 1 ? '' : 's'}</span>
                 </div>
-                {datos.ocs.length === 0 ? <p className="text-[12.5px] text-zinc-400">Todavía no se emitió ninguna orden de compra.</p> : (
-                  <ul className="rounded-lg border border-zinc-200 divide-y divide-zinc-100">
+                {datos.ocs.length === 0 ? <p className="text-[12.5px] text-tinta-2">Todavía no se emitió ninguna orden de compra.</p> : (
+                  <ul className="rounded-lg border border-linea dark:border-slate-800 divide-y divide-linea dark:divide-slate-800">
                     {datos.ocs.map(o => (
                       <li key={`${o.proveedor}-${o.folio}`} className="px-3 py-2 flex items-center gap-2.5 text-[12.5px]">
                         <Check size={16} className="text-emerald-600 flex-shrink-0" />
-                        <span className="flex-1 min-w-0 truncate text-zinc-800">{o.proveedor}</span>
-                        <span className="text-zinc-500">{o.folio ? `OC ${o.folio}` : 'OC'}{o.fecha ? ` · ${o.fecha.slice(0, 10)}` : ''}</span>
-                        {o.total != null && <b className="text-zinc-800 tabular-nums">{fmtCLP(o.total)}</b>}
+                        <span className="flex-1 min-w-0 truncate text-tinta dark:text-slate-100">{o.proveedor}</span>
+                        <span className="text-tinta-2 dark:text-slate-400">{o.folio ? `OC ${o.folio}` : 'OC'}{o.fecha ? ` · ${o.fecha.slice(0, 10)}` : ''}</span>
+                        {o.total != null && <b className="text-tinta dark:text-slate-100 tabular-nums">{fmtCLP(o.total)}</b>}
                       </li>
                     ))}
                   </ul>
@@ -108,8 +108,8 @@ export function ResumenObumaModal({ negocioId, onCerrar, onIrGestion, onIrSku }:
           )}
         </div>
 
-        <div className="px-5 py-3 border-t border-zinc-200 flex items-center justify-between gap-3 flex-wrap">
-          <p className="text-[11.5px] text-zinc-400">Aquí solo se mira. Crear proveedores y órdenes de compra se hace en la gestión de Obuma.</p>
+        <div className="px-5 py-3 border-t border-linea dark:border-slate-800 flex items-center justify-between gap-3 flex-wrap">
+          <p className="text-xs text-tinta-2">Aquí solo se mira. Crear proveedores y órdenes de compra se hace en la gestión de Obuma.</p>
           <button type="button" onClick={() => { onCerrar(); onIrGestion(); }} className="text-[12.5px] font-semibold text-teal-700 border border-teal-200 hover:bg-teal-50 px-3 py-1.5 rounded-lg">Abrir la gestión de Obuma</button>
         </div>
       </div>

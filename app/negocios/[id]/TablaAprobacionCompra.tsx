@@ -9,6 +9,7 @@ import { irAFase, enfocarProducto } from '@/app/compras/[negocioId]/comprasNaveg
 import { IconLoader2 as Loader2, IconCircleCheck as Ok, IconAlertTriangle as Alerta, IconCircleX as No, IconHelpCircle as Duda } from '@tabler/icons-react';
 import type { TablaAprobacion, LineaAprobacion } from '@/app/lib/compras-aprobacion-tabla';
 import { FichaAprobacionModal } from './FichaAprobacionModal';
+import { Esqueleto } from '@/app/components/ui/kit/Estructura';
 
 const clp = (n: number | null | undefined) => n == null ? '—' : new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n);
 const corto = (d: string) => d.split(' - ')[0];
@@ -129,7 +130,7 @@ export function TablaAprobacionCompra({ negocioId, refresco, esJefeDeVentas, pue
   if (!tabla) return (
     <div className="bg-white rounded-xl border border-zinc-200 p-4 space-y-2.5" role="status" aria-live="polite" aria-label="Armando el detalle de lo que se aprueba">
       <p className="flex items-center gap-2 text-[12px] text-zinc-400"><Loader2 size={14} className="animate-spin" /> Armando el detalle de lo que se aprueba…</p>
-      {[0, 1, 2, 3, 4].map(i => <div key={i} className="h-9 rounded-lg bg-zinc-100 animate-pulse" />)}
+      {[0, 1, 2, 3, 4].map(i => <Esqueleto key={i} className="h-9 rounded-lg" />)}
     </div>
   );
 
@@ -237,7 +238,7 @@ export function TablaAprobacionCompra({ negocioId, refresco, esJefeDeVentas, pue
               {visibles.map(l => {
                 const e = ESTADO[l.estado], te = TECNICO[l.tecnico.estado];
                 return (
-                  <tr key={l.productoId} className={l.compraRapida?.estado === 'RECHAZADA' ? 'bg-rose-100 animate-pulse' : l.estado === 'NO_PASA' ? 'bg-rose-50/40' : ''} data-testid={`apr-linea-${l.productoId}`} data-producto-id={l.productoId}>
+                  <tr key={l.productoId} className={l.compraRapida?.estado === 'RECHAZADA' ? 'bg-rose-100' : l.estado === 'NO_PASA' ? 'bg-rose-50/40' : ''} data-testid={`apr-linea-${l.productoId}`} data-producto-id={l.productoId}>
                     <td className="px-3 py-2 text-zinc-400 align-top">{l.linea ?? ''}</td>
                     <td className="px-2 py-2 align-top max-w-[260px]">
                       <p className="font-semibold text-zinc-800 leading-snug">{corto(l.descripcion)}</p>

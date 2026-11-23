@@ -6,6 +6,7 @@
 // "Cerrar resultado" congela la utilidad real para que el ciclo no se pierda al entregar.
 import { useState, useEffect, useCallback } from 'react';
 import { useToast } from '@/app/components/ui/toast';
+import { useConfirm } from '@/app/components/ui/confirm';
 import { useCompras } from '@/app/compras/[negocioId]/ComprasContext';
 import { useRealtime } from '@/app/lib/use-realtime';
 import { fetchJsonReintento } from '@/app/lib/fetch-reintento';
@@ -131,6 +132,7 @@ function DetalleCostoReal({ negocioId, venta, costoTotal, utilidad, margen }: { 
  *  "Entrega y Cierre" — cerrar en plena compra congelaría un costo que todavía se está cargando. */
 export function CostoRealCard({ negocioId, puedeOperar, permitirCierre = true }: { negocioId: number; puedeOperar: boolean; permitirCierre?: boolean }) {
   const toast = useToast();
+  const confirmar = useConfirm();
   const { recargar: recargarCompartido } = useCompras();
   const [res, setRes] = useState<Resultado | null>(null);
   const [cierre, setCierre] = useState<Cierre | null>(null);
@@ -160,6 +162,12 @@ export function CostoRealCard({ negocioId, puedeOperar, permitirCierre = true }:
   }, [negocioId, cargar]);
 
   const cerrar = async () => {
+    const ok = await confirmar({
+      titulo: '¿Cerrar el resultado de este negocio?',
+      mensaje: 'Se fija el costo real y el margen del negocio. Revisa que los gastos estén completos.',
+      confirmarLabel: 'Sí, cerrar resultado', cancelarLabel: 'No',
+    });
+    if (!ok) return;
     setCerrando(true);
     try {
       const r = await fetch(`/api/compras/${negocioId}/costo-real`, {

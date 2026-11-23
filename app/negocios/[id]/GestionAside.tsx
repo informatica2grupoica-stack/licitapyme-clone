@@ -360,6 +360,16 @@ export function GestionAside({
       setPostularOpen(true);
       return;
     }
+    // Verificación final Sí/No antes de mover la etapa (el descarte ya pasó por su propio motivo + confirmación).
+    if (estadoId !== 'DESCARTADA') {
+      const destino = estadoId ? getEstadoPipeline(estadoId)?.label : null;
+      const okCambio = await confirmar({
+        titulo: destino ? `¿Cambiar la etapa a «${destino}»?` : '¿Quitar la etapa de esta licitación?',
+        mensaje: 'Queda registrado en el historial con tu nombre y la fecha.',
+        confirmarLabel: 'Sí, cambiar', cancelarLabel: 'No',
+      });
+      if (!okCambio) return;
+    }
     const estadoAnterior = { estado_pipeline: negocio.estado_pipeline, etapa_clave: negocio.etapa_clave ?? null };
     onNegocioChange({ estado_pipeline: estadoId ? base : null, etapa_clave: esClaveEtapa(estadoId) ? estadoId : null });
     try {
@@ -403,6 +413,12 @@ export function GestionAside({
   const confirmarPostular = async () => {
     const monto = parseInt(String(montoPostular).replace(/\D/g, ''), 10);
     if (!monto || monto <= 0) { toast.error('Ingresa el monto que ofertaste'); return; }
+    const okPostular = await confirmar({
+      titulo: '¿Marcar esta licitación como postulada?',
+      mensaje: `Se registra la oferta por ${fmt(monto)}. Queda en el historial con tu nombre y la fecha.`,
+      confirmarLabel: 'Sí, marcar postulada', cancelarLabel: 'No',
+    });
+    if (!okPostular) return;
     setPostularOpen(false);
     const empresaId = empresaPostular ? Number(empresaPostular) : null;
     const empresaNombre = empresas.find(e => e.id === empresaId)?.razon_social ?? null;
@@ -801,6 +817,12 @@ export function GestionAside({
                   onClick={async () => {
                     if (!motivoSel) { toast.error('Selecciona el motivo del descarte'); return; }
                     if (motivoSel.startsWith('Otro') && !motivoDescarte.trim()) { toast.error('Describe el motivo del descarte'); return; }
+                    const okDescarte = await confirmar({
+                      titulo: '¿Descartar esta licitación?',
+                      mensaje: `Motivo: ${motivoSel}. Sale del flujo de trabajo y queda en Descartadas; se puede restaurar desde ahí.`,
+                      confirmarLabel: 'Sí, descartar', cancelarLabel: 'No', peligro: true,
+                    });
+                    if (!okDescarte) return;
                     setDescarteOpen(false);
                     await cambiarEstado('DESCARTADA', componerMotivo(motivoSel, motivoDescarte));
                   }}

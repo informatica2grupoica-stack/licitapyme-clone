@@ -100,7 +100,7 @@ export default function CompraDashboardPage() {
 
   return (
     <AppLayout breadcrumb={[{ label: 'Compras', href: '/compras' }, { label: 'Dashboard' }]}>
-      <div className="p-4 sm:p-6 max-w-6xl mx-auto space-y-5">
+      <div className="@container p-4 sm:p-6 max-w-6xl mx-auto space-y-5">
         <div className="flex items-end justify-between gap-4 flex-wrap">
           <div className="min-w-0">
             <h1 className="text-[22px] leading-tight font-semibold tracking-tight text-zinc-900">Dashboard de Compras</h1>
@@ -123,7 +123,7 @@ export default function CompraDashboardPage() {
 
         {dashboard && (
           <>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 @xl:grid-cols-4 gap-3">
               <StatCard icon={<ShoppingCart size={20} />} label="Negocios en Compras" value={dashboard.negociosActivos} color="teal"
                 spec={{ mide: 'Cuántos negocios ganados están hoy en el módulo de Compras.', calculo: 'Cuenta todas las filas de compras_asignacion — un negocio entra acá apenas se gana la licitación.', fuente: 'compras_asignacion (COUNT *)' }} />
               <StatCard icon={<Zap size={20} />} label="Urgentes" value={dashboard.negociosUrgentes} color="rose"
@@ -134,7 +134,7 @@ export default function CompraDashboardPage() {
                 spec={{ mide: 'Incidencias del proyecto (§9) que todavía nadie cerró.', calculo: 'Cuenta filas con estado = ABIERTA.', fuente: 'compras_incidencia' }} />
             </div>
 
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 @xl:grid-cols-4 gap-3">
               <StatCard icon={<UserX size={20} />} label="Sin encargado" value={dashboard.sinAsignar} color="amber"
                 spec={{ mide: 'Negocios que todavía no tienen encargado de Compras.', calculo: 'compras_asignacion.asignado_a está vacío — al pasar las 3h hábiles del SLA se asignan solos por carga.', fuente: 'compras_asignacion.asignado_a IS NULL' }} />
               <StatCard icon={<PackageCheck size={20} />} label="Con orden de compra" value={dashboard.ordenesCompra.conOc} color="emerald"
@@ -153,7 +153,7 @@ export default function CompraDashboardPage() {
                   <p className="text-[12px] text-zinc-400 py-4 text-center">Todavía no hay negocios con el costo real completo para medir el resultado.</p>
                 ) : (
                   <>
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    <div className="grid grid-cols-2 @xl:grid-cols-4 gap-3">
                       <div><p className="text-[10.5px] font-semibold text-zinc-500">Margen estimado</p><p className="text-[20px] font-semibold text-zinc-900">{fmtPct(dashboard.resultados.margenEstimadoPct)}</p></div>
                       <div><p className="text-[10.5px] font-semibold text-zinc-500">Margen real</p>
                         <p className={`text-[20px] font-semibold ${(dashboard.resultados.margenRealPct ?? 0) < (dashboard.resultados.margenEstimadoPct ?? 0) ? 'text-rose-600' : 'text-emerald-600'}`}>{fmtPct(dashboard.resultados.margenRealPct)}</p></div>

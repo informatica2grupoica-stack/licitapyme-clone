@@ -1688,7 +1688,7 @@ function NegociosContent() {
                 <button onClick={() => setFiltroUsuarios([])} className="text-xs text-teal-700 hover:underline font-semibold">Ver todos</button>
               )}
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+            <div className="grid grid-cols-1 @xl:grid-cols-2 @3xl:grid-cols-3 @5xl:grid-cols-4 gap-3">
               {carga.map(c => {
                 const nombre = c.nombre || (c.usuario_id === usuario?.id ? usuario?.nombre : null) || null;
                 const email  = c.email  || (c.usuario_id === usuario?.id ? usuario?.email  : null) || null;

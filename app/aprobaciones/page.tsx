@@ -99,6 +99,12 @@ export default function AprobacionesPage() {
   useRealtime(cargar);
 
   const aprobarBloque = async (negocioId: number, bloque: 'TECNICO' | 'COMERCIAL') => {
+    const ok = await confirmar({
+      titulo: bloque === 'TECNICO' ? '¿Aprobar el bloque técnico?' : '¿Aprobar el bloque comercial?',
+      mensaje: 'Queda visado con tu nombre y la fecha.',
+      confirmarLabel: 'Sí, aprobar', cancelarLabel: 'No',
+    });
+    if (!ok) return;
     try {
       const res = await fetch('/api/aprobaciones', {
         method: 'PATCH',
@@ -115,6 +121,12 @@ export default function AprobacionesPage() {
   };
 
   const rechazarBloque = async (negocioId: number, bloque: 'TECNICO' | 'COMERCIAL', comentario: string) => {
+    const ok = await confirmar({
+      titulo: bloque === 'TECNICO' ? '¿Rechazar el bloque técnico?' : '¿Rechazar el bloque comercial?',
+      mensaje: 'Vuelve a la bandeja del asistente con tu comentario.',
+      confirmarLabel: 'Sí, rechazar', cancelarLabel: 'No', peligro: true,
+    });
+    if (!ok) return;
     try {
       const res = await fetch('/api/aprobaciones', {
         method: 'PATCH',
@@ -135,6 +147,12 @@ export default function AprobacionesPage() {
   // que el refresco de la lista se retrasa medio segundo para que el verde se alcance a ver.
   const aprobarTodo = async (negocioId: number) => {
     const antesDeAprobar = negocios.find(n => n.negocioId === negocioId) || null;
+    const ok = await confirmar({
+      titulo: '¿Aprobar todo el negocio?',
+      mensaje: 'Se visan juntos el bloque técnico y el comercial, con tu nombre y la fecha.',
+      confirmarLabel: 'Sí, aprobar todo', cancelarLabel: 'No',
+    });
+    if (!ok) return;
     try {
       const res = await fetch('/api/aprobaciones', {
         method: 'PATCH',

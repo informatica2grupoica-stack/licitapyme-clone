@@ -5,6 +5,7 @@
 import { registrarEvento } from '@/app/lib/historial';
 import pool from '@/app/lib/db';
 import { publicarCambio } from '@/app/lib/sse-bus';
+import { debePasarAEnProceso } from '@/app/lib/compras-estado';
 
 type Cuerpo = Record<string, any> | null;
 
@@ -67,6 +68,7 @@ export function describirAccionCompras(metodo: string, ruta: string, cuerpo: Cue
     case 'importacion': return 'Actualizó los datos de importación';
     case 'modalidad-retiro': return 'Cambió la modalidad de retiro';
     case 'postventa': return 'Actualizó la postventa';
+    case 'estado-compra': return c.estado === 'CANCELADA' ? 'Canceló la licitación' : `Cambió el estado de la licitación a «${String(c.estado || '').replace(/_/g, ' ').toLowerCase()}»`;
     case 'cierre-legado': return m === 'DELETE' ? 'Quitó el cierre de un proyecto legado' : 'Marcó un proyecto como cierre legado';
     case 'resumen': return 'Volvió a armar el resumen ejecutivo';
     case 'agente-documentos': return 'Revisó los documentos con el agente';
@@ -100,6 +102,31 @@ async function anotar(request: Request, metodo: string, negocioIdEnRuta: number 
   });
 }
 
+// Rutas que NO se bloquean aunque la licitación siga «Abierta»: asignar encargado, cambiar el estado y lo que corre solo.
+const SIN_CANDADO = new Set(['asignar', 'estado-compra', 'cierre-legado', 'actividad', 'sincronizar-obuma']);
+
+/** Candado (23-nov-2026): mientras la licitación esté «Abierta», nada se modifica hasta que el encargado la pase a «En proceso». */
+async function candadoEnProceso(request: Request, ctx: any): Promise<Response | null> {
+  try {
+    const p = await Promise.resolve(ctx?.params).catch(() => null);
+    let negocioId = p?.negocioId != null ? parseInt(p.negocioId) : null;
+    if (negocioId == null && p?.tareaId != null) {
+      const [rows] = await pool.query(`SELECT negocio_id FROM compras_tarea WHERE id = ? LIMIT 1`, [parseInt(p.tareaId)]) as any;
+      negocioId = (rows as any[])[0]?.negocio_id ?? null;
+    }
+    if (negocioId == null || !Number.isFinite(negocioId)) return null;
+    const raiz = new URL(request.url).pathname.replace(/^\/api\/compras\/\d+\/?/, '').split('/')[0];
+    if (SIN_CANDADO.has(raiz)) return null;
+    if (!(await debePasarAEnProceso(negocioId))) return null;
+    return Response.json({
+      error: 'Antes de trabajar en esta licitación, pásala a «En proceso» (botón arriba en la ficha).', codigo: 'DEBE_PASAR_EN_PROCESO',
+    }, { status: 409 });
+  } catch (e) {
+    console.error('[compras-bitacora] candado en proceso:', String(e).slice(0, 200));
+    return null;   // ante un fallo del candado no se frena el trabajo
+  }
+}
+
 /** Envuelve un handler de escritura (POST/PATCH/PUT/DELETE). Conserva exactamente la firma y la respuesta del original. */
 export function conBitacoraCompras<F extends (...args: any[]) => Promise<Response | undefined>>(handler: F, metodo: 'POST' | 'PATCH' | 'PUT' | 'DELETE'): F {
   const envuelto = async (request: Request, ctx: any) => {
@@ -107,6 +134,8 @@ export function conBitacoraCompras<F extends (...args: any[]) => Promise<Respons
     if (metodo !== 'DELETE' && (request.headers.get('content-type') || '').includes('application/json')) {
       try { cuerpo = await request.clone().json(); } catch { cuerpo = null; }
     }
+    const bloqueo = await candadoEnProceso(request, ctx);
+    if (bloqueo) return bloqueo;
     const respuesta = await handler(request, ctx);
     if (respuesta && respuesta.status < 400) {
       publicarCambio('compras');   // las bandejas abiertas (Aprobaciones, campana) se refrescan solas al pedir o decidir algo

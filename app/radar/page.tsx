@@ -1284,6 +1284,14 @@ export default function RadarPage() {
   // ── Descartar / restaurar (una o varias) ─────────────────────────────────────────
   const descartarCodigos = useCallback(async (codigos: string[], descartar: boolean) => {
     if (codigos.length === 0) return;
+    if (descartar) {
+      const ok = await confirmar({
+        titulo: codigos.length === 1 ? '¿Descartar esta alerta del radar?' : `¿Descartar ${codigos.length} alertas del radar?`,
+        mensaje: 'Salen de la lista principal. Puedes restaurarlas desde el corte «Descartadas».',
+        confirmarLabel: 'Sí, descartar', cancelarLabel: 'No', peligro: true,
+      });
+      if (!ok) return;
+    }
     setAccionMasiva(true);
     try {
       const res = await fetch('/api/radar/descartar', {
@@ -1298,7 +1306,7 @@ export default function RadarPage() {
       toast.success(descartar ? `${codigos.length} descartada(s)` : `${codigos.length} restaurada(s)`);
     } catch { toast.error('Error de conexión'); }
     finally { setAccionMasiva(false); }
-  }, [toast, limpiarSel]);
+  }, [toast, limpiarSel, confirmar]);
 
   const onDescartarUna = useCallback((alerta: Alerta, descartar: boolean) => {
     descartarCodigos([alerta.licitacion_codigo], descartar);

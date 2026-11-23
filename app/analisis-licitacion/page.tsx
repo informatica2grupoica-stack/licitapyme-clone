@@ -398,7 +398,7 @@ export default function AnalisisLicitacionPage() {
   const haySeleccion = estadosSel.length > 0 || tiposSel.length > 0 || organismosSel.length > 0;
 
   if (!cargandoSesion && usuario && !esAdmin) {
-    return <AppLayout breadcrumb={[{ label: 'Análisis de licitación' }]}><div className="p-10 text-center text-sm text-slate-500">Redirigiendo…</div></AppLayout>;
+    return <AppLayout breadcrumb={[{ label: 'Análisis de licitación' }]}><div className="@container p-10 text-center text-sm text-slate-500">Redirigiendo…</div></AppLayout>;
   }
 
   const perfilNombre = perfilesSel.length === 0
@@ -438,9 +438,9 @@ export default function AnalisisLicitacionPage() {
           <>
             {/* Barra de filtros PEGAJOSA: todos multi-select y combinables + búsqueda libre.
                 Queda fija al hacer scroll para poder re-filtrar sin volver arriba. */}
-            <div className="sticky top-0 z-30 bg-white/95 backdrop-blur rounded-xl border border-slate-200 shadow-sm p-3">
+            <div className="sticky top-0 z-30 bg-white/95 rounded-xl border border-slate-200 shadow-sm p-3">
               <div className="flex flex-wrap items-center gap-2">
-                <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-slate-500 mr-1">
+                <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500 mr-1">
                   <Filter size={13} className="text-slate-400" /> Filtros
                 </span>
                 <div className="relative w-full sm:w-64 order-last sm:order-none">
@@ -487,7 +487,7 @@ export default function AnalisisLicitacionPage() {
                 return (
                   <button key={id} onClick={() => toggleEstado(id)}
                     style={{ background: col + '18', color: col, borderColor: col + '40' }}
-                    className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full border hover:opacity-75">
+                    className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full border hover:opacity-75">
                     {labelDe(id)} <X size={11} />
                   </button>
                 );
@@ -497,30 +497,30 @@ export default function AnalisisLicitacionPage() {
                 return (
                   <button key={t} onClick={() => toggleTipo(t)}
                     style={{ background: col + '18', color: col, borderColor: col + '40' }}
-                    className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full border hover:opacity-75">
+                    className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full border hover:opacity-75">
                     Tipo {t} <X size={11} />
                   </button>
                 );
               })}
               {organismosSel.map(o => (
                 <button key={o} onClick={() => setOrganismosSel(a => a.filter(x => x !== o))}
-                  className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-600 hover:opacity-75 max-w-[220px]">
+                  className="inline-flex items-center gap-1 text-xs font-medium text-slate-600 hover:opacity-75 max-w-[220px]">
                   <span className="truncate">{o}</span> <X size={11} className="flex-shrink-0" />
                 </button>
               ))}
               {busqueda && (
                 <button onClick={() => setBusqueda('')}
-                  className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-700 hover:opacity-75">
+                  className="inline-flex items-center gap-1 text-xs font-medium text-amber-700 hover:opacity-75">
                   <Search size={10} /> “{busqueda}” <X size={11} />
                 </button>
               )}
               {haySeleccion
-                ? <button onClick={limpiarSeleccion} className="text-[11px] font-semibold text-slate-400 hover:text-slate-700 underline">quitar filtros</button>
-                : <span className="text-[11px] text-slate-400">— toca un segmento de las tortas o una barra de tipo para medir solo ese tramo</span>}
+                ? <button onClick={limpiarSeleccion} className="text-xs font-semibold text-slate-400 hover:text-slate-700 underline">quitar filtros</button>
+                : <span className="text-xs text-slate-400">— toca un segmento de las tortas o una barra de tipo para medir solo ese tramo</span>}
             </div>
 
             {/* KPIs */}
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 stagger-grid">
+            <div className="grid grid-cols-2 @2xl:grid-cols-3 @4xl:grid-cols-6 gap-3 stagger-grid">
               <KPI icon={<Briefcase size={16} />} label="Vigentes" value={String(stats.vigentes)} tint="#0d9488" sub="en trabajo" />
               <KPI icon={<Send size={16} />} label="Postuladas" value={String(stats.postuladas)} tint="#b45309" sub="ofertas presentadas" />
               <KPI icon={<Trophy size={16} />} label="Ganadas" value={String(stats.ganadas)} tint="#16a34a" sub="ganadas según acta" />
@@ -532,7 +532,7 @@ export default function AnalisisLicitacionPage() {
 
             {/* Montos — TRES bolsas separadas y no comparables entre sí salvo ofertado→adjudicado,
                 que ahora sí es una tasa de conversión legítima (misma población: lo que se ofertó). */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 @xl:grid-cols-3 gap-3">
               <div className="bg-white rounded-xl border border-linea shadow-tarjeta p-4 flex items-center gap-3 dark:bg-slate-900 dark:border-slate-800">
                 <div className="w-9 h-9 rounded-lg bg-slate-100 text-slate-500 dark:bg-slate-800 flex items-center justify-center flex-shrink-0"><Briefcase size={20} /></div>
                 <div>
@@ -563,7 +563,7 @@ export default function AnalisisLicitacionPage() {
             </div>
 
             {/* Gráficos */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 @4xl:grid-cols-2 gap-4">
               {/* Dona por estado — TODAS (dato completo). Selectiva: toca un segmento y todo
                   el tablero se remide sobre ese estado. */}
               <ChartCard title="Distribución por estado · todas" icon={<Layers size={13} />}
@@ -689,7 +689,7 @@ export default function AnalisisLicitacionPage() {
               </ChartCard>
 
               {/* Top organismos */}
-              <ChartCard title="Top organismos" icon={<Building2 size={13} />} className="lg:col-span-2"
+              <ChartCard title="Top organismos" icon={<Building2 size={13} />} className="@4xl:col-span-2"
                 sub={`Los 6 con más licitaciones dentro de las ${stats.total} medidas`}>
                 {stats.topOrg.length === 0 ? <SinDatos /> : (
                   <>
@@ -716,8 +716,8 @@ export default function AnalisisLicitacionPage() {
             <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
               <div className="flex items-center gap-2 px-4 py-2.5 border-b border-slate-100 flex-wrap">
                 <Briefcase size={13} className="text-slate-400" />
-                <span className="text-[11px] font-semibold text-slate-500">Lista de licitaciones</span>
-                <span className="text-[11px] text-slate-400">({lista.length})</span>
+                <span className="text-xs font-semibold text-slate-500">Lista de licitaciones</span>
+                <span className="text-xs text-slate-400">({lista.length})</span>
                 <div className="inline-flex items-center gap-1.5 ml-2">
                   <span className="inline-flex items-center gap-1 text-xs font-semibold text-slate-400">
                     <ArrowUpDown size={11} /> Orden
@@ -757,7 +757,7 @@ export default function AnalisisLicitacionPage() {
                       <span className="text-xs font-mono font-semibold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded flex-shrink-0 w-[130px] truncate">{n.licitacion_codigo}</span>
                       <div className="min-w-0 flex-1">
                         <p className="text-[13px] font-semibold text-slate-800 truncate group-hover:text-teal-700 transition-colors">{n.licitacion_nombre || '(sin nombre)'}</p>
-                        {n.licitacion_organismo && <p className="text-[11px] text-slate-400 truncate flex items-center gap-1"><Building2 size={9} /> {n.licitacion_organismo}</p>}
+                        {n.licitacion_organismo && <p className="text-xs text-slate-400 truncate flex items-center gap-1"><Building2 size={9} /> {n.licitacion_organismo}</p>}
                       </div>
                       {/* El avatar sobra solo si estás mirando UN perfil: ahí ya se sabe de quién es. */}
                       {perfilesSel.length !== 1 && (
@@ -768,7 +768,7 @@ export default function AnalisisLicitacionPage() {
                       <span className="text-xs font-semibold px-2 py-0.5 rounded-full border flex-shrink-0 whitespace-nowrap"
                         style={{ background: col + '18', color: col, borderColor: col + '40' }}>{cfg?.label || n.estado_pipeline}</span>
                       <span className="text-[12px] font-semibold text-slate-700 tabular-nums w-16 text-right flex-shrink-0">{fmtMontoCorto(n.monto_ofertado || n.licitacion_monto || 0)}</span>
-                      <span className="inline-flex items-center gap-1 text-[11px] font-medium tabular-nums w-20 justify-end flex-shrink-0" style={{ color: cierreTint }}>
+                      <span className="inline-flex items-center gap-1 text-xs font-medium tabular-nums w-20 justify-end flex-shrink-0" style={{ color: cierreTint }}>
                         <Calendar size={10} /> {fmtFecha(n.licitacion_cierre)}
                       </span>
                       <ChevronRight size={14} className="text-slate-300 group-hover:text-teal-500 flex-shrink-0" />

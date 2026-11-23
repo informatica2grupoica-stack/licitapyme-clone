@@ -9,7 +9,11 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AppLayout } from '@/app/components/AppLayout';
 import { useSession } from '@/app/lib/session-context';
 import { useToast } from '@/app/components/ui/toast';
-import { IconBrain as Brain, IconLoader2 as Loader2, IconPlayerPause as Pausa, IconPlayerPlay as Play, IconCheck as Check } from '@tabler/icons-react';
+import { Banner } from '@/app/components/ui/Banner';
+import { Boton } from '@/app/components/ui/kit/Boton';
+import { Encabezado, Esqueleto, Vacio } from '@/app/components/ui/kit/Estructura';
+import { Estado } from '@/app/components/ui/kit/Tarjeta';
+import { IconPlayerPause as Pausa, IconPlayerPlay as Play, IconCheck as Check, IconBrain as Brain } from '@tabler/icons-react';
 
 interface Regla {
   id: number; ambito: string; activa: boolean; sin_destilar: boolean; created_at: string;
@@ -54,63 +58,71 @@ export default function ReglasIAPage() {
   ), [reglas, tipo, estado]);
   const nSin = (reglas || []).filter(r => r.sin_destilar && r.activa).length;
 
-  const chip = (act: boolean) => `px-3 py-1.5 rounded-full text-[12px] font-semibold border transition ${act ? 'bg-teal-600 text-white border-teal-600' : 'bg-white text-slate-600 border-slate-200 hover:border-teal-300'}`;
+  const chip = (act: boolean) => `h-8 rounded-lg border px-3 text-[13px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marca/60 ${act ? 'border-marca bg-marca-suave text-marca' : 'border-linea bg-white text-tinta-2 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800'}`;
 
   return (
     <AppLayout breadcrumb={[{ label: 'Reglas de la IA' }]}>
-      <div className="max-w-5xl mx-auto px-4 py-6">
-        <div className="flex items-center gap-2 mb-1"><Brain size={22} className="text-teal-600" /><h1 className="text-xl font-semibold text-slate-800">Reglas que aprende la IA de viabilidad</h1></div>
-        <p className="text-sm text-slate-500 mb-5">Solo CA ve y crea estas reglas. Una regla enseña qué <b>leer, reportar o advertir</b>; nunca mueve el nivel de atractivo ni cómo se adjudica (eso lo decide el sistema). Desactivar una regla la deja en el historial.</p>
+      <div className="@container max-w-5xl mx-auto p-4 sm:p-6 lg:p-8">
+        <Encabezado
+          titulo="Reglas que aprende la IA de viabilidad"
+          descripcion="Solo CA ve y crea estas reglas. Una regla enseña qué leer, reportar o advertir; nunca mueve el nivel de atractivo ni cómo se adjudica (eso lo decide el sistema). Desactivar una regla la deja en el historial."
+        />
 
-        {cargando ? <Loader2 className="animate-spin text-slate-400" /> : !esCA ? (
-          <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">Esta pantalla es solo para CA. Si debería tener acceso, pídele al administrador el permiso «Reglas de la IA (CA)» en Usuarios.</div>
-        ) : reglas === null ? <Loader2 className="animate-spin text-slate-400" /> : (
+        {cargando || (esCA && reglas === null) ? (
+          <div className="space-y-3">{[1, 2, 3].map(i => <Esqueleto key={i} className="h-24 rounded-xl" />)}</div>
+        ) : !esCA ? (
+          <Banner variante="warning">Esta pantalla es solo para CA. Si debería tener acceso, pídele al administrador el permiso «Reglas de la IA (CA)» en Usuarios.</Banner>
+        ) : (
           <>
             {nSin > 0 && (
-              <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 mb-4 text-sm text-amber-800">
-                {nSin} {nSin === 1 ? 'regla quedó' : 'reglas quedaron'} sin convertir (la IA no pudo expresarla como regla general). No se usan hasta que escribas la regla y la apruebes.
+              <div className="mb-4">
+                <Banner variante="warning">
+                  {nSin} {nSin === 1 ? 'regla quedó' : 'reglas quedaron'} sin convertir (la IA no pudo expresarla como regla general). No se usan hasta que escribas la regla y la apruebes.
+                </Banner>
               </div>
             )}
-            <div className="flex flex-wrap gap-2 mb-4">
-              {(['todas', 'global', 'lectura'] as FiltroTipo[]).map(t => <button key={t} className={chip(tipo === t)} onClick={() => setTipo(t)}>{t === 'todas' ? 'Todos los tipos' : t === 'global' ? 'Viabilidad' : 'Lectura'}</button>)}
-              <span className="w-px bg-slate-200 mx-1" />
-              {(['activas', 'inactivas', 'sin_destilar', 'todas'] as FiltroEstado[]).map(e => <button key={e} className={chip(estado === e)} onClick={() => setEstado(e)}>{e === 'activas' ? 'Activas' : e === 'inactivas' ? 'Inactivas' : e === 'sin_destilar' ? 'Sin convertir' : 'Todas'}</button>)}
+            <div className="flex flex-wrap items-center gap-2 mb-4">
+              {(['todas', 'global', 'lectura'] as FiltroTipo[]).map(t => <button key={t} aria-pressed={tipo === t} className={chip(tipo === t)} onClick={() => setTipo(t)}>{t === 'todas' ? 'Todos los tipos' : t === 'global' ? 'Viabilidad' : 'Lectura'}</button>)}
+              <span className="w-px h-5 bg-slate-200 dark:bg-slate-700 mx-1" aria-hidden="true" />
+              {(['activas', 'inactivas', 'sin_destilar', 'todas'] as FiltroEstado[]).map(e => <button key={e} aria-pressed={estado === e} className={chip(estado === e)} onClick={() => setEstado(e)}>{e === 'activas' ? 'Activas' : e === 'inactivas' ? 'Inactivas' : e === 'sin_destilar' ? 'Sin convertir' : 'Todas'}</button>)}
             </div>
 
-            {visibles.length === 0 ? <p className="text-sm text-slate-500">No hay reglas con ese filtro.</p> : (
+            {visibles.length === 0 ? (
+              <Vacio icono={<Brain size={28} stroke={1.75} />} titulo="No hay reglas con ese filtro" texto="Cambia el tipo o el estado para ver otras reglas." />
+            ) : (
               <ul className="space-y-3">
                 {visibles.map(r => (
-                  <li key={r.id} className={`rounded-xl border p-4 ${r.activa ? 'bg-white border-slate-200' : 'bg-slate-50 border-slate-200 opacity-80'}`}>
-                    <div className="flex flex-wrap items-center gap-2 text-[11px] mb-2">
-                      <span className={`px-2 py-0.5 rounded-full font-semibold ${r.ambito === 'lectura' ? 'bg-cyan-100 text-cyan-700' : 'bg-teal-100 text-teal-700'}`}>{r.ambito === 'lectura' ? 'Lectura' : 'Viabilidad'}</span>
-                      <span className={`px-2 py-0.5 rounded-full font-semibold ${r.activa ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-600'}`}>{r.activa ? 'Activa' : 'Inactiva'}</span>
-                      {r.sin_destilar && <span className=" font-medium text-amber-700">Sin convertir</span>}
-                      <span className="text-slate-500">{fecha(r.created_at)} · {r.licitacion_codigo}{r.autor ? ` · ${r.autor}` : ''}</span>
-                      <span className="ml-auto text-slate-500">Usada en {r.veces_usada} {r.veces_usada === 1 ? 'análisis' : 'análisis'}</span>
+                  <li key={r.id} className={`rounded-xl border border-linea p-4 shadow-tarjeta dark:border-slate-800 ${r.activa ? 'bg-white dark:bg-slate-900' : 'bg-slate-50 opacity-80 dark:bg-slate-900/50'}`}>
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs mb-2">
+                      <span className="font-medium text-tinta dark:text-slate-200"><Estado color={r.ambito === 'lectura' ? '#0891b2' : '#0d9488'}>{r.ambito === 'lectura' ? 'Lectura' : 'Viabilidad'}</Estado></span>
+                      <span className="font-medium text-tinta dark:text-slate-200"><Estado color={r.activa ? '#16a34a' : '#94a3b8'}>{r.activa ? 'Activa' : 'Inactiva'}</Estado></span>
+                      {r.sin_destilar && <span className="font-medium text-alerta">Sin convertir</span>}
+                      <span className="text-tinta-2 dark:text-slate-400">{fecha(r.created_at)} · {r.licitacion_codigo}{r.autor ? ` · ${r.autor}` : ''}</span>
+                      <span className="ml-auto text-tinta-2 dark:text-slate-400 tabular-nums">Usada en {r.veces_usada} {r.veces_usada === 1 ? 'análisis' : 'análisis'}</span>
                     </div>
 
                     {r.sin_destilar ? (
                       <div className="space-y-2">
-                        <p className="text-[13px] text-slate-600"><b>Comentario original:</b> {r.comentario}</p>
-                        <textarea className="w-full rounded-lg border border-slate-300 p-2 text-[13px]" rows={2} maxLength={400}
+                        <p className="text-[13px] text-tinta-2 dark:text-slate-300"><b className="font-semibold text-tinta dark:text-slate-100">Comentario original:</b> {r.comentario}</p>
+                        <textarea className="w-full rounded-lg border border-linea bg-white p-2.5 text-[13px] text-tinta outline-none focus-visible:ring-2 focus-visible:ring-marca/60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" rows={2} maxLength={400}
+                          aria-label="Regla general"
                           placeholder="Escribe la regla general (condicional: «Si las bases … entonces …»), máx. 240 caracteres"
                           value={borrador[r.id] ?? ''} onChange={e => setBorrador(b => ({ ...b, [r.id]: e.target.value }))} />
-                        <button disabled={trabajando === r.id || (borrador[r.id] || '').trim().length < 8} onClick={() => patch(r.id, { regla: borrador[r.id] }, 'Regla aprobada')}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-teal-600 text-white text-[12px] font-semibold disabled:opacity-40"><Check size={14} /> Aprobar regla</button>
+                        <Boton variante="primario" tamano="sm" disabled={trabajando === r.id || (borrador[r.id] || '').trim().length < 8} onClick={() => patch(r.id, { regla: borrador[r.id] }, 'Regla aprobada')} icono={<Check size={16} stroke={1.75} />}>Aprobar regla</Boton>
                       </div>
                     ) : (
                       <>
-                        <p className="text-[14px] text-slate-800 font-medium">{r.regla}</p>
-                        <p className="text-[12px] text-slate-500 mt-1"><b>Comentario original:</b> {r.comentario}</p>
-                        {r.veredicto_ia && <p className="text-[12px] text-slate-400 mt-0.5">Nivel que vio CA: {r.veredicto_ia}</p>}
+                        <p className="text-[15px] text-tinta dark:text-slate-50 font-medium">{r.regla}</p>
+                        <p className="text-[13px] text-tinta-2 dark:text-slate-400 mt-1"><b className="font-semibold">Comentario original:</b> {r.comentario}</p>
+                        {r.veredicto_ia && <p className="text-xs text-tinta-2 dark:text-slate-400 mt-0.5">Nivel que vio CA: {r.veredicto_ia}</p>}
                       </>
                     )}
 
-                    <div className="flex items-center gap-3 mt-3">
+                    <div className="flex items-center gap-3 mt-3 pt-3 border-t border-linea dark:border-slate-800">
                       {r.activa
-                        ? <button disabled={trabajando === r.id} onClick={() => patch(r.id, { activa: false }, 'Regla desactivada')} className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-rose-600 hover:text-rose-700 disabled:opacity-40"><Pausa size={14} /> Desactivar</button>
-                        : <button disabled={trabajando === r.id} onClick={() => patch(r.id, { activa: true }, 'Regla activada')} className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-emerald-600 hover:text-emerald-700 disabled:opacity-40"><Play size={14} /> Volver a activar</button>}
-                      {!r.activa && r.desactivada_en && <span className="text-[11px] text-slate-500">Desactivada {fecha(r.desactivada_en)}{r.desactivada_por ? ` por ${r.desactivada_por}` : ''}</span>}
+                        ? <Boton variante="peligro" tamano="sm" disabled={trabajando === r.id} onClick={() => patch(r.id, { activa: false }, 'Regla desactivada')} icono={<Pausa size={16} stroke={1.75} />}>Desactivar</Boton>
+                        : <Boton tamano="sm" disabled={trabajando === r.id} onClick={() => patch(r.id, { activa: true }, 'Regla activada')} icono={<Play size={16} stroke={1.75} />}>Volver a activar</Boton>}
+                      {!r.activa && r.desactivada_en && <span className="text-xs text-tinta-2 dark:text-slate-400">Desactivada {fecha(r.desactivada_en)}{r.desactivada_por ? ` por ${r.desactivada_por}` : ''}</span>}
                     </div>
                   </li>
                 ))}

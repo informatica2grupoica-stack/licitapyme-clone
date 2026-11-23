@@ -154,10 +154,10 @@ export default function AnaliticaComprasPage() {
           descripcion="Qué se ganó, cómo van las entregas y quién lleva cada negocio. Se actualiza sola cuando llega o se acepta una OC."
           acciones={
             <>
-              <Link href="/compras" className="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-medium rounded-lg border border-linea bg-white text-tinta shadow-tarjeta hover:bg-slate-50 transition-colors">
+              <Link href="/compras" className="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-medium rounded-lg border border-linea bg-white text-tinta shadow-tarjeta hover:bg-slate-50 dark:bg-slate-900 dark:text-slate-100 dark:border-slate-700 dark:hover:bg-slate-800 transition-colors">
                 <ArrowLeft size={15} /> Volver a Compras
               </Link>
-              <Link href="/compras/dashboard" className="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-medium rounded-lg border border-linea bg-white text-tinta shadow-tarjeta hover:bg-slate-50 transition-colors">
+              <Link href="/compras/dashboard" className="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-medium rounded-lg border border-linea bg-white text-tinta shadow-tarjeta hover:bg-slate-50 dark:bg-slate-900 dark:text-slate-100 dark:border-slate-700 dark:hover:bg-slate-800 transition-colors">
                 <BarChart3 size={15} /> Dashboard
               </Link>
             </>

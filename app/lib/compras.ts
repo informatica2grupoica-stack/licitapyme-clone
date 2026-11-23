@@ -35,6 +35,7 @@ import { emparejarProductos, type ProductoExistente } from '@/app/lib/compras-pr
 import { costeoGanadoDelNegocio } from '@/app/lib/compras-costeo-ganadas';
 import { decidirNoAdjudicadas, esSubestadoFuera, type DecisionNoAdjudicadas } from '@/app/lib/compras-no-adjudicadas';
 import { listarPagosOc, ocsConFacturas, ocPagada, ocSoloFacturasAnuladas } from '@/app/lib/compras-pagos-oc';
+import { estadoCompraEfectivo, type EstadoCompra } from '@/app/lib/compras-estado-core';
 import { borrarCarga, guardarCarga, hayTablaCombustible } from '@/app/lib/compras-combustible';
 import { validarCarga, type CargaCombustible } from '@/app/lib/compras-combustible-core';
 import { esEstadoCancelada, procesarOcCancelada, reabrirSiOcVigente, registrarCancelacionManual, quitarCancelacionManual } from '@/app/lib/compras-oc-cancelada';
@@ -792,7 +793,7 @@ export type CierreLegado = 'ENTREGADA' | 'NO_REALIZADA' | 'PRECOMPRA_SIN_ADJUDIC
  * mezclar "se verificó de verdad" con "se declara cerrado por ser historial viejo".
  */
 export async function marcarCierreLegado(
-  negocioId: number, estado: CierreLegado, nota: string | null, userId: number, userNombre: string | null,
+  negocioId: number, estado: CierreLegado, nota: string | null, userId: number, userNombre: string | null, fundamento: string | null = null,
 ): Promise<void> {
   const ahora = ahoraChileSQL();
   const [r] = await pool.query(
@@ -806,7 +807,8 @@ export async function marcarCierreLegado(
   const [rows] = await pool.query(`SELECT licitacion_codigo FROM compras_asignacion WHERE negocio_id = ? LIMIT 1`, [negocioId]) as any;
   const licitacionCodigo = (rows as any[])[0]?.licitacion_codigo || null;
   // Cancelada a mano (12-nov-2026): a los de Compras les salta el modal para escribir el motivo.
-  if (estado === 'NO_REALIZADA') { await registrarCancelacionManual(negocioId); publicarCambio('compras'); }
+  // Con motivo escrito al cancelar (23-nov-2026) ya viene fundamentada y no se vuelve a pedir.
+  if (estado === 'NO_REALIZADA') { await registrarCancelacionManual(negocioId, fundamento ? { texto: fundamento, usuarioId: userId, usuarioNombre: userNombre } : undefined); publicarCambio('compras'); }
 
   await registrarEvento({
     tipo: 'COMPRAS_CIERRE_LEGADO',
@@ -824,6 +826,10 @@ export async function quitarCierreLegado(negocioId: number): Promise<void> {
       WHERE negocio_id = ?`,
     [negocioId],
   );
+  // Al deshacer el cierre, el estado vuelve un paso atrás: Pagada → Entregada; Cancelada → En proceso.
+  try {
+    await pool.query(`UPDATE compras_asignacion SET estado_compra = CASE WHEN estado_compra = 'PAGADA' THEN 'ENTREGADA' ELSE 'EN_PROCESO' END WHERE negocio_id = ? AND estado_compra IN ('PAGADA', 'CANCELADA')`, [negocioId]);
+  } catch (e: any) { if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e; }
   await quitarCancelacionManual(negocioId);
 }
 
@@ -996,6 +1002,8 @@ export interface AsignacionCompras {
   resumen: ResumenEjecutivoCompras | null;
   ordenCompra: OrdenCompraCliente;
   cierreLegado: CierreLegado | null; cierreLegadoNota: string | null; cierreLegadoAt: string | null; cierreLegadoPorNombre: string | null;
+  /** Estado de la compra (migration-203): Abierta / En proceso / Entregada / Pagada / Cancelada. */
+  estadoCompra: EstadoCompra;
   /** Pre-compra (migration-145): abierto en POSIBLE ADJ, sin adjudicación firme. Bloquea OC a proveedores y SKU en Obuma. */
   precompra: boolean;
 }
@@ -1041,7 +1049,7 @@ export async function obtenerAsignacion(negocioId: number): Promise<AsignacionCo
   // Las tres lecturas van en paralelo: corre en cada GET de Compras y en serie sumaba tres viajes a la base (22-oct-2026).
   const [[rows], coencargados, precompra] = await Promise.all([pool.query(
     `SELECT ca.negocio_id, ca.licitacion_codigo, ca.urgente, ca.asignado_a, ca.asignado_por, ca.resumen_json,
-            ca.cierre_legado, ca.cierre_legado_nota, ca.cierre_legado_por_nombre,
+            ca.cierre_legado, ca.cierre_legado_nota, ca.cierre_legado_por_nombre, ca.estado_compra,
             DATE_FORMAT(ca.cierre_legado_at, '%Y-%m-%d %H:%i:%s') AS cierre_legado_at,
             DATE_FORMAT(ca.ganado_at, '%Y-%m-%d %H:%i:%s') AS ganado_at,
             DATE_FORMAT(ca.vencimiento_asignacion_at, '%Y-%m-%d %H:%i:%s') AS vencimiento_asignacion_at,
@@ -1133,6 +1141,7 @@ export async function obtenerAsignacion(negocioId: number): Promise<AsignacionCo
     cierreLegadoNota: r.cierre_legado_nota ?? null,
     cierreLegadoAt: r.cierre_legado_at ?? null,
     cierreLegadoPorNombre: r.cierre_legado_por_nombre ?? null,
+    estadoCompra: estadoCompraEfectivo(r.cierre_legado, r.estado_compra),
     ordenCompra: {
       numero: r.oc_numero ?? null,
       emitidaAt: r.oc_emitida_at ?? null,
@@ -1167,6 +1176,7 @@ export interface ComprasFila {
   // Marca rápida de backlog histórico (migration-107) — ver marcarCierreLegado(). null = negocio
   // activo normal.
   cierreLegado: CierreLegado | null;
+  estadoCompra: EstadoCompra;
   // Pre-compra (migration-145): abierto en POSIBLE ADJ, sin adjudicación firme.
   precompra: boolean;
   // Solo pre-compras: fecha ESTIMADA de adjudicación que informa Mercado Público (ficha). null si no la trae.
@@ -1216,7 +1226,7 @@ export async function listarAsignacionesCompras(): Promise<ComprasFila[]> {
   const precompraP = pool.query(`SELECT negocio_id FROM compras_asignacion WHERE precompra = 1`).then(([r]) => r as any[]);
   precompraP.catch(() => {});   // se relanza en su await; esto solo evita que quede suelto si la principal falla antes
   const [rows] = await pool.query(
-    `SELECT ca.negocio_id, ca.licitacion_codigo, ca.urgente, ca.asignado_a, ca.resumen_json, ca.cierre_legado,
+    `SELECT ca.negocio_id, ca.licitacion_codigo, ca.urgente, ca.asignado_a, ca.resumen_json, ca.cierre_legado, ca.estado_compra,
             DATE_FORMAT(ca.ganado_at, '%Y-%m-%d %H:%i:%s') AS ganado_at,
             DATE_FORMAT(ca.vencimiento_asignacion_at, '%Y-%m-%d %H:%i:%s') AS vencimiento_asignacion_at,
             DATE_FORMAT(ca.asignado_at, '%Y-%m-%d %H:%i:%s') AS asignado_at,
@@ -1335,6 +1345,7 @@ export async function listarAsignacionesCompras(): Promise<ComprasFila[]> {
       tareasTotal: Number(r.tareas_total), tareasHechas: Number(r.tareas_hechas), tareasVencidas: Number(r.tareas_vencidas),
       ocFecha: r.oc_fecha,
       cierreLegado: (r.cierre_legado as CierreLegado | null) ?? null,
+      estadoCompra: estadoCompraEfectivo(r.cierre_legado, r.estado_compra),
       precompra: precompraPorNegocio.has(Number(r.negocio_id)),
       adjudicacionEstimadaAt: precompraPorNegocio.has(Number(r.negocio_id)) ? (adjEstimadaPorCodigo.get(r.licitacion_codigo) ?? null) : null,
       plazoEntregaDias,

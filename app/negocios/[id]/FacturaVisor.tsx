@@ -10,7 +10,7 @@ import type { FacturaLeida } from '@/app/lib/factura-xml';
 const fmt = (n: number | null) => n == null ? '—' : new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n);
 const fecha = (f: string | null) => f ? f.slice(0, 10).split('-').reverse().join('-') : '—';
 
-export function FacturaVisor({ negocioId, dteId, onCerrar }: { negocioId: number; dteId: string; onCerrar: () => void }) {
+export function FacturaVisor({ negocioId, dteId, urlDatos, onCerrar }: { negocioId: number; dteId?: string; urlDatos?: string; onCerrar: () => void }) {
   const [f, setF] = useState<FacturaLeida | null>(null);
   const [xmlUrl, setXmlUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -18,12 +18,12 @@ export function FacturaVisor({ negocioId, dteId, onCerrar }: { negocioId: number
   useCerrarConEsc(onCerrar);
   useEffect(() => {
     let vivo = true;
-    fetch(`/api/compras/${negocioId}/factura?dte=${encodeURIComponent(dteId)}`)
+    fetch(urlDatos ?? `/api/compras/${negocioId}/factura?dte=${encodeURIComponent(dteId ?? '')}`)
       .then(async r => ({ ok: r.ok, j: await r.json().catch(() => ({})) }))
       .then(({ ok, j }) => { if (!vivo) return; if (ok && j.factura) { setF(j.factura); setXmlUrl(j.xmlUrl); } else setError(j.error || 'No se pudo abrir la factura.'); })
       .catch(() => vivo && setError('No se pudo abrir la factura.'));
     return () => { vivo = false; };
-  }, [negocioId, dteId]);
+  }, [negocioId, dteId, urlDatos]);
 
   return (
     <div className="fixed inset-0 z-[80] bg-black/50 flex items-start justify-center overflow-y-auto p-4 print:bg-white print:p-0" role="dialog" aria-modal="true" onClick={onCerrar} data-testid="factura-visor">

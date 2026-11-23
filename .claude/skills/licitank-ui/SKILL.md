@@ -97,7 +97,7 @@ en teal y no se usa: no crear usos nuevos de él.
 - **Cada gráfico dice QUÉ mide**: título, una línea de descripción visible, total al centro, leyenda con cantidad y %,
   y la ficha «cómo se calcula» (`MetricInfo`). Si no se entiende a qué se refiere, no se pone.
 - **Cifras exactas, nunca inventadas ni escritas a mano.** Antes de dar un dashboard por listo: cruzar cada número con
-  la BD (SQL de solo lectura, `scripts/scratch/_dashboard_*.mjs`; `dev` = BD Docker :3308, sin argumento = VPS) y con
+  la BD (SQL de solo lectura, `scripts/scratch/_dashboard_*.mjs`; siempre la BD del VPS por el túnel 3307; el Docker :3308 ya no se usa) y con
   la otra pantalla que muestra lo mismo (p. ej. Postuladas y Dashboard deben dar igual efectividad y monto ganado).
   Los títulos no pueden prometer más que la consulta («en trabajo» ≠ todos los activos). Las listas recortadas (top 6)
   muestran el total real («6 de 13»). Series por día incluyen los días en 0. Montos grandes «$3.011 MM», nunca «B».
@@ -170,7 +170,7 @@ Aplicar estilos «a ciegas» ya dejó pantallas sin ver (Auditor, Viabilidad, Co
 
 1. **Herramienta:** el plugin **Playwright** (MCP de Microsoft) si está activado; si no, el navegador del panel
    (`mcp__Claude_Browser__*`) o Chrome. Nunca decir «listo» solo con `tsc` + `eslint`.
-2. **Servidor local:** `preview_start` con `dev` (puerto 3000, BD Docker :3308 / túnel según `docs/memoria/`).
+2. **Servidor local:** `preview_start` con `dev` (puerto 3000, BD del VPS por el túnel SSH 3307 (el Docker ya no se usa, ver `docs/memoria/infra.md`; solo mirar, no guardar)).
 3. **Sesión:** las pantallas piden login y la contraseña la escribe SOLO el dueño. Que entre una vez en el
    navegador que usa Playwright (o guarde `storageState`); después se reutiliza la sesión. Si sale la pantalla de
    login, parar y avisar, no inventar que se vio.

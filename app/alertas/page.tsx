@@ -10,6 +10,10 @@ import { AppLayout } from '@/app/components/AppLayout';
 import { useSession } from '@/app/lib/session-context';
 import { MultiSelect } from '@/app/components/ui/MultiSelect';
 import { colorUsuario, inicialesUsuario } from '@/app/lib/user-color';
+import { Encabezado, Esqueleto, Vacio } from '@/app/components/ui/kit/Estructura';
+import { Boton } from '@/app/components/ui/kit/Boton';
+import { Banner } from '@/app/components/ui/Banner';
+import { Tooltip } from '@/app/components/ui/Tooltip';
 import { IconBell as Bell, IconMessage as MessageSquare, IconTag as Tag, IconUserPlus as UserPlus, IconRadar as RadarIcon, IconGitBranch as GitBranch, IconEye as Eye, IconLogin as LogIn, IconStar as Star, IconActivity as Activity, IconFilter as Filter, IconLoader2 as Loader2, IconAlertCircle as AlertCircle, IconRefresh as RefreshCw, IconUsers as Users, IconX as X, IconSearch as Search, IconCalendar as Calendar } from '@tabler/icons-react';
 
 interface Actividad {
@@ -148,12 +152,8 @@ function HistorialContent() {
   if (usuario && !isAdmin) {
     return (
       <AppLayout breadcrumb={[{ label: 'Dashboard', href: '/dashboard' }, { label: 'Historial' }]}>
-        <div className="flex flex-col items-center justify-center py-24 text-center">
-          <div className="w-16 h-16 bg-slate-100 rounded-2xl flex items-center justify-center mb-4">
-            <Bell size={26} className="text-slate-400" />
-          </div>
-          <h3 className="text-[15px] font-semibold text-slate-800 mb-1.5">Acceso restringido</h3>
-          <p className="text-[13px] text-slate-400 max-w-xs">El historial de actividad es solo para administradores.</p>
+        <div className="p-4 sm:p-6 lg:p-8">
+          <Vacio icono={<Bell size={28} stroke={1.75} />} titulo="Acceso restringido" texto="El historial de actividad es solo para administradores." />
         </div>
       </AppLayout>
     );
@@ -161,45 +161,40 @@ function HistorialContent() {
 
   return (
     <AppLayout breadcrumb={[{ label: 'Dashboard', href: '/dashboard' }, { label: 'Historial' }]}>
-      <div className="p-4 sm:p-6 lg:p-8 max-w-5xl mx-auto">
-        {/* Header */}
-        <div className="flex items-center justify-between gap-3 mb-5">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-teal-600 flex items-center justify-center shadow-lg shadow-teal-600/25">
-              <Activity size={18} className="text-white" />
-            </div>
-            <div>
-              <h1 className="text-xl font-semibold text-slate-900">Historial de actividad</h1>
-              <p className="text-[12px] text-slate-500">Todo lo que hacen los usuarios en la plataforma</p>
-            </div>
-          </div>
-          <button onClick={cargar} className="p-2 hover:bg-slate-100 rounded-lg text-slate-500">
-            <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
-          </button>
-        </div>
+      <div className="@container p-4 sm:p-6 lg:p-8 max-w-5xl mx-auto">
+        <Encabezado
+          titulo="Historial de actividad"
+          descripcion="Todo lo que hacen los usuarios en la plataforma."
+          acciones={
+            <Tooltip label="Actualizar">
+              <Boton onClick={cargar} aria-label="Actualizar" className="!px-0 w-9">
+                <RefreshCw size={16} stroke={1.75} className={loading ? 'animate-spin text-slate-400' : 'text-slate-400'} />
+              </Boton>
+            </Tooltip>
+          }
+        />
 
         {migracion && (
-          <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 text-amber-800 px-4 py-3 rounded-xl text-[13px] mb-4">
-            <AlertCircle size={16} className="flex-shrink-0 mt-0.5" />
-            <span>Falta crear la tabla del historial. Ejecuta <strong>migration-18-actividad.sql</strong> en phpMyAdmin para empezar a registrar la actividad.</span>
+          <div className="mb-4">
+            <Banner variante="warning">Falta crear la tabla del historial. Ejecuta <strong>migration-18-actividad.sql</strong> en phpMyAdmin para empezar a registrar la actividad.</Banner>
           </div>
         )}
 
         {/* Alertas recientes */}
         {recientes.length > 0 && (
           <div className="mb-5">
-            <h2 className="text-[12px] font-semibold text-slate-400 mb-2 flex items-center gap-1.5">
-              <Bell size={13} /> Alertas recientes
+            <h2 className="text-[15px] font-semibold text-tinta dark:text-slate-100 mb-3 flex items-center gap-2">
+              <Bell size={18} stroke={1.75} className="text-slate-400" /> Alertas recientes
             </h2>
-            <div className="grid gap-2 sm:grid-cols-2">
+            <div className="grid gap-2 @xl:grid-cols-2">
               {recientes.map(a => {
                 const m = metaFor(a.accion);
                 return (
-                  <div key={a.id} className="flex items-center gap-3 bg-white rounded-xl border border-slate-200 px-3.5 py-2.5">
+                  <div key={a.id} className="flex items-center gap-3 bg-white dark:bg-slate-900 rounded-xl border border-linea dark:border-slate-800 shadow-tarjeta px-4 py-3">
                     <span style={{ color: m.color, backgroundColor: m.bg }} className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0">{m.icon}</span>
                     <div className="min-w-0 flex-1">
-                      <p className="text-[12.5px] text-slate-800 font-medium line-clamp-1">{a.descripcion || m.label}</p>
-                      <p className="text-[11px] text-slate-400">{a.usuario_nombre || a.usuario_email || 'Sistema'} · <span title={new Date(a.created_at).toLocaleString('es-CL', { dateStyle: 'full', timeStyle: 'short' })}>{tiempoRelativo(a.created_at)}</span></p>
+                      <p className="text-[13px] text-tinta dark:text-slate-100 font-medium line-clamp-1">{a.descripcion || m.label}</p>
+                      <p className="text-xs text-slate-400">{a.usuario_nombre || a.usuario_email || 'Sistema'} · <span title={new Date(a.created_at).toLocaleString('es-CL', { dateStyle: 'full', timeStyle: 'short' })}>{tiempoRelativo(a.created_at)}</span></p>
                     </div>
                   </div>
                 );
@@ -210,18 +205,17 @@ function HistorialContent() {
 
         {/* Filtros (selección múltiple) */}
         <div className="flex flex-wrap items-center gap-2 mb-4">
-          <span className="text-[12px] text-slate-400 font-medium flex items-center gap-1"><Filter size={13} /> Filtrar:</span>
+          <span className="text-[13px] font-medium text-tinta-2 dark:text-slate-400 flex items-center gap-1.5 mr-1"><Filter size={16} stroke={1.75} className="text-slate-400" /> Filtros</span>
           <div className="relative">
-            <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+            <Search size={16} stroke={1.75} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
             <input
               type="text" value={busqueda} onChange={e => setBusqueda(e.target.value)}
               placeholder="Buscar por nombre o código de licitación…"
               title="Busca en el texto de cada evento (incluye el nombre de la licitación) y en su código (ej: 1499887-11-LE26)"
-              className="pl-8 pr-7 py-2 w-[230px] border border-slate-200 rounded-lg text-[12px] bg-white focus:ring-2 focus:ring-teal-500/20 focus:border-teal-400 outline-none transition-all"
+              aria-label="Buscar en el historial" className="h-9 pl-9 pr-8 w-[260px] border border-linea dark:border-slate-700 rounded-lg text-[13px] text-tinta dark:text-slate-100 placeholder:text-tinta-3 bg-white dark:bg-slate-900 focus-visible:ring-2 focus-visible:ring-marca/60 outline-none"
             />
             {busqueda && (
-              <button onClick={() => setBusqueda('')} title="Limpiar búsqueda"
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"><X size={12} /></button>
+              <button onClick={() => setBusqueda('')} title="Limpiar búsqueda" aria-label="Limpiar búsqueda" className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-tinta"><X size={16} stroke={1.75} /></button>
             )}
           </div>
           <MultiSelect
@@ -242,50 +236,42 @@ function HistorialContent() {
             selected={filtroAccion}
             onChange={setFiltroAccion}
           />
-          <div className="inline-flex items-center gap-1.5 border border-slate-200 rounded-lg px-2 py-[5px] bg-white"
+          <div className="inline-flex h-9 items-center gap-1.5 border border-linea dark:border-slate-700 rounded-lg px-2.5 bg-white dark:bg-slate-900"
             title="Rango de fechas del evento (cuándo se realizó la acción)">
-            <Calendar size={12} className="text-slate-400 flex-shrink-0" />
+            <Calendar size={16} stroke={1.75} className="text-slate-400 flex-shrink-0" />
             <input type="date" value={fechaDesde} max={fechaHasta || undefined}
               onChange={e => setFechaDesde(e.target.value)}
-              className="text-[12px] text-slate-600 outline-none bg-transparent w-[112px]" />
-            <span className="text-slate-300 text-[11px]">→</span>
+              className="text-[13px] text-tinta dark:text-slate-100 outline-none bg-transparent w-[118px]" />
+            <span className="text-tinta-3 text-xs">→</span>
             <input type="date" value={fechaHasta} min={fechaDesde || undefined}
               onChange={e => setFechaHasta(e.target.value)}
-              className="text-[12px] text-slate-600 outline-none bg-transparent w-[112px]" />
+              className="text-[13px] text-tinta dark:text-slate-100 outline-none bg-transparent w-[118px]" />
             {(fechaDesde || fechaHasta) && (
               <button onClick={() => { setFechaDesde(''); setFechaHasta(''); }}
-                title="Limpiar fechas" className="text-slate-400 hover:text-red-500"><X size={12} /></button>
+                title="Limpiar fechas" aria-label="Limpiar fechas" className="text-slate-400 hover:text-urgente"><X size={16} stroke={1.75} /></button>
             )}
           </div>
           {hayFiltro && (
-            <button onClick={() => { setFiltroUsuario([]); setFiltroAccion([]); setBusqueda(''); setFechaDesde(''); setFechaHasta(''); }}
-              className="inline-flex items-center gap-1 text-[12px] font-semibold text-red-600 bg-red-50 border border-red-200 hover:bg-red-100 px-2.5 py-2 rounded-lg transition-colors">
-              <X size={12} /> Limpiar
-            </button>
+            <Boton variante="fantasma" onClick={() => { setFiltroUsuario([]); setFiltroAccion([]); setBusqueda(''); setFechaDesde(''); setFechaHasta(''); }} icono={<X size={16} stroke={1.75} />}>Limpiar</Boton>
           )}
-          <span className="ml-auto text-[12px] text-slate-400 tabular-nums">
+          <span className="ml-auto text-xs text-tinta-2 dark:text-slate-400 tabular-nums">
             {filtrada.length}{hayFiltro ? ` de ${actividad.length}` : ''} evento{filtrada.length !== 1 ? 's' : ''}
           </span>
         </div>
 
         {/* Timeline */}
-        {error && (
-          <div className="flex items-center gap-2 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm mb-4">
-            <AlertCircle size={16} /> {error}
-          </div>
-        )}
+        {error && <div className="mb-4"><Banner variante="error">{error}</Banner></div>}
 
         {loading ? (
-          <div className="space-y-2">{[1,2,3,4,5].map(i => <div key={i} className="h-14 bg-slate-100 rounded-xl animate-pulse" />)}</div>
+          <div className="space-y-2">{[1, 2, 3, 4, 5].map(i => <Esqueleto key={i} className="h-14 rounded-xl" />)}</div>
         ) : filtrada.length === 0 ? (
-          <div className="text-center py-16 bg-white rounded-xl border border-slate-200">
-            <Activity size={32} className="text-slate-300 mx-auto mb-3" />
-            <p className="text-[14px] font-semibold text-slate-700 mb-1">{hayFiltro ? 'Sin resultados para el filtro' : 'Sin actividad registrada'}</p>
-            <p className="text-[12px] text-slate-400">{hayFiltro ? 'Prueba con otro usuario o acción.' : 'Cuando los usuarios comenten, cambien líneas de negocio o se asignen licitaciones, aparecerá aquí.'}</p>
-          </div>
+          <Vacio icono={<Activity size={28} stroke={1.75} />}
+            titulo={hayFiltro ? 'Sin resultados para el filtro' : 'Sin actividad registrada'}
+            texto={hayFiltro ? 'Prueba con otro usuario o acción.' : 'Cuando los usuarios comenten, cambien líneas de negocio o se asignen licitaciones, aparecerá aquí.'}
+            accion={hayFiltro ? <Boton tamano="sm" onClick={() => { setFiltroUsuario([]); setFiltroAccion([]); setBusqueda(''); setFechaDesde(''); setFechaHasta(''); }}>Quitar filtros</Boton> : undefined} />
         ) : (
           <>
-          <div className="bg-white rounded-xl border border-slate-200 divide-y divide-slate-50">
+          <div className="bg-white dark:bg-slate-900 rounded-xl border border-linea dark:border-slate-800 shadow-tarjeta divide-y divide-linea dark:divide-slate-800 overflow-hidden">
             {filtradaPagina.map(a => {
               const m = metaFor(a.accion);
               const col = colorUsuario(a.usuario_email || a.usuario_id);
@@ -295,19 +281,19 @@ function HistorialContent() {
                 ? `/negocios/${a.entidad_id}`
                 : null;
               const inner = (
-                <div className="flex items-start gap-3 px-4 py-3 hover:bg-slate-50/60 transition-colors border-l-[3px]" style={{ borderLeftColor: col }}>
+                <div className="flex items-start gap-3 px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
                   <span style={{ color: m.color, backgroundColor: m.bg }} className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5">{m.icon}</span>
                   <div className="min-w-0 flex-1">
-                    <p className="text-[13px] text-slate-800">{a.descripcion || m.label}</p>
-                    <p className="text-[11px] text-slate-400 mt-0.5 flex items-center gap-1.5 flex-wrap">
+                    <p className="text-[13px] text-tinta dark:text-slate-100">{a.descripcion || m.label}</p>
+                    <p className="text-xs text-tinta-2 dark:text-slate-400 mt-0.5 flex items-center gap-1.5 flex-wrap">
                       <span className="inline-flex items-center gap-1">
                         <span className="w-4 h-4 rounded-full text-white text-[8px] font-semibold flex items-center justify-center" style={{ background: col }}>
                           {inicialesUsuario(a.usuario_nombre, a.usuario_email)}
                         </span>
-                        <span className="font-semibold" style={{ color: col }}>{a.usuario_nombre || a.usuario_email || 'Sistema'}</span>
+                        <span className="font-medium text-tinta dark:text-slate-200">{a.usuario_nombre || a.usuario_email || 'Sistema'}</span>
                       </span>
                       · <span title={new Date(a.created_at).toLocaleString('es-CL', { dateStyle: 'full', timeStyle: 'short' })}>{tiempoRelativo(a.created_at)}</span>
-                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold" style={{ color: m.color, background: m.bg }}>{m.label}</span>
+                      <span className="inline-flex items-center gap-1.5 text-xs font-medium text-tinta dark:text-slate-200"><span aria-hidden style={{ backgroundColor: m.color }} className="h-1.5 w-1.5 rounded-full" />{m.label}</span>
                     </p>
                   </div>
                 </div>
@@ -321,21 +307,15 @@ function HistorialContent() {
           {/* Paginación (50 por página) */}
           {totalPaginas > 1 && (
             <div className="flex items-center justify-between gap-3 mt-4 flex-wrap">
-              <p className="text-[12px] text-slate-500">
-                Mostrando <strong className="text-slate-700">{(paginaSegura - 1) * POR_PAGINA + 1}</strong>–
-                <strong className="text-slate-700">{Math.min(paginaSegura * POR_PAGINA, filtrada.length)}</strong>
-                {' '}de <strong className="text-slate-700">{filtrada.length}</strong> eventos
+              <p className="text-xs text-tinta-2 dark:text-slate-400 tabular-nums">
+                Mostrando <strong className="font-semibold text-tinta dark:text-slate-100">{(paginaSegura - 1) * POR_PAGINA + 1}</strong>–
+                <strong className="font-semibold text-tinta dark:text-slate-100">{Math.min(paginaSegura * POR_PAGINA, filtrada.length)}</strong>
+                {' '}de <strong className="font-semibold text-tinta dark:text-slate-100">{filtrada.length}</strong> eventos
               </p>
               <div className="flex items-center gap-1.5">
-                <button onClick={() => setPagina(p => Math.max(1, p - 1))} disabled={paginaSegura <= 1}
-                  className="px-3 py-1.5 text-[12px] font-semibold rounded-lg border border-slate-200 text-slate-600 hover:border-teal-300 hover:text-teal-700 disabled:opacity-40 disabled:cursor-not-allowed transition-all">
-                  Anterior
-                </button>
-                <span className="px-3 py-1.5 text-[12px] font-semibold text-slate-700 tabular-nums">{paginaSegura} / {totalPaginas}</span>
-                <button onClick={() => setPagina(p => Math.min(totalPaginas, p + 1))} disabled={paginaSegura >= totalPaginas}
-                  className="px-3 py-1.5 text-[12px] font-semibold rounded-lg border border-slate-200 text-slate-600 hover:border-teal-300 hover:text-teal-700 disabled:opacity-40 disabled:cursor-not-allowed transition-all">
-                  Siguiente
-                </button>
+                <Boton tamano="sm" onClick={() => setPagina(p => Math.max(1, p - 1))} disabled={paginaSegura <= 1}>Anterior</Boton>
+                <span className="px-2 text-xs font-medium text-tinta dark:text-slate-200 tabular-nums">{paginaSegura} / {totalPaginas}</span>
+                <Boton tamano="sm" onClick={() => setPagina(p => Math.min(totalPaginas, p + 1))} disabled={paginaSegura >= totalPaginas}>Siguiente</Boton>
               </div>
             </div>
           )}
