@@ -4,7 +4,12 @@ import { useEffect, useRef, useState } from 'react';
 import { AppLayout } from '@/app/components/AppLayout';
 import { useSession } from '@/app/lib/session-context';
 import { useToast } from '@/app/components/ui/toast';
-import { IconUser as User, IconMail as Mail, IconBriefcase as Briefcase, IconLock as Lock, IconEye as Eye, IconEyeOff as EyeOff, IconLoader2 as Loader2, IconCircleCheck as CheckCircle, IconAlertCircle as AlertCircle, IconDeviceFloppy as Save, IconShield as Shield, IconBuilding as Building2, IconPhone as Phone, IconId as IdCard, IconBadge as Badge, IconCamera as Camera, IconTrash as Trash } from '@tabler/icons-react';
+import { IconEye as Eye, IconEyeOff as EyeOff, IconLoader2 as Loader2, IconDeviceFloppy as Save, IconCamera as Camera, IconTrash as Trash } from '@tabler/icons-react';
+import { Encabezado } from '@/app/components/ui/kit/Estructura';
+import { Boton } from '@/app/components/ui/kit/Boton';
+import { Estado } from '@/app/components/ui/kit/Tarjeta';
+import { Tooltip } from '@/app/components/ui/Tooltip';
+import { Banner } from '@/app/components/ui/Banner';
 import { formatearRut, formatearTelefono, normalizarRut, normalizarTelefono } from '@/app/lib/perfil-datos';
 
 function AvatarPerfil({ nombre, email, size = 'lg', fotoUrl }: { nombre?: string; email?: string; size?: 'lg' | 'sm'; fotoUrl?: string | null }) {
@@ -33,7 +38,18 @@ async function reducirFoto(archivo: File): Promise<string> {
   return canvas.toDataURL('image/jpeg', 0.85);
 }
 
-const INPUT = 'w-full pl-10 pr-4 py-2.5 border border-slate-200 rounded-xl text-[13px] focus:ring-2 focus:ring-teal-500 focus:border-transparent outline-none bg-slate-50';
+const INPUT = 'h-9 w-full rounded-lg border border-linea bg-white px-3 text-sm text-tinta placeholder:text-tinta-3 outline-none focus-visible:ring-2 focus-visible:ring-marca/60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100';
+
+function Campo({ rotulo, opcional, children }: { rotulo: string; opcional?: boolean; children: React.ReactNode }) {
+  return (
+    <label className="block">
+      <span className="mb-1 block text-[13px] font-medium text-tinta dark:text-slate-200">
+        {rotulo}{opcional && <span className="font-normal text-tinta-2 dark:text-slate-400"> (opcional)</span>}
+      </span>
+      {children}
+    </label>
+  );
+}
 
 export default function PerfilPage() {
   const { usuario, recargarSesion } = useSession();
@@ -151,177 +167,128 @@ export default function PerfilPage() {
 
   if (!usuario) return null;
 
+  const SUPERFICIE = 'rounded-xl border border-linea bg-white shadow-tarjeta dark:bg-slate-900 dark:border-slate-800';
+  const tituloSeccion = 'mb-3 text-[15px] font-semibold text-tinta dark:text-slate-100';
+
   return (
     <AppLayout breadcrumb={[{ label: 'Dashboard', href: '/dashboard' }, { label: 'Mi perfil' }]}>
-      <div className="p-4 sm:p-6 lg:p-8 max-w-2xl mx-auto">
-
-        {/* Header de página */}
-        <div className="flex items-center gap-3 mb-6">
-          <div className="w-10 h-10 rounded-xl bg-teal-50 flex items-center justify-center text-teal-600">
-            <User size={20} />
-          </div>
-          <div>
-            <h1 className="text-[15px] font-semibold text-slate-900">Mi perfil</h1>
-            <p className="text-xs text-slate-500">Tus datos de contacto, tu foto y tu contraseña</p>
-          </div>
-        </div>
+      <div className="@container mx-auto max-w-2xl p-4 sm:p-6 lg:p-8">
+        <Encabezado titulo="Mi perfil" descripcion="Tus datos de contacto, tu foto y tu contraseña." />
 
         <div className="space-y-4">
-          {/* Card de identidad */}
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-            <div className="bg-slate-900 px-6 py-6 flex items-center gap-4">
-              <div className="relative flex-shrink-0">
-                <AvatarPerfil nombre={usuario.nombre ?? undefined} email={usuario.email} size="lg" fotoUrl={fotoUrl} />
-                <button type="button" onClick={() => inputFoto.current?.click()} disabled={subiendoFoto}
-                  title="Cambiar foto"
-                  className="absolute -bottom-1.5 -right-1.5 w-7 h-7 rounded-full bg-white text-teal-600 shadow flex items-center justify-center hover:bg-teal-50 disabled:opacity-60">
-                  {subiendoFoto ? <Loader2 size={13} className="animate-spin" /> : <Camera size={13} />}
+          {/* Identidad */}
+          <section className={`${SUPERFICIE} flex flex-wrap items-center gap-4 p-5`}>
+            <div className="relative flex-shrink-0">
+              <AvatarPerfil nombre={usuario.nombre ?? undefined} email={usuario.email} size="lg" fotoUrl={fotoUrl} />
+              <Tooltip label="Cambiar foto">
+                <button type="button" onClick={() => inputFoto.current?.click()} disabled={subiendoFoto} aria-label="Cambiar foto"
+                  className="absolute -bottom-1.5 -right-1.5 flex h-7 w-7 items-center justify-center rounded-full border border-linea bg-white text-slate-500 shadow-tarjeta hover:text-marca focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marca/60 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-900">
+                  {subiendoFoto ? <Loader2 size={14} className="animate-spin" /> : <Camera size={14} stroke={1.75} />}
                 </button>
-                <input ref={inputFoto} type="file" accept="image/*" className="hidden" onChange={e => cambiarFoto(e.target.files?.[0])} />
-              </div>
-              <div>
-                <p className="text-white font-semibold text-[17px]">{usuario.nombre || 'Sin nombre'}</p>
-                <p className="text-teal-300 text-[12px] flex items-center gap-1.5 mt-0.5">
-                  <Mail size={11} /> {usuario.email}
+              </Tooltip>
+              <input ref={inputFoto} type="file" accept="image/*" className="hidden" onChange={e => cambiarFoto(e.target.files?.[0])} />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-lg font-semibold tracking-tight text-tinta dark:text-slate-50">{usuario.nombre || 'Sin nombre'}</p>
+              <p className="truncate text-sm text-tinta-2 dark:text-slate-400">{usuario.email}</p>
+              {(form.cargo || form.area || usuario.empresa) && (
+                <p className="mt-0.5 truncate text-sm text-tinta-2 dark:text-slate-400">
+                  {[[form.cargo, form.area].filter(Boolean).join(' · '), usuario.empresa].filter(Boolean).join(' — ')}
                 </p>
-                {(form.cargo || form.area) && (
-                  <p className="text-teal-200 text-[12px] flex items-center gap-1.5 mt-0.5">
-                    <Badge size={11} /> {[form.cargo, form.area].filter(Boolean).join(' · ')}
-                  </p>
+              )}
+              <div className="mt-2 flex items-center gap-4 text-xs text-tinta dark:text-slate-200">
+                <Estado color={usuario.rol === 'admin' ? '#d97706' : '#0d9488'}>{usuario.rol === 'admin' ? 'Administrador' : 'Usuario'}</Estado>
+                {fotoUrl && (
+                  <button type="button" onClick={quitarFoto} disabled={subiendoFoto}
+                    className="inline-flex items-center gap-1 text-tinta-2 hover:text-urgente focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marca/60 dark:text-slate-400">
+                    <Trash size={14} stroke={1.75} /> Quitar foto
+                  </button>
                 )}
-                {usuario.empresa && (
-                  <p className="text-teal-300 text-[12px] flex items-center gap-1.5 mt-0.5">
-                    <Building2 size={11} /> {usuario.empresa}
-                  </p>
-                )}
-                <div className="flex items-center gap-3 mt-2">
-                  <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold ${
-                    usuario.rol === 'admin'
-                      ? 'bg-amber-400/20 text-amber-300 border border-amber-400/30'
-                      : 'bg-teal-400/20 text-teal-300 border border-teal-400/30'
-                  }`}>
-                    <Shield size={9} /> {usuario.rol === 'admin' ? 'Administrador' : 'Usuario'}
-                  </span>
-                  {fotoUrl && (
-                    <button type="button" onClick={quitarFoto} disabled={subiendoFoto}
-                      className="text-[10px] text-teal-300/80 hover:text-white flex items-center gap-1">
-                      <Trash size={10} /> Quitar foto
+              </div>
+            </div>
+          </section>
+
+          <form onSubmit={handleGuardar} className={`${SUPERFICIE} space-y-6 p-5`}>
+            {mensaje && <Banner variante={mensaje.tipo === 'ok' ? 'success' : 'error'}>{mensaje.texto}</Banner>}
+
+            {/* Datos personales */}
+            <div>
+              <h2 className={tituloSeccion}>Datos personales</h2>
+              <div className="grid grid-cols-1 gap-3 @lg:grid-cols-2">
+                <Campo rotulo="Nombre completo">
+                  <input type="text" value={form.nombre} onChange={e => setForm(p => ({ ...p, nombre: e.target.value }))}
+                    placeholder="Tu nombre" autoComplete="name" className={INPUT} />
+                </Campo>
+                <Campo rotulo="Empresa" opcional>
+                  <input type="text" value={form.empresa} onChange={e => setForm(p => ({ ...p, empresa: e.target.value }))}
+                    placeholder="Nombre de tu empresa" autoComplete="organization" className={INPUT} />
+                </Campo>
+              </div>
+            </div>
+
+            {/* Contacto y cargo */}
+            <div className="border-t border-linea pt-5 dark:border-slate-800">
+              <h2 className={tituloSeccion}>Contacto y cargo</h2>
+              <div className="grid grid-cols-1 gap-3 @lg:grid-cols-2">
+                <Campo rotulo="Teléfono / celular">
+                  <input type="tel" value={form.telefono} onChange={e => setForm(p => ({ ...p, telefono: e.target.value }))}
+                    placeholder="+56 9 1234 5678" autoComplete="tel" className={INPUT} />
+                </Campo>
+                <Campo rotulo="RUT" opcional>
+                  <input type="text" value={form.rut} onChange={e => setForm(p => ({ ...p, rut: e.target.value }))}
+                    placeholder="12.345.678-5" autoComplete="off" className={INPUT} />
+                </Campo>
+                <Campo rotulo="Cargo" opcional>
+                  <input type="text" value={form.cargo} onChange={e => setForm(p => ({ ...p, cargo: e.target.value }))}
+                    placeholder="Ej: Ejecutivo comercial" autoComplete="organization-title" maxLength={100} className={INPUT} />
+                </Campo>
+                <Campo rotulo="Área" opcional>
+                  <input type="text" value={form.area} onChange={e => setForm(p => ({ ...p, area: e.target.value }))}
+                    placeholder="Ej: Compras, Licitaciones" autoComplete="off" maxLength={100} className={INPUT} />
+                </Campo>
+              </div>
+            </div>
+
+            {/* Contraseña */}
+            <div className="border-t border-linea pt-5 dark:border-slate-800">
+              <h2 className={tituloSeccion}>
+                Cambiar contraseña <span className="text-[13px] font-normal text-tinta-2 dark:text-slate-400">(opcional)</span>
+              </h2>
+              <div className="space-y-3">
+                <Campo rotulo="Contraseña actual">
+                  <div className="relative">
+                    <input type={mostrarPass ? 'text' : 'password'} value={form.passwordActual}
+                      onChange={e => setForm(p => ({ ...p, passwordActual: e.target.value }))}
+                      autoComplete="current-password" className={`${INPUT} pr-10`} />
+                    <button type="button" onClick={() => setMostrarPass(!mostrarPass)}
+                      aria-label={mostrarPass ? 'Ocultar contraseñas' : 'Mostrar contraseñas'}
+                      className="absolute right-1.5 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-slate-400 hover:text-tinta focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marca/60">
+                      {mostrarPass ? <EyeOff size={16} stroke={1.75} /> : <Eye size={16} stroke={1.75} />}
                     </button>
-                  )}
+                  </div>
+                </Campo>
+                <div className="grid grid-cols-1 gap-3 @lg:grid-cols-2">
+                  <Campo rotulo="Nueva contraseña">
+                    <input type={mostrarPass ? 'text' : 'password'} value={form.passwordNuevo}
+                      onChange={e => setForm(p => ({ ...p, passwordNuevo: e.target.value }))}
+                      placeholder="Mínimo 8 caracteres" autoComplete="new-password" className={INPUT} />
+                  </Campo>
+                  <Campo rotulo="Confirmar nueva contraseña">
+                    <input type={mostrarPass ? 'text' : 'password'} value={form.confirmar}
+                      onChange={e => setForm(p => ({ ...p, confirmar: e.target.value }))}
+                      autoComplete="new-password" className={INPUT} />
+                  </Campo>
                 </div>
               </div>
             </div>
 
-            <form onSubmit={handleGuardar} className="p-6 space-y-5">
-              {mensaje && (
-                <div className={`flex items-center gap-2 px-4 py-3 rounded-xl text-[13px] ${
-                  mensaje.tipo === 'ok'
-                    ? 'bg-emerald-50 border border-emerald-200 text-emerald-700'
-                    : 'bg-red-50 border border-red-200 text-red-700'
-                }`}>
-                  {mensaje.tipo === 'ok' ? <CheckCircle size={15} /> : <AlertCircle size={15} />}
-                  {mensaje.texto}
-                </div>
-              )}
-
-              {/* Datos personales */}
-              <div>
-                <p className="text-[11px] font-semibold text-slate-400 mb-3">Datos personales</p>
-                <div className="space-y-3">
-                  <div>
-                    <label className="block text-[12px] font-semibold text-slate-600 mb-1.5">Nombre completo</label>
-                    <div className="relative">
-                      <User size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
-                      <input type="text" value={form.nombre} onChange={e => setForm(p => ({ ...p, nombre: e.target.value }))}
-                        placeholder="Tu nombre" className={INPUT} />
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-[12px] font-semibold text-slate-600 mb-1.5">Empresa</label>
-                    <div className="relative">
-                      <Briefcase size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
-                      <input type="text" value={form.empresa} onChange={e => setForm(p => ({ ...p, empresa: e.target.value }))}
-                        placeholder="Nombre de tu empresa" className={INPUT} />
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Contacto y cargo */}
-              <div className="border-t border-slate-100 pt-5">
-                <p className="text-[11px] font-semibold text-slate-400 mb-3">Contacto y cargo</p>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-[12px] font-semibold text-slate-600 mb-1.5">Teléfono / celular <span className="text-red-500">*</span></label>
-                    <div className="relative">
-                      <Phone size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
-                      <input type="tel" value={form.telefono} onChange={e => setForm(p => ({ ...p, telefono: e.target.value }))}
-                        placeholder="+56 9 1234 5678" className={INPUT} />
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-[12px] font-semibold text-slate-600 mb-1.5">RUT <span className="text-slate-400 font-normal">(opcional)</span></label>
-                    <div className="relative">
-                      <IdCard size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
-                      <input type="text" value={form.rut} onChange={e => setForm(p => ({ ...p, rut: e.target.value }))}
-                        placeholder="12.345.678-5" className={INPUT} />
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-[12px] font-semibold text-slate-600 mb-1.5">Cargo</label>
-                    <div className="relative">
-                      <Badge size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
-                      <input type="text" value={form.cargo} onChange={e => setForm(p => ({ ...p, cargo: e.target.value }))}
-                        placeholder="Ej: Ejecutivo comercial" maxLength={100} className={INPUT} />
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-[12px] font-semibold text-slate-600 mb-1.5">Área</label>
-                    <div className="relative">
-                      <Building2 size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
-                      <input type="text" value={form.area} onChange={e => setForm(p => ({ ...p, area: e.target.value }))}
-                        placeholder="Ej: Compras, Licitaciones" maxLength={100} className={INPUT} />
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Contraseña */}
-              <div className="border-t border-slate-100 pt-5">
-                <p className="text-[11px] font-semibold text-slate-400 mb-3 flex items-center gap-1.5">
-                  <Lock size={11} /> Cambiar contraseña
-                  <span className="text-slate-300 font-normal normal-case">(opcional)</span>
-                </p>
-                <div className="space-y-3">
-                  <div className="relative">
-                    <Lock size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
-                    <input type={mostrarPass ? 'text' : 'password'} value={form.passwordActual}
-                      onChange={e => setForm(p => ({ ...p, passwordActual: e.target.value }))}
-                      placeholder="Contraseña actual"
-                      className="w-full pl-10 pr-10 py-2.5 border border-slate-200 rounded-xl text-[13px] focus:ring-2 focus:ring-teal-500 focus:border-transparent outline-none bg-slate-50" />
-                    <button type="button" onClick={() => setMostrarPass(!mostrarPass)}
-                      className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
-                      {mostrarPass ? <EyeOff size={13} /> : <Eye size={13} />}
-                    </button>
-                  </div>
-                  <input type={mostrarPass ? 'text' : 'password'} value={form.passwordNuevo}
-                    onChange={e => setForm(p => ({ ...p, passwordNuevo: e.target.value }))}
-                    placeholder="Nueva contraseña (mín. 8 caracteres)"
-                    className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-[13px] focus:ring-2 focus:ring-teal-500 focus:border-transparent outline-none bg-slate-50" />
-                  <input type={mostrarPass ? 'text' : 'password'} value={form.confirmar}
-                    onChange={e => setForm(p => ({ ...p, confirmar: e.target.value }))}
-                    placeholder="Confirmar nueva contraseña"
-                    className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-[13px] focus:ring-2 focus:ring-teal-500 focus:border-transparent outline-none bg-slate-50" />
-                </div>
-              </div>
-
-              <button type="submit" disabled={cargando}
-                className="w-full flex items-center justify-center gap-2 py-2.5 bg-teal-600 hover:bg-teal-700 disabled:bg-slate-300 text-white font-semibold rounded-xl text-[14px] transition-colors shadow-sm">
-                {cargando ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />}
-                Guardar cambios
-              </button>
-            </form>
-          </div>
+            <div className="flex justify-end border-t border-linea pt-5 dark:border-slate-800">
+              <Boton type="submit" variante="primario" disabled={cargando}
+                icono={cargando ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} stroke={1.75} />}>
+                {cargando ? 'Guardando…' : 'Guardar cambios'}
+              </Boton>
+            </div>
+          </form>
         </div>
       </div>
     </AppLayout>

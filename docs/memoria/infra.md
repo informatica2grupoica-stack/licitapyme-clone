@@ -3,6 +3,10 @@
 
 
 
+## 2026-11-23 (4) — El local vuelve a usar la BD del VPS (datos reales) por el túnel 3307; se deja de usar el Docker
+**Decisión del dueño (mismo día, reemplaza la «Regla» de (2) de abajo):** «usemos la que tenemos en el VPS con datos reales, no vamos a usar más el Docker». Hecho: `.env.development.local` (Docker 3308) se renombró a `.env.development.local.off`, porque en `npm run dev` ese archivo gana sobre `.env.local` (3307, VPS) y por eso las pantallas no veían datos. Hay que reiniciar `npm run dev` y tener el túnel SSH 3307 abierto.
+**Riesgo:** guardar algo desde el PC escribe en PRODUCCIÓN. Al revisar pantallas con Claude: solo mirar, no pulsar guardar/eliminar/aprobar. Para volver al Docker: renombrar el `.off` de vuelta. `sincronizar-bd-local.bat` y su regla de (2) quedan sin uso mientras tanto.
+
 ## 2026-11-23 (3) — Menú de privilegios completo: lo que hacía solo el admin ahora tiene casilla (tsc ok, 5 pruebas ok; SIN probar en vivo; SIN desplegar)
 **Pedido del dueño:** que Carolina Gonzalez y Asesor (hoy rol admin) puedan ser perfiles normales con todos los privilegios, dándose y quitándose casilla por casilla, y que el menú de Admin → Usuarios tenga TODO lo de LICITANK.
 **Hecho:** 21 permisos nuevos en `api-auth.ts` (tipo `Permiso`, `PERMISOS_ADMIN` = true), `session-context.tsx` y el catálogo de `admin/usuarios/page.tsx` (categoría nueva «Administración y sistema», cada una con descripción): admin_usuarios, config_empresa, admin_etiquetas, admin_palabras_clave, reasignar_negocios, aprobar_linea_tecnica, editar_otros_negocios, retroceder_pipeline, ver_descartadas, analisis_licitacion, ver_analizadas, ver_historial, buscador_licitaciones, dashboard_admin, leer_portal_mp, enriquecer_radar, buscador_precios, memoria_experiencia, anexos_feedback, soporte_tecnico, avisos_admin. Un admin los tiene todos (nada cambia para el dueño).

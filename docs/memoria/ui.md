@@ -47,6 +47,19 @@ Estado de «aplicar licitank-ui a todo el sistema» (pedido del dueño). Todo es
 
 ## Decisiones vigentes del dueño
 
+- **licitank-ui aplicada a Empresas (`/empresas`) y Perfil (`/perfil`) (2026-11-23, sin commit, sin aprobar; visto en Chrome a 1366 px, Perfil en claro y oscuro, Empresas solo vacío en claro).**
+  Solo lo visual. Empresas: `Encabezado` + `Boton`, tarjetas con `Tarjeta`/`Lista` en `@container`, carga con `Esqueleto`,
+  vacío con `Vacio`, error con `Banner`, modal con campos `h-9` y «Guardar cambios» / «Guardando…»; se conservó
+  `isAdmin = permisos.config_empresa`. Perfil: identidad en tarjeta neutra, avatar sólido, rol como `Estado`, formulario con
+  rótulo arriba y «(opcional)», contraseña con rótulos, mensajes con `Banner`. `tsc` sin errores. Perfil lleva `autoComplete` (el
+  navegador rellenaba «Área» con el correo y la contraseña actual). **Sin ver:** tarjetas de Empresas y el modal, y 800 px:
+  la BD de desarrollo no está (`/api/empresas` devuelve `_migrationPending` y `/api/auth/perfil` da error interno), así que
+  Empresas sale vacía y Perfil sin teléfono/RUT/cargo. **Bug previo, sin tocar:** en Perfil «Nombre» y «Empresa» arrancan
+  vacíos porque `useState` lee `usuario` antes de que cargue la sesión. Tras reiniciar `npm run dev`, el admin sí recibe
+  `permisos.analisis_licitacion` y `config_empresa`. **El proyecto vive en `C:\licitapyme-clone`**; D: es copia vieja.
+  Análisis de licitación no se tocó en C: (ya tenía trabajo de otra cuenta). Con poca RAM libre (<2 GB) el Chrome pierde la
+  página al compilar.
+
 - **«Competencia» fase 1 programada (2026-11-23, aprobada por el dueño; SIN VER en navegador, sin aprobar).** Pantalla
   `/competencia` (menú ANÁLISIS → «Competencia», solo admin; ruta clasificada en `modulos.ts` como `negocios`, igual que
   `/adjudicadas`, porque lee `/api/negocios` + `/api/postuladas/estado`, sin API nueva). Pestañas **Resumen** (4 `Indicador`:
