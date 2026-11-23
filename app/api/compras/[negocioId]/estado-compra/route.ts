@@ -1,6 +1,6 @@
 // app/api/compras/[negocioId]/estado-compra/route.ts
 // Estado de la compra (Abierta → En proceso → Entregada → Pagada, o Cancelada con motivo). Ver compras-estado-core.ts.
-// GET ?para=ENTREGADA|PAGADA → avisos de lo que aún falta (no bloquean). POST {estado, motivo?} → un solo paso a la vez.
+// GET ?para=ENTREGADA|CERRADA|PAGADA → avisos de lo que aún falta (no bloquean). POST {estado, motivo?} → un solo paso a la vez.
 import { mensajeSeguro } from '@/app/lib/errores-api';
 import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
@@ -13,7 +13,7 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 type Params = { params: Promise<{ negocioId: string }> };
-const VALIDOS = ['EN_PROCESO', 'ENTREGADA', 'PAGADA', 'CANCELADA'];
+const VALIDOS = ['EN_PROCESO', 'ENTREGADA', 'CERRADA', 'PAGADA', 'CANCELADA'];
 
 function getUser(req: NextRequest) {
   const id = req.headers.get('x-user-id');

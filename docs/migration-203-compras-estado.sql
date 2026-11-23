@@ -7,7 +7,7 @@ ALTER TABLE compras_asignacion
   ADD COLUMN estado_compra_por_nombre VARCHAR(160) NULL;
 
 -- Lo que ya estaba cerrado o cancelado
-UPDATE compras_asignacion SET estado_compra = 'PAGADA' WHERE cierre_legado = 'ENTREGADA';
+UPDATE compras_asignacion SET estado_compra = 'CERRADA' WHERE cierre_legado = 'ENTREGADA';   -- Pagada solo cuando alguien la confirma con el botón
 UPDATE compras_asignacion SET estado_compra = 'CANCELADA' WHERE cierre_legado IN ('NO_REALIZADA', 'OC_CANCELADA');
 
 -- Lo abierto, según su avance real

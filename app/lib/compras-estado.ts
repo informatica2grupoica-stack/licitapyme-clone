@@ -1,5 +1,5 @@
 // app/lib/compras-estado.ts
-// Cambios del estado de la compra (ver compras-estado-core.ts). PAGADA deja el cierre «ENTREGADA» y CANCELADA el «NO_REALIZADA»
+// Cambios del estado de la compra (ver compras-estado-core.ts). CERRADA deja el cierre «ENTREGADA» (PAGADA solo cambia la columna) y CANCELADA el «NO_REALIZADA»
 // (con el motivo ya escrito), así Cerradas/Canceladas, el dashboard y el chat siguen funcionando igual que antes.
 import pool from '@/app/lib/db';
 import { ahoraChileSQL } from '@/app/lib/tz';
@@ -40,8 +40,12 @@ export async function advertenciasDeEstado(negocioId: number, nuevo: EstadoCompr
     const pend = (rows as any[]).filter(p => !esSubestadoFuera(p.subestado) && p.subestado !== 'ENTREGADO').length;
     if (pend > 0) av.push(`${pend} producto(s) aún no figuran como «Entregado».`);
   }
-  if (nuevo === 'PAGADA') {
-    try { if (!(await listarFacturasVenta(negocioId)).length) av.push('No hay factura de venta al cliente registrada.'); } catch { /* sin tabla: no se avisa */ }
+  if (nuevo === 'CERRADA' || nuevo === 'PAGADA') {
+    try {
+      const f = await listarFacturasVenta(negocioId);
+      if (!f.length) av.push('No hay factura de venta al cliente registrada.');
+      else if (nuevo === 'PAGADA' && !f.some(x => x.pagadaAt)) av.push('Ninguna factura tiene registrada la fecha de pago del cliente.');
+    } catch { /* sin tabla: no se avisa */ }
   }
   return av;
 }
@@ -60,9 +64,11 @@ export async function cambiarEstadoCompra(
     const motivo = String(o.motivo || '').trim();
     if (motivo.length < MIN_MOTIVO_CANCELACION) throw new Error(`Escribe al menos ${MIN_MOTIVO_CANCELACION} caracteres explicando por qué se cancela.`);
     await marcarCierreLegado(negocioId, 'NO_REALIZADA', motivo.slice(0, 300), o.userId, o.nombre, motivo.slice(0, 4000));
+  } else if (nuevo === 'CERRADA') {
+    if (actual !== 'ENTREGADA') throw new Error('Para cerrarla, primero debe estar Entregada.');
+    await marcarCierreLegado(negocioId, 'ENTREGADA', 'Facturada al cliente (pago por confirmar)', o.userId, o.nombre);
   } else if (nuevo === 'PAGADA') {
-    if (actual !== 'ENTREGADA') throw new Error('Para marcarla Pagada, primero debe estar Entregada.');
-    await marcarCierreLegado(negocioId, 'ENTREGADA', 'Facturada al cliente y pagada', o.userId, o.nombre);
+    if (actual !== 'CERRADA') throw new Error('Para marcarla Pagada, primero debe estar Cerrada (facturada).');
   } else {
     if (siguienteEstadoCompra(actual) !== nuevo) throw new Error(`Desde «${ETIQUETA_ESTADO_COMPRA[actual]}» el siguiente paso es «${ETIQUETA_ESTADO_COMPRA[siguienteEstadoCompra(actual) ?? actual]}».`);
   }

@@ -20,7 +20,7 @@ import { useRealtime } from '@/app/lib/use-realtime';
 import { fechaHoraParaExcel, hojaDeFilas } from '@/app/lib/exportar-fechas';
 import { GanttComprasCard } from '@/app/negocios/[id]/GanttComprasCard';
 import type { FaseTarea, HitosGantt as HitosPlan } from '@/app/lib/compras-plan';
-import { IconShoppingCart as ShoppingCart, IconLoader2 as Loader2, IconBuilding as Building2, IconArrowUpRight as ArrowUpRight, IconSearch as Search, IconFilter as Filter, IconX as X, IconCalendar as Calendar, IconUsers as Users, IconArrowsUpDown as ArrowUpDown, IconAlertTriangle as AlertTriangle, IconClock as Clock, IconUserPlus as UserPlus, IconCircleCheck as CheckCircle2, IconChartBar as BarChart3, IconChevronLeft as ChevronLeft, IconChevronRight as ChevronRight, IconChevronsLeft as ChevronsLeft, IconChevronsRight as ChevronsRight, IconList as List, IconPackage as PackageCheck, IconCircleX as XCircle, IconArrowBackUp as Undo2, IconPencil as Pencil, IconTimeline as GanttChart, IconChartLine as LineChart, IconZoomIn as ZoomIn, IconZoomOut as ZoomOut, IconDiamond as Diamond, IconCalendarClock as CalendarClock, IconDownload as Download, IconShieldCheck as ShieldCheck } from '@tabler/icons-react';
+import { IconShoppingCart as ShoppingCart, IconLoader2 as Loader2, IconBuilding as Building2, IconArrowUpRight as ArrowUpRight, IconSearch as Search, IconFilter as Filter, IconX as X, IconCalendar as Calendar, IconUsers as Users, IconArrowsUpDown as ArrowUpDown, IconAlertTriangle as AlertTriangle, IconClock as Clock, IconUserPlus as UserPlus, IconCircleCheck as CheckCircle2, IconChartBar as BarChart3, IconChevronLeft as ChevronLeft, IconChevronRight as ChevronRight, IconChevronsLeft as ChevronsLeft, IconChevronsRight as ChevronsRight, IconList as List, IconPackage as PackageCheck, IconCircleX as XCircle, IconArrowBackUp as Undo2, IconPencil as Pencil, IconTimeline as GanttChart, IconChartLine as LineChart, IconZoomIn as ZoomIn, IconZoomOut as ZoomOut, IconDiamond as Diamond, IconCalendarClock as CalendarClock, IconDownload as Download, IconShieldCheck as ShieldCheck, IconReceipt as Receipt } from '@tabler/icons-react';
 import { Esqueleto, Vacio } from '@/app/components/ui/kit/Estructura';
 import { Pestanas } from '@/app/components/ui/kit/Pestanas';
 
@@ -43,6 +43,7 @@ interface ComprasFila {
   tareasTotal: number; tareasHechas: number; tareasVencidas: number;
   ocFecha: string | null;
   cierreLegado: CierreLegado | null;
+  facturasVenta?: number;   // facturas de venta cargadas en la ficha (compras_factura_venta)
   estadoCompra: EstadoDeLaCompra;   // Abierta / En proceso / Entregada / Pagada / Cancelada (migration-203)
   precompra: boolean;
   adjudicacionEstimadaAt: string | null;
@@ -99,13 +100,26 @@ function VistaAvancesCompras({ negocios }: { negocios: ComprasFila[] }) {
 import { EstadoCompraControl, EtiquetaEstadoCompra } from './EstadoCompraControl';
 import { ETIQUETA_ESTADO_COMPRA, type EstadoCompra as EstadoDeLaCompra } from '@/app/lib/compras-estado-core';
 
+// Marca «Factura» (pedido del dueño, 23-nov-2026): a simple vista se ve qué licitaciones ya tienen factura de venta; el clic lleva
+// a Entrega y cierre → Factura y cierre, donde está (y donde se abre).
+function MarcaFactura({ f }: { f: { negocioId: number; facturasVenta?: number } }) {
+  const n = f.facturasVenta ?? 0;
+  if (n <= 0) return null;
+  return (
+    <Link href={`/compras/${f.negocioId}?fase=entrega&pestana=costoreal`} title={`${n} factura(s) de venta cargada(s): abrir`} data-testid="marca-factura"
+      className="inline-flex items-center gap-1 flex-shrink-0 text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 rounded-full px-2 py-0.5 whitespace-nowrap">
+      <Receipt size={11} /> Factura{n > 1 ? ` ×${n}` : ''}
+    </Link>
+  );
+}
+
 const SS_COMPRAS_FILTROS = 'compras:filtros:v1';
 // Pestañas de Compras (11-nov-2026): abierta = sin marca de cierre; cerrada = entregada; cancelada = OC cancelada por el organismo o no realizada.
-type EstadoCompra = 'abiertas' | 'en_proceso' | 'entregadas' | 'cerradas' | 'canceladas' | 'todas';
+type EstadoCompra = 'abiertas' | 'en_proceso' | 'entregadas' | 'cerradas' | 'pagadas' | 'canceladas' | 'todas';
 // Estado de la compra (23-nov-2026): Abierta → En proceso → Entregada → Cerrada (= Pagada) o Cancelada.
 const estadoDeCompra = (f: { estadoCompra: EstadoDeLaCompra }): Exclude<EstadoCompra, 'todas'> =>
   f.estadoCompra === 'EN_PROCESO' ? 'en_proceso' : f.estadoCompra === 'ENTREGADA' ? 'entregadas'
-    : f.estadoCompra === 'PAGADA' ? 'cerradas' : f.estadoCompra === 'CANCELADA' ? 'canceladas' : 'abiertas';
+    : f.estadoCompra === 'CERRADA' ? 'cerradas' : f.estadoCompra === 'PAGADA' ? 'pagadas' : f.estadoCompra === 'CANCELADA' ? 'canceladas' : 'abiertas';
 
 // "Urgente" = Cadena de Urgencia (§3.7/§15.2): el plazo de entrega OFERTADO es menor a 3 días —
 // no es una cuenta regresiva desde hoy, es que el compromiso mismo era muy corto. Un solo texto
@@ -398,9 +412,12 @@ function FilaCompras({ f, esJefeDeVentas, esAdmin, puedeCerrar, puedeEstado, can
               </span>
             )}
           </div>
-          <Link href={`/compras/${f.negocioId}`} className="block text-[13.5px] font-semibold text-tinta dark:text-slate-100 hover:text-teal-700 leading-snug mt-0.5">
-            {f.licitacionNombre || f.licitacionCodigo}
-          </Link>
+          <div className="flex items-start gap-2 mt-0.5">
+            <Link href={`/compras/${f.negocioId}`} className="block text-[13.5px] font-semibold text-tinta dark:text-slate-100 hover:text-teal-700 leading-snug min-w-0">
+              {f.licitacionNombre || f.licitacionCodigo}
+            </Link>
+            <MarcaFactura f={f} />
+          </div>
           <div className="flex items-center gap-3 mt-1 text-xs text-tinta-2 dark:text-slate-400 flex-wrap">
             {f.licitacionOrganismo && <span className="flex items-center gap-1"><Building2 size={11} /> {f.licitacionOrganismo}</span>}
             {f.tareasTotal > 0 && (
@@ -886,6 +903,7 @@ function FilaGantt({ f, inicioRango, pxDia, onSeleccionar, seleccionada, ultimaU
               const e = estadoEntregaGantt(f, h);
               return (
                 <span className="flex items-center gap-2 flex-shrink-0">
+                  <MarcaFactura f={f} />
                   {!f.precompra && !f.cierreLegado && <EtiquetaEstadoCompra estado={f.estadoCompra} />}
                   <span className={`flex items-center gap-1.5 text-xs font-medium whitespace-nowrap ${e.texto_clase}`}>
                     <span className={`w-1.5 h-1.5 rounded-full ${e.punto}`} />{e.texto}
@@ -1207,6 +1225,17 @@ function VistaGanttCompras({ negocios, ultimaUrgenteId, modo, setModo }: { negoc
   const scrollRef = useRef<HTMLDivElement>(null);
   const yaCentrado = useRef(false);
   const pxDia = PX_DIA[densidad];
+  // Ancho visible: la línea de tiempo se alarga hasta llenarlo, para que no quede un corte en blanco a la derecha.
+  const [anchoVisible, setAnchoVisible] = useState(0);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const medir = () => setAnchoVisible(el.clientWidth);
+    medir();
+    const ro = new ResizeObserver(medir);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [modo, negocios.length]);
 
   const { inicioRango, totalDias, meses } = useMemo(() => {
     const hitos = negocios.map(calcularHitosGantt);
@@ -1216,8 +1245,8 @@ function VistaGanttCompras({ negocios, ultimaUrgenteId, modo, setModo }: { negoc
     const min = fechas.length ? fechas.reduce((a, b) => (a.isBefore(b) ? a : b)) : dayjs().subtract(15, 'day');
     const max = fechas.length ? fechas.reduce((a, b) => (a.isAfter(b) ? a : b)) : dayjs().add(45, 'day');
     const inicioRango = min.subtract(7, 'day').startOf('week');
-    const finRango = max.add(10, 'day');
-    const totalDias = Math.max(diasEntre(inicioRango, finRango), 30);
+    const finRango = max.add(16, 'day');
+    const totalDias = Math.max(diasEntre(inicioRango, finRango), 30, Math.ceil((anchoVisible - ANCHO_ETIQUETA_GANTT) / pxDia));
     const meses: { label: string; x: number; w: number; par: boolean }[] = [];
     let cursor = inicioRango.startOf('month');
     let i = 0;
@@ -1230,7 +1259,7 @@ function VistaGanttCompras({ negocios, ultimaUrgenteId, modo, setModo }: { negoc
       cursor = finMes; i++;
     }
     return { inicioRango, totalDias, meses };
-  }, [negocios, pxDia]);
+  }, [negocios, pxDia, anchoVisible]);
 
   const anchoTimeline = totalDias * pxDia;
   const xHoy = diasEntre(inicioRango, dayjs()) * pxDia;
@@ -1316,7 +1345,7 @@ function VistaGanttCompras({ negocios, ultimaUrgenteId, modo, setModo }: { negoc
       <div className="flex items-start gap-3">
         <div className="flex-1 bg-white dark:bg-slate-900 border border-linea dark:border-slate-800 rounded-2xl shadow-tarjeta overflow-hidden min-w-0">
           <div ref={scrollRef} className="overflow-x-auto">
-            <div style={{ width: ANCHO_ETIQUETA_GANTT + anchoTimeline }}>
+            <div style={{ width: ANCHO_ETIQUETA_GANTT + anchoTimeline, overflowX: 'clip' }}>
               {/* Regla de meses + días — sticky arriba mientras se hace scroll vertical. */}
               <div className="sticky top-0 z-20 flex bg-white dark:bg-slate-900 border-b border-linea dark:border-slate-800" style={{ height: ALTO_REGLA_MESES + ALTO_REGLA_DIAS }}>
                 <div className="sticky left-0 z-30 bg-white dark:bg-slate-900 border-r border-linea dark:border-slate-800 flex-shrink-0" style={{ width: ANCHO_ETIQUETA_GANTT }} />
@@ -1459,7 +1488,7 @@ export default function ComprasPage() {
         if (typeof f.soloUrgentes === 'boolean') setSoloUrgentes(f.soloUrgentes);
         if (typeof f.soloSinAsignar === 'boolean') setSoloSinAsignar(f.soloSinAsignar);
         if (typeof f.soloFielCumplimiento === 'boolean') setSoloFielCumplimiento(f.soloFielCumplimiento);
-        if (['abiertas', 'en_proceso', 'entregadas', 'cerradas', 'canceladas', 'todas'].includes(f.estado)) setEstado(f.estado);
+        if (['abiertas', 'en_proceso', 'entregadas', 'cerradas', 'pagadas', 'canceladas', 'todas'].includes(f.estado)) setEstado(f.estado);
         if (typeof f.fechaDesde === 'string') setFechaDesde(f.fechaDesde);
         if (typeof f.fechaHasta === 'string') setFechaHasta(f.fechaHasta);
         if (f.orden === 'reciente' || f.orden === 'antiguo' || f.orden === 'monto_desc' || f.orden === 'monto_asc') setOrden(f.orden);
@@ -1491,7 +1520,7 @@ export default function ComprasPage() {
     return () => { vivo = false; };
   }, [estado, obumaCierre]);
   const nPorEstado = useMemo(() => {
-    const n = { abiertas: 0, en_proceso: 0, entregadas: 0, cerradas: 0, canceladas: 0, todas: 0 };
+    const n = { abiertas: 0, en_proceso: 0, entregadas: 0, cerradas: 0, pagadas: 0, canceladas: 0, todas: 0 };
     for (const f of negocios) { if (f.precompra) continue; n[estadoDeCompra(f)]++; n.todas++; }
     return n;
   }, [negocios]);
@@ -1756,7 +1785,8 @@ export default function ComprasPage() {
               { key: 'abiertas', label: 'Abiertas', n: nPorEstado.abiertas, clase: 'border-teal-600 text-teal-700' },
               { key: 'en_proceso', label: 'En proceso', n: nPorEstado.en_proceso, clase: 'border-teal-600 text-teal-700' },
               { key: 'entregadas', label: 'Entregadas', n: nPorEstado.entregadas, clase: 'border-amber-500 text-amber-700' },
-              { key: 'cerradas', label: 'Cerradas', n: nPorEstado.cerradas, clase: 'border-emerald-600 text-emerald-700' },
+              { key: 'cerradas', label: 'Cerradas', n: nPorEstado.cerradas, clase: 'border-sky-600 text-sky-700' },
+              { key: 'pagadas', label: 'Pagadas', n: nPorEstado.pagadas, clase: 'border-emerald-600 text-emerald-700' },
               { key: 'canceladas', label: 'Canceladas', n: nPorEstado.canceladas, clase: 'border-rose-600 text-rose-700' },
               { key: 'todas', label: 'Todas', n: nPorEstado.todas, clase: 'border-zinc-700 text-tinta dark:text-slate-100' },
               { key: 'precompras', label: 'Pre-compras (POSIBLE ADJ)', n: nPrecompras, clase: 'border-slate-600 text-tinta dark:text-slate-200' },

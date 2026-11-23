@@ -13,6 +13,7 @@ import Link from 'next/link';
 import { useToast } from '@/app/components/ui/toast';
 import { ModalElegirEncargado } from './ModalElegirEncargado';
 import { EstadoCompraControl, ModalPasarEnProceso } from '../EstadoCompraControl';
+import { ChipFacturada } from '../ChipFacturada';
 import { Banner } from '@/app/components/ui/Banner';
 import { DocumentViewerModal, type VisorDoc } from '@/app/components/DocumentViewerModal';
 import { useCosteoFlotante } from '@/app/components/CosteoFlotanteContext';
@@ -361,6 +362,7 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
             </Link>
           </p>
         </div>
+        <ChipFacturada negocioId={negocioId} version={asignacion.estadoCompra} />
         {!asignacion.precompra && !!asignacion.asignadoA && (
           <EstadoCompraControl negocioId={negocioId} estado={asignacion.estadoCompra} puede={puedeOperar} onCambio={recargar} />
         )}

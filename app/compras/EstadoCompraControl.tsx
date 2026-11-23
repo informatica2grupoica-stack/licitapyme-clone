@@ -17,6 +17,7 @@ export const COLOR_ESTADO_COMPRA: Record<EstadoCompra, { texto: string; punto: s
   ABIERTA: { texto: 'text-tinta-2 dark:text-slate-400', punto: 'bg-zinc-400' },
   EN_PROCESO: { texto: 'text-teal-700', punto: 'bg-teal-600' },
   ENTREGADA: { texto: 'text-amber-700', punto: 'bg-amber-500' },
+  CERRADA: { texto: 'text-sky-700', punto: 'bg-sky-500' },
   PAGADA: { texto: 'text-emerald-700', punto: 'bg-emerald-500' },
   CANCELADA: { texto: 'text-rose-700', punto: 'bg-rose-500' },
 };
@@ -26,7 +27,7 @@ export function EtiquetaEstadoCompra({ estado }: { estado: EstadoCompra }) {
   return <span className={`inline-flex items-center gap-1.5 text-xs font-medium whitespace-nowrap ${c.texto}`}><span className={`w-1.5 h-1.5 rounded-full ${c.punto}`} />{ETIQUETA_ESTADO_COMPRA[estado]}</span>;
 }
 
-const TEXTO_PASO: Partial<Record<EstadoCompra, string>> = { EN_PROCESO: 'Pasar a En proceso', ENTREGADA: 'Marcar Entregada', PAGADA: 'Marcar Pagada' };
+const TEXTO_PASO: Partial<Record<EstadoCompra, string>> = { EN_PROCESO: 'Pasar a En proceso', ENTREGADA: 'Marcar Entregada', CERRADA: 'Cerrar (facturada)', PAGADA: 'Marcar pagada' };
 
 async function cambiar(negocioId: number, estado: EstadoCompra, motivo?: string) {
   const res = await fetch(`/api/compras/${negocioId}/estado-compra`, {
@@ -83,7 +84,7 @@ export function EstadoCompraControl({ negocioId, estado, puede, onCambio }: { ne
 
   const pedirPaso = async (e: EstadoCompra) => {
     let avisos: string[] = [];
-    if (e === 'ENTREGADA' || e === 'PAGADA') {
+    if (e === 'ENTREGADA' || e === 'CERRADA' || e === 'PAGADA') {
       try { const r = await fetch(`/api/compras/${negocioId}/estado-compra?para=${e}`).then(x => x.json()); avisos = r.advertencias || []; } catch { /* sin avisos */ }
     }
     setPaso({ estado: e, avisos });
@@ -125,11 +126,11 @@ export function EstadoCompraControl({ negocioId, estado, puede, onCambio }: { ne
       <Modal open onClose={() => !guardando && setPaso(null)} size="sm"
         footer={(<>
           <Boton variante="fantasma" onClick={() => setPaso(null)} disabled={guardando}>No, volver</Boton>
-          <Boton variante="primario" disabled={guardando} onClick={() => confirmar(paso.estado)}>{guardando ? 'Guardando…' : paso.estado === 'PAGADA' ? 'Sí, marcar pagada' : 'Sí, marcar entregada'}</Boton>
+          <Boton variante="primario" disabled={guardando} onClick={() => confirmar(paso.estado)}>{guardando ? 'Guardando…' : paso.estado === 'PAGADA' ? 'Sí, ya pagó' : paso.estado === 'CERRADA' ? 'Sí, cerrar' : 'Sí, marcar entregada'}</Boton>
         </>)}>
-        <h2 className="text-[17px] font-semibold tracking-tight text-tinta dark:text-slate-50">{paso.estado === 'PAGADA' ? '¿Facturada al cliente y pagada?' : '¿Ya se entregó?'}</h2>
+        <h2 className="text-[17px] font-semibold tracking-tight text-tinta dark:text-slate-50">{paso.estado === 'PAGADA' ? '¿El cliente ya pagó la factura?' : paso.estado === 'CERRADA' ? '¿Ya está facturada al cliente?' : '¿Ya se entregó?'}</h2>
         <p className="text-sm text-tinta-2 dark:text-slate-400 mt-1">
-          {paso.estado === 'PAGADA' ? 'Al marcarla Pagada la licitación se cierra y pasa a la pestaña Cerradas.' : 'Entregada todavía no cierra la licitación: se cierra al estar facturada y pagada.'}
+          {paso.estado === 'PAGADA' ? 'Confirma solo si ya viste el pago. La licitación pasa a la pestaña Pagadas.' : paso.estado === 'CERRADA' ? 'Al cerrarla pasa a la pestaña Cerradas (facturada, pago por confirmar).' : 'Entregada todavía no cierra la licitación: se cierra al estar facturada.'}
         </p>
         {paso.avisos.length > 0 && (
           <ul className="mt-3 space-y-1 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-[13px] text-amber-800">

@@ -826,9 +826,9 @@ export async function quitarCierreLegado(negocioId: number): Promise<void> {
       WHERE negocio_id = ?`,
     [negocioId],
   );
-  // Al deshacer el cierre, el estado vuelve un paso atrás: Pagada → Entregada; Cancelada → En proceso.
+  // Al deshacer el cierre, el estado vuelve un paso atrás: Pagada o Cerrada → Entregada; Cancelada → En proceso.
   try {
-    await pool.query(`UPDATE compras_asignacion SET estado_compra = CASE WHEN estado_compra = 'PAGADA' THEN 'ENTREGADA' ELSE 'EN_PROCESO' END WHERE negocio_id = ? AND estado_compra IN ('PAGADA', 'CANCELADA')`, [negocioId]);
+    await pool.query(`UPDATE compras_asignacion SET estado_compra = CASE WHEN estado_compra IN ('PAGADA', 'CERRADA') THEN 'ENTREGADA' ELSE 'EN_PROCESO' END WHERE negocio_id = ? AND estado_compra IN ('PAGADA', 'CERRADA', 'CANCELADA')`, [negocioId]);
   } catch (e: any) { if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e; }
   await quitarCancelacionManual(negocioId);
 }
@@ -1177,6 +1177,8 @@ export interface ComprasFila {
   // activo normal.
   cierreLegado: CierreLegado | null;
   estadoCompra: EstadoCompra;
+  /** Facturas de venta al cliente ya cargadas (compras_factura_venta): sirve para marcar la fila «con factura». */
+  facturasVenta: number;
   // Pre-compra (migration-145): abierto en POSIBLE ADJ, sin adjudicación firme.
   precompra: boolean;
   // Solo pre-compras: fecha ESTIMADA de adjudicación que informa Mercado Público (ficha). null si no la trae.
@@ -1238,6 +1240,7 @@ export async function listarAsignacionesCompras(): Promise<ComprasFila[]> {
             COALESCE(NULLIF(n.licitacion_region, ''), lc.region) AS licitacion_region, u.nombre AS asignado_nombre,
             up.nombre AS postulado_por_nombre,
             (SELECT COUNT(*) FROM compras_tarea t WHERE t.negocio_id = ca.negocio_id) AS tareas_total,
+            (SELECT COUNT(*) FROM compras_factura_venta fv WHERE fv.negocio_id = ca.negocio_id) AS facturas_venta,
             (SELECT COUNT(*) FROM compras_tarea t WHERE t.negocio_id = ca.negocio_id AND t.estado = 'HECHA') AS tareas_hechas,
             (SELECT COUNT(*) FROM compras_tarea t WHERE t.negocio_id = ca.negocio_id AND t.estado <> 'HECHA' AND t.plazo_at IS NOT NULL AND t.plazo_at < ?) AS tareas_vencidas
        FROM compras_asignacion ca
@@ -1344,6 +1347,7 @@ export async function listarAsignacionesCompras(): Promise<ComprasFila[]> {
       ganadoAt: (precompraPorNegocio.has(Number(r.negocio_id)) && adjEstimadaPorCodigo.get(r.licitacion_codigo)) || r.ganado_at, montoNuestro,
       tareasTotal: Number(r.tareas_total), tareasHechas: Number(r.tareas_hechas), tareasVencidas: Number(r.tareas_vencidas),
       ocFecha: r.oc_fecha,
+      facturasVenta: Number(r.facturas_venta) || 0,
       cierreLegado: (r.cierre_legado as CierreLegado | null) ?? null,
       estadoCompra: estadoCompraEfectivo(r.cierre_legado, r.estado_compra),
       precompra: precompraPorNegocio.has(Number(r.negocio_id)),
