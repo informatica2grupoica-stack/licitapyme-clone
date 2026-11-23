@@ -101,8 +101,8 @@ export function construirResumenEntregaHtml(r: ResumenEjecutivo, generadoPor?: s
 <style>
   * { box-sizing: border-box; }
   body { font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: #1e293b; font-size: 11px; line-height: 1.5; margin: 0; }
-  header { border-bottom: 3px solid #4f46e5; padding-bottom: 10px; margin-bottom: 16px; }
-  .eyebrow { font-size: 9px; letter-spacing: .12em; text-transform: uppercase; color: #4f46e5; font-weight: 700; }
+  header { border-bottom: 3px solid #0d9488; padding-bottom: 10px; margin-bottom: 16px; }
+  .eyebrow { font-size: 9px; letter-spacing: .12em; text-transform: uppercase; color: #0d9488; font-weight: 700; }
   h1 { font-size: 17px; margin: 4px 0 2px; }
   .codigo { font-family: ui-monospace, "Courier New", monospace; font-size: 10px; color: #64748b; }
   h2 { font-size: 11.5px; text-transform: uppercase; letter-spacing: .06em; color: #475569;
@@ -125,7 +125,7 @@ export function construirResumenEntregaHtml(r: ResumenEjecutivo, generadoPor?: s
   .aviso strong { color: #b45309; }
   .sutil { color: #94a3b8; }
   footer { margin-top: 22px; padding-top: 8px; border-top: 1px solid #e2e8f0; font-size: 9px; color: #94a3b8; }
-  a { color: #4f46e5; text-decoration: none; }
+  a { color: #0d9488; text-decoration: none; }
 </style></head><body>
 
 <header>

@@ -8,7 +8,7 @@ import { useToast } from '@/app/components/ui/toast';
 import { Banner } from '@/app/components/ui/Banner';
 import { Select } from '@/app/components/ui/Select';
 import { useCompras } from '@/app/compras/[negocioId]/ComprasContext';
-import { IconClock as Clock, IconLoader2 as Loader2, IconAlertTriangle as AlertTriangle, IconCalendarClock as CalendarClock, IconFileAlert as FileWarning, IconSparkles as Sparkles } from '@tabler/icons-react';
+import { IconClock as Clock, IconLoader2 as Loader2, IconAlertTriangle as AlertTriangle, IconCalendarClock as CalendarClock, IconFileAlert as FileWarning, IconWand as Sparkles } from '@tabler/icons-react';
 
 type PlazoTipo = 'HABILES' | 'CORRIDOS';
 type Color = 'VERDE' | 'AMARILLO' | 'ROJO' | 'VENCIDO' | 'ENTREGADO';
@@ -191,7 +191,7 @@ export function RelojEntregaCard({ negocioId, esJefeDeVentas, puedeOperar }: { n
   return (
     <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
       <div className="flex items-center justify-between gap-3 px-4 py-3 bg-zinc-50 border-b border-zinc-100">
-        <p className="text-[12.5px] font-bold text-zinc-700 flex items-center gap-1.5"><Clock size={14} /> Reloj de entrega</p>
+        <p className="text-[12.5px] font-semibold text-zinc-700 flex items-center gap-1.5"><Clock size={14} /> Reloj de entrega</p>
         {!reloj?.fijadoAt && puedeOperar && (
           <button onClick={() => setFormAbierto(v => !v)} className="text-[11.5px] font-semibold text-teal-700 hover:text-teal-800">
             {formAbierto ? 'Cerrar' : 'Fijar reloj'}
@@ -222,7 +222,7 @@ export function RelojEntregaCard({ negocioId, esJefeDeVentas, puedeOperar }: { n
         {!reloj?.fijadoAt ? (
           sugerido && puedeOperar ? (
             <div className="rounded-xl border border-teal-200 bg-teal-50/60 p-3.5 space-y-2.5" data-testid="reloj-sugerido">
-              <p className="text-[12.5px] font-bold text-teal-900 flex items-center gap-1.5"><Sparkles size={14} /> El sistema ya calculó el plazo</p>
+              <p className="text-[12.5px] font-semibold text-teal-900 flex items-center gap-1.5"><Sparkles size={14} /> El sistema ya calculó el plazo</p>
               <p className="text-[13px] text-zinc-800 leading-snug">
                 Corre desde <b>{sugerido.hitoInicio.toLowerCase()}</b> ({sugerido.fechaInicio.split('-').reverse().join('-')}), <b>{sugerido.plazoDias} {sugerido.plazoDias === 1 ? 'día' : 'días'} {sugerido.plazoTipo === 'HABILES' ? (sugerido.plazoDias === 1 ? 'hábil' : 'hábiles') : (sugerido.plazoDias === 1 ? 'corrido' : 'corridos')}</b> →
                 vence el <b>{sugerido.venceEl.split('-').reverse().join('-')}</b>.
@@ -242,7 +242,7 @@ export function RelojEntregaCard({ negocioId, esJefeDeVentas, puedeOperar }: { n
         ) : (
           <>
             <div className="flex items-center gap-3 flex-wrap">
-              <span className={`text-[13px] font-bold px-2.5 py-1 rounded-lg border ${COLOR_STYLE[reloj.color!]}`}>
+              <span className={`text-[13px] font-semibold px-2.5 py-1 rounded-lg border ${COLOR_STYLE[reloj.color!]}`}>
                 {reloj.color === 'ENTREGADO' ? (reloj.entregado?.aTiempo ? 'Entregado a tiempo' : 'Entregado con atraso')
                   : reloj.color === 'VENCIDO' ? 'Vencido' : `${reloj.diasRestantes} día(s) restante(s)`}
               </span>
@@ -293,7 +293,7 @@ export function RelojEntregaCard({ negocioId, esJefeDeVentas, puedeOperar }: { n
 
                 {formEntregado && (
                   <div className="bg-teal-50 border border-teal-200 rounded-lg p-2.5 space-y-1.5">
-                    <p className="text-[10.5px] font-bold text-teal-700 uppercase">Fecha real de entrega</p>
+                    <p className="text-[10.5px] font-semibold text-teal-700 uppercase">Fecha real de entrega</p>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
                       <input type="date" value={entregadoForm.fecha} onChange={e => setEntregadoForm(f => ({ ...f, fecha: e.target.value }))}
                         className="text-[11.5px] border border-teal-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-teal-500" />
@@ -309,7 +309,7 @@ export function RelojEntregaCard({ negocioId, esJefeDeVentas, puedeOperar }: { n
 
                 {formProrroga && (
                   <div className="bg-zinc-50 border border-zinc-200 rounded-lg p-2.5 space-y-1.5">
-                    <p className="text-[10.5px] font-bold text-zinc-500 uppercase">Nueva fecha límite y motivo</p>
+                    <p className="text-[10.5px] font-semibold text-zinc-500 uppercase">Nueva fecha límite y motivo</p>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
                       <input type="date" value={prorrogaForm.nuevaFechaLimite} onChange={e => setProrrogaForm(f => ({ ...f, nuevaFechaLimite: e.target.value }))}
                         className="text-[11.5px] border border-zinc-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-teal-500" />
@@ -325,7 +325,7 @@ export function RelojEntregaCard({ negocioId, esJefeDeVentas, puedeOperar }: { n
 
                 {formMulta && (
                   <div className="bg-rose-50 border border-rose-200 rounded-lg p-2.5 space-y-1.5">
-                    <p className="text-[10.5px] font-bold text-rose-700 uppercase">Decisión expresa — nunca por silencio ni por atraso</p>
+                    <p className="text-[10.5px] font-semibold text-rose-700 uppercase">Decisión expresa — nunca por silencio ni por atraso</p>
                     <textarea rows={2} value={multaMotivo} onChange={e => setMultaMotivo(e.target.value)} placeholder="Motivo para entregar con multa…"
                       className="w-full text-[11.5px] border border-rose-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-rose-500" />
                     <button onClick={guardarMulta} disabled={!multaMotivo.trim() || guardandoMulta}
@@ -338,7 +338,7 @@ export function RelojEntregaCard({ negocioId, esJefeDeVentas, puedeOperar }: { n
             )}
 
             <div className="pt-2 border-t border-zinc-100">
-              <button onClick={verEscenariosMulta} disabled={cargandoMultas} className="flex items-center gap-1 text-[11.5px] font-semibold text-indigo-600 hover:text-indigo-700 disabled:opacity-50">
+              <button onClick={verEscenariosMulta} disabled={cargandoMultas} className="flex items-center gap-1 text-[11.5px] font-semibold text-teal-600 hover:text-teal-700 disabled:opacity-50">
                 {cargandoMultas ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />} Calcular escenarios de multa
               </button>
               {escenariosMulta && (
@@ -346,7 +346,7 @@ export function RelojEntregaCard({ negocioId, esJefeDeVentas, puedeOperar }: { n
                   {escenariosMulta.map(e => (
                     <div key={e.diasAtraso} className="flex items-center justify-between gap-2 bg-zinc-50 border border-zinc-100 rounded-lg px-2.5 py-1.5">
                       <span className="text-[11.5px] text-zinc-600">{e.diasAtraso} día(s) de atraso{e.nota && <span className="text-zinc-400"> — {e.nota}</span>}</span>
-                      <span className="text-[12.5px] font-bold text-zinc-800 flex-shrink-0">{fmtCLP(e.costoEstimado)}</span>
+                      <span className="text-[12.5px] font-semibold text-zinc-800 flex-shrink-0">{fmtCLP(e.costoEstimado)}</span>
                     </div>
                   ))}
                 </div>

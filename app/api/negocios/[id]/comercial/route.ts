@@ -16,7 +16,7 @@ import { CLIENTE_ICA, clienteDeNegocio, docsVisiblesDeNegocio, filtroDocsVisible
 import pool from '@/app/lib/db';
 import { registrarEvento } from '@/app/lib/historial';
 import { publicarCambio } from '@/app/lib/sse-bus';
-import { puedeVerNegocioAsignado, permisosDeUsuario } from '@/app/lib/api-auth';
+import { puedeVerNegocioAsignado, permisosDeUsuario, tienePermiso } from '@/app/lib/api-auth';
 import { ahoraChileSQL } from '@/app/lib/tz';
 import {
   generarItemsDesdeViabilidad, resumirChecklist, esLineaTecnica, transicion, tieneInformacionComercial,
@@ -1065,7 +1065,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     // de inadmisibilidad NO cumplidas o pendientes no se aprueba — "debe permitir señalar el ítem
     // exacto que impide subir la oferta". Solo aplica a líneas que ya pasaron por el comparador, y un
     // administrador conserva la potestad total.
-    if (accion === 'APROBAR' && item.tipo === 'linea_tecnica' && rol !== 'admin') {
+    if (accion === 'APROBAR' && item.tipo === 'linea_tecnica' && !(await tienePermiso(request, 'aprobar_linea_tecnica'))) {
       const abiertas = await causalesAbiertasDeLinea(item.id, item.criticidad);
       if (abiertas?.length) {
         const detalle = abiertas.slice(0, 3).map(c => `"${c.causal.slice(0, 70)}" (${c.estado.replace('_', ' ').toLowerCase()})`).join('; ');

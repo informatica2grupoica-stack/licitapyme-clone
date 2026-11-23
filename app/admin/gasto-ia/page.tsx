@@ -33,7 +33,7 @@ interface Datos {
 
 // Un color fijo por módulo (los mismos en la barra apilada de cada perfil, el donut y los chips).
 const COLOR_MODULO: Record<string, string> = {
-  viabilidad: '#4f46e5', consultas: '#0891b2', auditor: '#7c3aed', anexos: '#d97706',
+  viabilidad: '#0d9488', consultas: '#0891b2', auditor: '#0891b2', anexos: '#d97706',
   compras: '#059669', costeo: '#e11d48', prefiltro: '#2563eb', otros: '#94a3b8',
 };
 const NOMBRE_MODULO: Record<string, string> = {
@@ -100,8 +100,8 @@ export default function GastoIAPage() {
       <div className="p-4 sm:p-6 lg:p-8 space-y-5">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
-              <Coin size={26} className="text-indigo-600" /> Gasto de IA por perfil
+            <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+              <Coin size={26} className="text-teal-600" /> Gasto de IA por perfil
             </h1>
             <p className="text-sm text-slate-500 mt-0.5 max-w-2xl">
               Cuánto consume cada perfil de los modelos de IA (viabilidad, consultas a los documentos, auditor, anexos, compras…). Costo estimado en dólares con las tarifas de cada modelo.
@@ -165,7 +165,7 @@ export default function GastoIAPage() {
                   {/* RANKING DE PERFILES */}
                   <div className="bg-white dark:bg-white/[0.03] border border-slate-200 dark:border-white/[0.07] rounded-2xl p-4 sm:p-5">
                     <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-                      <h3 className="text-[13.5px] font-bold text-slate-800 dark:text-slate-100">Quién gasta más</h3>
+                      <h3 className="text-[13.5px] font-semibold text-slate-800 dark:text-slate-100">Quién gasta más</h3>
                       <div className="flex flex-wrap gap-1">
                         <button onClick={() => setModuloSel(null)} className={`px-2 py-1 rounded-md text-[11px] font-semibold ${!moduloSel ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900' : 'bg-slate-100 text-slate-600 dark:bg-white/[0.06] dark:text-slate-300'}`}>Todos</button>
                         {datos.por_modulo.map(m => (
@@ -187,17 +187,17 @@ export default function GastoIAPage() {
                           <div key={key} className="py-2.5">
                             <button onClick={() => setAbierto(abre ? null : key)} className="w-full text-left">
                               <div className="flex items-center gap-3">
-                                <span className="w-5 text-[11px] font-bold text-slate-400 text-right">{i + 1}</span>
-                                <span className="w-8 h-8 rounded-full flex items-center justify-center text-[11px] font-bold text-white shrink-0" style={{ background: color }}>
+                                <span className="w-5 text-[11px] font-semibold text-slate-400 text-right">{i + 1}</span>
+                                <span className="w-8 h-8 rounded-full flex items-center justify-center text-[11px] font-semibold text-white shrink-0" style={{ background: color }}>
                                   {p.usuario_id == null ? <Robot size={16} /> : inicialesUsuario(p.nombre, p.email)}
                                 </span>
                                 <div className="min-w-0 flex-1">
                                   <div className="flex items-baseline justify-between gap-2">
                                     <p className="text-[13px] font-semibold text-slate-800 dark:text-slate-100 truncate">
                                       {p.nombre}
-                                      {p.rol === 'admin' && <span className="ml-1.5 text-[10px] font-bold uppercase text-indigo-600">admin</span>}
+                                      {p.rol === 'admin' && <span className="ml-1.5 text-[10px] font-semibold uppercase text-teal-600">admin</span>}
                                     </p>
-                                    <p className="text-[13px] font-bold text-slate-900 dark:text-slate-50 tabular-nums">{usd(p.costo)}</p>
+                                    <p className="text-[13px] font-semibold text-slate-900 dark:text-slate-50 tabular-nums">{usd(p.costo)}</p>
                                   </div>
                                   <div className="mt-1 h-2 rounded-full bg-slate-100 dark:bg-white/[0.06] overflow-hidden flex" style={{ width: `${Math.max(4, (p.costo / maxCosto) * 100)}%` }}>
                                     {p.modulos.map(m => <div key={m.modulo} title={`${NOMBRE_MODULO[m.modulo] || m.modulo}: ${usd(m.costo)}`} style={{ width: `${(m.costo / tot) * 100}%`, background: colMod(m.modulo) }} />)}
@@ -275,12 +275,12 @@ export default function GastoIAPage() {
                   <div className="h-[220px]">
                     <ResponsiveContainer width="100%" height="100%">
                       <AreaChart data={datos.por_dia.map(d => ({ ...d, etiqueta: diaCorto(d.dia) }))} margin={{ left: 0, right: 8, top: 6 }}>
-                        <defs><linearGradient id="gGasto" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#4f46e5" stopOpacity={0.35} /><stop offset="100%" stopColor="#4f46e5" stopOpacity={0} /></linearGradient></defs>
+                        <defs><linearGradient id="gGasto" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#0d9488" stopOpacity={0.35} /><stop offset="100%" stopColor="#0d9488" stopOpacity={0} /></linearGradient></defs>
                         <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
                         <XAxis dataKey="etiqueta" tick={{ fontSize: 11, fill: '#94a3b8' }} tickLine={false} axisLine={false} />
                         <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} tickLine={false} axisLine={false} width={48} tickFormatter={(v) => `$${Number(v).toFixed(v >= 1 ? 0 : 2)}`} />
                         <Tooltip formatter={(v, n) => n === 'costo' ? [usd(Number(v)), 'Gasto'] : [v, 'Llamadas']} labelFormatter={(l) => `Día ${l}`} />
-                        <Area type="monotone" dataKey="costo" stroke="#4f46e5" strokeWidth={2} fill="url(#gGasto)" />
+                        <Area type="monotone" dataKey="costo" stroke="#0d9488" strokeWidth={2} fill="url(#gGasto)" />
                       </AreaChart>
                     </ResponsiveContainer>
                   </div>
@@ -296,7 +296,7 @@ export default function GastoIAPage() {
                             <XAxis type="number" tick={{ fontSize: 11, fill: '#94a3b8' }} tickLine={false} axisLine={false} tickFormatter={(v) => `$${Number(v).toFixed(2)}`} />
                             <YAxis type="category" dataKey="codigo" width={120} tick={{ fontSize: 11, fill: '#475569' }} tickLine={false} axisLine={false} />
                             <Tooltip formatter={(v) => usd(Number(v))} />
-                            <Bar dataKey="costo" fill="#7c3aed" radius={[0, 6, 6, 0]} />
+                            <Bar dataKey="costo" fill="#0891b2" radius={[0, 6, 6, 0]} />
                           </BarChart>
                         </ResponsiveContainer>
                       </div>
@@ -316,7 +316,7 @@ export default function GastoIAPage() {
                               <td className="py-1 pr-2 text-slate-500 whitespace-nowrap">{fechaHora(r.fecha)}</td>
                               <td className="pr-2 text-slate-700 max-w-[110px] truncate">{r.nombre}</td>
                               <td className="pr-2"><span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-sm" style={{ background: colMod(r.modulo.split('.')[0]) }} />{NOMBRE_MODULO[r.modulo.split('.')[0]] || r.modulo.split('.')[0]}{r.modulo.includes('.') && <span className="text-slate-400">· {r.modulo.split('.').slice(1).join('.')}</span>}</span></td>
-                              <td className="pr-2">{r.codigo ? <Link href={`/licitacion/${encodeURIComponent(r.codigo)}`} className="text-indigo-600 hover:underline">{r.codigo}</Link> : <span className="text-slate-300">—</span>}</td>
+                              <td className="pr-2">{r.codigo ? <Link href={`/licitacion/${encodeURIComponent(r.codigo)}`} className="text-teal-600 hover:underline">{r.codigo}</Link> : <span className="text-slate-300">—</span>}</td>
                               <td className="pr-2 text-right tabular-nums text-slate-500">{tok(r.tokens_in + r.tokens_out)}</td>
                               <td className="text-right tabular-nums font-semibold text-slate-800">{usd(r.costo)}</td>
                             </tr>

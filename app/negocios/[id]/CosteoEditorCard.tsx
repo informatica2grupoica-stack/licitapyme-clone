@@ -35,7 +35,7 @@ import { useCosteoFlotante, type CosteoEstadoHeredado } from '@/app/components/C
 // misma aritmética que el bloque que el comercial arma a mano al pie del Excel. Módulo sin
 // dependencias, compartido — acá NO se duplica ninguna de esas fórmulas.
 import { calcularComparativo, entradaComparativoDeFilas, costoRealDeFila, alertasDeDesvio, recargoParaMargen, margenDeRecargo, parsearRecargo, esLinkDeProducto, tieneRespaldoLink, IVA, type Comparativo } from '@/app/lib/costeo-comparativo';
-import { IconFilter, IconChevronDown, IconSortAscending, IconSortDescending, IconCalculator as Calculator,IconLoader2 as Loader2, IconPlus as Plus, IconTrash as Trash2, IconRefresh as RefreshCw, IconDeviceFloppy as Save, IconAlertTriangle as AlertTriangle, IconShieldCheck as ShieldCheck, IconSparkles as Sparkles, IconMaximize as Maximize2, IconX as X, IconExternalLink as ExternalLink, IconArrowLeft as ArrowLeft, IconLayoutBoardSplit as SplitSquareHorizontal, IconArrowMerge as Combine, IconFileSearch as FileSearch, IconLink as LinkIcon, IconPictureInPicture as PictureInPicture2, IconMinimize as Minimize2, IconEye as Eye, IconPhotoPlus as PhotoPlus, IconFileSpreadsheet as FileSpreadsheet, IconDownload as Download, IconHistory as History } from '@tabler/icons-react';
+import { IconFilter, IconChevronDown, IconSortAscending, IconSortDescending, IconCalculator as Calculator,IconLoader2 as Loader2, IconPlus as Plus, IconTrash as Trash2, IconRefresh as RefreshCw, IconDeviceFloppy as Save, IconAlertTriangle as AlertTriangle, IconShieldCheck as ShieldCheck, IconWand as Sparkles, IconMaximize as Maximize2, IconX as X, IconExternalLink as ExternalLink, IconArrowLeft as ArrowLeft, IconLayoutBoardSplit as SplitSquareHorizontal, IconArrowMerge as Combine, IconFileSearch as FileSearch, IconLink as LinkIcon, IconPictureInPicture as PictureInPicture2, IconMinimize as Minimize2, IconEye as Eye, IconPhotoPlus as PhotoPlus, IconFileSpreadsheet as FileSpreadsheet, IconDownload as Download, IconHistory as History } from '@tabler/icons-react';
 
 import { fusionarConViabilidad, filasQueViabilidadYaNoTrae, quitarFilasQueViabilidadYaNoTrae } from '@/app/lib/costeo-editor-fusion';
 
@@ -272,7 +272,7 @@ function CeldaComplemento({ value, onChange, disabled }: {
   const botones = (
     <div className="flex justify-end gap-2 mt-2">
       <button type="button" onClick={() => setAbierto(null)} className="px-3 py-1 text-[12px] rounded-md border border-zinc-300 text-zinc-600 hover:bg-zinc-50">Cancelar</button>
-      <button type="button" onClick={guardar} className="px-3 py-1 text-[12px] rounded-md bg-indigo-600 text-white font-semibold hover:bg-indigo-700">Guardar</button>
+      <button type="button" onClick={guardar} className="px-3 py-1 text-[12px] rounded-md bg-teal-600 text-white font-semibold hover:bg-teal-700">Guardar</button>
     </div>
   );
   return (
@@ -284,14 +284,14 @@ function CeldaComplemento({ value, onChange, disabled }: {
       {abierto && typeof document !== 'undefined' && createPortal(
         abierto === 'modal' ? (
           <div className="fixed inset-0 z-[100] bg-black/40 flex items-center justify-center p-4" onMouseDown={e => { if (e.target === e.currentTarget) setAbierto(null); }}>
-            <div className="bg-white rounded-xl shadow-xl w-full max-w-xl p-4">
+            <div className="bg-white rounded-xl shadow-flotante w-full max-w-xl p-4">
               <p className="text-[13px] font-semibold text-zinc-800 mb-2">Complemento del detalle</p>
               {cuerpo}{botones}
             </div>
           </div>
         ) : (
           <div className="fixed inset-0 z-[100]" onMouseDown={e => { if (e.target === e.currentTarget) setAbierto(null); }}>
-            <div className="absolute bg-white rounded-xl shadow-xl border border-zinc-200 p-3 w-[330px]" style={{ left: pos?.x ?? 0, top: pos?.y ?? 0 }}>
+            <div className="absolute bg-white rounded-xl shadow-flotante border border-zinc-200 p-3 w-[330px]" style={{ left: pos?.x ?? 0, top: pos?.y ?? 0 }}>
               {cuerpo}{botones}
             </div>
           </div>
@@ -466,11 +466,11 @@ function CeldaImagen({ url, subiendo, disabled, onSubir, onQuitar, onVer }: {
     <input type="file" accept="image/png,image/jpeg,image/webp" className="hidden"
       onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) onSubir(f); }} />
   );
-  if (subiendo) return <div className="w-full h-full flex items-center justify-center text-indigo-400"><Loader2 size={13} className="animate-spin" /></div>;
+  if (subiendo) return <div className="w-full h-full flex items-center justify-center text-teal-400"><Loader2 size={13} className="animate-spin" /></div>;
   if (!url) return disabled
     ? <div className="w-full h-full flex items-center justify-center text-zinc-300" title="Sin imagen">—</div>
     : (
-      <label className="w-full h-full flex items-center justify-center cursor-pointer text-zinc-400 hover:text-indigo-600" title="Subir una foto del producto (PNG, JPG o WEBP, hasta 5 MB)">
+      <label className="w-full h-full flex items-center justify-center cursor-pointer text-zinc-400 hover:text-teal-600" title="Subir una foto del producto (PNG, JPG o WEBP, hasta 5 MB)">
         <PhotoPlus size={15} />{input}
       </label>
     );
@@ -478,10 +478,10 @@ function CeldaImagen({ url, subiendo, disabled, onSubir, onQuitar, onVer }: {
     <div className="w-full h-full flex items-center justify-center gap-1">
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img src={url} alt="" className="h-5 w-5 object-cover rounded-sm border border-zinc-200" />
-      <button type="button" onClick={onVer} title="Ver la imagen" className="p-0.5 text-zinc-500 hover:text-indigo-600"><Eye size={14} /></button>
+      <button type="button" onClick={onVer} title="Ver la imagen" className="p-0.5 text-zinc-500 hover:text-teal-600"><Eye size={14} /></button>
       {!disabled && (
         <>
-          <label className="p-0.5 text-zinc-300 hover:text-indigo-600 cursor-pointer" title="Cambiar la imagen"><PhotoPlus size={12} />{input}</label>
+          <label className="p-0.5 text-zinc-300 hover:text-teal-600 cursor-pointer" title="Cambiar la imagen"><PhotoPlus size={12} />{input}</label>
           <button type="button" onClick={onQuitar} title="Quitar la imagen" className="p-0.5 text-zinc-300 hover:text-rose-600"><X size={12} /></button>
         </>
       )}
@@ -506,7 +506,7 @@ function CeldaLink({ value, onChange, disabled, label }: {
           type="button"
           onClick={() => window.open(value, '_blank', 'noopener,noreferrer')}
           title={value}
-          className="absolute right-0.5 p-0.5 text-zinc-400 hover:text-indigo-600"
+          className="absolute right-0.5 p-0.5 text-zinc-400 hover:text-teal-600"
         >
           <ExternalLink size={11} />
         </button>
@@ -639,7 +639,7 @@ function MenuFiltroColumna({ col, valores, filtro, orden, x, y, onAplicar, onCer
   const itemMenu = 'w-full flex items-center gap-2 px-2 py-1 rounded text-left text-[12px] text-zinc-700 hover:bg-zinc-100 disabled:opacity-40 disabled:hover:bg-transparent';
   return createPortal(
     <div className="fixed inset-0 z-[100]" onMouseDown={e => { if (e.target === e.currentTarget) onCerrar(); }}>
-      <div className="absolute bg-white rounded-md shadow-xl border border-zinc-300 p-1.5 w-[260px] font-normal"
+      <div className="absolute bg-white rounded-md shadow-flotante border border-zinc-300 p-1.5 w-[260px] font-normal"
         style={{ left: Math.max(4, Math.min(x, window.innerWidth - 264)), top: Math.min(y, window.innerHeight - 420) }}
         onKeyDown={e => { if (e.key === 'Escape') onCerrar(); if (e.key === 'Enter') aceptar(); }}>
         <button type="button" className={itemMenu} onClick={() => onAplicar(filtro ?? null, orden === 'asc' ? null : 'asc')}>
@@ -697,7 +697,7 @@ function FilaCuadro({ etiqueta, valor, fondo, fuerte, titulo, tono }: {
     <tr title={titulo}>
       <td className="px-2 py-[3px] text-[11px] text-zinc-700 text-right whitespace-nowrap"
           style={{ border: `1px solid ${GRID_BORDE}`, background: fondo }}>{etiqueta}</td>
-      <td className={`px-2 py-[3px] text-[11.5px] text-right tabular-nums ${fuerte ? 'font-bold' : 'font-semibold'} ${color}`}
+      <td className={`px-2 py-[3px] text-[11.5px] text-right tabular-nums ${fuerte ? 'font-semibold' : 'font-semibold'} ${color}`}
           style={{ border: `1px solid ${GRID_BORDE}` }}>{valor}</td>
     </tr>
   );
@@ -791,7 +791,7 @@ function CuadroComparativo({ comp, titulo, fuente, presupuestoManual, onPresupue
       {/* Un cuadro POR HOJA: cada línea/canasta se compara contra SU tope, nunca las dos juntas
           contra el global (pedido del usuario, 03-sep-2026, con el Excel de 1271359-92-LE26 a la
           vista: ahí cada canasta tiene su propia celda "Presupuesto iva incluido"). */}
-      <p className="text-[10.5px] font-bold text-zinc-500 px-1 flex items-center gap-1.5">
+      <p className="text-[10.5px] font-semibold text-zinc-500 px-1 flex items-center gap-1.5">
         <span className="truncate">{titulo}</span>
         {apagada && <span className="text-[9.5px] font-semibold text-zinc-400 flex-shrink-0">· no se oferta</span>}
       </p>
@@ -859,10 +859,10 @@ function CuadroComparativo({ comp, titulo, fuente, presupuestoManual, onPresupue
       <div className={`${ancho ? 'min-w-0 ' : ''}space-y-2.5`}>
       <div className="border border-amber-300" style={{ background: CUADRO_AMARILLO }}>
         <div className="px-2 pt-1.5 pb-1">
-          <p className="text-[10px] font-bold uppercase tracking-wide text-amber-800/80 leading-none">
+          <p className="text-[10px] font-semibold text-amber-800/80 leading-none">
             Presupuesto NETO · tope
           </p>
-          <p className={`mt-1 leading-none tabular-nums ${comp.presupuestoNeto == null ? 'text-[13px] font-semibold text-amber-700/70' : 'text-[19px] font-bold text-zinc-900'}`}
+          <p className={`mt-1 leading-none tabular-nums ${comp.presupuestoNeto == null ? 'text-[13px] font-semibold text-amber-700/70' : 'text-[19px] font-semibold text-zinc-900'}`}
              title="El tope NETO de esta línea. Es el que se compara contra la oferta (Total neto venta) y del que sale el % de distancia.">
             {comp.presupuestoNeto == null ? 'sin tope' : fmtCLP(Math.round(comp.presupuestoNeto))}
           </p>
@@ -893,20 +893,20 @@ function CuadroComparativo({ comp, titulo, fuente, presupuestoManual, onPresupue
           vistazo cuánto del tope se va en costo. */}
       <div className="border border-orange-300 px-2 pt-1.5 pb-1.5" style={{ background: CUADRO_SALMON }}
            title="Suma de la columna Costo total neto — lo que se supuso al cotizar">
-        <p className="text-[10px] font-bold uppercase tracking-wide text-orange-900/70 leading-none">Total costo neto</p>
-        <p className="mt-1 leading-none tabular-nums text-[19px] font-bold text-zinc-900">{fmtCLP(Math.round(comp.costoNetoEstimado))}</p>
+        <p className="text-[10px] font-semibold text-orange-900/70 leading-none">Total costo neto</p>
+        <p className="mt-1 leading-none tabular-nums text-[19px] font-semibold text-zinc-900">{fmtCLP(Math.round(comp.costoNetoEstimado))}</p>
       </div>
       {/* Utilidad total neta: también se muestra aquí (sigue en el cuadro Costeo de la izquierda). */}
       <div className="border border-emerald-300 px-2 pt-1.5 pb-1.5" style={{ background: CUADRO_VERDE }}
            title="= Total neto venta − Total costo neto">
-        <p className="text-[10px] font-bold uppercase tracking-wide text-emerald-900/70 leading-none">Utilidad total neta</p>
-        <p className={`mt-1 leading-none tabular-nums text-[19px] font-bold ${comp.utilidadEstimada < 0 ? 'text-red-600' : 'text-zinc-900'}`}>{fmtCLP(Math.round(comp.utilidadEstimada))}</p>
+        <p className="text-[10px] font-semibold text-emerald-900/70 leading-none">Utilidad total neta</p>
+        <p className={`mt-1 leading-none tabular-nums text-[19px] font-semibold ${comp.utilidadEstimada < 0 ? 'text-red-600' : 'text-zinc-900'}`}>{fmtCLP(Math.round(comp.utilidadEstimada))}</p>
       </div>
       </div>
 
       {/* ── Real: lo que de verdad costó ───────────────────────────────────────────────────── */}
       <div className={ancho ? 'min-w-0' : 'pt-1.5 border-t border-dashed border-zinc-300'}>
-        <p className="text-[10.5px] font-bold text-zinc-500 mb-1 px-1"
+        <p className="text-[10.5px] font-semibold text-zinc-500 mb-1 px-1"
            title='Lo que se ofertó (Total neto) es un dato fijo. Lo demás de este bloque se calcula desde lo que en verdad pagaste al proveedor — se carga ítem por ítem en la planilla, columna "Costo unit. REAL", cuando llega la factura/OC. Mientras esa columna esté vacía, este bloque no tiene de dónde sacar el costo real y se ve en blanco: no es un error.'>
           COMPARATIVO REAL
         </p>
@@ -987,10 +987,10 @@ function RegistroCambiosModal({ registro, codigo, onCerrar }: { registro: Entrad
   const pesos = (n: number) => `${Math.round(n).toLocaleString('es-CL')}`;
   return (
     <div className="fixed inset-0 z-[120] bg-black/40 flex items-center justify-center p-4" role="dialog" aria-modal="true" onClick={onCerrar}>
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+      <div className="bg-white rounded-xl shadow-flotante w-full max-w-2xl max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
         <div className="flex items-center gap-2 px-4 py-3 border-b border-zinc-200">
           <History size={16} className="text-zinc-500" />
-          <h3 className="text-[14px] font-bold text-zinc-900 flex-1">Registro de cambios · {codigo}</h3>
+          <h3 className="text-[14px] font-semibold text-zinc-900 flex-1">Registro de cambios · {codigo}</h3>
           <button onClick={onCerrar} className="p-1 text-zinc-400 hover:text-zinc-700" title="Cerrar"><X size={16} /></button>
         </div>
         <div className="flex-1 overflow-y-auto px-4 py-3">
@@ -1001,7 +1001,7 @@ function RegistroCambiosModal({ registro, codigo, onCerrar }: { registro: Entrad
               {registro.map((e, i) => (
                 <li key={i} className="border-l-2 border-emerald-300 pl-3">
                   <p className="text-[12.5px] text-zinc-800">
-                    <span className="font-bold">{e.quien}</span> · {e.accion}
+                    <span className="font-semibold">{e.quien}</span> · {e.accion}
                   </p>
                   <p className="text-[11px] text-zinc-400">
                     {fechaRegistro(e.fecha)}
@@ -1647,13 +1647,13 @@ export function CosteoEditorCard({
             <Calculator size={16} className="text-emerald-600" />
           </div>
           <div>
-            <h2 className="text-[15px] font-bold text-zinc-900 leading-tight">Costeo · {licitacionCodigo}</h2>
+            <h2 className="text-[15px] font-semibold text-zinc-900 leading-tight">Costeo · {licitacionCodigo}</h2>
             <p className="text-[11.5px] text-zinc-400">
               {estado.modalidad === 'suma_alzada' ? 'Global (suma alzada)' : estado.modalidad === 'por_linea' ? `Por línea — ${grupos.length} línea(s)` : `Por categoría — ${grupos.length} grupo(s)`}
               {ultimoGuardado && ` · guardado ${ultimoGuardado}`}
               {registro[0] && ` · último cambio: ${registro[0].quien}, ${fechaRegistro(registro[0].fecha)}`}
               {dirty && <span className="text-amber-600 font-semibold"> · cambios sin guardar</span>}
-              {modoCompras && <span className="text-indigo-600 font-semibold"> · modo Compras: costo real, links y las filas que tu perfil puede agregar</span>}
+              {modoCompras && <span className="text-teal-600 font-semibold"> · modo Compras: costo real, links y las filas que tu perfil puede agregar</span>}
             </p>
           </div>
         </div>
@@ -1671,7 +1671,7 @@ export function CosteoEditorCard({
                 ? { ...prev, grupos: prev.grupos.map((x, i) => i !== giCabecera ? x : { ...x, margenVenta: v }) }
                 : { ...prev, margenVenta: v }) : prev)}
               title="Admite decimales con coma, ej. 14,45"
-              className="w-14 bg-transparent text-right font-bold text-zinc-800 outline-none disabled:opacity-60"
+              className="w-14 bg-transparent text-right font-semibold text-zinc-800 outline-none disabled:opacity-60"
             />
             %
             {/* margen sobre la venta = recargo / (1 + recargo) — el mismo número que sale en el
@@ -1738,7 +1738,7 @@ export function CosteoEditorCard({
             title={sinLink.length > 0
               ? `Falta un link o comentario en Link 1 de ${sinLink.length} ítem(s) ya cotizado(s). Complétalos para poder guardar.`
               : undefined}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-[11.5px] font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg transition-colors disabled:opacity-40"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-[11.5px] font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg transition-colors disabled:opacity-40"
           >
             {guardando ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
             Guardar
@@ -1747,7 +1747,7 @@ export function CosteoEditorCard({
             <a
               href={`/negocios/${negocioId}`}
               title="Volver a la ficha del negocio en esta misma pestaña"
-              className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11.5px] font-bold text-zinc-500 hover:text-zinc-900 hover:bg-zinc-50 rounded-lg border border-zinc-200 transition-colors"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11.5px] font-semibold text-zinc-500 hover:text-zinc-900 hover:bg-zinc-50 rounded-lg border border-zinc-200 transition-colors"
             >
               <ArrowLeft size={12} /> Volver al negocio
             </a>
@@ -1759,7 +1759,7 @@ export function CosteoEditorCard({
               <button
                 onClick={() => void minimizarFlotante()}
                 title="Minimizar a burbuja (Esc) — sigue editando cuando quieras desde el botón redondo, no se pierde nada"
-                className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11.5px] font-bold text-zinc-500 hover:text-zinc-900 hover:bg-zinc-50 rounded-lg border border-zinc-200 transition-colors"
+                className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11.5px] font-semibold text-zinc-500 hover:text-zinc-900 hover:bg-zinc-50 rounded-lg border border-zinc-200 transition-colors"
               >
                 <Minimize2 size={12} /> Minimizar
               </button>
@@ -1777,7 +1777,7 @@ export function CosteoEditorCard({
             <button
               onClick={abrirCosteoGrande}
               title="Abre el costeo grande — se mantiene abierto aunque navegues a otra página de la app; minimízalo a una burbuja cuando quieras seguir trabajando en otra parte"
-              className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11.5px] font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11.5px] font-semibold text-teal-700 bg-teal-50 hover:bg-teal-100 rounded-lg transition-colors"
             >
               <Maximize2 size={12} /> Abrir costeo
             </button>
@@ -1786,8 +1786,8 @@ export function CosteoEditorCard({
       </div>
 
       <div className="flex flex-wrap gap-x-5 gap-y-1 text-[12px] text-zinc-500 mt-2">
-        <span>Costo total: <span className="font-bold text-zinc-700">{fmtCLP(costoGeneral)}</span></span>
-        <span>Precio total: <span className="font-bold text-emerald-700">{fmtCLP(totalGeneral)}</span></span>
+        <span>Costo total: <span className="font-semibold text-zinc-700">{fmtCLP(costoGeneral)}</span></span>
+        <span>Precio total: <span className="font-semibold text-emerald-700">{fmtCLP(totalGeneral)}</span></span>
         {gruposOfertados.length < grupos.length && (
           <span className="text-zinc-400">({grupos.length - gruposOfertados.length} línea(s) apagada(s), no cuentan)</span>
         )}
@@ -1822,7 +1822,7 @@ export function CosteoEditorCard({
           </p>
           <button
             onClick={() => setEstado(prev => prev ? separarPorLinea(prev) : prev)}
-            className="flex items-center gap-1 flex-shrink-0 text-[11.5px] font-bold text-amber-800 hover:text-amber-950 bg-white border border-amber-300 rounded px-2 py-1"
+            className="flex items-center gap-1 flex-shrink-0 text-[11.5px] font-semibold text-amber-800 hover:text-amber-950 bg-white border border-amber-300 rounded px-2 py-1"
           >
             <SplitSquareHorizontal size={12} /> Separar por línea
           </button>
@@ -1868,10 +1868,10 @@ export function CosteoEditorCard({
     <div className="border border-[#c6c6c6] bg-white shadow-sm flex-1 min-h-0 min-w-0 flex flex-col" style={{ fontFamily: FUENTE_HOJA }}>
       {verImagen && createPortal(
         <div className="fixed inset-0 z-[400] bg-black/70 flex items-center justify-center p-6" onClick={() => setVerImagen(null)} role="dialog" aria-modal="true" aria-label="Imagen del producto">
-          <div className="relative max-w-[92vw] max-h-[90vh] bg-white rounded-xl p-3 shadow-2xl flex flex-col" onClick={e => e.stopPropagation()}>
+          <div className="relative max-w-[92vw] max-h-[90vh] bg-white rounded-xl p-3 shadow-flotante flex flex-col" onClick={e => e.stopPropagation()}>
             <div className="flex items-center gap-2 pb-2">
               <p className="flex-1 min-w-0 text-[12.5px] font-semibold text-zinc-800 truncate" title={verImagen.detalle}>{verImagen.detalle || 'Imagen del producto'}</p>
-              <a href={verImagen.url} target="_blank" rel="noopener noreferrer" title="Abrir en una pestaña nueva" className="p-1 text-zinc-400 hover:text-indigo-600"><ExternalLink size={14} /></a>
+              <a href={verImagen.url} target="_blank" rel="noopener noreferrer" title="Abrir en una pestaña nueva" className="p-1 text-zinc-400 hover:text-teal-600"><ExternalLink size={14} /></a>
               <button onClick={() => setVerImagen(null)} title="Cerrar" className="p-1 text-zinc-400 hover:text-zinc-800"><X size={16} /></button>
             </div>
             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -1965,7 +1965,7 @@ export function CosteoEditorCard({
                 const dir = af?.orden?.col === h ? af.orden.dir : null;
                 const Icono = filtrada ? IconFilter : dir === 'asc' ? IconSortAscending : dir === 'desc' ? IconSortDescending : IconChevronDown;
                 return (
-                  <th key={h} title={tip || undefined} className="px-1.5 py-1 text-left text-[11.5px] font-bold text-zinc-800 whitespace-nowrap" style={{ border: `1px solid ${GRID_BORDE}` }}>
+                  <th key={h} title={tip || undefined} className="px-1.5 py-1 text-left text-[11.5px] font-semibold text-zinc-800 whitespace-nowrap" style={{ border: `1px solid ${GRID_BORDE}` }}>
                     <div className="flex items-center gap-1">
                       <span className="flex-1">{h}</span>
                       {/* Flechita del autofiltro, como la de Excel: azul cuando la columna filtra u ordena. */}
@@ -2095,14 +2095,14 @@ export function CosteoEditorCard({
                   <td style={{ border: `1px solid ${GRID_BORDE}` }} className="text-center whitespace-nowrap">
                     {(f.link1 || f.link2 || f.link3) && (
                       generandoFicha.has(f.id) ? (
-                        <span className="inline-block p-0.5 text-indigo-400" title="Generando ficha técnica…">
+                        <span className="inline-block p-0.5 text-teal-400" title="Generando ficha técnica…">
                           <Loader2 size={11} className="animate-spin" />
                         </span>
                       ) : (
                         <button
                           onClick={() => generarFichaProducto(f)}
                           title="Generar ficha técnica desde el primer link cargado (sube un PDF a Documentos Propios)"
-                          className="opacity-0 group-hover:opacity-100 p-0.5 text-zinc-300 hover:text-indigo-600 transition-opacity"
+                          className="opacity-0 group-hover:opacity-100 p-0.5 text-zinc-300 hover:text-teal-600 transition-opacity"
                         >
                           <FileSearch size={11} />
                         </button>
@@ -2113,7 +2113,7 @@ export function CosteoEditorCard({
                     {!congelado && !modoCompras && !f.agregadoPorCompras && !esAdic && f.valorConIva == null && (
                       <button onClick={() => actualizarFila(grupoActivo, fi, { agregadoPorCompras: true, margenVenta: null, cantidad: f.cantidad ?? 1 })}
                         title="Convertir en gasto extra: un costo que no se le vendió al cliente. Suma al costo real (gastos adicionales) y deja de contar como ítem ofertado."
-                        className="opacity-0 group-hover:opacity-100 px-1 text-[9.5px] font-bold text-zinc-400 hover:text-indigo-600 transition-opacity">
+                        className="opacity-0 group-hover:opacity-100 px-1 text-[9.5px] font-semibold text-zinc-400 hover:text-teal-600 transition-opacity">
                         GASTO
                       </button>
                     )}
@@ -2136,16 +2136,16 @@ export function CosteoEditorCard({
                 suma queda justo bajo SU columna (Costo total neto / Precio total neto). */}
             <tr>
               <td className="text-[11px] text-zinc-400 text-center" style={{ border: `1px solid ${GRID_BORDE}`, background: '#f3f2f1', height: 26 }}>{g.filas.length + 2}</td>
-              <td colSpan={8} className="px-1.5 text-[11.5px] font-bold text-zinc-500" style={{ border: `1px solid ${GRID_BORDE}`, background: '#eef1f5' }}>TOTALES DE ESTA HOJA</td>
+              <td colSpan={8} className="px-1.5 text-[11.5px] font-semibold text-zinc-500" style={{ border: `1px solid ${GRID_BORDE}`, background: '#eef1f5' }}>TOTALES DE ESTA HOJA</td>
               <td style={{ border: `1px solid ${GRID_BORDE}`, background: '#eef1f5' }} />
-              <td className="px-1.5 text-right text-[12.5px] font-bold text-zinc-800 tabular-nums" style={{ border: `1px solid ${GRID_BORDE}`, background: '#eef1f5', borderTop: `2px solid ${GRID_BORDE}` }}>{fmtCLP(costoGrupo(g, margen))}</td>
+              <td className="px-1.5 text-right text-[12.5px] font-semibold text-zinc-800 tabular-nums" style={{ border: `1px solid ${GRID_BORDE}`, background: '#eef1f5', borderTop: `2px solid ${GRID_BORDE}` }}>{fmtCLP(costoGrupo(g, margen))}</td>
               <td colSpan={2} style={{ border: `1px solid ${GRID_BORDE}`, background: '#eef1f5' }} />
-              <td className="px-1.5 text-right text-[12.5px] font-bold text-emerald-700 tabular-nums" style={{ border: `1px solid ${GRID_BORDE}`, background: '#eef1f5', borderTop: `2px solid ${GRID_BORDE}` }}>{fmtCLP(totalGrupo(g, margen))}</td>
+              <td className="px-1.5 text-right text-[12.5px] font-semibold text-emerald-700 tabular-nums" style={{ border: `1px solid ${GRID_BORDE}`, background: '#eef1f5', borderTop: `2px solid ${GRID_BORDE}` }}>{fmtCLP(totalGrupo(g, margen))}</td>
               <td style={{ border: `1px solid ${GRID_BORDE}`, background: '#eef1f5' }} />
-              <td className="px-1.5 text-right text-[12.5px] font-bold text-amber-700 tabular-nums" title="Costo REAL total de esta hoja (solo las filas que ya tienen costo real cargado)" style={{ border: `1px solid ${GRID_BORDE}`, background: '#eef1f5', borderTop: `2px solid ${GRID_BORDE}` }}>{costoRealGrupo(g) > 0 ? fmtCLP(costoRealGrupo(g)) : '—'}</td>
+              <td className="px-1.5 text-right text-[12.5px] font-semibold text-amber-700 tabular-nums" title="Costo REAL total de esta hoja (solo las filas que ya tienen costo real cargado)" style={{ border: `1px solid ${GRID_BORDE}`, background: '#eef1f5', borderTop: `2px solid ${GRID_BORDE}` }}>{costoRealGrupo(g) > 0 ? fmtCLP(costoRealGrupo(g)) : '—'}</td>
               {/* Variación de la hoja: sobre los TOTALES, no el promedio de las filas (el AVERAGE
                   del Excel le da el mismo peso a un ítem de $80.000 que a uno de $3.000.000). */}
-              <td className="px-1.5 text-right text-[12.5px] font-bold tabular-nums text-zinc-600" title="= (Costo total REAL / Costo total neto) − 1, sobre los totales de la hoja" style={{ border: `1px solid ${GRID_BORDE}`, background: '#eef1f5', borderTop: `2px solid ${GRID_BORDE}` }}>
+              <td className="px-1.5 text-right text-[12.5px] font-semibold tabular-nums text-zinc-600" title="= (Costo total REAL / Costo total neto) − 1, sobre los totales de la hoja" style={{ border: `1px solid ${GRID_BORDE}`, background: '#eef1f5', borderTop: `2px solid ${GRID_BORDE}` }}>
                 {costoRealGrupo(g) > 0 && costoGrupo(g, margen) > 0 ? fmtPct((costoRealGrupo(g) / costoGrupo(g, margen) - 1) * 100) : '—'}
               </td>
               <td colSpan={4} style={{ border: `1px solid ${GRID_BORDE}`, background: '#eef1f5' }} />
@@ -2157,14 +2157,14 @@ export function CosteoEditorCard({
         <div className="px-2 py-1.5 border-t border-[#c6c6c6] flex-shrink-0" style={{ background: '#f9fafb' }}>
           <div className="flex items-center gap-4">
             {puedeAgregar.fila && (
-              <button onClick={() => agregarFila(grupoActivo, false)} className="flex items-center gap-1 text-[11.5px] font-semibold text-zinc-500 hover:text-indigo-700">
+              <button onClick={() => agregarFila(grupoActivo, false)} className="flex items-center gap-1 text-[11.5px] font-semibold text-zinc-500 hover:text-teal-700">
                 <Plus size={12} /> Agregar fila
               </button>
             )}
             {puedeAgregar.gasto && (
               <button onClick={() => agregarFila(grupoActivo, true)}
                 title="Un costo que no se le vendió al cliente (flete, horas extra, un imprevisto): suma al costo real y a los gastos adicionales del comparativo, pero no a la venta."
-                className="flex items-center gap-1 text-[11.5px] font-semibold text-zinc-500 hover:text-indigo-700">
+                className="flex items-center gap-1 text-[11.5px] font-semibold text-zinc-500 hover:text-teal-700">
                 <Plus size={12} /> Agregar gasto extra
               </button>
             )}
@@ -2247,7 +2247,7 @@ export function CosteoEditorCard({
         <button
           onClick={() => flot.expandir()}
           title={dirty ? `Costeo · ${licitacionCodigo} — cambios sin guardar, clic para volver a abrirlo` : `Costeo · ${licitacionCodigo} — clic para volver a abrirlo`}
-          className="fixed bottom-5 right-5 z-[90] w-14 h-14 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white shadow-2xl flex items-center justify-center transition-colors"
+          className="fixed bottom-5 right-5 z-[90] w-14 h-14 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white shadow-flotante flex items-center justify-center transition-colors"
         >
           <Calculator size={22} />
           {dirty && <span className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-amber-400 border-2 border-white" />}
@@ -2294,7 +2294,7 @@ export function CosteoEditorCard({
         </p>
         <button
           onClick={() => flot.expandir()}
-          className="text-[11.5px] font-bold text-indigo-700 hover:underline flex-shrink-0"
+          className="text-[11.5px] font-semibold text-teal-700 hover:underline flex-shrink-0"
         >
           Traer al frente
         </button>
@@ -2307,7 +2307,7 @@ export function CosteoEditorCard({
       {congelado && (
         <div className="bg-zinc-800 text-white rounded-xl px-4 py-3 flex items-center gap-2.5">
           <ShieldCheck size={16} className="text-zinc-300 flex-shrink-0" />
-          <p className="text-[12.5px] font-bold">Congelado — esta licitación ya se postuló, el costeo quedó de solo lectura.</p>
+          <p className="text-[12.5px] font-semibold">Congelado — esta licitación ya se postuló, el costeo quedó de solo lectura.</p>
         </div>
       )}
 
@@ -2319,7 +2319,7 @@ export function CosteoEditorCard({
           `abrirCosteoGrande`). Clic en cualquier parte abre lo mismo que "Abrir costeo" de arriba. */}
       <button
         onClick={abrirCosteoGrande}
-        className="w-full bg-white rounded-xl border border-dashed border-zinc-300 hover:border-indigo-300 hover:bg-indigo-50/30 transition-colors p-8 flex flex-col items-center gap-2 text-center"
+        className="w-full bg-white rounded-xl border border-dashed border-zinc-300 hover:border-teal-300 hover:bg-teal-50/30 transition-colors p-8 flex flex-col items-center gap-2 text-center"
       >
         <Maximize2 size={20} className="text-zinc-400" />
         <p className="text-[13px] font-semibold text-zinc-700">Abrir la planilla de costeo</p>

@@ -16,10 +16,14 @@ export async function personasDeEmpresa(clienteId: number): Promise<PersonaConCo
   const c = cachePersonas.get(clienteId);
   if (c && Date.now() - c.t < TTL_MS) return c.v;
   const [rows] = await pool.query(
-    `SELECT id, nombre, email, rol, area, activo, telefono FROM usuarios WHERE cliente_id = ? AND activo = TRUE`,
+    `SELECT id, nombre, email, rol, area, activo, telefono, permisos FROM usuarios WHERE cliente_id = ? AND activo = TRUE`,
     [clienteId],
   ) as any[];
-  const v = (rows as any[]).map(r => ({ ...r, id: Number(r.id) })) as PersonaConCorreo[];
+  const v = (rows as any[]).map(({ permisos, ...r }) => {
+    let avisosAdmin = false;
+    try { const p = permisos ? (typeof permisos === 'string' ? JSON.parse(permisos) : permisos) : {}; avisosAdmin = p?.avisos_admin === true; } catch { /* permisos ilegibles = sin casilla */ }
+    return { ...r, id: Number(r.id), avisosAdmin };
+  }) as PersonaConCorreo[];
   cachePersonas.set(clienteId, { t: Date.now(), v });
   return v;
 }

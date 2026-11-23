@@ -182,7 +182,7 @@ function Marca({ color, children }: { color: string; children: React.ReactNode }
 // Tope por línea: con pocas líneas, a la vista; con muchas (2446-307-LE26 trae 44), plegado en una lista compacta.
 function PresupuestoPorLinea({ lineas }: { lineas: any[] }) {
   const [abierto, setAbierto] = useState(false);
-  const fila = (l: any) => <li key={l.linea} className="flex justify-between gap-2 text-[11.5px] tabular-nums"><span className="font-bold text-slate-800">{l.linea}</span><span className="text-slate-600">{fmt(l.monto_pesos)}</span></li>;
+  const fila = (l: any) => <li key={l.linea} className="flex justify-between gap-2 text-[11.5px] tabular-nums"><span className="font-semibold text-slate-800">{l.linea}</span><span className="text-slate-600">{fmt(l.monto_pesos)}</span></li>;
   if (lineas.length <= 6) return <ul className="grid grid-cols-2 gap-x-4 gap-y-0.5">{lineas.map(fila)}</ul>;
   return (
     <div>

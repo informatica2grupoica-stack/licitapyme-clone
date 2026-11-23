@@ -229,14 +229,14 @@ export function EditorPlantillaDocumento({ negocioId, ctx, plantilla, onCerrar, 
       <div className="flex-1 min-h-0 flex">
         {/* Herramientas */}
         <div className="w-44 flex-shrink-0 bg-white border-r border-zinc-200 p-3 space-y-1.5 overflow-y-auto">
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-zinc-400 mb-1">Agregar a la hoja</p>
+          <p className="text-[11px] font-semibold text-zinc-400 mb-1">Agregar a la hoja</p>
           {([['texto', Texto], ['logo', Logo], ['tabla', Tabla], ['linea', Linea], ['caja', Caja], ['firma', Firma]] as [TipoElemento, any][]).map(([t, Ico]) => (
             <button key={t} onClick={() => agregar(t)} className="w-full flex items-center gap-2 text-[12.5px] font-medium px-2.5 py-2 rounded-lg border border-zinc-200 text-zinc-700 hover:border-teal-400 hover:bg-teal-50">
               <Ico size={16} className="text-teal-700" /> {NOMBRES[t]}
             </button>
           ))}
           <div className="pt-3 mt-2 border-t border-zinc-100">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-zinc-400 mb-1">Campos del formulario</p>
+            <p className="text-[11px] font-semibold text-zinc-400 mb-1">Campos del formulario</p>
             {campos.length === 0 ? <p className="text-[11.5px] text-zinc-400">Aún ninguno. Escribe {'{{ciudad}}'} en un texto y aparece aquí.</p>
               : <ul className="space-y-1">{campos.map(c => <li key={c.clave} className="text-[11.5px] text-zinc-600 flex gap-1.5"><span className="text-teal-700">•</span><span>{c.etiqueta}</span></li>)}</ul>}
           </div>
@@ -250,7 +250,7 @@ export function EditorPlantillaDocumento({ negocioId, ctx, plantilla, onCerrar, 
               <iframe srcDoc={html} title="Hoja" tabIndex={-1} sandbox="" className="border-0 pointer-events-none bg-white absolute top-0 left-0" style={{ width: 794, height: 1123 }} />
               {!vistaReal && (
                 <div className="absolute inset-0">
-                  {guiaCentro && <div className="absolute top-0 bottom-0 border-l border-dashed border-fuchsia-500" style={{ left: 397 }} />}
+                  {guiaCentro && <div className="absolute top-0 bottom-0 border-l border-dashed border-orange-500" style={{ left: 397 }} />}
                   {elementos.map(e0 => {
                     const e = caja_(e0); const activo = e.id === sel; const esLinea = e.tipo === 'linea';
                     return (
@@ -349,7 +349,7 @@ export function EditorPlantillaDocumento({ negocioId, ctx, plantilla, onCerrar, 
               {elegido.tipo === 'firma' && <p className="text-[11.5px] text-zinc-500">Usa la firma, el timbre y el representante cargados en «Mi empresa» (Empresas).</p>}
 
               <div className="pt-2 border-t border-zinc-100">
-                <p className="text-[10.5px] font-semibold uppercase tracking-wide text-zinc-400 mb-1.5">Posición y tamaño (mm)</p>
+                <p className="text-[10.5px] font-semibold text-zinc-400 mb-1.5">Posición y tamaño (mm)</p>
                 <div className="grid grid-cols-2 gap-2">
                   <Num etiqueta="Izquierda" v={elegido.x} onC={n => actualizar(elegido.id, { x: Math.max(0, n) })} />
                   <Num etiqueta="Arriba" v={elegido.y} onC={n => actualizar(elegido.id, { y: Math.max(0, n) })} />

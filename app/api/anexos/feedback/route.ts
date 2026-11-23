@@ -3,7 +3,7 @@
 // casilla que la IA rellenó mal (o dejó como quiso otro valor), la corrección se destila en una
 // regla general por TIPO de etiqueta y se inyecta en el prompt de cada análisis futuro.
 import { NextRequest, NextResponse } from 'next/server';
-import { getAuthedUser, esAdmin, puedeVerLicitacion, tienePermiso } from '@/app/lib/api-auth';
+import { getAuthedUser, puedeVerLicitacion, tienePermiso } from '@/app/lib/api-auth';
 import { guardarFeedbackAnexo, listarFeedbackAnexo, eliminarFeedbackAnexo, esEtiquetaAprendible, esCorreccionAprendible } from '@/app/lib/anexos-feedback';
 import { cargarFichaEmpresaDeLicitacion } from '@/app/lib/anexos-datos';
 import { registrarActividad } from '@/app/lib/actividad';
@@ -14,7 +14,7 @@ export const dynamic = 'force-dynamic';
 // Mismo criterio que /api/anexos/analizar: el creador de anexos (y su feedback loop) está
 // restringido a admin por ahora.
 export async function GET(request: NextRequest) {
-  if (!(await esAdmin(request))) return NextResponse.json({ error: 'Solo administradores' }, { status: 403 });
+  if (!(await tienePermiso(request, 'anexos_feedback'))) return NextResponse.json({ error: 'Solo administradores' }, { status: 403 });
   const feedback = await listarFeedbackAnexo();
   return NextResponse.json({ success: true, feedback });
 }
@@ -79,7 +79,7 @@ export async function POST(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
-  if (!(await esAdmin(request))) return NextResponse.json({ error: 'Solo administradores' }, { status: 403 });
+  if (!(await tienePermiso(request, 'anexos_feedback'))) return NextResponse.json({ error: 'Solo administradores' }, { status: 403 });
   const id = parseInt(new URL(request.url).searchParams.get('id') || '', 10);
   if (!id) return NextResponse.json({ error: 'id requerido' }, { status: 400 });
   await eliminarFeedbackAnexo(id);

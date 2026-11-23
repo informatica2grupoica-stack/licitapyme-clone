@@ -3,6 +3,29 @@
 Pantalla principal: `/compras/[negocioId]` (`ComprasChrome.tsx`). Traspasado desde la memoria
 personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-11-23 (4) — «Posible duplicado» falso en 1095439-8-LP26 (negocio 183): OC de otra licitación (tsc ok; SIN desplegar)
+**Causa:** `buscarOcRealSimilar` marca duplicado si UNA palabra de 4+ letras del producto aparece en la referencia de cualquier OC del proveedor. El flete «Transporte … Santiago a Coyhaique» (Marcos Navarrete, 201227) calzaba con las OC 3900/3901, que son de 2494-56-LE26 (PR-169) y solo dicen «COYHAIQUE». No había duplicado real.
+**Regla del dueño:** el aviso solo sale si la OC existente (referencia u observación) nombra el código de ESTA licitación; una OC sin ese código nunca es «posible duplicado», aunque comparta palabras. Por eso se escribe el código en la referencia de las OC hechas a mano.
+**Pendiente:** desplegar.
+
+## 2026-11-23 (3) — Compras queda solo con Carolina Sepulveda y Maria Elena Álvarez (APLICADO EN PRODUCCIÓN, con OK del dueño)
+**Regla del dueño:** Alexis Tobar (1), Asesor (7), Carolina Gonzalez (12) y Perfil Compras (17) NO deben tener negocios ni tareas en Compras; los encargados son Carolina Sepulveda (21) y Maria Elena Álvarez (20), que van como pareja (principal + co-encargada) en cada negocio.
+**Hecho:** 5 negocios (442, 371, 290, 369, 751) cambiaron de principal y 477 tareas PENDIENTES pasaron al principal de cada negocio (hoy: Maria Elena 379 pendientes, Carolina 384). Las tareas HECHAS no se tocaron. Script: `scripts/scratch/_reasignar_compras_equipo.mts` (simulación por defecto; respaldo JSON en scripts/scratch/_respaldo_reasignar_compras_*.json). Verificado en prod: los 4 quedan en 0.
+**Pendiente:** desmarcar el permiso «Encargado de Compras» (`compras`) de esos 4 para que no salgan en el modal ni en la asignación automática; sin eso, la próxima asignación puede volver a caer en ellos.
+
+## 2026-11-23 (2) — Elegir encargado en un modal + lista solo con quien tiene el permiso «Encargado de Compras» (tsc ok; pantalla SIN ver; SIN desplegar)
+**Cambio:** `ModalElegirEncargado.tsx` (tarjeta por perfil con su carga, ordenado de menos a más carga) reemplaza los desplegables de la ficha `/compras/[id]`: «Elegir encargado», «Cambiar» y el botón de «Siguiente paso» lo abren. `candidatosEncargado` (compras.ts) ya NO mete a todos los admin: solo los perfiles con `compras` (el permiso que en Admin → Usuarios se llama «Encargado de Compras»); si nadie lo tiene marcado, usa los admin para no quedar vacío. Ojo: el fallback automático por plazo también usa esa lista.
+**Regla:** para quitar a «Asesor», «Maria Elena», etc. de la lista basta desmarcar el permiso en su perfil (en la BD local tienen `compras` marcado: Alexis, Asesor, Carolina Gonzalez, Perfil Compras (prueba), Maria Elena, Carolina Sepulveda; Admin Comercial MP no).
+**Regla del dueño (23-nov):** el modal es un PASO OBLIGATORIO: al entrar a la ficha de un negocio ganado sin encargado se abre solo, sin X ni Cancelar (solo «Volver a Compras»), hasta asignar; sin encargado no hay tareas. Solo para quien puede asignar (`esJefeDeVentas`). `Modal` ganó la prop `sinCerrar`; el modal se pinta en el body (el @container de la ficha atrapaba al `fixed`).
+**Diseño (23-nov):** el modal se rehízo con `licitank-ui` (`Boton`, `Estado`, `Lista`, tokens de marca): ícono en cuadro suave, negocio en una línea, una fila por perfil con avatar, carga como barra, «Menos carga» como `Estado`, botón «Asignar a {nombre}». tsc y eslint ok; SIN ver en navegador (login lo escribe el dueño).
+**Lista `/compras`:** también usa el modal (hecho el mismo día). **Pendiente:** ver en navegador; co-encargados siguen con su selector.
+
+## 2026-11-23 — «Monto costeado» solo con las líneas ganadas (negocio 1385, 2378-117-LP26; tsc ok, 4 pruebas ok, probado contra BD local; pantalla SIN ver; SIN desplegar)
+**Problema:** postulamos las líneas 1 y 5, el acta de MP nos dio solo la 5 y el Resumen mostraba el costo de las 2 ($66,7M vs venta $36,4M → margen −83,2 %).
+**Cambio:** `app/lib/compras-costeo-ganadas.ts` resta del total del costeo vigente el costo de las líneas postuladas que el acta dio a otro proveedor (misma regla de `aplicarAdjudicacionPorLinea`: con correlativo, no nuestra, con RUT). Aplica en las 2 rutas que arman el resumen de `compras.ts`. 1385 ahora: costo $27.586.536, margen 24,2 %. Debajo del monto: «Solo la línea 5 · de 2 postuladas» + el costeo de lo postulado. Campo nuevo `costeoGanado` en el resumen.
+**Reglas:** sin acta o sin poder cruzar, no se toca el total (no se inventa); filas sin número de línea se avisan en el tooltip. Gastos extra siguen dentro del total.
+**Pendiente:** ver en navegador; otros lugares que lean el total del costeo (aprobaciones, margen del Auditor) no se cambiaron; encargados con modal + permiso, aún no hecho.
+
 ## 2026-11-20 (5) — OC 4061 (flete Hualpén, negocio 256) salía «Sin emitir» aunque Licitank la emitió (`compras-oc-obuma.ts`; verificado contra la BD del VPS; SIN desplegar)
 - **Causa:** `ocsLicitankPorProveedor` se indexaba por el nombre EXACTO del proveedor. La OC se guardó como «EMPRESA DE TRANSPORTES Y LOGISTICA SPA» (1 espacio) y la cotización del plan dice «TRANSPORTES  Y» (2 espacios): no calzaba, `yaCreada` quedaba null y además el cruce por RUT descartaba la 4061 por ser «OC de Licitank». La sync y `obuma_compras` estaban bien (4061 ligada a 4152-22-LE26, $450.000 neto, FACTURADA, factura 108).
 - **Arreglo v1 (probado en BD del VPS):** consulta por `nombreComparable(...)` → la tarjeta mostró OC 4061 emitida.

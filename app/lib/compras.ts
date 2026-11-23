@@ -32,6 +32,7 @@ import { parsearDiasDeTexto } from '@/app/lib/numeros';
 import { interpretarPlazoOfertado } from '@/app/lib/compras-reloj-sugerido';
 import { calcularHitosGantt, planificarTarea, type AnclaTarea, type EntradaAnclas, type FaseTarea, type HitosGantt } from '@/app/lib/compras-plan';
 import { emparejarProductos, type ProductoExistente } from '@/app/lib/compras-producto-sync';
+import { costeoGanadoDelNegocio } from '@/app/lib/compras-costeo-ganadas';
 import { decidirNoAdjudicadas, esSubestadoFuera, type DecisionNoAdjudicadas } from '@/app/lib/compras-no-adjudicadas';
 import { listarPagosOc, ocsConFacturas, ocPagada } from '@/app/lib/compras-pagos-oc';
 import { borrarCarga, guardarCarga, hayTablaCombustible } from '@/app/lib/compras-combustible';
@@ -120,6 +121,8 @@ export interface ResumenEjecutivoCompras extends ResumenEjecutivo {
   margenPrevisto: number | null;             // % — (precio de venta neto − costo neto) / precio de venta neto
   /** El negocio no tiene costeo con monto: montoCosteado es el costo de la compra aprobada. */
   costoDesdeCompraAprobada?: boolean;
+  /** Licitación por línea con adjudicación parcial: el monto costeado es solo el de las líneas ganadas. */
+  costeoGanado?: { ganadas: number[]; postuladas: number[]; perdidas: number[]; costoPostulado: number; filasSinLinea: boolean };
 }
 
 /** Lo que el informe de viabilidad sabe de plazos, ya normalizado. Todo puede venir null: una
@@ -424,7 +427,16 @@ export async function construirResumenEjecutivoCompras(
   }
 
   const existeCosteo = !!costeo;
-  const montoCosteado = costeo?.totalCostoNeto ?? null;
+  let montoCosteado = costeo?.totalCostoNeto ?? null;
+  // Solo las líneas que ganamos (2378-117-LP26: postulamos 2, ganamos 1 y el costo mostraba las 2).
+  let costeoGanado: ResumenEjecutivoCompras['costeoGanado'];
+  if (montoCosteado != null && montoCosteado > 0) {
+    const g = await costeoGanadoDelNegocio(negocioId, montoCosteado);
+    if (g?.parcial) {
+      costeoGanado = { ganadas: g.ganadas, postuladas: g.postuladas, perdidas: g.perdidas, costoPostulado: montoCosteado, filasSinLinea: g.filasSinLinea };
+      montoCosteado = g.costo;
+    }
+  }
   const margenPrevisto = (base.montoNuestro && montoCosteado != null && base.montoNuestro > 0)
     ? Math.round(((base.montoNuestro - montoCosteado) / base.montoNuestro) * 1000) / 10
     : null;
@@ -442,7 +454,7 @@ export async function construirResumenEjecutivoCompras(
     presupuestoProyecto, fechaCierreLicitacion,
     plazoEntregaOfertado, plazoEntregaDias, hitoInicioPlazo,
     requiereBoletaFielCumplimiento, requiereFirmaContrato, plazoAceptacionOC,
-    existeCosteo, montoCosteado, margenPrevisto,
+    existeCosteo, montoCosteado, margenPrevisto, costeoGanado,
   };
 }
 
@@ -716,13 +728,17 @@ export async function candidatosEncargado(): Promise<CandidatoEncargado[]> {
   // Los permisos vienen en la misma lectura (misma regla que permisosDeUsuario): antes se pedían usuario por usuario, en serie (~1,2 s, 22-oct-2026).
   const [rows] = await pool.query(`SELECT id, nombre, rol, permisos FROM usuarios WHERE activo = TRUE`) as any;
   const candidatos: Array<{ id: number; nombre: string | null }> = [];
+  const adminsSinMarca: Array<{ id: number; nombre: string | null }> = [];
   for (const u of rows as any[]) {
     if (u.rol === 'externo') continue;
-    if (u.rol === 'admin') { candidatos.push({ id: Number(u.id), nombre: u.nombre }); continue; }
     let p: any = {};
     try { p = u.permisos ? (typeof u.permisos === 'string' ? JSON.parse(u.permisos) : u.permisos) : {}; } catch { /* permisos ilegibles = sin permisos extra */ }
     if (p?.compras) candidatos.push({ id: Number(u.id), nombre: u.nombre });
+    else if (u.rol === 'admin') adminsSinMarca.push({ id: Number(u.id), nombre: u.nombre });
   }
+  // Quién puede ser encargado lo decide el permiso «Encargado de Compras» del perfil (antes entraban TODOS los admin).
+  // Solo si nadie lo tiene marcado se usan los admin, para que la lista nunca quede vacía.
+  if (candidatos.length === 0) candidatos.push(...adminsSinMarca);
   if (candidatos.length === 0) return [];
   const ids = candidatos.map(c => c.id);
   const ph = ids.map(() => '?').join(',');
@@ -1066,8 +1082,18 @@ export async function obtenerAsignacion(negocioId: number): Promise<AsignacionCo
         };
         resumen.existeCosteo = true;
         resumen.montoCosteado = costo;
-        resumen.margenPrevisto = (resumen.montoNuestro && costo != null && resumen.montoNuestro > 0)
-          ? Math.round(((resumen.montoNuestro - costo) / resumen.montoNuestro) * 1000) / 10
+        resumen.costeoGanado = undefined;
+        // Solo las líneas que ganamos: el total del costeo suma también las que se llevó otro proveedor.
+        if (costo != null && costo > 0) {
+          const g = await costeoGanadoDelNegocio(negocioId, costo);
+          if (g?.parcial) {
+            resumen.costeoGanado = { ganadas: g.ganadas, postuladas: g.postuladas, perdidas: g.perdidas, costoPostulado: costo, filasSinLinea: g.filasSinLinea };
+            resumen.montoCosteado = g.costo;
+          }
+        }
+        const costoMostrado = resumen.montoCosteado;
+        resumen.margenPrevisto = (resumen.montoNuestro && costoMostrado != null && resumen.montoNuestro > 0)
+          ? Math.round(((resumen.montoNuestro - costoMostrado) / resumen.montoNuestro) * 1000) / 10
           : null;
       }
     } catch (e) {

@@ -40,7 +40,7 @@ export function LicitankLogo({ size = 36, dark = false }: { size?: number; dark?
   return (
     <span className="inline-flex items-center gap-2.5">
       <LicitankIcon size={size} />
-      <span className={`font-black tracking-tight ${dark ? 'text-white' : 'text-slate-800'}`} style={{ fontSize: size * 0.5 }}>
+      <span className={`font-semibold tracking-tight ${dark ? 'text-white' : 'text-slate-800'}`} style={{ fontSize: size * 0.5 }}>
         LICITANK
       </span>
     </span>

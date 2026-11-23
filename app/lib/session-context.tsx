@@ -26,6 +26,7 @@ export interface UsuarioSession {
     aprobar_comercial?: boolean;
     entrega_proyectos?: boolean;
     repartir_puente?: boolean;
+    viabilidad_automatica?: boolean;
     compras?: boolean;
     compras_administracion?: boolean;
     compras_bodega?: boolean;
@@ -54,6 +55,28 @@ export interface UsuarioSession {
     costeo_agregar_gasto?: boolean;
     costeo_agregar_adicional?: boolean;
     costeo_editar_postulado?: boolean;
+    // Administración con casilla propia (23-nov-2026). Admin = todos.
+    admin_usuarios?: boolean;
+    admin_etiquetas?: boolean;
+    admin_palabras_clave?: boolean;
+    ver_descartadas?: boolean;
+    analisis_licitacion?: boolean;
+    dashboard_admin?: boolean;
+    memoria_experiencia?: boolean;
+    buscador_precios?: boolean;
+    enriquecer_radar?: boolean;
+    reasignar_negocios?: boolean;
+    aprobar_linea_tecnica?: boolean;
+    anexos_feedback?: boolean;
+    config_empresa?: boolean;
+    soporte_tecnico?: boolean;
+    avisos_admin?: boolean;
+    leer_portal_mp?: boolean;
+    editar_otros_negocios?: boolean;
+    retroceder_pipeline?: boolean;
+    buscador_licitaciones?: boolean;
+    ver_analizadas?: boolean;
+    ver_historial?: boolean;
     // "CA" (07-oct-2026): crea/ve las reglas aprendidas de viabilidad. No viene gratis con admin.
     reglas_ia?: boolean;
     /** Solo el dueño (superadmin): botones «Cerrar licitación» / «Licitación cancelada» en Compras. */

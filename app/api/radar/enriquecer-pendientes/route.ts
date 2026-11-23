@@ -20,6 +20,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { mensajeSeguro } from '@/app/lib/errores-api';
+import { tienePermiso } from '@/app/lib/api-auth';
 import { NextRequest, NextResponse } from 'next/server';
 import { getMercadoPublicoClient } from '@/app/lib/mercado-publico';
 import type { Licitacion } from '@/app/types/mercado-publico.types';
@@ -39,8 +40,8 @@ function getUserId(req: NextRequest): number | null {
   const n = parseInt(id, 10);
   return isNaN(n) ? null : n;
 }
-function esAdmin(req: NextRequest): boolean {
-  return req.headers.get('x-user-rol') === 'admin';
+async function esAdmin(req: NextRequest): Promise<boolean> {
+  return tienePermiso(req, 'enriquecer_radar');
 }
 
 // Trae el universo de licitaciones a cubrir: activas + últimos N días, deduplicado.
@@ -63,7 +64,7 @@ async function universoActivas(): Promise<Licitacion[]> {
 export async function GET(request: NextRequest) {
   const userId = getUserId(request);
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
-  if (!esAdmin(request)) return NextResponse.json({ error: 'Solo administradores' }, { status: 403 });
+  if (!(await esAdmin(request))) return NextResponse.json({ error: 'Solo administradores' }, { status: 403 });
 
   try {
     const lics = await universoActivas();
@@ -88,7 +89,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const userId = getUserId(request);
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
-  if (!esAdmin(request)) return NextResponse.json({ error: 'Solo administradores' }, { status: 403 });
+  if (!(await esAdmin(request))) return NextResponse.json({ error: 'Solo administradores' }, { status: 403 });
   // Multi-cliente: el enriquecimiento masivo gasta la cuota de la API de Mercado Público, que es de todos, y lo mantiene Grupo ICA en la caché compartida.
   // Una empresa-cliente no lo dispara: su «Actualizar ahora» ya terminó con lo que hay en la caché.
   if (clienteDeHeader(request) !== 1) {

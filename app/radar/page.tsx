@@ -10,7 +10,7 @@ import { MultiSelect } from '@/app/components/ui/MultiSelect';
 import { StatCard } from '@/app/components/ui/StatCard';
 import { useSession } from '@/app/lib/session-context';
 import { fechaHoraParaExcel, ordenarPorFecha, hojaDeFilas } from '@/app/lib/exportar-fechas';
-import { IconRadar as Radar, IconPlus as Plus, IconTrash as Trash2, IconExternalLink as ExternalLink, IconTag as Tag, IconChecks as CheckCheck, IconBuilding as Building2, IconCalendar as Calendar, IconCurrencyDollar as DollarSign, IconLoader2 as Loader2, IconBellOff as BellOff, IconX as X, IconClock as Clock, IconSearch as Search, IconBolt as Zap, IconToggleLeft as ToggleLeft, IconToggleRight as ToggleRight, IconSparkles as Sparkles, IconFilter as Filter, IconChevronDown as ChevronDown, IconFileText as FileText, IconDownload as Download, IconMapPin as MapPin, IconArrowsUpDown as ArrowUpDown, IconEye as Eye, IconEyeOff as EyeOff, IconAlertCircle as AlertCircle, IconFlame as Flame, IconAdjustmentsHorizontal as SlidersHorizontal, IconSquareCheck as CheckSquare, IconSquare as Square, IconUserPlus as UserPlus, IconArrowBackUp as Undo2, IconUserCheck as UserCheck, IconBan as Ban, IconCircleMinus as MinusCircle, IconHistory as History, IconArrowsShuffle as Shuffle } from '@tabler/icons-react';
+import { IconRadar as Radar, IconPlus as Plus, IconTrash as Trash2, IconExternalLink as ExternalLink, IconTag as Tag, IconChecks as CheckCheck, IconBuilding as Building2, IconCalendar as Calendar, IconCurrencyDollar as DollarSign, IconLoader2 as Loader2, IconBellOff as BellOff, IconX as X, IconClock as Clock, IconSearch as Search, IconBolt as Zap, IconToggleLeft as ToggleLeft, IconToggleRight as ToggleRight, IconWand as Sparkles, IconFilter as Filter, IconChevronDown as ChevronDown, IconFileText as FileText, IconDownload as Download, IconMapPin as MapPin, IconArrowsUpDown as ArrowUpDown, IconEye as Eye, IconEyeOff as EyeOff, IconAlertCircle as AlertCircle, IconFlame as Flame, IconAdjustmentsHorizontal as SlidersHorizontal, IconSquareCheck as CheckSquare, IconSquare as Square, IconUserPlus as UserPlus, IconArrowBackUp as Undo2, IconUserCheck as UserCheck, IconBan as Ban, IconCircleMinus as MinusCircle, IconHistory as History, IconArrowsShuffle as Shuffle } from '@tabler/icons-react';
 import { extractTipoFromCodigo, getTipoLicitacion, TIPO_COLOR_CLASS } from '@/app/lib/tipos-licitacion';
 import { estadoEfectivoNombre } from '@/app/lib/estado-mp';
 import { Resaltar } from '@/app/components/Resaltar';
@@ -79,7 +79,7 @@ const ESTADOS_CFG = [
   { key: 'Desierta',  label: 'Desierta',   dot: '#f59e0b', bg: 'bg-amber-50',   text: 'text-amber-700',   border: 'border-amber-200',   pill: 'bg-amber-500'   },
   { key: 'Suspendida',label: 'Suspendida', dot: '#3b82f6', bg: 'bg-blue-50',    text: 'text-blue-700',    border: 'border-blue-200',    pill: 'bg-blue-500'    },
   { key: 'Cerrada',   label: 'Cerrada',    dot: '#9ca3af', bg: 'bg-zinc-50',    text: 'text-zinc-500',    border: 'border-zinc-200',    pill: 'bg-zinc-400'    },
-  { key: 'Adjudicada',label: 'Adjudicada', dot: '#8b5cf6', bg: 'bg-violet-50',  text: 'text-violet-700',  border: 'border-violet-200',  pill: 'bg-violet-500'  },
+  { key: 'Adjudicada',label: 'Adjudicada', dot: '#06b6d4', bg: 'bg-cyan-50',  text: 'text-cyan-700',  border: 'border-cyan-200',  pill: 'bg-cyan-500'  },
   { key: 'Revocada',  label: 'Revocada',   dot: '#f87171', bg: 'bg-red-50',     text: 'text-red-700',     border: 'border-red-200',     pill: 'bg-red-400'     },
 ];
 const ESTADOS_ACTIVOS_DEFAULT = ['Publicada'];
@@ -144,12 +144,12 @@ const CATEGORIA_LABEL: Record<string, string> = {
 
 // ── Colores variados para etiqueta de asesor asignado ─────────────────────────
 const COLORS_ASESOR = [
-  { bg: 'bg-violet-50',  text: 'text-violet-700',  border: 'border-violet-200'  },
+  { bg: 'bg-cyan-50',  text: 'text-cyan-700',  border: 'border-cyan-200'  },
   { bg: 'bg-blue-50',    text: 'text-blue-700',    border: 'border-blue-200'    },
   { bg: 'bg-teal-50',    text: 'text-teal-700',    border: 'border-teal-200'    },
   { bg: 'bg-amber-50',   text: 'text-amber-700',   border: 'border-amber-200'   },
   { bg: 'bg-rose-50',    text: 'text-rose-700',    border: 'border-rose-200'    },
-  { bg: 'bg-indigo-50',  text: 'text-indigo-700',  border: 'border-indigo-200'  },
+  { bg: 'bg-teal-50',  text: 'text-teal-700',  border: 'border-teal-200'  },
   { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200' },
   { bg: 'bg-orange-50',  text: 'text-orange-700',  border: 'border-orange-200'  },
 ];
@@ -237,7 +237,7 @@ function TipoBadge({ codigo }: { codigo: string }) {
   const info = getTipoLicitacion(tipo);
   const bg   = TIPO_COLOR_CLASS[tipo] || 'bg-zinc-400';
   return (
-    <span className={`inline-flex items-center text-white text-[10px] font-black px-2 py-0.5 rounded-md flex-shrink-0 ${bg}`} title={info?.label}>
+    <span className={`inline-flex items-center text-white text-[10px] font-semibold px-2 py-0.5 rounded-md flex-shrink-0 ${bg}`} title={info?.label}>
       {tipo}
     </span>
   );
@@ -249,24 +249,24 @@ function DiasCountdown({ cierre }: { cierre: string | null }) {
   const titulo = `Días corridos hasta la fecha de cierre de ofertas (${fmtFechaCorta(cierre)}). Rojo ≤3 días, ámbar ≤7.`;
   if (dias <= 0) return (
     <span title={`La fecha de cierre (${fmtFechaCorta(cierre)}) ya pasó: no se pueden presentar ofertas`}
-      className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-1 rounded-lg bg-zinc-100 text-zinc-500 border border-zinc-200">
+      className="inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1 rounded-lg bg-zinc-100 text-zinc-500 border border-zinc-200">
       Vencido
     </span>
   );
   if (dias <= 3) return (
-    <span title={titulo} className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-1 rounded-lg bg-red-50 text-red-700 border border-red-200">
+    <span title={titulo} className="inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1 rounded-lg bg-red-50 text-red-700 border border-red-200">
       <Flame size={11} className="flex-shrink-0" />
       {dias}d restante{dias !== 1 ? 's' : ''}
     </span>
   );
   if (dias <= 7) return (
-    <span title={titulo} className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-1 rounded-lg bg-amber-50 text-amber-700 border border-amber-200">
+    <span title={titulo} className="inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1 rounded-lg bg-amber-50 text-amber-700 border border-amber-200">
       <AlertCircle size={11} className="flex-shrink-0" />
       {dias}d restantes
     </span>
   );
   return (
-    <span title={titulo} className="inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1 rounded-lg bg-indigo-50 text-indigo-600 border border-indigo-100">
+    <span title={titulo} className="inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1 rounded-lg bg-teal-50 text-teal-600 border border-teal-100">
       <Calendar size={10} className="flex-shrink-0" />
       {dias}d restantes
     </span>
@@ -293,7 +293,7 @@ function ViabilidadBadge({ semaforo, score, area, informe }: {
     <span className="relative group/viab inline-flex">
       <span
         title={hayResumen ? undefined : `Viabilidad según el análisis IA de las bases: ${cfg.label}${score != null ? ` (score ${score}/100)` : ''}`}
-        className={`inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-lg border cursor-default ${cfg.bg} ${cfg.text} ${cfg.border}`}
+        className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-lg border cursor-default ${cfg.bg} ${cfg.text} ${cfg.border}`}
       >
         <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: cfg.dot }} />
         {cfg.label}
@@ -303,10 +303,10 @@ function ViabilidadBadge({ semaforo, score, area, informe }: {
       {/* Popover con el resumen del análisis (hover) */}
       {hayResumen && (
         <div className="invisible opacity-0 group-hover/viab:visible group-hover/viab:opacity-100 transition-opacity duration-150
-                        absolute right-0 top-full mt-1.5 z-30 w-72 p-3 rounded-xl bg-white border border-slate-200 shadow-xl text-left pointer-events-none">
+                        absolute right-0 top-full mt-1.5 z-30 w-72 p-3 rounded-xl bg-white border border-slate-200 shadow-flotante text-left pointer-events-none">
           <div className="flex items-center gap-1.5 mb-1.5">
             <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: cfg.dot }} />
-            <span className={`text-[11px] font-bold ${cfg.text}`}>{cfg.label}{score != null ? ` · ${score}/100` : ''}</span>
+            <span className={`text-[11px] font-semibold ${cfg.text}`}>{cfg.label}{score != null ? ` · ${score}/100` : ''}</span>
             {area && <span className="text-[10px] text-slate-400 ml-auto">{area}</span>}
           </div>
           {inf.resumen && <p className="text-[11.5px] text-slate-600 leading-snug mb-2">{inf.resumen}</p>}
@@ -314,7 +314,7 @@ function ViabilidadBadge({ semaforo, score, area, informe }: {
             <p className="text-[11px] text-emerald-700 leading-snug mb-1.5"><strong>Ventaja:</strong> {inf.ventaja_competitiva}</p>
           )}
           {inf.recomendacion && (
-            <p className="text-[11px] text-indigo-700 leading-snug"><strong>Recomendación:</strong> {inf.recomendacion}</p>
+            <p className="text-[11px] text-teal-700 leading-snug"><strong>Recomendación:</strong> {inf.recomendacion}</p>
           )}
         </div>
       )}
@@ -333,7 +333,7 @@ function PrefiltroBadge({ decision, categoria, motivo, confianza }: {
 
   return (
     <span className="relative group/pref inline-flex">
-      <span className={`inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-lg border cursor-default ${cfg.bg} ${cfg.text} ${cfg.border}`}>
+      <span className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-lg border cursor-default ${cfg.bg} ${cfg.text} ${cfg.border}`}>
         <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: cfg.dot }} />
         {cfg.label}
         {decision !== 'PASA' && catLabel && <span className="opacity-70 font-semibold">· {catLabel}</span>}
@@ -343,10 +343,10 @@ function PrefiltroBadge({ decision, categoria, motivo, confianza }: {
           y el usuario no tenía cómo saber POR QUÉ una licitación pasó). */}
       {hayDetalle && (
         <div className="invisible opacity-0 group-hover/pref:visible group-hover/pref:opacity-100 transition-opacity duration-150
-                        absolute right-0 top-full mt-1.5 z-30 w-64 p-3 rounded-xl bg-white border border-slate-200 shadow-xl text-left pointer-events-none">
+                        absolute right-0 top-full mt-1.5 z-30 w-64 p-3 rounded-xl bg-white border border-slate-200 shadow-flotante text-left pointer-events-none">
           <div className="flex items-center gap-1.5 mb-1.5">
             <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: cfg.dot }} />
-            <span className={`text-[11px] font-bold ${cfg.text}`}>Prefiltro: {cfg.label}{catLabel ? ` · ${catLabel}` : ''}</span>
+            <span className={`text-[11px] font-semibold ${cfg.text}`}>Prefiltro: {cfg.label}{catLabel ? ` · ${catLabel}` : ''}</span>
             {confianza != null && <span className="text-[10px] text-slate-400 ml-auto tabular-nums">conf. {Math.round(confianza * 100)}%</span>}
           </div>
           {motivo && <p className="text-[11.5px] text-slate-600 leading-snug">{motivo}</p>}
@@ -376,19 +376,19 @@ function LicitacionListItem({
       onClick={() => noLeida && onMarcarLeida(alerta.id)}
       className={`group relative rounded-lg px-4 py-3 border transition-all cursor-pointer ${
         selected
-          ? 'bg-indigo-100 border-indigo-300'
+          ? 'bg-teal-100 border-teal-300'
           : alerta.descartada
           ? 'bg-slate-100 border-slate-200'
-          : 'bg-indigo-50 border-indigo-200 hover:bg-white'
+          : 'bg-teal-50 border-teal-200 hover:bg-white'
       }`}>
 
       <div className="flex items-center gap-3">
         <button
           onClick={(e) => { e.stopPropagation(); onToggleSelect(alerta.id); }}
           title={selected ? 'Quitar de la selección' : 'Seleccionar para acciones en lote (asignar/descartar varias)'}
-          className="flex-shrink-0 text-slate-400 hover:text-indigo-600 transition-colors"
+          className="flex-shrink-0 text-slate-400 hover:text-teal-600 transition-colors"
         >
-          {selected ? <CheckSquare size={16} className="text-indigo-600" /> : <Square size={16} />}
+          {selected ? <CheckSquare size={16} className="text-teal-600" /> : <Square size={16} />}
         </button>
 
         <div className="flex-shrink-0 w-32">
@@ -404,7 +404,7 @@ function LicitacionListItem({
           onClick={(e) => e.stopPropagation()}
           className="flex-1 min-w-0"
         >
-          <p className="text-[12px] font-semibold text-slate-900 truncate hover:text-indigo-600 transition-colors">
+          <p className="text-[12px] font-semibold text-slate-900 truncate hover:text-teal-600 transition-colors">
             <Resaltar texto={alerta.licitacion_nombre || alerta.licitacion_codigo} keywords={keywords} />
           </p>
           {alerta.licitacion_organismo && (
@@ -414,7 +414,7 @@ function LicitacionListItem({
 
         <div className="flex-shrink-0 w-32 text-right">
           {alerta.licitacion_monto && alerta.licitacion_monto > 0 && (
-            <p className="text-[11px] font-bold text-emerald-700">{fmt(alerta.licitacion_monto)}</p>
+            <p className="text-[11px] font-semibold text-emerald-700">{fmt(alerta.licitacion_monto)}</p>
           )}
           <div className="mt-0.5">
             <DiasCountdown cierre={alerta.licitacion_cierre} />
@@ -436,13 +436,13 @@ function LicitacionListItem({
           )}
           {alerta.asignada && (
             <span title={`Asignada a ${alerta.asignado_nombre || 'un perfil del equipo'}`}
-              className="inline-flex items-center gap-0.5 text-[9px] font-bold text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded-full border border-emerald-200">
+              className="inline-flex items-center gap-0.5 text-[9px] font-semibold text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded-full border border-emerald-200">
               ✓
             </span>
           )}
           {alerta.en_puente && !alerta.asignada && (
             <span title="Esperando reparto en el puente del radar"
-              className="inline-flex items-center gap-0.5 text-[9px] font-bold text-indigo-700 bg-indigo-100 px-1.5 py-0.5 rounded-full border border-indigo-200">
+              className="inline-flex items-center gap-0.5 text-[9px] font-semibold text-teal-700 bg-teal-100 px-1.5 py-0.5 rounded-full border border-teal-200">
               <Shuffle size={8} /> Puente
             </span>
           )}
@@ -469,7 +469,7 @@ function LicitacionListItem({
             className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition-colors border ${
               alerta.asignada
                 ? 'bg-emerald-100 border-emerald-300 text-emerald-700 hover:bg-emerald-200'
-                : 'bg-indigo-100 border-indigo-300 text-indigo-700 hover:bg-indigo-200'
+                : 'bg-teal-100 border-teal-300 text-teal-700 hover:bg-teal-200'
             }`}
           >
             <UserPlus size={12} />
@@ -522,7 +522,7 @@ function LicitacionCard({
   const accent =
     (alerta.viabilidad_semaforo && VIAB_ACCENT[alerta.viabilidad_semaforo]) ||
     (alerta.prefiltro_decision && PREF_ACCENT[alerta.prefiltro_decision]) ||
-    { rail: noLeida ? '#6366f1' : '#cbd5e1', tint: '#ffffff' };
+    { rail: noLeida ? '#14b8a6' : '#cbd5e1', tint: '#ffffff' };
 
   const railColor = alerta.descartada ? '#cbd5e1' : alerta.asignada ? '#3b82f6' : accent.rail;
   const fondo     = alerta.descartada ? '#f8fafc' : alerta.asignada ? '#eff6ff' : accent.tint;
@@ -533,7 +533,7 @@ function LicitacionCard({
       className={`
       group relative rounded-xl border transition-all duration-150
       hover:shadow-md hover:-translate-y-px
-      ${selected ? 'ring-2 ring-indigo-400 border-indigo-300' : noLeida ? 'border-indigo-200 shadow-sm' : 'border-slate-200'}
+      ${selected ? 'ring-2 ring-teal-400 border-teal-300' : noLeida ? 'border-teal-200 shadow-sm' : 'border-slate-200'}
       ${alerta.descartada ? 'opacity-75' : ''}
     `}>
       <div className="p-4 pl-[15px]">
@@ -544,9 +544,9 @@ function LicitacionCard({
             <button
               onClick={() => onToggleSelect(alerta.id)}
               title={selected ? 'Quitar de la selección' : 'Seleccionar'}
-              className="flex-shrink-0 text-slate-300 hover:text-indigo-600 transition-colors"
+              className="flex-shrink-0 text-slate-300 hover:text-teal-600 transition-colors"
             >
-              {selected ? <CheckSquare size={16} className="text-indigo-600" /> : <Square size={16} />}
+              {selected ? <CheckSquare size={16} className="text-teal-600" /> : <Square size={16} />}
             </button>
             {/* Punto no leído */}
             <button
@@ -555,7 +555,7 @@ function LicitacionCard({
               className="flex-shrink-0"
             >
               {noLeida
-                ? <span className="w-2 h-2 rounded-full bg-indigo-500 block hover:bg-indigo-400 transition-colors" />
+                ? <span className="w-2 h-2 rounded-full bg-teal-500 block hover:bg-teal-400 transition-colors" />
                 : <span className="w-2 h-2 rounded-full bg-slate-200 block" />
               }
             </button>
@@ -565,19 +565,19 @@ function LicitacionCard({
             {alerta.asignada && (() => {
               const c = colorAsesor(alerta.asignado_a);
               return (
-                <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border ${c.bg} ${c.text} ${c.border}`} title={`Asignada a ${alerta.asignado_nombre || ''}`}>
+                <span className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full border ${c.bg} ${c.text} ${c.border}`} title={`Asignada a ${alerta.asignado_nombre || ''}`}>
                   <UserCheck size={10} /> {alerta.asignado_nombre || 'Asignada'}
                 </span>
               );
             })()}
             {alerta.en_puente && !alerta.asignada && (
-              <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200"
+              <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-teal-50 text-teal-700 border border-teal-200"
                 title="Esperando reparto en el puente del radar">
                 <Shuffle size={10} /> En el puente
               </span>
             )}
             {alerta.descartada && (
-              <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 border border-slate-300">
+              <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 border border-slate-300">
                 <EyeOff size={10} /> Descartada
               </span>
             )}
@@ -599,7 +599,7 @@ function LicitacionCard({
                   color: alerta.categoria_color || '#64748b',
                   borderColor: (alerta.categoria_color || '#64748b') + '40',
                 }}
-                className="inline-flex items-center gap-1 text-[10.5px] font-bold px-2 py-0.5 rounded-full border"
+                className="inline-flex items-center gap-1 text-[10.5px] font-semibold px-2 py-0.5 rounded-full border"
               >
                 <span style={{ backgroundColor: alerta.categoria_color || '#64748b' }} className="w-1.5 h-1.5 rounded-full" />
                 {alerta.categoria_nombre}
@@ -618,7 +618,7 @@ function LicitacionCard({
         <Link
           href={`/licitacion/${encodeURIComponent(alerta.licitacion_codigo)}`}
           onClick={() => noLeida && onMarcarLeida(alerta.id)}
-          className="block text-[15.5px] font-extrabold text-slate-900 hover:text-indigo-600 transition-colors leading-snug tracking-tight line-clamp-2 mb-2.5"
+          className="block text-[15.5px] font-semibold text-slate-900 hover:text-teal-600 transition-colors leading-snug tracking-tight line-clamp-2 mb-2.5"
         >
           {alerta.licitacion_nombre
             ? <Resaltar texto={alerta.licitacion_nombre} keywords={keywords} />
@@ -644,13 +644,13 @@ function LicitacionCard({
         {/* Row 4: Monto + Publicación + Cierre + Documentos */}
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 mb-3">
           {alerta.licitacion_monto != null && alerta.licitacion_monto > 0 && (
-            <span className="flex items-center gap-1.5 text-[13px] font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-100">
+            <span className="flex items-center gap-1.5 text-[13px] font-semibold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-100">
               <DollarSign size={12} className="flex-shrink-0" />
               {fmt(alerta.licitacion_monto)}
             </span>
           )}
           <span
-            className="flex items-center gap-1.5 text-[12px] text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-lg border border-indigo-100"
+            className="flex items-center gap-1.5 text-[12px] text-teal-600 bg-teal-50 px-2 py-0.5 rounded-lg border border-teal-100"
             title={alerta.licitacion_fecha_publicacion ? 'Fecha de publicación (Mercado Público)' : 'La API no entregó fecha de publicación — se muestra la fecha en que llegó al sistema'}
           >
             <Zap size={10} className="flex-shrink-0" />
@@ -679,7 +679,7 @@ function LicitacionCard({
             <Link
               href={`/licitacion/${encodeURIComponent(alerta.licitacion_codigo)}`}
               onClick={() => noLeida && onMarcarLeida(alerta.id)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-[12px] font-semibold rounded-lg transition-colors"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-teal-600 hover:bg-teal-700 text-white text-[12px] font-semibold rounded-lg transition-colors"
             >
               Ver detalle <ExternalLink size={11} />
             </Link>
@@ -748,8 +748,8 @@ function CardSkeleton() {
 function InfoHint({ texto }: { texto: string }) {
   return (
     <span className="relative group/info inline-flex flex-shrink-0">
-      <span className="w-[18px] h-[18px] rounded-full bg-slate-100 text-slate-400 text-[10px] font-bold flex items-center justify-center cursor-help border border-slate-200 group-hover/info:bg-indigo-50 group-hover/info:text-indigo-500 group-hover/info:border-indigo-200 transition-colors">?</span>
-      <span className="invisible opacity-0 group-hover/info:visible group-hover/info:opacity-100 transition-opacity duration-150 absolute left-1/2 -translate-x-1/2 top-full mt-1.5 z-40 w-64 p-2.5 rounded-lg bg-slate-900 text-white text-[11px] leading-snug font-medium shadow-xl pointer-events-none">
+      <span className="w-[18px] h-[18px] rounded-full bg-slate-100 text-slate-400 text-[10px] font-semibold flex items-center justify-center cursor-help border border-slate-200 group-hover/info:bg-teal-50 group-hover/info:text-teal-500 group-hover/info:border-teal-200 transition-colors">?</span>
+      <span className="invisible opacity-0 group-hover/info:visible group-hover/info:opacity-100 transition-opacity duration-150 absolute left-1/2 -translate-x-1/2 top-full mt-1.5 z-40 w-64 p-2.5 rounded-lg bg-slate-900 text-white text-[11px] leading-snug font-medium shadow-flotante pointer-events-none">
         {texto}
       </span>
     </span>
@@ -805,7 +805,7 @@ function PanelFiltros({
     <div className="bg-white border border-slate-200 rounded-xl p-3.5 space-y-3">
       {/* Fila 1 — CLASIFICACIÓN: qué es cada licitación */}
       <div className="flex flex-wrap items-center gap-x-1.5 gap-y-2">
-        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider w-[88px] flex-shrink-0">Clasificación</span>
+        <span className="text-[10px] font-semibold text-slate-400 w-[88px] flex-shrink-0">Clasificación</span>
         {estadoOpts.length > 0 && <>
           <MultiSelect label="Estado MP" icon={<FileText size={13} />} selected={filtros.estados}
             onChange={v => onChange('estados', v)} options={estadoOpts} />
@@ -830,7 +830,7 @@ function PanelFiltros({
 
       {/* Fila 2 — ALCANCE: cuánto, cuándo y dónde */}
       <div className="flex flex-wrap items-center gap-x-1.5 gap-y-2">
-        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider w-[88px] flex-shrink-0">Alcance</span>
+        <span className="text-[10px] font-semibold text-slate-400 w-[88px] flex-shrink-0">Alcance</span>
         <div title="Plazo hasta el cierre de ofertas. 'Ya vencidos' carga además el histórico completo.">
           <Select value={filtros.dias} onChange={v => onChange('dias', v)} icon={<Clock size={13} />}
             options={RANGOS_DIAS.map(r => ({ value: r.key, label: r.label }))} minWidth={170} />
@@ -902,7 +902,7 @@ function KpiFiltro({ activo, onClick, icon, label, value, sub, color, hint }: {
 }) {
   return (
     <button onClick={onClick} title={hint}
-      className={`text-left w-full h-full rounded-2xl transition-all ${activo ? 'ring-2 ring-indigo-500 ring-offset-2' : ''}`}>
+      className={`text-left w-full h-full rounded-2xl transition-all ${activo ? 'ring-2 ring-teal-500 ring-offset-2' : ''}`}>
       <StatCard icon={icon} label={label} value={value} sub={sub} color={color} />
     </button>
   );
@@ -927,10 +927,10 @@ function AsignarModal({ usuarios, count, unaNombre = null, onClose, onConfirm, l
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-2xl" onClick={e => e.stopPropagation()}>
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-flotante w-full max-w-2xl" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
           <div className="min-w-0">
-            <h3 className="text-[15px] font-bold text-slate-800">Asignar {count} licitación{count !== 1 ? 'es' : ''}</h3>
+            <h3 className="text-[15px] font-semibold text-slate-800">Asignar {count} licitación{count !== 1 ? 'es' : ''}</h3>
             <p className="text-[12px] text-slate-400 truncate">{unaNombre ? unaNombre : 'Elige el perfil del equipo'}</p>
           </div>
           <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100"><X size={16} /></button>
@@ -950,24 +950,24 @@ function AsignarModal({ usuarios, count, unaNombre = null, onClose, onConfirm, l
                 {mostrarSeparador && (
                   <div className="flex items-center gap-2 px-3 py-1.5 mt-1">
                     <div className="flex-1 h-px bg-slate-100" />
-                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Administradores</span>
+                    <span className="text-[10px] font-semibold text-slate-400">Administradores</span>
                     <div className="flex-1 h-px bg-slate-100" />
                   </div>
                 )}
                 <button onClick={() => setSel(u.id)}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-colors ${sel === u.id ? 'bg-indigo-50 ring-1 ring-indigo-300' : 'hover:bg-slate-50'}`}>
-                  <div className={`w-8 h-8 rounded-full flex items-center justify-center text-[13px] font-bold flex-shrink-0 border ${c.bg} ${c.text} ${c.border}`}>
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-colors ${sel === u.id ? 'bg-teal-50 ring-1 ring-teal-300' : 'hover:bg-slate-50'}`}>
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center text-[13px] font-semibold flex-shrink-0 border ${c.bg} ${c.text} ${c.border}`}>
                     {(u.nombre || u.email || '?').charAt(0).toUpperCase()}
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="text-[13px] font-semibold text-slate-800 truncate">
                       {u.nombre || u.email}
-                      {esYo && <span className="ml-1.5 text-[10px] font-normal text-indigo-400">(yo)</span>}
+                      {esYo && <span className="ml-1.5 text-[10px] font-normal text-teal-400">(yo)</span>}
                       {esAdmin && <span className="ml-1.5 text-[10px] font-normal text-amber-500">admin</span>}
                     </p>
                     {u.nombre && <p className="text-[11px] text-slate-400 truncate">{u.email}</p>}
                   </div>
-                  {sel === u.id && <CheckSquare size={16} className="text-indigo-600 ml-auto flex-shrink-0" />}
+                  {sel === u.id && <CheckSquare size={16} className="text-teal-600 ml-auto flex-shrink-0" />}
                 </button>
               </div>
             );
@@ -976,7 +976,7 @@ function AsignarModal({ usuarios, count, unaNombre = null, onClose, onConfirm, l
         <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-slate-100">
           <button onClick={onClose} className="px-4 py-2 text-[13px] font-semibold text-slate-600 rounded-lg hover:bg-slate-100">Cancelar</button>
           <button onClick={() => sel != null && onConfirm(sel)} disabled={sel == null || loading}
-            className="inline-flex items-center gap-1.5 px-4 py-2 text-[13px] font-semibold text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-50">
+            className="inline-flex items-center gap-1.5 px-4 py-2 text-[13px] font-semibold text-white bg-teal-600 rounded-lg hover:bg-teal-700 disabled:opacity-50">
             {loading ? <Loader2 size={14} className="animate-spin" /> : <UserPlus size={14} />} Asignar
           </button>
         </div>
@@ -1830,9 +1830,9 @@ export default function RadarPage() {
           <div className="w-16 h-16 bg-slate-100 rounded-2xl flex items-center justify-center mb-4">
             <Radar size={26} className="text-slate-400" />
           </div>
-          <h3 className="text-[15px] font-bold text-slate-800 mb-1.5">Acceso restringido</h3>
+          <h3 className="text-[15px] font-semibold text-slate-800 mb-1.5">Acceso restringido</h3>
           <p className="text-[13px] text-slate-400 max-w-xs">
-            El Radar está disponible solo para administradores. Revisa tus licitaciones asignadas en <Link href="/negocios" className="text-indigo-600 font-semibold">Negocios</Link>.
+            El Radar está disponible solo para administradores. Revisa tus licitaciones asignadas en <Link href="/negocios" className="text-teal-600 font-semibold">Negocios</Link>.
           </p>
         </div>
       </AppLayout>
@@ -1846,15 +1846,15 @@ export default function RadarPage() {
         {/* ── Header ── */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-600 to-violet-600 flex items-center justify-center shadow-lg shadow-indigo-600/25 flex-shrink-0">
+            <div className="w-10 h-10 rounded-xl bg-teal-600 flex items-center justify-center shadow-lg shadow-teal-600/25 flex-shrink-0">
               <Radar size={18} className="text-white" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h1 className="text-xl font-bold text-slate-900">Radar</h1>
+                <h1 className="text-xl font-semibold text-slate-900">Radar</h1>
                 {noLeidas > 0 && (
                   <>
-                    <span className="bg-indigo-600 text-white text-[11px] font-bold px-2 py-0.5 rounded-full tabular-nums"
+                    <span className="bg-teal-600 text-white text-[11px] font-semibold px-2 py-0.5 rounded-full tabular-nums"
                       title={`${noLeidas.toLocaleString('es-CL')} licitaciones sin revisar`}>{noLeidas}</span>
                     <InfoHint texto={`Ojo: aquí hay DOS números distintos que cambian con cada actualización. El ${noLeidas.toLocaleString('es-CL')} de esta burbuja son las licitaciones VIGENTES que nadie ha revisado aún: baja al abrirlas, al asignarlas a un perfil o con "Marcar todas leídas", y las que vencen dejan de contar solas. El ${alertas.length.toLocaleString('es-CL')} de la pestaña "Licitaciones" es TODO lo detectado por tus palabras clave, incluidas cerradas, descartadas y excluidas; la lista de abajo muestra solo las trabajables hoy.`} />
                   </>
@@ -1909,14 +1909,14 @@ export default function RadarPage() {
                   : 'Puente del radar: selecciona licitaciones, mándalas "Al puente" y repártelas entre varios perfiles'}
                 className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-[13px] font-semibold transition-all ${
                   totalPuente > 0
-                    ? 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-sm shadow-indigo-600/30 hover:-translate-y-px'
+                    ? 'bg-teal-600 hover:bg-teal-500 text-white shadow-sm shadow-teal-600/30 hover:-translate-y-px'
                     : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
                 }`}
               >
                 <Shuffle size={14} />
                 <span className="hidden sm:inline">Puente</span>
                 {totalPuente > 0 && (
-                  <span className="bg-white/20 text-white text-[11px] font-bold px-1.5 py-0.5 rounded-full tabular-nums">
+                  <span className="bg-white/20 text-white text-[11px] font-semibold px-1.5 py-0.5 rounded-full tabular-nums">
                     {totalPuente}
                   </span>
                 )}
@@ -1948,7 +1948,7 @@ export default function RadarPage() {
               className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-[13px] font-semibold transition-all ${
                 actualizando
                   ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
-                  : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-sm shadow-indigo-600/30 hover:-translate-y-px'
+                  : 'bg-teal-600 hover:bg-teal-500 text-white shadow-sm shadow-teal-600/30 hover:-translate-y-px'
               }`}
             >
               {actualizando ? <Loader2 size={14} className="animate-spin" /> : <Zap size={14} />}
@@ -1974,11 +1974,11 @@ export default function RadarPage() {
             >
               {t.label}
               {t.count > 0 && (
-                <span className={`text-[11px] px-1.5 py-px rounded-full font-bold tabular-nums ${
-                  t.key === 'radar' && noLeidas > 0 ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-500'
+                <span className={`text-[11px] px-1.5 py-px rounded-full font-semibold tabular-nums ${
+                  t.key === 'radar' && noLeidas > 0 ? 'bg-teal-600 text-white' : 'bg-slate-100 text-slate-500'
                 }`}>{t.count}</span>
               )}
-              {tab === t.key && <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-600 rounded-full" />}
+              {tab === t.key && <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-teal-600 rounded-full" />}
             </button>
           ))}
         </div>
@@ -1995,7 +1995,7 @@ export default function RadarPage() {
                 <div className="w-16 h-16 bg-slate-100 rounded-2xl flex items-center justify-center mb-4">
                   <BellOff size={26} className="text-slate-400" />
                 </div>
-                <h3 className="text-[15px] font-bold text-slate-800 mb-1.5">Sin resultados aún</h3>
+                <h3 className="text-[15px] font-semibold text-slate-800 mb-1.5">Sin resultados aún</h3>
                 <p className="text-[13px] text-slate-400 max-w-xs">
                   {keywords.length === 0
                     ? 'Agrega palabras clave y el Radar buscará automáticamente cada 4 horas'
@@ -2004,7 +2004,7 @@ export default function RadarPage() {
                 </p>
                 {keywords.length === 0 && (
                   <button onClick={() => setTab('keywords')}
-                    className="mt-5 inline-flex items-center gap-2 px-5 py-2.5 bg-indigo-600 text-white rounded-xl text-[13px] font-semibold hover:bg-indigo-500">
+                    className="mt-5 inline-flex items-center gap-2 px-5 py-2.5 bg-teal-600 text-white rounded-xl text-[13px] font-semibold hover:bg-teal-500">
                     <Plus size={14} /> Agregar palabras clave
                   </button>
                 )}
@@ -2015,7 +2015,7 @@ export default function RadarPage() {
                 <div className="bg-white border border-slate-200 rounded-xl">
                   <button onClick={() => setAyudaOpen(o => !o)}
                     className="w-full flex items-center gap-2 px-4 py-2.5 text-left">
-                    <Sparkles size={14} className="text-indigo-500 flex-shrink-0" />
+                    <Sparkles size={14} className="text-teal-500 flex-shrink-0" />
                     <span className="text-[12.5px] font-semibold text-slate-600">¿Cómo funciona el radar?</span>
                     <ChevronDown size={13} className={`text-slate-400 transition-transform ml-auto ${ayudaOpen ? 'rotate-180' : ''}`} />
                   </button>
@@ -2028,7 +2028,7 @@ export default function RadarPage() {
                         { n: '4', t: 'Gestión', d: 'Descarta lo que no sirve, opera en lote con la selección múltiple y filtra con los KPIs de arriba: son clicables.' },
                       ].map(p => (
                         <div key={p.n} className="rounded-lg bg-slate-50 border border-slate-100 p-3">
-                          <p className="text-[11px] font-black text-indigo-600 mb-1">{p.n} · {p.t.toUpperCase()}</p>
+                          <p className="text-[11px] font-semibold text-teal-600 mb-1">{p.n} · {p.t.toUpperCase()}</p>
                           <p className="text-[11.5px] text-slate-500 leading-snug">{p.d}</p>
                         </div>
                       ))}
@@ -2056,7 +2056,7 @@ export default function RadarPage() {
 
                 {/* ── Embudo del radar: KPIs CLICABLES (aplican su filtro al tablero) ── */}
                 <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-                  <KpiFiltro icon={<Eye size={20} />} label="No leídas" value={embudo.noLeidas} color="#7c3aed"
+                  <KpiFiltro icon={<Eye size={20} />} label="No leídas" value={embudo.noLeidas} color="#0891b2"
                     sub="sin revisar aún" hint="Ver solo las licitaciones que nadie ha abierto"
                     activo={filtros.gestion === 'no_leidas'}
                     onClick={() => setFiltro('gestion', filtros.gestion === 'no_leidas' ? '' : 'no_leidas')} />
@@ -2072,7 +2072,7 @@ export default function RadarPage() {
                     sub="urgentes esta semana" hint="Ver solo las que cierran dentro de 7 días"
                     activo={filtros.dias === '7'}
                     onClick={() => setFiltro('dias', filtros.dias === '7' ? '' : '7')} />
-                  <KpiFiltro icon={<UserPlus size={20} />} label="Sin asignar" value={embudo.sinAsignar} color="#4f46e5"
+                  <KpiFiltro icon={<UserPlus size={20} />} label="Sin asignar" value={embudo.sinAsignar} color="#0d9488"
                     sub="nadie las trabaja aún" hint="Ver solo las que no están asignadas a ningún perfil"
                     activo={filtros.gestion === 'sin_asignar'}
                     onClick={() => setFiltro('gestion', filtros.gestion === 'sin_asignar' ? '' : 'sin_asignar')} />
@@ -2090,7 +2090,7 @@ export default function RadarPage() {
                         onChange={e => setTextoInput(e.target.value)}
                         title="Busca en el título, el organismo y el código de licitación. Se aplica junto con los demás filtros."
                         placeholder="Buscar por título, organismo o código (ej: 1499887-11-LE26)…"
-                        className="w-full pl-9 pr-8 py-2 border border-slate-200 rounded-lg text-[13px] focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 outline-none transition-all bg-slate-50"
+                        className="w-full pl-9 pr-8 py-2 border border-slate-200 rounded-lg text-[13px] focus:ring-2 focus:ring-teal-500/20 focus:border-teal-400 outline-none transition-all bg-slate-50"
                       />
                       {textoInput && (
                         <button onClick={() => setTextoInput('')} title="Limpiar búsqueda"
@@ -2106,13 +2106,13 @@ export default function RadarPage() {
                     <div className="flex items-center gap-1 bg-slate-100 rounded-lg p-1">
                       <button onClick={() => setVistaRadar('tarjetas')} title="Tarjetas con el detalle completo"
                         className={`px-3 py-1.5 text-[11px] font-semibold rounded transition-colors ${
-                          vistaRadar === 'tarjetas' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                          vistaRadar === 'tarjetas' ? 'bg-white text-teal-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
                         }`}>
                         Tarjetas
                       </button>
                       <button onClick={() => setVistaRadar('lista')} title="Lista compacta (una línea por licitación)"
                         className={`px-3 py-1.5 text-[11px] font-semibold rounded transition-colors ${
-                          vistaRadar === 'lista' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                          vistaRadar === 'lista' ? 'bg-white text-teal-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
                         }`}>
                         Lista
                       </button>
@@ -2122,13 +2122,13 @@ export default function RadarPage() {
                       title="Abre el panel completo de filtros (estado, viabilidad, prefiltro, tipo, plazo, monto, región, palabra, fechas, documentos). El número indica cuántos filtros están activos."
                       className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border text-[12px] font-semibold transition-colors ${
                         filtrosOpen || numFiltrosActivos > 0
-                          ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
+                          ? 'bg-teal-50 text-teal-700 border-teal-200'
                           : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400'
                       }`}>
                       <SlidersHorizontal size={13} />
                       Filtros
                       {numFiltrosActivos > 0 && (
-                        <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-indigo-600 text-white text-[10px] font-bold">
+                        <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-teal-600 text-white text-[10px] font-semibold">
                           {numFiltrosActivos}
                         </span>
                       )}
@@ -2143,8 +2143,8 @@ export default function RadarPage() {
                       title="Vista base: todo lo no descartado (con los filtros de arriba aplicados)"
                       className={`text-[12px] font-semibold px-3 py-1.5 rounded-lg border transition-colors ${
                         filtros.gestion === ''
-                          ? 'bg-indigo-600 text-white border-indigo-600'
-                          : 'bg-white text-slate-600 border-slate-200 hover:border-indigo-300 hover:text-indigo-700'
+                          ? 'bg-teal-600 text-white border-teal-600'
+                          : 'bg-white text-slate-600 border-slate-200 hover:border-teal-300 hover:text-teal-700'
                       }`}>
                       Activas
                     </button>
@@ -2166,15 +2166,15 @@ export default function RadarPage() {
                       const activo = filtros.gestion === g.key;
                       const clsActivo =
                         g.color === 'emerald' ? 'bg-emerald-600 text-white border-emerald-600' :
-                        g.color === 'violet'  ? 'bg-violet-600 text-white border-violet-600' :
+                        g.color === 'violet'  ? 'bg-cyan-600 text-white border-cyan-600' :
                         g.color === 'slate'   ? 'bg-slate-600 text-white border-slate-600' :
                         g.color === 'amber'   ? 'bg-amber-500 text-white border-amber-500' :
-                        'bg-indigo-600 text-white border-indigo-600';
+                        'bg-teal-600 text-white border-teal-600';
                       return (
                         <button key={g.key} onClick={() => setFiltro('gestion', activo ? '' : g.key)}
                           title={TITULOS_GESTION[g.key]}
                           className={`text-[12px] font-semibold px-3 py-1.5 rounded-lg border transition-colors ${
-                            activo ? clsActivo : 'bg-white text-slate-600 border-slate-200 hover:border-indigo-300 hover:text-indigo-700'
+                            activo ? clsActivo : 'bg-white text-slate-600 border-slate-200 hover:border-teal-300 hover:text-teal-700'
                           }`}>
                           {g.label}
                         </button>
@@ -2192,13 +2192,13 @@ export default function RadarPage() {
                       </p>
                       <button onClick={() => setIncluirVencidas(v => !v)} disabled={loadingAlerts}
                         title={incluirVencidas ? 'Mostrar solo licitaciones activas' : 'Cargar también las licitaciones vencidas (histórico completo)'}
-                        className="flex items-center gap-1.5 text-[12px] text-slate-400 hover:text-indigo-600 transition-colors disabled:opacity-50">
+                        className="flex items-center gap-1.5 text-[12px] text-slate-400 hover:text-teal-600 transition-colors disabled:opacity-50">
                         <History size={13} /> {incluirVencidas ? 'Solo activas' : 'Ver histórico'}
                       </button>
                       {noLeidas > 0 && (
                         <button onClick={marcarTodasLeidas}
                           title="Marca como revisadas TODAS las no leídas del radar (deja la burbuja del título en 0). No las descarta ni las asigna: solo apaga el aviso de 'nueva'."
-                          className="flex items-center gap-1.5 text-[12px] text-slate-400 hover:text-indigo-600 transition-colors">
+                          className="flex items-center gap-1.5 text-[12px] text-slate-400 hover:text-teal-600 transition-colors">
                           <CheckCheck size={13} /> Marcar todas leídas
                         </button>
                       )}
@@ -2215,9 +2215,9 @@ export default function RadarPage() {
                             });
                           }}
                           title="Selecciona todas las tarjetas de esta página para asignarlas o descartarlas en lote"
-                          className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-slate-500 hover:text-indigo-600 transition-colors">
+                          className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-slate-500 hover:text-teal-600 transition-colors">
                           {alertasPagina.every(a => sel.has(a.id))
-                            ? <><CheckSquare size={14} className="text-indigo-600" /> Quitar selección</>
+                            ? <><CheckSquare size={14} className="text-teal-600" /> Quitar selección</>
                             : <><Square size={14} /> Seleccionar página ({alertasPagina.length})</>}
                         </button>
                       )}
@@ -2230,79 +2230,79 @@ export default function RadarPage() {
                       <span className="text-[11px] text-slate-400">Filtrando:</span>
                       {filtros.texto && (
                         <button onClick={() => setFiltro('texto', '')}
-                          className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full border bg-amber-50 text-amber-700 border-amber-200 hover:opacity-75">
+                          className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full border bg-amber-50 text-amber-700 border-amber-200 hover:opacity-75">
                           <Search size={10} /> “{filtros.texto}” <X size={11} />
                         </button>
                       )}
                       {!estadosEsDefault && (
                         <button onClick={() => setFiltro('estados', ESTADOS_ACTIVOS_DEFAULT)}
-                          className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full border bg-slate-50 text-slate-600 border-slate-200 hover:opacity-75">
+                          className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full border bg-slate-50 text-slate-600 border-slate-200 hover:opacity-75">
                           Estado: {filtros.estados.length ? filtros.estados.join(', ') : 'todos'} <X size={11} />
                         </button>
                       )}
                       {!tiposEsDefault && (
                         <button onClick={() => setFiltro('tipos', FILTROS_DEFAULT.tipos)}
-                          className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full border bg-slate-50 text-slate-600 border-slate-200 hover:opacity-75">
+                          className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full border bg-slate-50 text-slate-600 border-slate-200 hover:opacity-75">
                           Tipo: {filtros.tipos.length ? filtros.tipos.join(', ') : 'todos'} <X size={11} />
                         </button>
                       )}
                       {filtros.semaforos.map(s => (
                         <button key={s} onClick={() => setFiltro('semaforos', filtros.semaforos.filter(x => x !== s))}
-                          className={`inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full border hover:opacity-75 ${SEMAFORO_CFG[s]?.bg} ${SEMAFORO_CFG[s]?.text} ${SEMAFORO_CFG[s]?.border}`}>
+                          className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full border hover:opacity-75 ${SEMAFORO_CFG[s]?.bg} ${SEMAFORO_CFG[s]?.text} ${SEMAFORO_CFG[s]?.border}`}>
                           Viabilidad: {SEMAFORO_CFG[s]?.label || s} <X size={11} />
                         </button>
                       ))}
                       {filtros.decisiones.map(dv => (
                         <button key={dv} onClick={() => setFiltro('decisiones', filtros.decisiones.filter(x => x !== dv))}
-                          className={`inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full border hover:opacity-75 ${PREFILTRO_CFG[dv]?.bg} ${PREFILTRO_CFG[dv]?.text} ${PREFILTRO_CFG[dv]?.border}`}>
+                          className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full border hover:opacity-75 ${PREFILTRO_CFG[dv]?.bg} ${PREFILTRO_CFG[dv]?.text} ${PREFILTRO_CFG[dv]?.border}`}>
                           Prefiltro: {PREFILTRO_CFG[dv]?.label || dv} <X size={11} />
                         </button>
                       ))}
                       {filtros.dias && (
                         <button onClick={() => setFiltro('dias', '')}
-                          className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full border bg-slate-50 text-slate-600 border-slate-200 hover:opacity-75">
+                          className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full border bg-slate-50 text-slate-600 border-slate-200 hover:opacity-75">
                           {RANGOS_DIAS.find(r => r.key === filtros.dias)?.label} <X size={11} />
                         </button>
                       )}
                       {filtros.monto && (
                         <button onClick={() => setFiltro('monto', '')}
-                          className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full border bg-emerald-50 text-emerald-700 border-emerald-200 hover:opacity-75">
+                          className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full border bg-emerald-50 text-emerald-700 border-emerald-200 hover:opacity-75">
                           {RANGOS_MONTO.find(r => r.key === filtros.monto)?.label} <X size={11} />
                         </button>
                       )}
                       {filtros.region && (
                         <button onClick={() => setFiltro('region', '')}
-                          className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full border bg-slate-50 text-slate-600 border-slate-200 hover:opacity-75 max-w-[220px]">
+                          className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full border bg-slate-50 text-slate-600 border-slate-200 hover:opacity-75 max-w-[220px]">
                           <MapPin size={10} /> <span className="truncate">{filtros.region}</span> <X size={11} />
                         </button>
                       )}
                       {filtros.keyword && (
                         <button onClick={() => setFiltro('keyword', '')}
-                          className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full border bg-slate-50 text-slate-600 border-slate-200 hover:opacity-75">
+                          className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full border bg-slate-50 text-slate-600 border-slate-200 hover:opacity-75">
                           <Tag size={10} /> {filtros.keyword} <X size={11} />
                         </button>
                       )}
                       {(filtros.fechaDesde || filtros.fechaHasta) && (
                         <button onClick={() => { setFiltro('fechaDesde', ''); setFiltro('fechaHasta', ''); }}
-                          className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full border bg-indigo-50 text-indigo-700 border-indigo-200 hover:opacity-75">
+                          className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full border bg-teal-50 text-teal-700 border-teal-200 hover:opacity-75">
                           <Calendar size={10} /> Publicación: {filtros.fechaDesde || '…'} → {filtros.fechaHasta || '…'} <X size={11} />
                         </button>
                       )}
                       {filtros.conDocumentos && (
                         <button onClick={() => setFiltro('conDocumentos', false)}
-                          className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full border bg-teal-50 text-teal-700 border-teal-200 hover:opacity-75">
+                          className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full border bg-teal-50 text-teal-700 border-teal-200 hover:opacity-75">
                           <FileText size={10} /> Con documentos <X size={11} />
                         </button>
                       )}
                       {filtros.soloNoLeidas && (
                         <button onClick={() => setFiltro('soloNoLeidas', false)}
-                          className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full border bg-violet-50 text-violet-700 border-violet-200 hover:opacity-75">
+                          className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full border bg-cyan-50 text-cyan-700 border-cyan-200 hover:opacity-75">
                           Solo no leídas <X size={11} />
                         </button>
                       )}
                       {filtros.ocultarExcluidas && (
                         <button onClick={() => setFiltro('ocultarExcluidas', false)}
-                          className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full border bg-slate-50 text-slate-600 border-slate-200 hover:opacity-75">
+                          className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full border bg-slate-50 text-slate-600 border-slate-200 hover:opacity-75">
                           Ocultar excluidas <X size={11} />
                         </button>
                       )}
@@ -2315,24 +2315,24 @@ export default function RadarPage() {
 
                   {/* Fila selección múltiple (acciones en lote) */}
                   {sel.size > 0 && (
-                    <div className="flex items-center justify-between gap-3 flex-wrap bg-indigo-600 text-white rounded-lg px-3.5 py-2">
+                    <div className="flex items-center justify-between gap-3 flex-wrap bg-teal-600 text-white rounded-lg px-3.5 py-2">
                       <span className="text-[13px] font-semibold">{sel.size} seleccionada{sel.size !== 1 ? 's' : ''}</span>
                       <div className="flex items-center gap-2">
                         <button onClick={abrirAsignar} disabled={accionMasiva}
                           title="Asignar TODAS las seleccionadas a un mismo perfil del equipo (descarga docs + viabilidad IA + quedan como revisadas)"
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white text-indigo-700 text-[12px] font-bold rounded-lg hover:bg-indigo-50 disabled:opacity-60">
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white text-teal-700 text-[12px] font-semibold rounded-lg hover:bg-teal-50 disabled:opacity-60">
                           <UserPlus size={13} /> Asignar
                         </button>
                         {puedeUsarPuente && (
                           <button onClick={enviarAlPuente} disabled={accionMasiva}
                             title="Mandarlas al puente para repartirlas entre VARIOS perfiles (equitativo, por carga, por categoría, por monto). No asigna nada todavía."
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white text-indigo-700 text-[12px] font-bold rounded-lg hover:bg-indigo-50 disabled:opacity-60">
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white text-teal-700 text-[12px] font-semibold rounded-lg hover:bg-teal-50 disabled:opacity-60">
                             <Shuffle size={13} /> Al puente
                           </button>
                         )}
                         <button onClick={() => descartarCodigos(alertas.filter(a => sel.has(a.id)).map(a => a.licitacion_codigo), true)} disabled={accionMasiva}
                           title="Descartar TODAS las seleccionadas del radar (reversible desde el corte 'Descartadas')"
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-indigo-500 text-white text-[12px] font-bold rounded-lg hover:bg-indigo-400 disabled:opacity-60">
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-teal-500 text-white text-[12px] font-semibold rounded-lg hover:bg-teal-400 disabled:opacity-60">
                           <EyeOff size={13} /> Descartar
                         </button>
                         <button onClick={limpiarSel}
@@ -2365,7 +2365,7 @@ export default function RadarPage() {
                     <p className="text-[14px] font-semibold text-slate-700 mb-1">Sin resultados con estos filtros</p>
                     <p className="text-[12px] text-slate-400 mb-3">Prueba ajustando o limpiando los filtros</p>
                     <button onClick={limpiarFiltros}
-                      className="text-[12px] text-indigo-600 hover:underline font-semibold">
+                      className="text-[12px] text-teal-600 hover:underline font-semibold">
                       Limpiar todos los filtros
                     </button>
                   </div>
@@ -2414,7 +2414,7 @@ export default function RadarPage() {
                           <button
                             onClick={() => { setPagina(p => Math.max(1, p - 1)); document.querySelector('main')?.scrollTo({ top: 0, behavior: 'smooth' }); }}
                             disabled={paginaSegura <= 1}
-                            className="px-3 py-1.5 text-[12px] font-semibold rounded-lg border border-slate-200 text-slate-600 hover:border-indigo-300 hover:text-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                            className="px-3 py-1.5 text-[12px] font-semibold rounded-lg border border-slate-200 text-slate-600 hover:border-teal-300 hover:text-teal-700 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
                           >
                             Anterior
                           </button>
@@ -2424,7 +2424,7 @@ export default function RadarPage() {
                           <button
                             onClick={() => { setPagina(p => Math.min(totalPaginas, p + 1)); document.querySelector('main')?.scrollTo({ top: 0, behavior: 'smooth' }); }}
                             disabled={paginaSegura >= totalPaginas}
-                            className="px-3 py-1.5 text-[12px] font-semibold rounded-lg border border-slate-200 text-slate-600 hover:border-indigo-300 hover:text-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                            className="px-3 py-1.5 text-[12px] font-semibold rounded-lg border border-slate-200 text-slate-600 hover:border-teal-300 hover:text-teal-700 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
                           >
                             Siguiente
                           </button>
@@ -2454,7 +2454,7 @@ export default function RadarPage() {
                     value={nuevaKw}
                     onChange={e => setNuevaKw(e.target.value)}
                     placeholder={nuevaNegativa ? 'Palabra a EXCLUIR. Ej: "usado", "fotográfica", "arriendo"' : 'Ej: "materiales de construcción", "cancha", "tractor"'}
-                    className={`w-full pl-9 pr-4 py-2.5 bg-white border rounded-xl text-[13px] placeholder:text-zinc-400 outline-none ${nuevaNegativa ? 'border-rose-200 focus:ring-2 focus:ring-rose-500/20 focus:border-rose-400' : 'border-zinc-200 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400'}`}
+                    className={`w-full pl-9 pr-4 py-2.5 bg-white border rounded-xl text-[13px] placeholder:text-zinc-400 outline-none ${nuevaNegativa ? 'border-rose-200 focus:ring-2 focus:ring-rose-500/20 focus:border-rose-400' : 'border-zinc-200 focus:ring-2 focus:ring-teal-500/20 focus:border-teal-400'}`}
                     maxLength={100}
                   />
                 </div>
@@ -2463,7 +2463,7 @@ export default function RadarPage() {
                     options={[{ value: '', label: 'Sin categoría' }, ...etiquetas.map(e => ({ value: String(e.id), label: e.nombre, color: e.color }))]} />
                 )}
                 <button type="submit" disabled={agregando || !nuevaKw.trim()}
-                  className={`flex items-center gap-2 px-4 py-2.5 text-white rounded-xl text-[13px] font-semibold disabled:opacity-40 disabled:cursor-not-allowed shadow-sm ${nuevaNegativa ? 'bg-rose-600 hover:bg-rose-500' : 'bg-indigo-600 hover:bg-indigo-500'}`}>
+                  className={`flex items-center gap-2 px-4 py-2.5 text-white rounded-xl text-[13px] font-semibold disabled:opacity-40 disabled:cursor-not-allowed shadow-sm ${nuevaNegativa ? 'bg-rose-600 hover:bg-rose-500' : 'bg-teal-600 hover:bg-teal-500'}`}>
                   {agregando ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
                   Agregar
                 </button>
@@ -2477,7 +2477,7 @@ export default function RadarPage() {
             </form>
             )}
 
-            <div className="flex items-start gap-3 bg-indigo-50 border border-blue-200/60 rounded-xl px-4 py-3.5 mb-5">
+            <div className="flex items-start gap-3 bg-teal-50 border border-blue-200/60 rounded-xl px-4 py-3.5 mb-5">
               <Sparkles size={15} className="text-blue-500 flex-shrink-0 mt-0.5" />
               <div className="text-[12.5px] text-blue-800 leading-relaxed space-y-1">
                 <p><strong className="font-semibold">¿Cómo funciona el Radar?</strong></p>
@@ -2514,7 +2514,7 @@ export default function RadarPage() {
                       {/* Cabecera de la cajita */}
                       <div className="flex items-center gap-2 px-1 pb-2.5">
                         <span style={{ backgroundColor: grupo.color }} className="w-2.5 h-2.5 rounded-full flex-shrink-0" />
-                        <span className="text-[12.5px] font-bold uppercase tracking-wide" style={{ color: grupo.color }}>{grupo.nombre}</span>
+                        <span className="text-[12.5px] font-semibold" style={{ color: grupo.color }}>{grupo.nombre}</span>
                         <span className="text-[11px] text-zinc-400 font-medium">{grupo.items.length}</span>
                       </div>
 
@@ -2528,7 +2528,7 @@ export default function RadarPage() {
                               className="flex-shrink-0 transition-transform hover:scale-105"
                               title={kw.activo ? 'Pausar' : 'Activar'}>
                               {kw.activo
-                                ? <ToggleRight size={26} className="text-indigo-600" />
+                                ? <ToggleRight size={26} className="text-teal-600" />
                                 : <ToggleLeft  size={26} className="text-zinc-300" />}
                             </button>
                             <div className="flex-1 min-w-0">
@@ -2543,7 +2543,7 @@ export default function RadarPage() {
                               </p>
                             </div>
                             {kw.resultados_nuevos > 0 && (
-                              <span className="bg-indigo-600 text-white text-[11px] font-bold px-2 py-0.5 rounded-full flex-shrink-0">
+                              <span className="bg-teal-600 text-white text-[11px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0">
                                 {kw.resultados_nuevos} nuevas
                               </span>
                             )}
@@ -2570,7 +2570,7 @@ export default function RadarPage() {
                     <div className="rounded-2xl border border-rose-200 bg-rose-50/50 p-3">
                       <div className="flex items-center gap-2 px-1 pb-1.5">
                         <Ban size={13} className="text-rose-500 flex-shrink-0" />
-                        <span className="text-[12.5px] font-bold uppercase tracking-wide text-rose-600">Palabras de exclusión</span>
+                        <span className="text-[12.5px] font-semibold text-rose-600">Palabras de exclusión</span>
                         <span className="text-[11px] text-rose-400 font-medium">{negativas.length}</span>
                       </div>
                       <p className="text-[11.5px] text-rose-700/70 px-1 pb-2.5">Si una licitación contiene alguna de estas palabras (en título, descripción, ítems o rubro), <strong>se excluye</strong> aunque calce una palabra positiva.</p>
@@ -2626,7 +2626,7 @@ export default function RadarPage() {
           cuando el fetch resuelve (éxito o error), en el finally de enviarAlPuente. */}
       {enviandoAlPuente != null && createPortal(
         <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm overlay-in">
-          <div className="bg-white rounded-2xl shadow-2xl px-9 py-8 modal-in">
+          <div className="bg-white rounded-xl shadow-flotante px-9 py-8 modal-in">
             <PuenteLoader
               total={enviandoAlPuente}
               titulo="Cruzando al puente…"

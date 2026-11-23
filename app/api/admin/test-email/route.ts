@@ -2,7 +2,7 @@
 // Solo admin. GET → verifica la conexión SMTP. POST → envía un correo de prueba al
 // propio admin para confirmar que el SMTP de Bluehost quedó bien configurado.
 import { NextRequest, NextResponse } from 'next/server';
-import { getAuthedUser } from '@/app/lib/api-auth';
+import { getAuthedUser, tienePermiso } from '@/app/lib/api-auth';
 import { verificarSMTP, enviarCorreoAsignacion, enviarDigestRadar } from '@/app/lib/email';
 
 export const runtime = 'nodejs';
@@ -10,14 +10,14 @@ export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
   const u = await getAuthedUser(request);
-  if (!u || u.rol !== 'admin') return NextResponse.json({ error: 'Solo admin' }, { status: 403 });
+  if (!u || !(await tienePermiso(request, 'soporte_tecnico'))) return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });
   const r = await verificarSMTP();
   return NextResponse.json(r, { status: r.ok ? 200 : 500 });
 }
 
 export async function POST(request: NextRequest) {
   const u = await getAuthedUser(request);
-  if (!u || u.rol !== 'admin') return NextResponse.json({ error: 'Solo admin' }, { status: 403 });
+  if (!u || !(await tienePermiso(request, 'soporte_tecnico'))) return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });
   if (!u.email) return NextResponse.json({ error: 'Tu usuario no tiene email' }, { status: 400 });
 
   // body { tipo?: 'asignacion' | 'digest' } — default 'asignacion'

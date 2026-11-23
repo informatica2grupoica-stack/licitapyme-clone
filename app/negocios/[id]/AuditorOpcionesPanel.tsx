@@ -3042,7 +3042,7 @@ function PanelRequisito({ f0, posicion, onAnterior, onSiguiente, onCerrar, child
   const btn = 'px-2.5 py-1 rounded-md border border-zinc-200 text-[13px] font-medium text-slate-700 hover:bg-zinc-50 disabled:opacity-40';
   return (
     <aside data-no-pdf role="dialog" aria-label={`Requisito ${f0.n}`}
-      className="fixed inset-y-0 right-0 z-50 w-full sm:w-[460px] bg-white border-l border-zinc-200 shadow-xl flex flex-col">
+      className="fixed inset-y-0 right-0 z-50 w-full sm:w-[460px] bg-white border-l border-zinc-200 shadow-flotante flex flex-col">
       <div className="px-5 py-3 border-b border-zinc-200 flex items-center gap-2">
         <p className="text-[13px] text-slate-600">Requisito {f0.n}{posicion ? ` · ${posicion}` : ''}</p>
         <div className="ml-auto flex items-center gap-1.5">

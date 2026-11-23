@@ -20,8 +20,8 @@ export interface EstadoPipeline {
 // terceros el cron pone 'PERDIDA'. O sea el dato siempre significó "ganamos" — el texto "Adjudicada"
 // era ambiguo (¿adjudicada a nosotros o a un tercero?) y generaba confusión en Análisis de licitación.
 export const ESTADOS_PIPELINE: EstadoPipeline[] = [
-  { id: 'ASIGNADO',     label: 'ASIGNADO',    color: '#4F63D2' },
-  { id: 'EN_PROCESO',   label: 'EN PROCESO',  color: '#9333EA' },
+  { id: 'ASIGNADO',     label: 'ASIGNADO',    color: '#64748B' },
+  { id: 'EN_PROCESO',   label: 'EN PROCESO',  color: '#0891B2' },
   // 30-sep-2026: la etapa ANEXOS pasa a llamarse PRE-POSTULACIÓN (spec del AUDITOR unificado, §2): ahí se arman los anexos, se confirma el bloque
   // técnico-administrativo y se cierra el certificado de admisibilidad. Mismo criterio que GANADA: la CLAVE ('ANEXOS') no cambia —está en la BD, en
   // los permisos de alerta y en los filtros—; solo el texto visible.
@@ -31,7 +31,7 @@ export const ESTADOS_PIPELINE: EstadoPipeline[] = [
   { id: 'POSTULADA',    label: 'POSTULADA',   color: '#B45309' },
   { id: 'DESCARTADA',   label: 'DESCARTADA',  color: '#DC2626' },
   { id: 'ADJUDICADA',   label: 'GANADA',      color: '#16A34A' },
-  { id: 'POSIBLE_ADJ',  label: 'POSIBLE ADJ', color: '#6366F1' },
+  { id: 'POSIBLE_ADJ',  label: 'POSIBLE ADJ', color: '#4D7C0F' },
   { id: 'PERDIDA',      label: 'PERDIDA',     color: '#9F1239' },
   // 1-oct-2026: MP revocó (REVOCADA) o declaró desierta (DESIERTA) una licitación en la que ya habíamos postulado. NO es una
   // pérdida contra un competidor, así que va aparte: fuera de Postuladas y de los KPIs/análisis (no entra

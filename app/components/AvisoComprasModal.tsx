@@ -78,19 +78,19 @@ export function AvisoComprasModal() {
   const incidencia = aviso.tipo === 'COMPRAS_INCIDENCIA_FICHA';
   const titulo = incidencia ? 'Nueva incidencia en una ficha técnica' : aprobada ? 'Te aprobaron lo que enviaste' : cambios ? 'Te aprobaron con cambios' : 'Te rechazaron una aprobación';
   const tono = incidencia ? { caja: 'bg-amber-50 border-amber-200', icono: 'text-amber-600', boton: 'bg-amber-600 hover:bg-amber-700' } : aprobada ? { caja: 'bg-emerald-50 border-emerald-200', icono: 'text-emerald-600', boton: 'bg-emerald-600 hover:bg-emerald-700' }
-    : cambios ? { caja: 'bg-violet-50 border-violet-200', icono: 'text-violet-600', boton: 'bg-violet-600 hover:bg-violet-700' }
+    : cambios ? { caja: 'bg-cyan-50 border-cyan-200', icono: 'text-cyan-600', boton: 'bg-cyan-600 hover:bg-cyan-700' }
       : { caja: 'bg-rose-50 border-rose-200', icono: 'text-rose-600', boton: 'bg-rose-600 hover:bg-rose-700' };
   const Icono = aprobada ? Check : cambios ? Lapiz : Alerta;
 
   return (
     <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" role="alertdialog" aria-labelledby="aviso-compras-titulo" data-testid="aviso-compras-modal">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl overflow-hidden">
+      <div className="bg-white rounded-xl shadow-flotante w-full max-w-xl overflow-hidden">
         <div className="px-6 py-5 flex items-start gap-3">
           <div className={`w-10 h-10 rounded-xl border flex items-center justify-center flex-shrink-0 ${tono.caja}`}>
             <Icono size={18} className={tono.icono} />
           </div>
           <div className="flex-1 min-w-0">
-            <h2 id="aviso-compras-titulo" className="text-[15px] font-bold text-zinc-900">{titulo}</h2>
+            <h2 id="aviso-compras-titulo" className="text-[15px] font-semibold text-zinc-900">{titulo}</h2>
             <p className="text-[13px] text-zinc-600 mt-1.5 leading-relaxed break-words">{aviso.mensaje}</p>
           </div>
           <button onClick={cerrar} className="p-1 rounded-lg text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 transition-colors flex-shrink-0" aria-label="Cerrar">

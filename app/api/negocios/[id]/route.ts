@@ -10,7 +10,7 @@ import { publicarCambio } from '@/app/lib/sse-bus';
 import { enviarCorreoCambio, enviarCorreoAsignacion, enviarCorreoEtapaAnexos } from '@/app/lib/email';
 import { getEstadoPipeline, normalizarEstado, puedeCambiarEstadoPipeline } from '@/app/lib/pipeline';
 import { resolverClaveEtapa } from '@/app/lib/etapas-cliente';
-import { puedeVerNegocioAsignado } from '@/app/lib/api-auth';
+import { puedeVerNegocioAsignado, tienePermiso } from '@/app/lib/api-auth';
 import { congelarAuditorSiCorresponde } from '@/app/lib/congelamiento';
 import { sincronizarPrecompraConEstado } from '@/app/lib/compras';
 import { ahoraChileSQL } from '@/app/lib/tz';
@@ -233,7 +233,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
       return NextResponse.json({ error: 'No encontrado' }, { status: 404 });
 
     const neg = (rows as any[])[0];
-    if (rol !== 'admin' && neg.asignado_a !== userId)
+    if (neg.asignado_a !== userId && !(await tienePermiso(request, 'editar_otros_negocios')))
       return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });
 
     // Etapa PROPIA de la empresa (`E<id>`, migration-199): se guarda su etapa base en estado_pipeline (así toda la lógica sigue igual)
@@ -283,7 +283,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
       // Los asistentes (no admin) solo pueden AVANZAR en el pipeline — no retroceder ni "corregir"
       // una etapa ya puesta. Descartar sigue disponible siempre (chequeo arriba); salir de
       // Descartada o retroceder de etapa requiere admin (ver puedeCambiarEstadoPipeline).
-      if (rol !== 'admin') {
+      if (!(await tienePermiso(request, 'retroceder_pipeline'))) {
         const chequeo = puedeCambiarEstadoPipeline(neg.estado_pipeline, estado_pipeline, false);
         if (!chequeo.permitido) {
           return NextResponse.json({ error: chequeo.motivo }, { status: 403 });
@@ -411,7 +411,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
 
     // Reasignar a otro usuario (SOLO admin). In-place: mantiene el mismo registro de negocio
     // (su historial/comentarios/estado) y solo cambia el responsable.
-    if (asignado_a !== undefined && rol === 'admin') {
+    if (asignado_a !== undefined && (await tienePermiso(request, 'reasignar_negocios'))) {
       const nuevo = Number(asignado_a);
       if (nuevo && nuevo !== Number(neg.asignado_a)) {
         // Evita el choque con la unique (asignado_a, licitacion_codigo). OJO: la unique NO mira
@@ -469,7 +469,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     }
 
     // Actualizar etiquetas (solo admin)
-    if (rol === 'admin' && Array.isArray(etiqueta_ids)) {
+    if (Array.isArray(etiqueta_ids) && (await tienePermiso(request, 'admin_etiquetas'))) {
       await pool.query(`DELETE FROM negocios_etiquetas WHERE negocio_id = ?`, [id]);
       for (const eId of etiqueta_ids) {
         await pool.query(

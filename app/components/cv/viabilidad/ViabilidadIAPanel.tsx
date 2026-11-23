@@ -7,7 +7,7 @@
 
 import { useContext, useCallback, useEffect, useRef, useState, Fragment } from 'react';
 import { createPortal } from 'react-dom';
-import { IconSparkles as Sparkles, IconFileSearch as FileSearch, IconLoader2 as Loader2, IconAlertTriangle as AlertTriangle, IconChevronDown as ChevronDown, IconBan as Ban, IconShieldCheck as ShieldCheck, IconPackage as Package, IconScale as Scale, IconGavel as Gavel, IconTarget as Target, IconListCheck as ListChecks, IconExternalLink as ExternalLink, IconSchool as GraduationCap, IconTrash as Trash2, IconSend as Send, IconSquare as Square, IconEye as Eye, IconX as X, IconClipboardCheck as ClipboardCheck, IconCompass as Compass, IconSwords as Swords, IconShip as Ship } from '@tabler/icons-react';
+import { IconWand as Sparkles, IconFileSearch as FileSearch, IconLoader2 as Loader2, IconAlertTriangle as AlertTriangle, IconChevronDown as ChevronDown, IconBan as Ban, IconShieldCheck as ShieldCheck, IconPackage as Package, IconScale as Scale, IconGavel as Gavel, IconTarget as Target, IconListCheck as ListChecks, IconExternalLink as ExternalLink, IconSchool as GraduationCap, IconTrash as Trash2, IconSend as Send, IconSquare as Square, IconEye as Eye, IconX as X, IconClipboardCheck as ClipboardCheck, IconCompass as Compass, IconSwords as Swords, IconShip as Ship } from '@tabler/icons-react';
 import { useSession } from '@/app/lib/session-context';
 import { DocScanLoader } from '@/app/components/ui/DocScanLoader';
 import { registrarVerCita } from '@/app/lib/actividad-cliente';
@@ -260,7 +260,7 @@ function VisorPagina({ estado, onClose }: { estado: VisorOpts; onClose: () => vo
   return createPortal(
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4"
       role="dialog" aria-modal="true" aria-label={estado.titulo || 'Fuente del análisis'}>
-      <div className="bg-white rounded-xl shadow-2xl max-w-7xl w-full max-h-[92vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
+      <div className="bg-white rounded-xl shadow-flotante max-w-7xl w-full max-h-[92vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between gap-3 px-4 py-2.5 border-b border-slate-200 flex-shrink-0">
           <div className="min-w-0">
             <p className="text-[13px] font-semibold text-slate-800 truncate">{estado.titulo || 'Fuente del análisis'}</p>
@@ -352,16 +352,16 @@ function TarjetaAdjudicacion({ informe }: { informe: InformeIA }) {
 
   return (
     <div className="bg-white border border-slate-200 rounded-xl p-3">
-      <p className="text-[10px] font-bold text-slate-400 uppercase">Cómo se adjudica</p>
+      <p className="text-[10px] font-semibold text-slate-400 uppercase">Cómo se adjudica</p>
       <p className="text-[14px] font-semibold text-slate-800 leading-tight">
         {cap(como) || cap(mod.tipo) || '—'}
         {revision ? <span title="El análisis no lo determinó con certeza: confírmalo en las bases"> ⚠</span> : null}
       </p>
 
       <div className="flex items-center gap-1 flex-wrap mt-0.5">
-        {revision && <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-amber-100 text-amber-700">REVISAR</span>}
-        {cotizar100 && <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-red-100 text-red-700" title="Hay que cotizar el 100% o la oferta queda fuera">COTIZAR 100%</span>}
-        {heterog === 'alta' && <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-emerald-100 text-emerald-700">heterogénea</span>}
+        {revision && <span className="text-[9px] font-semibold px-1 py-0.5 rounded bg-amber-100 text-amber-700">REVISAR</span>}
+        {cotizar100 && <span className="text-[9px] font-semibold px-1 py-0.5 rounded bg-red-100 text-red-700" title="Hay que cotizar el 100% o la oferta queda fuera">COTIZAR 100%</span>}
+        {heterog === 'alta' && <span className="text-[9px] font-semibold px-1 py-0.5 rounded bg-emerald-100 text-emerald-700">heterogénea</span>}
       </div>
 
       {/* La cita con el ojo — mismo componente que el resto del informe. */}
@@ -383,13 +383,13 @@ function TarjetaAdjudicacion({ informe }: { informe: InformeIA }) {
         <div className="mt-1.5 space-y-1.5 border-t border-slate-100 pt-1.5">
           {evidencia && (
             <div>
-              <p className="text-[9px] font-bold text-slate-400 uppercase">Razonamiento</p>
+              <p className="text-[9px] font-semibold text-slate-400 uppercase">Razonamiento</p>
               <p className="text-[10.5px] text-slate-600 leading-snug">{evidencia}</p>
             </div>
           )}
           {cotizacion && (
             <div>
-              <p className="text-[9px] font-bold text-slate-400 uppercase">Cómo se cotiza (eje aparte)</p>
+              <p className="text-[9px] font-semibold text-slate-400 uppercase">Cómo se cotiza (eje aparte)</p>
               <p className="text-[10.5px] text-slate-600">{cap(cotizacion)}</p>
             </div>
           )}
@@ -665,9 +665,9 @@ function VistaV3({ informe, feedbackPanel }: { informe: any; feedbackPanel?: Rea
               <span title={ver.tip} className={`text-[11px] font-semibold text-white px-2 py-0.5 rounded cursor-help ${ver.bg}`}>{ver.label}</span>
               {informe.area_negocio && <span className="text-[11px] text-slate-500 bg-white/60 border border-slate-200 px-2 py-0.5 rounded-full">{cap(informe.area_negocio)}</span>}
               <span title={enRevision ? 'La IA no quedó 100% segura del veredicto: una persona debe confirmarlo antes de decidir' : 'Análisis firme: no requiere confirmación humana'}
-                className={`text-[10px] font-bold px-2 py-0.5 rounded-full border cursor-help ${enRevision ? 'bg-amber-100 text-amber-700 border-amber-300' : 'bg-emerald-50 text-emerald-700 border-emerald-200'}`}>{enRevision ? 'REVISIÓN HUMANA' : 'DEFINITIVO'}</span>
+                className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border cursor-help ${enRevision ? 'bg-amber-100 text-amber-700 border-amber-300' : 'bg-emerald-50 text-emerald-700 border-emerald-200'}`}>{enRevision ? 'REVISIÓN HUMANA' : 'DEFINITIVO'}</span>
             </div>
-            {t.titular && <p className="text-[14.5px] font-bold text-slate-800 mt-1.5 leading-snug">{t.titular}</p>}
+            {t.titular && <p className="text-[14.5px] font-semibold text-slate-800 mt-1.5 leading-snug">{t.titular}</p>}
             {/* Resumen de riesgos en una línea: lo crítico visible sin abrir nada */}
             <p className="text-[12px] mt-1 flex items-center gap-1.5 flex-wrap">
               {nBloq > 0
@@ -681,14 +681,14 @@ function VistaV3({ informe, feedbackPanel }: { informe: any; feedbackPanel?: Rea
           t.porque_no && <p className="text-[13px] text-red-700 mt-3"><strong>POR QUÉ NO:</strong> {t.porque_no}</p>
         ) : (
           <div className="mt-3 space-y-2.5">
-            {t.se_gana_en && <div className="text-[13px]"><span className="font-bold text-slate-700">SE GANA EN: </span><span className="text-slate-600">{t.se_gana_en}</span></div>}
+            {t.se_gana_en && <div className="text-[13px]"><span className="font-semibold text-slate-700">SE GANA EN: </span><span className="text-slate-600">{t.se_gana_en}</span></div>}
             {(t.para_ganar?.length ?? 0) > 0 && (
-              <div><p className="text-[11px] font-bold text-slate-400 uppercase mb-1">Para ganar</p><ol className="text-[13px] text-slate-700 space-y-1 list-decimal pl-5">{t.para_ganar.map((x: string, i: number) => <li key={i}>{x}</li>)}</ol></div>
+              <div><p className="text-[11px] font-semibold text-slate-400 uppercase mb-1">Para ganar</p><ol className="text-[13px] text-slate-700 space-y-1 list-decimal pl-5">{t.para_ganar.map((x: string, i: number) => <li key={i}>{x}</li>)}</ol></div>
             )}
             {(t.no_quedes_fuera?.length ?? 0) > 0 && (
-              <div><p className="text-[11px] font-bold text-red-500 uppercase mb-1">No quedes fuera</p><ul className="text-[13px] text-slate-700 space-y-1 list-disc pl-5">{t.no_quedes_fuera.map((x: string, i: number) => <li key={i}>{x}</li>)}</ul></div>
+              <div><p className="text-[11px] font-semibold text-red-500 uppercase mb-1">No quedes fuera</p><ul className="text-[13px] text-slate-700 space-y-1 list-disc pl-5">{t.no_quedes_fuera.map((x: string, i: number) => <li key={i}>{x}</li>)}</ul></div>
             )}
-            {t.antes_de_ir && <div className="text-[12px] text-slate-500"><span className="font-bold">ANTES DE IR: </span>{t.antes_de_ir}</div>}
+            {t.antes_de_ir && <div className="text-[12px] text-slate-500"><span className="font-semibold">ANTES DE IR: </span>{t.antes_de_ir}</div>}
           </div>
         )}
       </div>
@@ -699,13 +699,13 @@ function VistaV3({ informe, feedbackPanel }: { informe: any; feedbackPanel?: Rea
       {/* Datos clave */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
         <div className="bg-white border border-slate-200 rounded-xl p-3">
-          <p className="text-[10px] font-bold text-slate-400 uppercase">Presupuesto</p>
+          <p className="text-[10px] font-semibold text-slate-400 uppercase">Presupuesto</p>
           {/* Se muestra CON IVA (bruto) desde el dato estructurado — no del string cacheado del
               modelo (los informes viejos traían "$__ neto"); así se ve con IVA sin re-analizar. */}
-          <p className="text-[15px] font-bold text-emerald-700 leading-tight">{fmt(informe.presupuesto?.bruto ?? informe.presupuesto?.neto)}{informe.presupuesto?.bruto && !informe.presupuesto?.regimen_fora ? <span className="text-[10px] font-semibold text-slate-400"> IVA incl.</span> : null}</p>
+          <p className="text-[15px] font-semibold text-emerald-700 leading-tight">{fmt(informe.presupuesto?.bruto ?? informe.presupuesto?.neto)}{informe.presupuesto?.bruto && !informe.presupuesto?.regimen_fora ? <span className="text-[10px] font-semibold text-slate-400"> IVA incl.</span> : null}</p>
           {adm.presupuesto?.tipo === 'excluyente'
-            ? <span title="Si la oferta supera este monto queda inadmisible (fuera de bases)" className="text-[9px] font-bold px-1 py-0.5 rounded bg-red-100 text-red-700 cursor-help">EXCLUYENTE</span>
-            : <span title="Monto de referencia: se puede ofertar por sobre él, aunque puede restar competitividad" className="text-[9px] font-bold px-1 py-0.5 rounded bg-slate-100 text-slate-500 cursor-help">referencial</span>}
+            ? <span title="Si la oferta supera este monto queda inadmisible (fuera de bases)" className="text-[9px] font-semibold px-1 py-0.5 rounded bg-red-100 text-red-700 cursor-help">EXCLUYENTE</span>
+            : <span title="Monto de referencia: se puede ofertar por sobre él, aunque puede restar competitividad" className="text-[9px] font-semibold px-1 py-0.5 rounded bg-slate-100 text-slate-500 cursor-help">referencial</span>}
           {Array.isArray(informe.presupuesto?.por_linea) && informe.presupuesto.por_linea.length >= 2 && (
             <div className="mt-1 space-y-0.5">
               {informe.presupuesto.por_linea.map((l: any) => (
@@ -715,7 +715,7 @@ function VistaV3({ informe, feedbackPanel }: { informe: any; feedbackPanel?: Rea
           )}
         </div>
         <div className={`border rounded-xl p-3 ${adj.estado === 'REVISION_HUMANA' ? 'bg-amber-50 border-amber-200' : 'bg-white border-slate-200'}`}>
-          <p className={`text-[10px] font-bold uppercase ${adj.estado === 'REVISION_HUMANA' ? 'text-amber-600' : 'text-slate-400'}`}>Cómo se adjudica</p>
+          <p className={`text-[10px] font-semibold uppercase ${adj.estado === 'REVISION_HUMANA' ? 'text-amber-600' : 'text-slate-400'}`}>Cómo se adjudica</p>
           {/* REVISION_HUMANA = la IA no encontró evidencia objetiva y usó un DEFAULT (ver
               veredictoAdjudicacionDeterminista en viabilidad-ia.ts), no un dato leído de las bases.
               Antes se mostraba con el mismo estilo bold que un dato confirmado (solo un ⚠ chico
@@ -724,17 +724,17 @@ function VistaV3({ informe, feedbackPanel }: { informe: any; feedbackPanel?: Rea
               lenguaje visual que el badge REVISIÓN HUMANA de la tarjeta) y el texto dice "sin confirmar". */}
           <p title={adj.estado === 'REVISION_HUMANA' ? 'La IA no encontró evidencia objetiva en las bases: este es un valor POR DEFECTO, no un dato leído. Verifícalo antes de armar la estrategia o el costeo.' : 'Cómo reparte la compra el organismo: global (todo a un proveedor) o por línea/lote (puede dividirla)'}
             className={`text-[14px] font-semibold leading-tight cursor-help ${adj.estado === 'REVISION_HUMANA' ? 'text-amber-700' : 'text-slate-800'}`}>{cap(adj.como_se_adjudica) || '—'}{adj.estado === 'REVISION_HUMANA' ? ' ⚠ sin confirmar' : ''}</p>
-          {adj.cotizar_100_obligatorio && <span title="Hay que ofertar TODOS los ítems: si falta uno, la oferta completa queda fuera" className="text-[9px] font-bold px-1 py-0.5 rounded bg-red-100 text-red-700 cursor-help">COTIZAR 100%</span>}
+          {adj.cotizar_100_obligatorio && <span title="Hay que ofertar TODOS los ítems: si falta uno, la oferta completa queda fuera" className="text-[9px] font-semibold px-1 py-0.5 rounded bg-red-100 text-red-700 cursor-help">COTIZAR 100%</span>}
         </div>
         <div className="bg-white border border-slate-200 rounded-xl p-3" title="Días “gratis” entre la adjudicación y el inicio del plazo de entrega: la holgura administrativa para conseguir los productos">
-          <p className="text-[10px] font-bold text-slate-400 uppercase cursor-help">Colchón de tiempo</p>
-          <p className="text-[15px] font-bold text-slate-800 leading-tight">{plz.colchon_dias_corridos != null ? `${plz.colchon_dias_corridos} días` : '—'}</p>
+          <p className="text-[10px] font-semibold text-slate-400 uppercase cursor-help">Colchón de tiempo</p>
+          <p className="text-[15px] font-semibold text-slate-800 leading-tight">{plz.colchon_dias_corridos != null ? `${plz.colchon_dias_corridos} días` : '—'}</p>
           {plz.ventana_importacion
-            ? <span title="La holgura alcanza para importar productos desde el extranjero" className="text-[9px] font-bold px-1 py-0.5 rounded bg-sky-100 text-sky-700 inline-flex items-center gap-0.5 cursor-help"><Ship size={9} /> alcanza a importar</span>
+            ? <span title="La holgura alcanza para importar productos desde el extranjero" className="text-[9px] font-semibold px-1 py-0.5 rounded bg-sky-100 text-sky-700 inline-flex items-center gap-0.5 cursor-help"><Ship size={9} /> alcanza a importar</span>
             : <span title="La holgura NO alcanza para importar: hay que tener stock local" className="text-[10px] text-slate-400 cursor-help">no alcanza a importar</span>}
         </div>
         <div className="bg-white border border-slate-200 rounded-xl p-3" title="Qué tan atractivo es el negocio según presupuesto, cantidad de ítems, complejidad y ejecución">
-          <p className="text-[10px] font-bold text-slate-400 uppercase cursor-help">Atractivo</p>
+          <p className="text-[10px] font-semibold text-slate-400 uppercase cursor-help">Atractivo</p>
           <p className="text-[14px] font-semibold text-slate-800 leading-tight">{cap(atr.nivel || atr.veredicto) || '—'}</p>
         </div>
       </div>
@@ -763,7 +763,7 @@ function VistaV3({ informe, feedbackPanel }: { informe: any; feedbackPanel?: Rea
           <button key={tb.id} onClick={() => setTab(tb.id)}
             className={`flex items-center gap-1.5 px-3 py-2 text-[13px] font-semibold whitespace-nowrap border-b-2 -mb-px transition-colors ${tab === tb.id ? 'border-marca text-marca' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>
             {tb.icon} {tb.label}
-            {tb.badge && <span className={`text-[10.5px] font-bold px-1.5 py-0.5 rounded-full ${tb.badgeRojo ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-500'}`}>{tb.badge}</span>}
+            {tb.badge && <span className={`text-[10.5px] font-semibold px-1.5 py-0.5 rounded-full ${tb.badgeRojo ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-500'}`}>{tb.badge}</span>}
           </button>
         ))}
       </div>
@@ -786,10 +786,10 @@ function VistaV3({ informe, feedbackPanel }: { informe: any; feedbackPanel?: Rea
                   <div className="flex items-center justify-between gap-2">
                     <p className="text-[13.5px] font-semibold text-slate-800 flex items-center gap-1.5 flex-wrap">
                       {c.nombre}
-                      {tb && <span title={tb.tip} className={`text-[10px] font-bold px-1.5 py-0.5 rounded cursor-help ${tb.cls}`}>{tb.label}</span>}
-                      {bordeComodo && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 cursor-help" title="El valor a ofertar para obtener el máximo puntaje de este criterio sin apretar la operación más de lo necesario">{bordeComodo}</span>}
+                      {tb && <span title={tb.tip} className={`text-[10px] font-semibold px-1.5 py-0.5 rounded cursor-help ${tb.cls}`}>{tb.label}</span>}
+                      {bordeComodo && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 cursor-help" title="El valor a ofertar para obtener el máximo puntaje de este criterio sin apretar la operación más de lo necesario">{bordeComodo}</span>}
                     </p>
-                    <span className="text-[14px] font-bold text-slate-900 flex-shrink-0">{pond}%</span>
+                    <span className="text-[14px] font-semibold text-slate-900 flex-shrink-0">{pond}%</span>
                   </div>
                   {/* Barra proporcional: dónde está el puntaje, de un vistazo (verde = el que más pesa) */}
                   <div className="h-1.5 bg-slate-100 rounded-full mt-1.5 overflow-hidden">
@@ -827,12 +827,12 @@ function VistaV3({ informe, feedbackPanel }: { informe: any; feedbackPanel?: Rea
             ))}
             {dsd.orden_final && (
               <div className="rounded-lg border border-teal-200 bg-marca-suave/60 p-2.5 mt-1">
-                <p className="flex items-center gap-1.5 text-[12px] font-bold text-teal-900 mb-1"><Compass size={13} /> Dónde se decide</p>
+                <p className="flex items-center gap-1.5 text-[12px] font-semibold text-teal-900 mb-1"><Compass size={13} /> Dónde se decide</p>
                 <p className="text-[12px] text-slate-700 leading-snug">{dsd.orden_final}</p>
                 <div className="flex items-center gap-1.5 flex-wrap mt-1.5">
-                  {dsd.se_decide_en && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-white border border-teal-200 text-marca">se decide en: {cap(dsd.se_decide_en)}</span>}
-                  {dsd.tenemos_ventaja_costo === 'si' && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700">ventaja de costo</span>}
-                  {dsd.tenemos_ventaja_costo === 'no' && dsd.se_decide_en === 'precio' && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-red-100 text-red-700">⚠ guerra de precio</span>}
+                  {dsd.se_decide_en && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-white border border-teal-200 text-marca">se decide en: {cap(dsd.se_decide_en)}</span>}
+                  {dsd.tenemos_ventaja_costo === 'si' && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700">ventaja de costo</span>}
+                  {dsd.tenemos_ventaja_costo === 'no' && dsd.se_decide_en === 'precio' && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-red-100 text-red-700">⚠ guerra de precio</span>}
                 </div>
               </div>
             )}
@@ -935,10 +935,10 @@ function VistaV3({ informe, feedbackPanel }: { informe: any; feedbackPanel?: Rea
             <table className="w-full text-[13px]">
               <thead>
                 <tr className="text-left text-[10.5px] text-slate-400 uppercase">
-                  <th className="py-1.5 pr-2 font-bold w-10">L</th>
-                  <th className="py-1.5 pr-2 font-bold">Descripción</th>
-                  <th className="py-1.5 pr-2 font-bold text-right w-20 whitespace-nowrap">Cant.</th>
-                  <th className="py-1.5 font-bold w-28">Tipo</th>
+                  <th className="py-1.5 pr-2 font-semibold w-10">L</th>
+                  <th className="py-1.5 pr-2 font-semibold">Descripción</th>
+                  <th className="py-1.5 pr-2 font-semibold text-right w-20 whitespace-nowrap">Cant.</th>
+                  <th className="py-1.5 font-semibold w-28">Tipo</th>
                 </tr>
               </thead>
               <tbody>
@@ -1005,7 +1005,7 @@ function VistaV3({ informe, feedbackPanel }: { informe: any; feedbackPanel?: Rea
           {lin.modo === 'POR_LINEAS'
             ? <div className="space-y-1 text-[12px]">{(lin.lineas || []).map((l: any, i: number) => (
                 <div key={i} className="flex items-start gap-2 border-b border-slate-100 last:border-0 py-1">
-                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded flex-shrink-0 ${l.decision === 'atacar' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>{typeof l.linea === 'string' && /^L/i.test(l.linea) ? l.linea : `L${l.linea}`} · {cap(l.decision)}</span>
+                  <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded flex-shrink-0 ${l.decision === 'atacar' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>{typeof l.linea === 'string' && /^L/i.test(l.linea) ? l.linea : `L${l.linea}`} · {cap(l.decision)}</span>
                   <span className="text-slate-600 flex-1">{l.motivo}</span>
                 </div>))}</div>
             : <p className="text-[13px] text-slate-700">{lin.mensaje_global_o_lote}</p>}
@@ -1015,8 +1015,8 @@ function VistaV3({ informe, feedbackPanel }: { informe: any; feedbackPanel?: Rea
       {/* Acciones y advertencias */}
       {tab === 'preparacion' && ((acc.acciones?.length ?? 0) > 0 || (acc.advertencias?.length ?? 0) > 0) && (
         <Seccion icon={<Target size={14} className="text-teal-600" />} titulo="Acciones y advertencias" defaultOpen>
-          {(acc.acciones?.length ?? 0) > 0 && <><p className="text-[11px] font-bold text-slate-400 uppercase mb-1">Para postular</p><ul className="text-[12px] text-slate-700 space-y-1 list-decimal pl-4 mb-2">{acc.acciones.map((a: any, i: number) => <li key={i}><span className="font-semibold">{a.orden}</span>{a.por_que ? ` — ${a.por_que}` : ''} <Fuente>{a.fuente}</Fuente></li>)}</ul></>}
-          {(acc.advertencias?.length ?? 0) > 0 && <><p className="text-[11px] font-bold text-red-500 uppercase mb-1">Advertencias</p><ul className="text-[12px] text-amber-700 space-y-1 list-disc pl-4">{acc.advertencias.map((a: any, i: number) => <li key={i}>⚠ {a.riesgo}{a.consecuencia ? ` — ${a.consecuencia}` : ''} <Fuente>{a.fuente}</Fuente></li>)}</ul></>}
+          {(acc.acciones?.length ?? 0) > 0 && <><p className="text-[11px] font-semibold text-slate-400 uppercase mb-1">Para postular</p><ul className="text-[12px] text-slate-700 space-y-1 list-decimal pl-4 mb-2">{acc.acciones.map((a: any, i: number) => <li key={i}><span className="font-semibold">{a.orden}</span>{a.por_que ? ` — ${a.por_que}` : ''} <Fuente>{a.fuente}</Fuente></li>)}</ul></>}
+          {(acc.advertencias?.length ?? 0) > 0 && <><p className="text-[11px] font-semibold text-red-500 uppercase mb-1">Advertencias</p><ul className="text-[12px] text-amber-700 space-y-1 list-disc pl-4">{acc.advertencias.map((a: any, i: number) => <li key={i}>⚠ {a.riesgo}{a.consecuencia ? ` — ${a.consecuencia}` : ''} <Fuente>{a.fuente}</Fuente></li>)}</ul></>}
         </Seccion>
       )}
 
@@ -1356,7 +1356,7 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
       <div className="rounded-xl border border-teal-200 bg-marca-suave/40 p-4">
         <div className="flex items-center gap-2 mb-1">
           <GraduationCap size={16} className="text-marca" />
-          <h3 className="text-[13px] font-bold text-slate-800">Enseñarle a la IA · Reglas que aprende</h3>
+          <h3 className="text-[13px] font-semibold text-slate-800">Enseñarle a la IA · Reglas que aprende</h3>
         </div>
         <p className="text-[11.5px] text-slate-500 mb-3">Tu corrección se convierte en una regla que el sistema aplicará en <strong>todos los análisis futuros</strong>. Puedes agregar reglas aunque no hayas analizado esta licitación.</p>
 
@@ -1404,13 +1404,13 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
 
         {feedback.length > 0 && (
           <div className="mt-3 pt-3 border-t border-teal-100 space-y-2">
-            <p className="text-[11px] font-bold text-slate-400 uppercase">Lecciones registradas ({feedback.length})</p>
+            <p className="text-[11px] font-semibold text-slate-400 uppercase">Lecciones registradas ({feedback.length})</p>
             {feedback.map(f => (
               <div key={f.id} className="flex items-start gap-2 text-[12px] bg-white rounded-lg border border-slate-200 p-2">
                 <GraduationCap size={13} className="text-teal-600 mt-0.5 flex-shrink-0" />
                 <div className="min-w-0 flex-1">
                   <p className="text-slate-700">
-                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded mr-1.5 align-middle ${f.ambito === 'lectura' ? 'bg-sky-100 text-sky-700' : 'bg-teal-50 text-marca'}`}>
+                    <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded mr-1.5 align-middle ${f.ambito === 'lectura' ? 'bg-sky-100 text-sky-700' : 'bg-teal-50 text-marca'}`}>
                       {f.ambito === 'lectura' ? 'Lectura' : 'Viabilidad'}
                     </span>
                     <strong>Regla:</strong> {f.regla}
@@ -1432,7 +1432,7 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
         <div className="flex items-center gap-2 min-w-0">
           <div className="w-8 h-8 rounded-lg bg-marca flex items-center justify-center flex-shrink-0"><Sparkles size={16} className="text-white" /></div>
           <div className="min-w-0">
-            <h2 className="text-[15px] font-bold text-slate-800 leading-tight">Análisis de viabilidad</h2>
+            <h2 className="text-[15px] font-semibold text-slate-800 leading-tight">Análisis de viabilidad</h2>
             <p className="text-[11px] text-slate-400 truncate">El sistema lee todas las bases (incl. escaneadas) y emite el veredicto con su fuente</p>
           </div>
         </div>
@@ -1532,9 +1532,9 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className={`text-[11px] font-semibold text-white px-2 py-0.5 rounded ${sem.bg}`}>{ganaLabel}</span>
-                  <span className={`text-[13px] font-bold ${sem.text}`}>{SEM[informe.semaforo || '']?.label || cap(v?.nivel)}</span>
+                  <span className={`text-[13px] font-semibold ${sem.text}`}>{SEM[informe.semaforo || '']?.label || cap(v?.nivel)}</span>
                   {informe.area_negocio && <span className="text-[11px] text-slate-500 bg-white/60 border border-slate-200 px-2 py-0.5 rounded-full">{cap(informe.area_negocio)}</span>}
-                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${enRevision ? 'bg-amber-100 text-amber-700 border-amber-300' : 'bg-emerald-50 text-emerald-700 border-emerald-200'}`}>
+                  <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${enRevision ? 'bg-amber-100 text-amber-700 border-amber-300' : 'bg-emerald-50 text-emerald-700 border-emerald-200'}`}>
                     {enRevision ? 'REVISIÓN HUMANA' : 'DEFINITIVO'}
                   </span>
                 </div>
@@ -1551,7 +1551,7 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
           {/* Avisos de coherencia / revisión humana */}
           {avisos.length > 0 && (
             <div className="rounded-xl border border-amber-200 bg-amber-50 p-3">
-              <p className="flex items-center gap-1.5 text-[12px] font-bold text-amber-800 mb-1"><AlertTriangle size={13} /> Avisos de revisión</p>
+              <p className="flex items-center gap-1.5 text-[12px] font-semibold text-amber-800 mb-1"><AlertTriangle size={13} /> Avisos de revisión</p>
               <ul className="text-[12px] text-amber-700 space-y-0.5 list-disc pl-5">{avisos.map((a, i) => <li key={i}>{a}</li>)}</ul>
             </div>
           )}
@@ -1559,13 +1559,13 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
           {/* Datos clave (chips) */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
             <div className="bg-white border border-slate-200 rounded-xl p-3">
-              <p className="text-[10px] font-bold text-slate-400 uppercase">Presupuesto</p>
-              <p className="text-[15px] font-bold text-emerald-700 leading-tight">{fmt(informe.presupuesto?.bruto ?? informe.presupuesto?.neto)}{informe.presupuesto?.bruto && !informe.presupuesto?.regimen_fora ? <span className="text-[10px] font-semibold text-slate-400"> IVA incl.</span> : null}</p>
+              <p className="text-[10px] font-semibold text-slate-400 uppercase">Presupuesto</p>
+              <p className="text-[15px] font-semibold text-emerald-700 leading-tight">{fmt(informe.presupuesto?.bruto ?? informe.presupuesto?.neto)}{informe.presupuesto?.bruto && !informe.presupuesto?.regimen_fora ? <span className="text-[10px] font-semibold text-slate-400"> IVA incl.</span> : null}</p>
               <div className="flex items-center gap-1 flex-wrap mt-0.5">
                 {informe.presupuesto?.es_excluyente
-                  ? <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-red-100 text-red-700">EXCLUYENTE</span>
-                  : <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-slate-100 text-slate-500">referencial</span>}
-                {informe.presupuesto?.regimen_fora && <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-teal-50 text-marca">FORA</span>}
+                  ? <span className="text-[9px] font-semibold px-1 py-0.5 rounded bg-red-100 text-red-700">EXCLUYENTE</span>
+                  : <span className="text-[9px] font-semibold px-1 py-0.5 rounded bg-slate-100 text-slate-500">referencial</span>}
+                {informe.presupuesto?.regimen_fora && <span className="text-[9px] font-semibold px-1 py-0.5 rounded bg-teal-50 text-marca">FORA</span>}
               </div>
               {Array.isArray(informe.presupuesto?.por_linea) && informe.presupuesto.por_linea.length >= 2 && (
                 <div className="mt-1 space-y-0.5">
@@ -1580,17 +1580,17 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
             </div>
             <TarjetaAdjudicacion informe={informe} />
             <div className="bg-white border border-slate-200 rounded-xl p-3">
-              <p className="text-[10px] font-bold text-slate-400 uppercase">Colchón administrativo</p>
-              <p className="text-[15px] font-bold text-slate-800 leading-tight">{lt?.colchon_dias_corridos != null ? `${lt.colchon_dias_corridos} días corr.` : lt?.colchon_dias_habiles != null ? `${lt.colchon_dias_habiles} días háb.` : '—'}</p>
+              <p className="text-[10px] font-semibold text-slate-400 uppercase">Colchón administrativo</p>
+              <p className="text-[15px] font-semibold text-slate-800 leading-tight">{lt?.colchon_dias_corridos != null ? `${lt.colchon_dias_corridos} días corr.` : lt?.colchon_dias_habiles != null ? `${lt.colchon_dias_habiles} días háb.` : '—'}</p>
               <div className="flex items-center gap-1 flex-wrap mt-0.5">
                 {lt?.ventana_importacion
-                  ? <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-sky-100 text-sky-700 inline-flex items-center gap-0.5"><Ship size={9} /> ventana importación</span>
+                  ? <span className="text-[9px] font-semibold px-1 py-0.5 rounded bg-sky-100 text-sky-700 inline-flex items-center gap-0.5"><Ship size={9} /> ventana importación</span>
                   : <span className="text-[10px] text-slate-400 truncate">{lt?.plazo_ofertable_puntaje ? `ofertable: ${lt.plazo_ofertable_puntaje}` : 'previo al cómputo'}</span>}
               </div>
             </div>
             <div className="bg-white border border-slate-200 rounded-xl p-3">
-              <p className="text-[10px] font-bold text-slate-400 uppercase">Líneas</p>
-              <p className="text-[15px] font-bold text-slate-800 leading-tight">{nProd || informe.capa_a?.cantidad_items?.n_items || '—'}</p>
+              <p className="text-[10px] font-semibold text-slate-400 uppercase">Líneas</p>
+              <p className="text-[15px] font-semibold text-slate-800 leading-tight">{nProd || informe.capa_a?.cantidad_items?.n_items || '—'}</p>
               <p className="text-[10px] text-slate-400">productos</p>
             </div>
           </div>
@@ -1604,9 +1604,9 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
                     <div className="flex items-center justify-between gap-2">
                       <p className="text-[13px] font-semibold text-slate-800 flex items-center gap-1.5">
                         {c.nombre}
-                        {c.abierto_o_topado && <span className={`text-[9px] font-bold px-1 py-0.5 rounded ${c.abierto_o_topado === 'abierto' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>{c.abierto_o_topado}</span>}
+                        {c.abierto_o_topado && <span className={`text-[9px] font-semibold px-1 py-0.5 rounded ${c.abierto_o_topado === 'abierto' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>{c.abierto_o_topado}</span>}
                       </p>
-                      <span className="text-[13px] font-bold text-slate-900 flex-shrink-0">{c.ponderacion ?? 0}%</span>
+                      <span className="text-[13px] font-semibold text-slate-900 flex-shrink-0">{c.ponderacion ?? 0}%</span>
                     </div>
                     {c.forma_aplicacion
                       ? <p className="text-[12px] text-slate-600 mt-0.5 leading-snug whitespace-pre-line">{c.forma_aplicacion}</p>
@@ -1640,9 +1640,9 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
           {(lt?.hitos?.length ?? 0) > 0 && (
             <Seccion icon={<Gavel size={14} className="text-teal-600" />} titulo="Módulo plazos (colchón + entrega)" badge={lt?.colchon_dias_corridos != null ? `colchón ${lt.colchon_dias_corridos} días corr.` : lt?.colchon_dias_habiles != null ? `colchón ${lt.colchon_dias_habiles} días háb.` : undefined} defaultOpen>
               <div className="grid grid-cols-3 gap-2 mb-3">
-                <div className="bg-emerald-50 rounded-lg p-2"><p className="text-[10px] text-emerald-500 uppercase font-bold">Colchón admin.</p><p className="text-[13px] font-bold text-emerald-700">{lt?.colchon_dias_corridos != null ? `${lt.colchon_dias_corridos} corr.` : lt?.colchon_dias_habiles != null ? `${lt.colchon_dias_habiles} háb.` : '—'}</p><p className="text-[9px] text-emerald-600">tiempo gratis pre-entrega</p></div>
-                <div className="bg-slate-50 rounded-lg p-2"><p className="text-[10px] text-slate-400 uppercase font-bold">Ofertable (puntaje)</p><p className="text-[13px] font-bold text-slate-800">{lt?.plazo_ofertable_puntaje || '—'}</p><p className="text-[9px] text-slate-400">no es colchón</p></div>
-                <div className={`rounded-lg p-2 ${lt?.ventana_importacion ? 'bg-sky-50' : 'bg-slate-50'}`}><p className={`text-[10px] uppercase font-bold ${lt?.ventana_importacion ? 'text-sky-500' : 'text-slate-400'}`}>Importación</p><p className={`text-[13px] font-bold ${lt?.ventana_importacion ? 'text-sky-700' : 'text-slate-500'}`}>{lt?.ventana_importacion ? 'ventana ✓' : 'sin ventana'}</p><p className="text-[9px] text-slate-400">{lt?.ventana_importacion ? 'hay margen' : '≤10d o no import.'}</p></div>
+                <div className="bg-emerald-50 rounded-lg p-2"><p className="text-[10px] text-emerald-500 uppercase font-semibold">Colchón admin.</p><p className="text-[13px] font-semibold text-emerald-700">{lt?.colchon_dias_corridos != null ? `${lt.colchon_dias_corridos} corr.` : lt?.colchon_dias_habiles != null ? `${lt.colchon_dias_habiles} háb.` : '—'}</p><p className="text-[9px] text-emerald-600">tiempo gratis pre-entrega</p></div>
+                <div className="bg-slate-50 rounded-lg p-2"><p className="text-[10px] text-slate-400 uppercase font-semibold">Ofertable (puntaje)</p><p className="text-[13px] font-semibold text-slate-800">{lt?.plazo_ofertable_puntaje || '—'}</p><p className="text-[9px] text-slate-400">no es colchón</p></div>
+                <div className={`rounded-lg p-2 ${lt?.ventana_importacion ? 'bg-sky-50' : 'bg-slate-50'}`}><p className={`text-[10px] uppercase font-semibold ${lt?.ventana_importacion ? 'text-sky-500' : 'text-slate-400'}`}>Importación</p><p className={`text-[13px] font-semibold ${lt?.ventana_importacion ? 'text-sky-700' : 'text-slate-500'}`}>{lt?.ventana_importacion ? 'ventana ✓' : 'sin ventana'}</p><p className="text-[9px] text-slate-400">{lt?.ventana_importacion ? 'hay margen' : '≤10d o no import.'}</p></div>
               </div>
               {lt?.frontera_inicio_computo?.descripcion && (
                 <div className="text-[12px] text-slate-600 mb-2 bg-slate-50 rounded-lg p-2">
@@ -1671,7 +1671,7 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
                   <div key={i} className="bg-slate-50 rounded-lg p-2">
                     <div className="flex items-center justify-between gap-2">
                       <p className="font-semibold text-slate-700">{lbl}</p>
-                      <span className="font-bold text-slate-900 flex-shrink-0">{o?.pts ?? '—'}/3</span>
+                      <span className="font-semibold text-slate-900 flex-shrink-0">{o?.pts ?? '—'}/3</span>
                     </div>
                     {o?.justificacion && <p className="text-slate-600 mt-0.5 leading-snug">{o.justificacion}</p>}
                     {o?.fuente && <div className="mt-0.5"><Fuente>{o.fuente}</Fuente></div>}
@@ -1688,7 +1688,7 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
                   <div key={i} className="bg-slate-50 rounded-lg p-2">
                     <div className="flex items-center gap-2">
                       <span className="font-semibold text-slate-700">{cap(p.palanca)}</span>
-                      <span className={`text-[11px] px-1.5 py-0.5 rounded border font-bold ${estadoColor(p.estado)}`}>{cap(p.estado)}</span>
+                      <span className={`text-[11px] px-1.5 py-0.5 rounded border font-semibold ${estadoColor(p.estado)}`}>{cap(p.estado)}</span>
                     </div>
                     {p.jugada && <p className="text-slate-700 mt-0.5 leading-snug font-medium">▸ {p.jugada}</p>}
                     {p.condicion && <p className="text-slate-500 mt-0.5 leading-snug">{p.condicion}</p>}
@@ -1698,12 +1698,12 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
                 {/* v2.1: DÓNDE SE DECIDE — síntesis de la Capa B */}
                 {informe.donde_se_decide?.mensaje && (
                   <div className="rounded-lg border border-teal-200 bg-marca-suave/60 p-2.5 mt-1">
-                    <p className="flex items-center gap-1.5 text-[12px] font-bold text-teal-900 mb-1"><Compass size={13} /> Dónde se decide</p>
+                    <p className="flex items-center gap-1.5 text-[12px] font-semibold text-teal-900 mb-1"><Compass size={13} /> Dónde se decide</p>
                     <p className="text-[12px] text-slate-700 leading-snug">{informe.donde_se_decide.mensaje}</p>
                     <div className="flex items-center gap-1.5 flex-wrap mt-1.5">
-                      {informe.donde_se_decide.se_decide_en && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-white border border-teal-200 text-marca">se decide en: {cap(informe.donde_se_decide.se_decide_en)}</span>}
-                      {informe.donde_se_decide.tenemos_ventaja_costo === 'si' && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700">ventaja de costo{informe.donde_se_decide.via && informe.donde_se_decide.via !== 'ninguna' ? ` · ${cap(informe.donde_se_decide.via)}` : ''}</span>}
-                      {informe.donde_se_decide.tenemos_ventaja_costo === 'no' && informe.donde_se_decide.se_decide_en === 'precio' && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-red-100 text-red-700">⚠ guerra de precio</span>}
+                      {informe.donde_se_decide.se_decide_en && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-white border border-teal-200 text-marca">se decide en: {cap(informe.donde_se_decide.se_decide_en)}</span>}
+                      {informe.donde_se_decide.tenemos_ventaja_costo === 'si' && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700">ventaja de costo{informe.donde_se_decide.via && informe.donde_se_decide.via !== 'ninguna' ? ` · ${cap(informe.donde_se_decide.via)}` : ''}</span>}
+                      {informe.donde_se_decide.tenemos_ventaja_costo === 'no' && informe.donde_se_decide.se_decide_en === 'precio' && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-red-100 text-red-700">⚠ guerra de precio</span>}
                       {(informe.donde_se_decide.criterios_abiertos_diferenciadores ?? []).map((c, i) => <span key={i} className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-50 border border-emerald-200 text-emerald-700">diferenciar: {c}</span>)}
                     </div>
                   </div>
@@ -1792,7 +1792,7 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
               <div className="space-y-1 text-[12px]">
                 {informe.lineas_a_atacar!.map((l, i) => (
                   <div key={i} className="flex items-start gap-2 border-b border-slate-100 last:border-0 py-1">
-                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded flex-shrink-0 ${l.decision === 'atacar' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>L{l.linea} · {cap(l.decision)}</span>
+                    <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded flex-shrink-0 ${l.decision === 'atacar' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>L{l.linea} · {cap(l.decision)}</span>
                     <span className="text-slate-600 flex-1">{l.motivo}</span>
                   </div>
                 ))}
@@ -1802,8 +1802,8 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
 
           {((v?.acciones_AC?.length ?? 0) > 0 || (v?.advertencias?.length ?? 0) > 0) && (
             <Seccion icon={<Target size={14} className="text-teal-600" />} titulo="Acciones y advertencias" defaultOpen>
-              {(v?.acciones_AC?.length ?? 0) > 0 && <><p className="text-[11px] font-bold text-slate-400 uppercase mb-1">Para postular</p><ul className="text-[12px] text-slate-700 space-y-1 list-disc pl-4 mb-2">{v!.acciones_AC!.map((a, i) => <li key={i}>{a}</li>)}</ul></>}
-              {(v?.advertencias?.length ?? 0) > 0 && <><p className="text-[11px] font-bold text-slate-400 uppercase mb-1">Advertencias</p><ul className="text-[12px] text-amber-700 space-y-1 list-disc pl-4">{v!.advertencias!.map((a, i) => <li key={i}>{a}</li>)}</ul></>}
+              {(v?.acciones_AC?.length ?? 0) > 0 && <><p className="text-[11px] font-semibold text-slate-400 uppercase mb-1">Para postular</p><ul className="text-[12px] text-slate-700 space-y-1 list-disc pl-4 mb-2">{v!.acciones_AC!.map((a, i) => <li key={i}>{a}</li>)}</ul></>}
+              {(v?.advertencias?.length ?? 0) > 0 && <><p className="text-[11px] font-semibold text-slate-400 uppercase mb-1">Advertencias</p><ul className="text-[12px] text-amber-700 space-y-1 list-disc pl-4">{v!.advertencias!.map((a, i) => <li key={i}>{a}</li>)}</ul></>}
             </Seccion>
           )}
 

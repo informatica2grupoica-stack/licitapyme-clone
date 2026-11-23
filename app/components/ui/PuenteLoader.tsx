@@ -27,9 +27,9 @@ export function PuenteLoader({
 
           {/* Orilla de destino: el equipo. Late cuando llega cada licitación. */}
           <g className="puente-destino">
-            <rect x="134" y="48" width="26" height="30" rx="6" fill="#c7d2fe" />
-            <circle cx="141" cy="40" r="4.5" fill="#6366f1" />
-            <circle cx="152" cy="40" r="4.5" fill="#818cf8" />
+            <rect x="134" y="48" width="26" height="30" rx="6" fill="#99f6e4" />
+            <circle cx="141" cy="40" r="4.5" fill="#14b8a6" />
+            <circle cx="152" cy="40" r="4.5" fill="#5eead4" />
           </g>
 
           {/* Torres */}
@@ -41,7 +41,7 @@ export function PuenteLoader({
             stroke="#a5b4fc" strokeWidth="2" strokeLinecap="round" />
 
           {/* Tirantes verticales, animados suave */}
-          <g className="puente-cable" stroke="#c7d2fe" strokeWidth="1.4" strokeLinecap="round">
+          <g className="puente-cable" stroke="#99f6e4" strokeWidth="1.4" strokeLinecap="round">
             <line x1="60" y1="17" x2="60" y2="52" />
             <line x1="72" y1="20" x2="72" y2="52" />
             <line x1="88" y1="21" x2="88" y2="52" />
@@ -60,7 +60,7 @@ export function PuenteLoader({
       </div>
 
       {total != null && (
-        <p className="text-[22px] font-bold text-indigo-600 tabular-nums leading-none mt-1">{total}</p>
+        <p className="text-[22px] font-semibold text-teal-600 tabular-nums leading-none mt-1">{total}</p>
       )}
       {titulo && <p className="text-[14px] font-semibold text-slate-700 mt-2">{titulo}</p>}
       {subtitulo && <p className="text-[12px] text-slate-400 mt-1 text-center max-w-xs">{subtitulo}</p>}

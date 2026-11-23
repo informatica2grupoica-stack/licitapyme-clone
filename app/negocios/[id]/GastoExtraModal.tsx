@@ -60,9 +60,9 @@ export function GastoExtraModal({ negocioId, categoriaInicial, descripcionInicia
   const campo = 'w-full text-[13px] border border-zinc-200 rounded-lg px-2.5 py-2 outline-none focus:ring-1 focus:ring-teal-500';
   return (
     <div className="fixed inset-0 z-[90] bg-black/50 flex items-start justify-center overflow-y-auto p-4" onClick={onCerrar} data-testid="gasto-extra-modal">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-lg my-10" onClick={e => e.stopPropagation()}>
+      <div className="bg-white rounded-xl shadow-flotante w-full max-w-lg my-10" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-3 border-b border-zinc-200">
-          <p className="text-[14px] font-bold text-zinc-800">Agregar gasto extra</p>
+          <p className="text-[14px] font-semibold text-zinc-800">Agregar gasto extra</p>
           <button onClick={onCerrar} aria-label="Cerrar" className="text-zinc-500 hover:text-zinc-900"><X size={18} /></button>
         </div>
         <div className="p-5 space-y-3">

@@ -167,15 +167,15 @@ export default function MemoriaPage() {
     cargar();
   };
 
-  const inputCls = 'w-full border border-slate-200 rounded-lg px-3 py-2 text-[13px] outline-none focus:ring-2 focus:ring-indigo-400';
+  const inputCls = 'w-full border border-slate-200 rounded-lg px-3 py-2 text-[13px] outline-none focus:ring-2 focus:ring-teal-400';
 
   return (
     <AppLayout>
       <div className="max-w-6xl mx-auto px-4 py-6">
         <div className="flex items-start justify-between gap-3 mb-5">
           <div>
-            <h1 className="text-[19px] font-bold text-slate-800 inline-flex items-center gap-2">
-              <Library size={20} className="text-indigo-600" /> Memoria histórica
+            <h1 className="text-[19px] font-semibold text-slate-800 inline-flex items-center gap-2">
+              <Library size={20} className="text-teal-600" /> Memoria histórica
             </h1>
             <p className="text-[12.5px] text-slate-500 mt-0.5">
               Lo que ya ejecutamos: órdenes de compra con su factura. Sirve de prueba de experiencia y de punto de partida para cotizar.
@@ -183,7 +183,7 @@ export default function MemoriaPage() {
           </div>
           {isAdmin && (
             <button onClick={() => setCreando(v => !v)}
-              className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-white bg-indigo-600 hover:bg-indigo-700 px-3.5 py-2 rounded-lg transition-colors flex-shrink-0">
+              className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-white bg-teal-600 hover:bg-teal-700 px-3.5 py-2 rounded-lg transition-colors flex-shrink-0">
               {creando ? <X size={14} /> : <Plus size={14} />} {creando ? 'Cancelar' : 'Cargar experiencia'}
             </button>
           )}
@@ -194,7 +194,7 @@ export default function MemoriaPage() {
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
             <StatCard icon={<Package size={16} />} label="Casos cargados" value={resumen.casos} color="teal"
               sub={resumen.desde ? `desde ${fmtFecha(resumen.desde)}` : undefined} />
-            <StatCard icon={<Receipt size={16} />} label="Monto histórico" value={resumen.montoTotal} color="#4f46e5" formato={fmtCLP} />
+            <StatCard icon={<Receipt size={16} />} label="Monto histórico" value={resumen.montoTotal} color="#0d9488" formato={fmtCLP} />
             <StatCard icon={<Building2 size={16} />} label="Entidades" value={resumen.entidades} color="#0891b2" />
             <StatCard icon={<FileText size={16} />} label="Con factura" value={resumen.conFactura} color="#059669"
               sub={`de ${resumen.casos} casos`} />
@@ -270,7 +270,7 @@ export default function MemoriaPage() {
 
         {/* ── Alta de caso (admin) ────────────────────────────────────────── */}
         {creando && isAdmin && (
-          <div className="rounded-xl border border-indigo-200 bg-indigo-50/40 p-4 mb-5">
+          <div className="rounded-xl border border-teal-200 bg-teal-50/40 p-4 mb-5">
             <p className="text-[13px] font-semibold text-slate-700 mb-3">Nuevo caso de experiencia</p>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <label className="block">
@@ -332,7 +332,7 @@ export default function MemoriaPage() {
               ))}
             </div>
             <button onClick={() => setItems(a => [...a, { ...ITEM_VACIO }])}
-              className="mt-2 inline-flex items-center gap-1 text-[11.5px] font-semibold text-indigo-600 hover:bg-indigo-100/60 px-2 py-1 rounded-lg transition-colors">
+              className="mt-2 inline-flex items-center gap-1 text-[11.5px] font-semibold text-teal-600 hover:bg-teal-100/60 px-2 py-1 rounded-lg transition-colors">
               <Plus size={12} /> Agregar producto
             </button>
 
@@ -342,7 +342,7 @@ export default function MemoriaPage() {
                 <X size={13} /> Cancelar
               </button>
               <button onClick={guardar} disabled={guardando}
-                className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 px-3.5 py-1.5 rounded-lg transition-colors">
+                className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-white bg-teal-600 hover:bg-teal-700 disabled:bg-slate-300 px-3.5 py-1.5 rounded-lg transition-colors">
                 {guardando ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />} Guardar caso
               </button>
             </div>
@@ -394,7 +394,7 @@ export default function MemoriaPage() {
                         {c.origen && c.origen !== 'MANUAL' && (
                           <span
                             title={`Cargado automático desde ${c.origen}`}
-                            className="inline-flex items-center gap-0.5 text-[9.5px] font-bold px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-700 font-sans">
+                            className="inline-flex items-center gap-0.5 text-[9.5px] font-semibold px-1.5 py-0.5 rounded-full bg-cyan-100 text-cyan-700 font-sans">
                             <Zap size={9} /> {c.origen}
                           </span>
                         )}

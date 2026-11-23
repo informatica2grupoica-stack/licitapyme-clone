@@ -5,7 +5,7 @@
 // incidencias abiertas. Antes el reloj vivía enterrado en el paso "Tareas" y no era una tarea.
 import { RELOJ_ENTREGA_ACTIVO } from '@/app/lib/compras-reloj-activo';
 import { useEffect, useState } from 'react';
-import { IconClock as Clock, IconAlertTriangle as AlertTriangle, IconSparkles as Sparkles, IconChevronRight as Chevron } from '@tabler/icons-react';
+import { IconClock as Clock, IconAlertTriangle as AlertTriangle, IconWand as Sparkles, IconChevronRight as Chevron } from '@tabler/icons-react';
 
 interface RelojMin { fijadoAt: string | null; fechaLimiteVigente: string | null; diasRestantes: number | null; color: 'VERDE' | 'AMARILLO' | 'ROJO' | 'VENCIDO' | 'ENTREGADO' | null; entregado: { aTiempo: boolean } | null }
 

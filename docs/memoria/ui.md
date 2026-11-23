@@ -25,6 +25,18 @@ Traspasado desde la memoria personal el 2026-10-27; las fechas son de cuando se 
 
 ## Decisiones vigentes del dueño
 
+- **licitank-ui aplicada de forma masiva a todo el sistema (2026-11-23, pedido del dueño; SIN VER en navegador, sin aprobar).**
+  Barrido mecánico en ~140 archivos de `app/`: índigo→teal, violeta→cian, morado→pizarra, fucsia→naranja (clases y hex);
+  `font-black`/`font-bold`/`font-extrabold`→`font-semibold`; fuera `uppercase tracking-wide/wider/widest`; ícono
+  `IconSparkles`→`IconWand`; degradados de UI→color sólido (se dejaron Landing, login, logos y `ui-kit`); `shadow-xl/2xl`→
+  `shadow-flotante` y modales `rounded-xl`; héroes azul-índigo del Buscador y Perfil→`bg-slate-900`; avatares sin degradado;
+  colores de etapa (`pipeline.ts`, `etapas-core.ts`) según la propuesta de `/ui-kit` (Asignado pizarra, En proceso cian,
+  Posible adj. verde oliva). `tsc` y `eslint` limpios. **Falta:** mirar pantalla por pantalla a 1366 y 800 px, claro y
+  oscuro (el navegador del panel estaba oculto); rediseño estructural (Tarjeta/Estado/Indicador) de Radar, Análisis,
+  Empresas, Perfil, Puente, Favoritos y Órdenes de compra; `Badge`/`DocCategoriaBadge` siguen como pastillas;
+  `animate-pulse` de esqueletos sin cambiar. Series de gráficos que usaban índigo y teal a la vez pueden haber quedado con
+  dos series del mismo color: revisar.
+
 - **licitank-ui aplicada a Ganadas/Perdidas (`/adjudicadas`) (2026-11-20, pedido del dueño; sin aprobar aún).** El menú
   sigue diciendo «Ganadas/Perdidas» (el dueño pidió dejarlo así). Front: `Encabezado` con Exportar + buscador; torta `Dona`
   ganadas/perdidas con la efectividad al centro (clic en la torta o la leyenda = filtra, igual que las pestañas); «Última

@@ -37,7 +37,7 @@ const SUBESTADO_LABEL: Record<Subestado, string> = {
 };
 // Punto de color por etapa (misma paleta de la app): el avance se lee de un vistazo sin abrir cada selector.
 const COLOR_SUBESTADO: Record<string, string> = {
-  PENDIENTE: '#a1a1aa', COTIZANDO: '#0ea5e9', COMPRADO: '#6366f1', EN_BODEGA: '#f59e0b', LISTO_ENTREGA: '#14b8a6', ENTREGADO: '#10b981',
+  PENDIENTE: '#a1a1aa', COTIZANDO: '#0ea5e9', COMPRADO: '#14b8a6', EN_BODEGA: '#f59e0b', LISTO_ENTREGA: '#14b8a6', ENTREGADO: '#10b981',
 };
 const OPCIONES_SUBESTADO = (Object.keys(SUBESTADO_LABEL) as Subestado[])
   .filter(s => s !== 'RENUNCIADO' && s !== 'NO_ADJUDICADA').map(s => ({ value: s, label: SUBESTADO_LABEL[s], color: COLOR_SUBESTADO[s] }));
@@ -213,7 +213,7 @@ export function ProductosCompraCard({ negocioId, puedeOperar, esJefeDeVentas }: 
     <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
       <div className="px-4 py-3 bg-zinc-50 border-b border-zinc-100 space-y-2.5">
         <div className="flex items-center justify-between gap-3 flex-wrap">
-          <p className="text-[13px] font-bold text-zinc-800 flex items-center gap-1.5"><Package size={15} /> {productos.length - conteo.servicios} producto{productos.length - conteo.servicios === 1 ? '' : 's'} · venta neta {fmtCLP(ventaTotal)}</p>
+          <p className="text-[13px] font-semibold text-zinc-800 flex items-center gap-1.5"><Package size={15} /> {productos.length - conteo.servicios} producto{productos.length - conteo.servicios === 1 ? '' : 's'} · venta neta {fmtCLP(ventaTotal)}</p>
           {puedeOperar && (
             <button onClick={sincronizarConCosteo} disabled={sincronizando} title="Vuelve a traer descripción, cantidad y monto desde el Costeo vigente — no toca el subestado ni renuncias"
               className="inline-flex items-center gap-1 text-[11.5px] font-semibold text-teal-700 bg-teal-50 hover:bg-teal-100 disabled:opacity-50 px-2 py-1 rounded-lg transition-colors">
@@ -256,7 +256,7 @@ export function ProductosCompraCard({ negocioId, puedeOperar, esJefeDeVentas }: 
       <div className="max-h-[480px] overflow-auto">
         <table className="w-full min-w-[960px] text-left border-collapse">
           <thead className="sticky top-0 z-10 bg-white">
-            <tr className="border-b border-zinc-200 text-[11px] font-bold text-zinc-500 uppercase tracking-wide">
+            <tr className="border-b border-zinc-200 text-[11px] font-semibold text-zinc-500">
               <th className="px-4 py-2 w-12">N°</th>
               <th className="px-3 py-2">Producto</th>
               <th className="px-3 py-2 w-64">Links</th>
@@ -306,7 +306,7 @@ export function ProductosCompraCard({ negocioId, puedeOperar, esJefeDeVentas }: 
                       {p.subestado === 'NO_ADJUDICADA' ? (
                         <span title="No se compra ni cuenta para la entrega; se muestra solo como referencia." className="text-[11.5px] text-zinc-500">No adjudicada · la ganó {l?.proveedor || 'otro proveedor'}{l?.montoUnitario != null && ` (${fmtCLP(l.montoUnitario)})`}</span>
                       ) : p.subestado === 'RENUNCIADO' ? (
-                        <span className="text-[11.5px] font-bold text-zinc-500">Renunciado</span>
+                        <span className="text-[11.5px] font-semibold text-zinc-500">Renunciado</span>
                       ) : puedeOperar ? (
                         <Select value={p.subestado} onChange={v => accion({ productoId: p.id, accion: 'subestado', subestado: v })}
                           options={OPCIONES_SUBESTADO} minWidth={150} disabled={guardando === p.id} />
@@ -330,7 +330,7 @@ export function ProductosCompraCard({ negocioId, puedeOperar, esJefeDeVentas }: 
                         <td colSpan={7} className="px-4 py-2">
                           <div className={`border rounded-lg px-3 py-2 space-y-1.5 ${caja}`}>
                             <p className="text-[12px] text-zinc-700 flex items-center gap-2 flex-wrap">
-                              <span className={`font-bold ${r.estado === 'RECHAZADA' ? 'text-rose-700' : r.estado === 'APROBADA' ? 'text-emerald-700' : 'text-amber-800'}`}>
+                              <span className={`font-semibold ${r.estado === 'RECHAZADA' ? 'text-rose-700' : r.estado === 'APROBADA' ? 'text-emerald-700' : 'text-amber-800'}`}>
                                 {r.estado === 'RECHAZADA' ? `✖ Compra rápida RECHAZADA${r.yaComprada ? '' : ' — no la compres'}` : r.estado === 'APROBADA' ? (r.yaComprada ? '✔ Compra rápida ratificada' : '✔ Compra rápida aprobada') : (r.yaComprada ? '⏳ Ya comprada: por ratificar' : '⏳ Compra rápida por aprobar')}
                               </span>
                               <span>{r.proveedorNombre} · RUT {r.proveedorRut} · {fmtCLP(r.precioUnitario)} neto c/u</span>
@@ -357,7 +357,7 @@ export function ProductosCompraCard({ negocioId, puedeOperar, esJefeDeVentas }: 
                         <div className="bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5 flex items-center justify-between gap-2">
                           <p className="text-[12px] text-amber-800"><Flag size={12} className="inline mr-1" />Renuncia propuesta por {p.renunciaPropuestaPorNombre}: {p.renunciaMotivo}</p>
                           {esJefeDeVentas && (
-                            <button onClick={() => accion({ productoId: p.id, accion: 'aprobar_renuncia' })} className="flex-shrink-0 text-[11.5px] font-bold text-white bg-amber-600 hover:bg-amber-700 px-2 py-1 rounded-lg">Aprobar renuncia</button>
+                            <button onClick={() => accion({ productoId: p.id, accion: 'aprobar_renuncia' })} className="flex-shrink-0 text-[11.5px] font-semibold text-white bg-amber-600 hover:bg-amber-700 px-2 py-1 rounded-lg">Aprobar renuncia</button>
                           )}
                         </div>
                       </td>

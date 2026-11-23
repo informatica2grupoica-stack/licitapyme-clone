@@ -83,16 +83,16 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
         >
           <div className="absolute inset-0 bg-black/50 backdrop-blur-[2px]" onClick={() => cerrar(false)} />
 
-          <div className="relative w-full max-w-lg bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl modal-in overflow-hidden">
+          <div className="relative w-full max-w-lg bg-white dark:bg-zinc-900 rounded-xl shadow-flotante modal-in overflow-hidden">
             <div className="px-5 pt-5 pb-4">
               <div className="flex items-start gap-3">
                 <div className={`flex-shrink-0 w-10 h-10 rounded-xl flex items-center justify-center ${
-                  opciones.peligro ? 'bg-red-50 text-red-600 dark:bg-red-500/15 dark:text-red-400' : 'bg-indigo-50 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-400'
+                  opciones.peligro ? 'bg-red-50 text-red-600 dark:bg-red-500/15 dark:text-red-400' : 'bg-teal-50 text-teal-600 dark:bg-teal-500/15 dark:text-teal-400'
                 }`}>
                   {opciones.peligro ? <AlertTriangle size={19} /> : <HelpCircle size={19} />}
                 </div>
                 <div className="min-w-0 pt-0.5">
-                  <h2 id="confirm-titulo" className="text-[15px] font-bold text-slate-900 dark:text-zinc-100 leading-snug">
+                  <h2 id="confirm-titulo" className="text-[15px] font-semibold text-slate-900 dark:text-zinc-100 leading-snug">
                     {opciones.titulo}
                   </h2>
                   {opciones.mensaje && (
@@ -120,7 +120,7 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
                 className={`px-4 py-2 text-[13px] font-semibold text-white rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 dark:focus:ring-offset-zinc-900 ${
                   opciones.peligro
                     ? 'bg-red-600 hover:bg-red-700 focus:ring-red-500'
-                    : 'bg-indigo-600 hover:bg-indigo-700 focus:ring-indigo-500'
+                    : 'bg-teal-600 hover:bg-teal-700 focus:ring-teal-500'
                 }`}
               >
                 {opciones.confirmarLabel || 'Confirmar'}

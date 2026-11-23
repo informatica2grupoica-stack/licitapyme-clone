@@ -181,7 +181,7 @@ export function GuiaDespachoObumaCard({ negocioId }: { negocioId: number }) {
 
       {r && guia && datos && (
         <div className="space-y-4">
-          <p className="text-[12px] font-semibold uppercase tracking-wide text-amber-700">Borrador · aún no se envía a Obuma{simulando ? ' · modo simulación' : ''}</p>
+          <p className="text-[12px] font-semibold text-amber-700">Borrador · aún no se envía a Obuma{simulando ? ' · modo simulación' : ''}</p>
           {r.avisos.map((a, i) => <p key={i} className="text-[12.5px] text-amber-700">{a}</p>)}
 
           <div className="rounded-lg border border-zinc-200 p-3 space-y-2">

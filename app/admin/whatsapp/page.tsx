@@ -73,7 +73,7 @@ export default function AvisosWhatsappPage() {
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-emerald-50 flex items-center justify-center text-emerald-600"><Whatsapp size={20} /></div>
           <div>
-            <h1 className="text-[15px] font-bold text-slate-900">Avisos por WhatsApp</h1>
+            <h1 className="text-[15px] font-semibold text-slate-900">Avisos por WhatsApp</h1>
             <p className="text-xs text-slate-500">Desde el número de la empresa, a quien corresponde: ganadas, perdidas, estados, aperturas, órdenes de compra, cierres y radar</p>
           </div>
         </div>
@@ -85,7 +85,7 @@ export default function AvisosWhatsappPage() {
 
         {d?.configurado && (
           <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
-            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-3">Número emisor</p>
+            <p className="text-[11px] font-semibold text-slate-400 mb-3">Número emisor</p>
             {d.estado === 'open' ? (
               <div className="flex flex-wrap items-center gap-3">
                 <span className="inline-flex items-center gap-1.5 text-[13px] font-semibold text-emerald-700"><span className="w-2 h-2 rounded-full bg-emerald-500" /> Conectado {d.numero ? `· ${fmtNumero(d.numero)}` : ''}</span>
@@ -106,7 +106,7 @@ export default function AvisosWhatsappPage() {
                 ) : (
                   <p className="text-[13px] text-slate-600 mb-3">No hay un número vinculado. Vincula el celular desde el que saldrán los avisos.</p>
                 )}
-                <button type="button" onClick={conectar} disabled={!!ocupado} className="mt-3 inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white font-bold rounded-xl text-[13px]">
+                <button type="button" onClick={conectar} disabled={!!ocupado} className="mt-3 inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white font-semibold rounded-xl text-[13px]">
                   {ocupado === 'qr' ? <Loader2 size={14} className="animate-spin" /> : qr?.img ? <Refrescar size={14} /> : <Whatsapp size={14} />} {qr?.img ? 'Generar otro código' : 'Mostrar código QR'}
                 </button>
               </div>
@@ -124,7 +124,7 @@ export default function AvisosWhatsappPage() {
               <span><b className="text-slate-900">{r.pendientes}</b> pendientes</span>
               {r.errores > 0 && <span className="text-red-600"><b>{r.errores}</b> con error</span>}
               <span className="flex-1" />
-              {r.pendientes > 0 && <button type="button" onClick={reintentar} disabled={!!ocupado} className="text-[12px] font-semibold text-indigo-600 hover:text-indigo-800">Reintentar ahora</button>}
+              {r.pendientes > 0 && <button type="button" onClick={reintentar} disabled={!!ocupado} className="text-[12px] font-semibold text-teal-600 hover:text-teal-800">Reintentar ahora</button>}
             </div>
             {r.ultimos.length === 0 ? <p className="text-[12.5px] text-slate-400">Aún no se ha enviado ningún aviso.</p> : (
               <table className="w-full text-[12.5px]">

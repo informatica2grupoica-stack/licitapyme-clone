@@ -70,20 +70,20 @@ export function AuditoriaAgenteNegocioCard({ negocioId }: { negocioId: number })
   const urlDeFuente = (nombre: string | null, fuentes: FuenteDocumento[]) => nombre ? fuentes.find(f => f.nombre === nombre)?.url ?? null : null;
 
   return (
-    <div className="bg-white rounded-xl border border-indigo-200 overflow-hidden">
+    <div className="bg-white rounded-xl border border-teal-200 overflow-hidden">
       <button onClick={auditar} disabled={estado.tipo === 'auditando' || estado.tipo === 'cargando'}
-        className="w-full flex items-center justify-between gap-2 px-4 py-3 bg-indigo-50/50 hover:bg-indigo-50 transition-colors disabled:opacity-70">
-        <span className="flex items-center gap-1.5 text-[12.5px] font-bold text-indigo-800">
+        className="w-full flex items-center justify-between gap-2 px-4 py-3 bg-teal-50/50 hover:bg-teal-50 transition-colors disabled:opacity-70">
+        <span className="flex items-center gap-1.5 text-[12.5px] font-semibold text-teal-800">
           {estado.tipo === 'auditando' || estado.tipo === 'cargando' ? <Loader2 size={14} className="animate-spin" /> : estado.tipo === 'listo' ? <RefreshCw size={14} /> : <Bot size={14} />}
           {estado.tipo === 'listo' ? 'Volver a auditar este negocio' : 'Auditar este negocio completo con IA'}
         </span>
-        <span className="text-[10.5px] text-indigo-500">
+        <span className="text-[10.5px] text-teal-500">
           {estado.tipo === 'listo' ? `${estado.creadoAt ? `Última: ${fmtFechaHora(estado.creadoAt)} · ` : ''}${estado.usoHoy.llamadas}/${estado.usoHoy.tope} hoy` : 'Tareas, Costeo, Aprobación, Compra y Entrega — de una sola vez'}
         </span>
       </button>
 
       {abierto && (
-        <div className="border-t border-indigo-100 p-3 space-y-2">
+        <div className="border-t border-teal-100 p-3 space-y-2">
           <div className="flex justify-end">
             <button onClick={() => setAbierto(false)} className="text-zinc-400 hover:text-zinc-600"><X size={14} /></button>
           </div>
@@ -98,7 +98,7 @@ export function AuditoriaAgenteNegocioCard({ negocioId }: { negocioId: number })
             for (const a of estado.alertas) { const arr = porArea.get(a.area) || []; arr.push(a); porArea.set(a.area, arr); }
             return (
               <div className="space-y-3">
-                <p className="text-[11px] text-indigo-800 bg-indigo-50/50 border border-indigo-100 rounded-lg px-2.5 py-1.5">{estado.resumen}</p>
+                <p className="text-[11px] text-teal-800 bg-teal-50/50 border border-teal-100 rounded-lg px-2.5 py-1.5">{estado.resumen}</p>
                 {estado.alertas.length === 0 && (
                   <p className="text-[11px] text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-2.5 py-1.5 flex items-center gap-1.5">
                     <ListChecks size={12} /> Sin hallazgos — todo lo revisado calza.
@@ -106,7 +106,7 @@ export function AuditoriaAgenteNegocioCard({ negocioId }: { negocioId: number })
                 )}
                 {[...porArea.entries()].map(([area, alertas]) => (
                   <div key={area}>
-                    <p className="text-[10px] font-bold text-zinc-400 uppercase mb-1">{AREA_LABEL[area]}</p>
+                    <p className="text-[10px] font-semibold text-zinc-400 uppercase mb-1">{AREA_LABEL[area]}</p>
                     <div className="space-y-1">
                       {alertas.map((a, i) => {
                         const url = urlDeFuente(a.documento, estado.fuentes);
@@ -124,7 +124,7 @@ export function AuditoriaAgenteNegocioCard({ negocioId }: { negocioId: number })
                                   </span>
                                 )}
                                 {url && (
-                                  <a href={url} target="_blank" rel="noopener noreferrer" className="flex-shrink-0 text-indigo-600 hover:text-indigo-700" title="Ver documento">
+                                  <a href={url} target="_blank" rel="noopener noreferrer" className="flex-shrink-0 text-teal-600 hover:text-teal-700" title="Ver documento">
                                     <Eye size={11} />
                                   </a>
                                 )}
@@ -142,7 +142,7 @@ export function AuditoriaAgenteNegocioCard({ negocioId }: { negocioId: number })
                     {estado.fuentes.map((f, i) => (
                       <span key={i} className="inline-flex items-center gap-0.5">
                         {f.nombre}
-                        {f.url && <a href={f.url} target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:text-indigo-700" title="Ver documento"><Eye size={10} /></a>}
+                        {f.url && <a href={f.url} target="_blank" rel="noopener noreferrer" className="text-teal-600 hover:text-teal-700" title="Ver documento"><Eye size={10} /></a>}
                         {i < estado.fuentes.length - 1 && ','}
                       </span>
                     ))}

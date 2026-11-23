@@ -8,7 +8,7 @@
 import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
-import { getAuthedUser, puedeVerLicitacion } from '@/app/lib/api-auth';
+import { getAuthedUser, puedeVerLicitacion, tienePermiso } from '@/app/lib/api-auth';
 import { clienteDeHeader } from '@/app/lib/tenant';
 import {
   registrarActividadDiaria, LABEL_SECCION, SECCIONES_ACTIVIDAD,
@@ -74,7 +74,7 @@ export async function POST(request: NextRequest) {
 export async function GET(request: NextRequest) {
   const { id: userId, rol } = getUser(request);
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
-  if (rol !== 'admin') return NextResponse.json({ error: 'Solo el admin puede ver el historial' }, { status: 403 });
+  if (!(await tienePermiso(request, 'ver_historial'))) return NextResponse.json({ error: 'No tienes permiso para ver el historial' }, { status: 403 });
 
   const { searchParams } = new URL(request.url);
   const filtroUsuario = searchParams.get('usuarioId');

@@ -69,14 +69,14 @@ function VisorExcel({ url }: { url: string }) {
   }, [url]);
 
   if (error) return <div className="w-full h-full flex items-center justify-center text-sm text-red-600">No se pudo previsualizar el Excel ({error}). Usa Descargar.</div>;
-  if (!hojas) return <div className="w-full h-full flex items-center justify-center gap-2 text-sm text-slate-500"><Loader2 size={16} className="animate-spin text-indigo-500" /> Cargando hoja…</div>;
+  if (!hojas) return <div className="w-full h-full flex items-center justify-center gap-2 text-sm text-slate-500"><Loader2 size={16} className="animate-spin text-teal-500" /> Cargando hoja…</div>;
   return (
     <div className="w-full h-full flex flex-col">
       {hojas.length > 1 && (
         <div className="flex gap-1 px-3 pt-2 overflow-x-auto flex-shrink-0">
           {hojas.map((h, i) => (
             <button key={h.nombre} onClick={() => setActiva(i)}
-              className={`px-3 py-1 text-xs font-semibold rounded-t-lg whitespace-nowrap ${i === activa ? 'bg-white text-indigo-700' : 'bg-slate-200 text-slate-600 hover:bg-slate-300'}`}>
+              className={`px-3 py-1 text-xs font-semibold rounded-t-lg whitespace-nowrap ${i === activa ? 'bg-white text-teal-700' : 'bg-slate-200 text-slate-600 hover:bg-slate-300'}`}>
               {h.nombre}
             </button>
           ))}
@@ -140,12 +140,12 @@ export function DocumentViewerModal({ doc, onClose, lista, onElegir }: { doc: Vi
       aria-label={`Visor: ${doc.nombre}`}
     >
       <div
-        className="flex flex-col w-full max-w-none mx-auto flex-1 min-h-0 bg-white rounded-none sm:rounded-2xl overflow-hidden shadow-2xl"
+        className="flex flex-col w-full max-w-none mx-auto flex-1 min-h-0 bg-white rounded-none sm:rounded-2xl overflow-hidden shadow-flotante"
         onClick={e => e.stopPropagation()}
       >
         {/* Cabecera */}
         <div className="flex items-center gap-2 px-4 py-2.5 border-b border-slate-200 bg-slate-50 flex-shrink-0">
-          <FileText size={16} className="text-indigo-600 flex-shrink-0" />
+          <FileText size={16} className="text-teal-600 flex-shrink-0" />
           <p className="flex-1 min-w-0 text-[13px] font-semibold text-slate-800 truncate" title={doc.nombre}>
             {doc.nombre}
           </p>
@@ -158,7 +158,7 @@ export function DocumentViewerModal({ doc, onClose, lista, onElegir }: { doc: Vi
           )}
           <a
             href={doc.url} target="_blank" rel="noopener noreferrer"
-            className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+            className="p-1.5 text-slate-400 hover:text-teal-600 hover:bg-teal-50 rounded-lg transition-colors"
             title="Abrir en pestaña nueva"
           >
             <ExternalLink size={15} />
@@ -201,7 +201,7 @@ export function DocumentViewerModal({ doc, onClose, lista, onElegir }: { doc: Vi
         <div className="flex-1 min-h-0 min-w-0 bg-slate-100 relative">
           {tipo === 'pdf' && cargando && (
             <div className="absolute inset-0 flex items-center justify-center gap-2 text-sm text-slate-500 pointer-events-none">
-              <Loader2 size={16} className="animate-spin text-indigo-500" /> Cargando documento…
+              <Loader2 size={16} className="animate-spin text-teal-500" /> Cargando documento…
             </div>
           )}
 
@@ -241,7 +241,7 @@ export function DocumentViewerModal({ doc, onClose, lista, onElegir }: { doc: Vi
               <p className="text-xs text-slate-400 mt-1 mb-4">Ábrelo en una pestaña nueva o descárgalo.</p>
               <div className="flex items-center gap-2">
                 <a href={doc.url} target="_blank" rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-[13px] font-semibold rounded-lg transition-colors">
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-teal-600 hover:bg-teal-700 text-white text-[13px] font-semibold rounded-lg transition-colors">
                   <ExternalLink size={14} /> Abrir
                 </a>
                 <a href={urlDescarga(doc.url)} download={doc.nombre}

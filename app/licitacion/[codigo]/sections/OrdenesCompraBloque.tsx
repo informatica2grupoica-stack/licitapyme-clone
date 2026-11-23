@@ -104,7 +104,7 @@ function AccionesDocumentoOC({
     <div className="inline-flex items-center gap-1">
       <button type="button" onClick={ver} disabled={cargando !== null}
         title="Ver en el visor"
-        className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors disabled:opacity-50">
+        className="p-1 text-slate-400 hover:text-teal-600 hover:bg-teal-50 rounded transition-colors disabled:opacity-50">
         {cargando === 'ver' ? <Loader2 size={13} className="animate-spin" /> : <Eye size={13} />}
       </button>
       <button type="button" onClick={descargar} disabled={cargando !== null}
@@ -130,9 +130,9 @@ function FilaOrden({ oc, onVer }: { oc: OrdenCompra; onVer: (doc: VisorDoc) => v
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-[13px] font-bold text-slate-800 font-mono">{oc.codigo}</span>
+            <span className="text-[13px] font-semibold text-slate-800 font-mono">{oc.codigo}</span>
             {oc.estado && (
-              <span className={`text-[10.5px] font-bold px-2 py-0.5 rounded-full border ${c.fondo} ${c.texto} ${c.borde}`}>
+              <span className={`text-[10.5px] font-semibold px-2 py-0.5 rounded-full border ${c.fondo} ${c.texto} ${c.borde}`}>
                 {oc.estado}
               </span>
             )}
@@ -149,7 +149,7 @@ function FilaOrden({ oc, onVer }: { oc: OrdenCompra; onVer: (doc: VisorDoc) => v
           {fecha && <p className="mt-0.5 text-[11.5px] text-slate-400">Emitida el {fecha}</p>}
         </div>
         <div className="text-right whitespace-nowrap">
-          <span className="block text-[14px] font-bold text-slate-800">{fmtCLP(oc.total, oc.moneda)}</span>
+          <span className="block text-[14px] font-semibold text-slate-800">{fmtCLP(oc.total, oc.moneda)}</span>
           {oc.totalNeto != null && oc.totalNeto !== oc.total && (
             <span className="block text-[11px] text-slate-400">neto {fmtCLP(oc.totalNeto, oc.moneda)}</span>
           )}
@@ -167,7 +167,7 @@ function FilaOrden({ oc, onVer }: { oc: OrdenCompra; onVer: (doc: VisorDoc) => v
         <div className="ml-auto flex items-center gap-3">
           <AccionesDocumentoOC codigo={oc.codigo} nombre={`OC_${oc.codigo}.pdf`} pdfUrlInicial={oc.pdfUrl} onVer={onVer} />
           <a href={oc.url} target="_blank" rel="noopener noreferrer"
-            className="text-[11.5px] font-semibold text-indigo-600 hover:text-indigo-700 inline-flex items-center gap-1">
+            className="text-[11.5px] font-semibold text-teal-600 hover:text-teal-700 inline-flex items-center gap-1">
             <ExternalLink size={12} /> Ver en Mercado Público
           </a>
         </div>
@@ -227,11 +227,11 @@ export function OrdenesCompraBloque({ codigo }: { codigo: string }) {
     <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
       <div className="px-5 py-3.5 border-b border-slate-100 flex items-center gap-2 flex-wrap">
         <Receipt size={15} className="text-slate-400" />
-        <span className="text-[13px] font-bold text-slate-700">Órdenes de compra</span>
+        <span className="text-[13px] font-semibold text-slate-700">Órdenes de compra</span>
         {nuestras.length > 0 && (
           <>
-            <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">{nuestras.length} nuestra{nuestras.length !== 1 ? 's' : ''}</span>
-            <span className="ml-auto text-[12.5px] font-bold text-slate-800">{fmtCLP(total)}</span>
+            <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">{nuestras.length} nuestra{nuestras.length !== 1 ? 's' : ''}</span>
+            <span className="ml-auto text-[12.5px] font-semibold text-slate-800">{fmtCLP(total)}</span>
           </>
         )}
       </div>
@@ -263,7 +263,7 @@ export function OrdenesCompraBloque({ codigo }: { codigo: string }) {
                   <p className="text-[11.5px] text-slate-500 truncate" title={oc.proveedorNombre || ''}>{oc.proveedorNombre || 'Otro proveedor'}</p>
                 </div>
                 <div className="text-right whitespace-nowrap">
-                  <span className="block text-[12.5px] font-bold text-slate-700">{fmtCLP(oc.total, oc.moneda)}</span>
+                  <span className="block text-[12.5px] font-semibold text-slate-700">{fmtCLP(oc.total, oc.moneda)}</span>
                   {oc.estado && <span className="block text-[10.5px] text-slate-400">{oc.estado}</span>}
                 </div>
               </div>

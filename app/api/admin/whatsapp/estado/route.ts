@@ -5,14 +5,14 @@
 //   DELETE → desvincula el número
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
-import { getAuthedUser } from '@/app/lib/api-auth';
+import { getAuthedUser, tienePermiso } from '@/app/lib/api-auth';
 import { cerrarSesion, conectarInstancia, enviarTexto, estadoInstancia, instanciaEmisor, numeroVinculado, whatsappConfigurado, WhatsappError } from '@/app/lib/whatsapp';
 import { drenarCola, resumenCola } from '@/app/lib/whatsapp-avisos';
 import { normalizarTelefono } from '@/app/lib/perfil-datos';
 
 async function admin(req: NextRequest) {
   const u = await getAuthedUser(req);
-  return u && u.rol === 'admin' && u.clienteId ? u : null;
+  return u && u.clienteId && (await tienePermiso(req, 'soporte_tecnico')) ? u : null;
 }
 const NO = () => NextResponse.json({ error: 'Sin permisos de administrador' }, { status: 403 });
 const errorWa = (e: unknown) => e instanceof WhatsappError

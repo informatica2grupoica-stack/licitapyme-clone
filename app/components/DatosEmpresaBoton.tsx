@@ -55,7 +55,7 @@ export function DatosEmpresaBoton({ empresaId, className }: { empresaId: number 
         subtitle="Es la ficha que usan los anexos para rellenarse. Si falta algo, pídele al administrador que lo complete en Empresas."
         footer={<div className="flex items-center justify-between w-full">
           <span className="text-[11.5px] text-zinc-500">{empresa ? (faltan ? `${faltan} dato(s) sin completar` : 'Ficha completa') : ''}</span>
-          <button type="button" disabled={!empresa} onClick={() => copiar(todo(), 'Todos los datos')} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-[12px] font-semibold hover:bg-indigo-700 disabled:opacity-50"><Copy size={13} /> Copiar todo</button>
+          <button type="button" disabled={!empresa} onClick={() => copiar(todo(), 'Todos los datos')} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-teal-600 text-white text-[12px] font-semibold hover:bg-teal-700 disabled:opacity-50"><Copy size={13} /> Copiar todo</button>
         </div>}>
         {cargando || !empresa ? (
           <div className="py-10 flex justify-center text-zinc-400"><Loader2 size={18} className="animate-spin" /></div>
@@ -63,13 +63,13 @@ export function DatosEmpresaBoton({ empresaId, className }: { empresaId: number 
           <div className="space-y-5">
             {SECCIONES.map(s => (
               <section key={s.titulo}>
-                <h4 className="text-[11px] font-bold uppercase tracking-wide text-zinc-400 mb-1.5">{s.titulo}</h4>
+                <h4 className="text-[11px] font-semibold text-zinc-400 mb-1.5">{s.titulo}</h4>
                 <dl className="divide-y divide-zinc-100 rounded-xl border border-zinc-200">
                   {s.campos.map(([k, et]) => { const v = valor(k); return (
                     <div key={k} className="flex items-start gap-3 px-3 py-2 text-[12.5px]">
                       <dt className="w-44 flex-shrink-0 text-zinc-500">{et}</dt>
                       <dd className={`flex-1 min-w-0 break-words ${v ? 'text-zinc-900 font-medium' : 'text-amber-600'}`}>{v ?? 'sin dato'}</dd>
-                      {v && <button type="button" onClick={() => copiar(v, et)} title="Copiar" className="p-1 text-zinc-300 hover:text-indigo-600 rounded"><Copy size={13} /></button>}
+                      {v && <button type="button" onClick={() => copiar(v, et)} title="Copiar" className="p-1 text-zinc-300 hover:text-teal-600 rounded"><Copy size={13} /></button>}
                     </div>); })}
                 </dl>
               </section>

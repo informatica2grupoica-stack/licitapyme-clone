@@ -59,7 +59,7 @@ export default function MisReportesPage() {
     <AppLayout breadcrumb={[{ label: 'Mis reportes de error' }]}>
       <div className="p-4 sm:p-6 lg:p-8 max-w-4xl">
         <div className="mb-5">
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+          <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
             <Bug size={24} className="text-red-600" /> Mis reportes de error
           </h1>
           <p className="text-sm text-slate-500 mt-0.5">
@@ -97,7 +97,7 @@ export default function MisReportesPage() {
                     <div className={`mx-4 mb-3 rounded-lg p-3 ${r.estado === 'resuelto'
                       ? 'bg-emerald-50 border border-emerald-200 dark:bg-emerald-500/10 dark:border-emerald-500/30'
                       : 'bg-slate-50 border border-slate-200 dark:bg-white/[0.04] dark:border-white/10'}`}>
-                      <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500 mb-1 flex items-center gap-1">
+                      <p className="text-[11px] font-semibold text-slate-500 mb-1 flex items-center gap-1">
                         {r.estado === 'resuelto' && <CheckCircle size={14} className="text-emerald-600" />}
                         {r.estado === 'resuelto' ? 'Cómo se solucionó' : r.estado === 'descartado' ? 'Por qué se descartó' : 'Nota del administrador'}
                       </p>
@@ -119,13 +119,13 @@ export default function MisReportesPage() {
 
                   {expandido && (
                     <div className="px-4 pb-4 space-y-3 border-t border-slate-100 dark:border-white/[0.06] pt-3">
-                      <a href={r.url} target="_blank" rel="noreferrer" className="text-[12px] text-indigo-600 dark:text-indigo-400 hover:underline inline-flex items-center gap-1 break-all">
+                      <a href={r.url} target="_blank" rel="noreferrer" className="text-[12px] text-teal-600 dark:text-teal-400 hover:underline inline-flex items-center gap-1 break-all">
                         {r.url} <ExternalLink size={12} className="flex-shrink-0" />
                       </a>
                       <div className="grid gap-3 md:grid-cols-2 text-[13px] text-slate-700 dark:text-slate-200">
-                        <div><p className="text-[11px] font-bold uppercase text-slate-400 mb-1">Qué pasó</p><p className="whitespace-pre-wrap">{r.que_paso}</p></div>
-                        <div><p className="text-[11px] font-bold uppercase text-slate-400 mb-1">Qué esperabas</p><p className="whitespace-pre-wrap">{r.que_esperaba}</p></div>
-                        {r.pasos && <div className="md:col-span-2"><p className="text-[11px] font-bold uppercase text-slate-400 mb-1">Qué estabas haciendo</p><p className="whitespace-pre-wrap">{r.pasos}</p></div>}
+                        <div><p className="text-[11px] font-semibold uppercase text-slate-400 mb-1">Qué pasó</p><p className="whitespace-pre-wrap">{r.que_paso}</p></div>
+                        <div><p className="text-[11px] font-semibold uppercase text-slate-400 mb-1">Qué esperabas</p><p className="whitespace-pre-wrap">{r.que_esperaba}</p></div>
+                        {r.pasos && <div className="md:col-span-2"><p className="text-[11px] font-semibold uppercase text-slate-400 mb-1">Qué estabas haciendo</p><p className="whitespace-pre-wrap">{r.pasos}</p></div>}
                       </div>
                       {r.imagen_url && (
                         <a href={r.imagen_url} target="_blank" rel="noreferrer" title="Abrir captura en tamaño completo">

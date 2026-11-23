@@ -20,7 +20,7 @@ export function FechasSection({ fechas }: { fechas: FechaItem[] }) {
         title="Fechas"
         subtitle="Cronograma del proceso de licitación"
         badge={fechas.length > 0 && (
-          <span className="px-2 py-0.5 bg-indigo-100 text-indigo-700 text-xs rounded-full font-semibold">{fechas.length}</span>
+          <span className="px-2 py-0.5 bg-teal-100 text-teal-700 text-xs rounded-full font-semibold">{fechas.length}</span>
         )}
       />
 
@@ -33,9 +33,9 @@ export function FechasSection({ fechas }: { fechas: FechaItem[] }) {
       ) : (
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden fade-in">
           {proxima && (
-            <div className="px-5 py-3 bg-indigo-50 border-b border-indigo-100 flex items-center gap-2">
-              <Clock size={13} className="text-indigo-500 flex-shrink-0" />
-              <span className="text-xs text-indigo-700 font-medium">
+            <div className="px-5 py-3 bg-teal-50 border-b border-teal-100 flex items-center gap-2">
+              <Clock size={13} className="text-teal-500 flex-shrink-0" />
+              <span className="text-xs text-teal-700 font-medium">
                 Próxima fecha: <strong>{proxima.label}</strong> · {formatDateTime(proxima.fecha)}
               </span>
             </div>
@@ -53,17 +53,17 @@ export function FechasSection({ fechas }: { fechas: FechaItem[] }) {
                     <div key={i} className="flex gap-4 pl-8 relative slide-in-up" style={{ animationDelay: `${i * 40}ms` }}>
                       <div className={`absolute left-0 top-0.5 w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors ${
                         pasada
-                          ? 'bg-indigo-600 border-indigo-600'
+                          ? 'bg-teal-600 border-teal-600'
                           : esSiguiente
-                          ? 'bg-white border-indigo-400 ring-2 ring-indigo-100'
+                          ? 'bg-white border-teal-400 ring-2 ring-teal-100'
                           : 'bg-white border-slate-300'
                       }`}>
                         {pasada && <Check size={10} className="text-white" />}
-                        {esSiguiente && <span className="w-2 h-2 rounded-full bg-indigo-400" />}
+                        {esSiguiente && <span className="w-2 h-2 rounded-full bg-teal-400" />}
                       </div>
                       <div>
-                        <p className={`text-[11px] font-bold uppercase tracking-wider mb-0.5 ${
-                          pasada ? 'text-slate-400' : esSiguiente ? 'text-indigo-600' : 'text-slate-500'
+                        <p className={`text-[11px] font-semibold mb-0.5 ${
+                          pasada ? 'text-slate-400' : esSiguiente ? 'text-teal-600' : 'text-slate-500'
                         }`}>{f.label}</p>
                         <p className={`text-[13px] font-medium ${pasada ? 'text-slate-500' : 'text-slate-800'}`}>
                           {formatDateTime(f.fecha)}

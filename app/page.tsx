@@ -40,7 +40,7 @@ function HomeContent() {
   const { usuario, cargando: cargandoSesion } = useSession();
   const router = useRouter();
   useEffect(() => {
-    if (!cargandoSesion && usuario && usuario.rol !== 'admin') router.replace('/negocios');
+    if (!cargandoSesion && usuario && !usuario.permisos?.buscador_licitaciones) router.replace('/negocios');
   }, [cargandoSesion, usuario, router]);
   const [opportunities, setOpportunities] = useState<Oportunidad[]>([]);
   const [loading, setLoading] = useState(false);
@@ -182,7 +182,7 @@ function HomeContent() {
   );
 
   // No-admin: no renderizar el buscador (el efecto de arriba ya redirige a /negocios).
-  if (!cargandoSesion && usuario && usuario.rol !== 'admin') {
+  if (!cargandoSesion && usuario && !usuario.permisos?.buscador_licitaciones) {
     return (
       <AppLayout breadcrumb={[{ label: 'Buscador' }]}>
         <div className="p-10 text-center text-sm text-slate-500">Redirigiendo…</div>
@@ -193,14 +193,14 @@ function HomeContent() {
   return (
     <AppLayout breadcrumb={[{ label: 'Buscador' }]}>
       {/* Hero */}
-      <div className="bg-gradient-to-br from-[#1e1b4b] via-[#312e81] to-[#1e3a8a] py-14 px-4 relative overflow-hidden">
+      <div className="bg-slate-900 py-14 px-4 relative overflow-hidden">
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgba(99,102,241,0.15)_0%,transparent_60%)]" />
         <div className="max-w-3xl mx-auto text-center relative z-10">
-          <h1 className="text-4xl sm:text-5xl font-bold text-white mb-4 leading-tight tracking-tight">
+          <h1 className="text-4xl sm:text-5xl font-semibold text-white mb-4 leading-tight tracking-tight">
             Oportunidades de{' '}
-            <span className="text-indigo-300">Licitación</span>
+            <span className="text-teal-300">Licitación</span>
           </h1>
-          <p className="text-indigo-200 text-lg mb-8">
+          <p className="text-teal-200 text-lg mb-8">
             Accede a todas las licitaciones de Chile en un solo lugar.
             Busca, filtra y analiza de forma inteligente.
           </p>
@@ -217,7 +217,7 @@ function HomeContent() {
             <div className="flex items-center gap-6">
               {dataSource && (
                 <div className="flex items-center gap-2 text-sm text-slate-400">
-                  <FileText size={14} className="text-purple-400" />
+                  <FileText size={14} className="text-slate-400" />
                   <span className="text-slate-300">{dataSource}</span>
                 </div>
               )}
@@ -283,7 +283,7 @@ function HomeContent() {
                   {hasActiveFilters && (
                     <button
                       onClick={handleClearFilters}
-                      className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline"
+                      className="text-xs text-teal-600 dark:text-teal-400 hover:underline"
                     >
                       Limpiar filtros
                     </button>
@@ -340,10 +340,10 @@ function HomeContent() {
             {/* Estado vacío inicial */}
             {!hasSearched && !loading && (
               <div className="text-center py-20 bg-white dark:bg-zinc-900 rounded-xl border border-slate-200 dark:border-zinc-800 shadow-sm fade-in">
-                <div className="w-16 h-16 bg-indigo-50 dark:bg-indigo-500/10 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                  <Search size={28} className="text-indigo-400" />
+                <div className="w-16 h-16 bg-teal-50 dark:bg-teal-500/10 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                  <Search size={28} className="text-teal-400" />
                 </div>
-                <h3 className="text-[15px] font-bold text-slate-800 dark:text-zinc-100 mb-2">
+                <h3 className="text-[15px] font-semibold text-slate-800 dark:text-zinc-100 mb-2">
                   Busca licitaciones
                 </h3>
                 <p className="text-slate-500 dark:text-zinc-400 text-[13px] max-w-sm mx-auto">
@@ -354,7 +354,7 @@ function HomeContent() {
                     <button
                       key={q}
                       onClick={() => handleSearch(q)}
-                      className="px-3 py-1.5 rounded-full bg-slate-100 hover:bg-indigo-100 hover:text-indigo-700 text-[12px] font-medium text-slate-600 transition-colors border border-slate-200 hover:border-indigo-200 dark:bg-white/5 dark:text-zinc-300 dark:border-zinc-800 dark:hover:bg-indigo-500/15 dark:hover:text-indigo-300 dark:hover:border-indigo-500/30"
+                      className="px-3 py-1.5 rounded-full bg-slate-100 hover:bg-teal-100 hover:text-teal-700 text-[12px] font-medium text-slate-600 transition-colors border border-slate-200 hover:border-teal-200 dark:bg-white/5 dark:text-zinc-300 dark:border-zinc-800 dark:hover:bg-teal-500/15 dark:hover:text-teal-300 dark:hover:border-teal-500/30"
                     >
                       {q}
                     </button>
@@ -367,7 +367,7 @@ function HomeContent() {
             {hasSearched && !loading && !error && opportunities.length === 0 && (
               <div className="text-center py-16 bg-white dark:bg-zinc-900 rounded-xl border border-slate-200 dark:border-zinc-800 shadow-sm fade-in">
                 <Search size={32} className="text-slate-300 dark:text-zinc-700 mx-auto mb-4" />
-                <h3 className="text-[15px] font-bold text-slate-700 dark:text-zinc-200 mb-2">
+                <h3 className="text-[15px] font-semibold text-slate-700 dark:text-zinc-200 mb-2">
                   Sin resultados para &ldquo;{lastQuery}&rdquo;
                 </h3>
                 <p className="text-slate-400 dark:text-zinc-500 text-[13px]">
@@ -383,7 +383,7 @@ function HomeContent() {
                   className="px-4 py-2 text-[13px] font-medium rounded-xl bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 hover:bg-slate-50 dark:hover:bg-zinc-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors dark:text-zinc-300">
                   ← Anterior
                 </button>
-                <span className="px-4 py-2 text-[13px] font-bold bg-indigo-600 text-white rounded-xl">
+                <span className="px-4 py-2 text-[13px] font-semibold bg-teal-600 text-white rounded-xl">
                   {currentPage} / {totalPages}
                 </span>
                 <button onClick={() => handlePageChange(currentPage + 1)} disabled={currentPage >= totalPages}

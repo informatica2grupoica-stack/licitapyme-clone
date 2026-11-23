@@ -34,10 +34,10 @@ export default function RecuperarPage() {
     <div className="min-h-screen flex items-center justify-center bg-slate-50 px-6 py-10">
       <div className="w-full max-w-sm">
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-12 h-12 bg-indigo-600 rounded-2xl shadow-lg mb-3">
+          <div className="inline-flex items-center justify-center w-12 h-12 bg-teal-600 rounded-2xl shadow-lg mb-3">
             <Building2 size={22} className="text-white" />
           </div>
-          <h1 className="text-xl font-bold text-slate-900">ICA Licitaciones</h1>
+          <h1 className="text-xl font-semibold text-slate-900">ICA Licitaciones</h1>
         </div>
 
         {enviado ? (
@@ -45,19 +45,19 @@ export default function RecuperarPage() {
             <div className="inline-flex items-center justify-center w-12 h-12 bg-green-50 rounded-full mb-4">
               <CheckCircle size={24} className="text-green-600" />
             </div>
-            <h2 className="text-lg font-bold text-slate-900 mb-2">Revisa tu correo</h2>
+            <h2 className="text-lg font-semibold text-slate-900 mb-2">Revisa tu correo</h2>
             <p className="text-[13px] text-slate-500 leading-relaxed">
               Si el correo corresponde a una cuenta, te enviamos un enlace para restablecer tu contraseña.
               El enlace vence en 30 minutos.
             </p>
-            <Link href="/login" className="inline-flex items-center gap-1.5 mt-6 text-[13px] text-indigo-600 hover:text-indigo-800 font-semibold">
+            <Link href="/login" className="inline-flex items-center gap-1.5 mt-6 text-[13px] text-teal-600 hover:text-teal-800 font-semibold">
               <ArrowLeft size={14} /> Volver al inicio de sesión
             </Link>
           </div>
         ) : (
           <>
             <div className="mb-6">
-              <h2 className="text-2xl font-bold text-slate-900 mb-1">¿Olvidaste tu contraseña?</h2>
+              <h2 className="text-2xl font-semibold text-slate-900 mb-1">¿Olvidaste tu contraseña?</h2>
               <p className="text-[13px] text-slate-500">Ingresa tu correo y te enviaremos un enlace para crear una nueva.</p>
             </div>
 
@@ -69,7 +69,7 @@ export default function RecuperarPage() {
 
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
-                <label htmlFor="recuperar-email" className="block text-[12px] font-semibold text-slate-600 mb-1.5 uppercase tracking-wider">
+                <label htmlFor="recuperar-email" className="block text-[12px] font-semibold text-slate-600 mb-1.5">
                   Correo electrónico
                 </label>
                 <div className="relative">
@@ -82,7 +82,7 @@ export default function RecuperarPage() {
                     placeholder="tu@empresa.cl"
                     required
                     autoComplete="email"
-                    className="w-full pl-10 pr-4 py-2.5 border border-slate-200 bg-white rounded-xl text-[13px] focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all shadow-sm"
+                    className="w-full pl-10 pr-4 py-2.5 border border-slate-200 bg-white rounded-xl text-[13px] focus:ring-2 focus:ring-teal-500 focus:border-transparent outline-none transition-all shadow-sm"
                   />
                 </div>
               </div>
@@ -90,7 +90,7 @@ export default function RecuperarPage() {
               <button
                 type="submit"
                 disabled={cargando || !email}
-                className="w-full flex items-center justify-center gap-2 py-3 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-bold rounded-xl transition-colors text-[14px] shadow-sm shadow-indigo-200"
+                className="w-full flex items-center justify-center gap-2 py-3 bg-teal-600 hover:bg-teal-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-semibold rounded-xl transition-colors text-[14px] shadow-sm shadow-teal-200"
               >
                 {cargando
                   ? <><Loader2 size={15} className="animate-spin" />Enviando...</>

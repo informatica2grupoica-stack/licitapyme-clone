@@ -10,7 +10,7 @@ import { lineasDesdeTabla, lineasSinAsignar, productoQueCubreLaLinea, factoresPr
 import { adicionalesDesdeIA } from '@/app/lib/compras-adicionales-ia';
 import { fichaPorValidar } from '@/app/lib/compras-cotizacion-specs-core';
 import { useToast } from '@/app/components/ui/toast';
-import { IconEye as Eye, IconListCheck as ListChecks, IconSparkles as Sparkles, IconPencil as Pencil, IconTrash as Trash, IconLoader2 as Loader2, IconAlertTriangle as Alerta, IconChevronRight as Flecha, IconCheck as Check, IconFileText as Doc } from '@tabler/icons-react';
+import { IconEye as Eye, IconListCheck as ListChecks, IconWand as Sparkles, IconPencil as Pencil, IconTrash as Trash, IconLoader2 as Loader2, IconAlertTriangle as Alerta, IconChevronRight as Flecha, IconCheck as Check, IconFileText as Doc } from '@tabler/icons-react';
 
 export interface CotizacionFilaUI {
   id: number; proveedorNombre: string; proveedorRut: string | null; proveedorNuevo: boolean | null; origen: string;
@@ -365,7 +365,7 @@ export function ListaCotizaciones({ negocioId, cotizaciones, productos, avisosPo
 
                   {String(c.notas || '').includes('IVA sin confirmar:') && !String(c.notas || '').includes('÷ 1,19') && (
                     <div className="rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-2" data-testid={`cotizacion-iva-aviso-${c.id}`}>
-                      <p className="text-[12px] font-bold text-amber-900">⚠ El documento no dice si sus precios son netos o con IVA</p>
+                      <p className="text-[12px] font-semibold text-amber-900">⚠ El documento no dice si sus precios son netos o con IVA</p>
                       <p className="text-[11px] text-amber-800">Se tomaron como NETOS (sin tocarlos). Mira el documento: si los precios llevan IVA incluido, conviértelos a neto (÷ 1,19) para comparar bien con el costeo.</p>
                       {puedeOperar && negocioId != null && onCambio != null && (
                         <button type="button" disabled={convirtiendo === c.id} onClick={() => pasarANeto(c)}
@@ -510,7 +510,7 @@ export function ListaCotizaciones({ negocioId, cotizaciones, productos, avisosPo
 
                   {pendientes.length > 0 && (
                     <div className="rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-2" data-testid={`cotizacion-lineas-sin-asignar-${c.id}`}>
-                      <p className="text-[12px] font-bold text-amber-900">⚠ El documento trae {pendientes.length === 1 ? 'una línea' : `${pendientes.length} líneas`} que no está{pendientes.length === 1 ? '' : 'n'} en ningún producto ni adicional</p>
+                      <p className="text-[12px] font-semibold text-amber-900">⚠ El documento trae {pendientes.length === 1 ? 'una línea' : `${pendientes.length} líneas`} que no está{pendientes.length === 1 ? '' : 'n'} en ningún producto ni adicional</p>
                       <p className="text-[11px] text-amber-800">No coinciden con los productos de esta cotización ni por nombre ni por precio, y no se suman al precio. Si es un accesorio o servicio de un producto (instalación, repuesto), agrégala a ese producto; si ya está dentro de otro precio, pulsa «No agregar».</p>
                       <ul className="mt-1.5 space-y-1.5">
                         {pendientes.map(l => {

@@ -30,7 +30,7 @@ interface Vista {
 const peso = (kb: number | null) =>
   kb == null ? '' : kb >= 1024 ? `${(kb / 1024).toFixed(1)} MB` : `${kb} KB`;
 
-export default function DocumentosActa({ codigo, isAdmin, acento = '#4f46e5' }: {
+export default function DocumentosActa({ codigo, isAdmin, acento = '#0d9488' }: {
   codigo: string; isAdmin: boolean; acento?: string;
 }) {
   const [vista, setVista] = useState<Vista | null>(null);
@@ -90,7 +90,7 @@ export default function DocumentosActa({ codigo, isAdmin, acento = '#4f46e5' }: 
   return (
     <div className="px-5 py-4 border-t" style={{ borderColor: acento + '22' }}>
       <div className="flex items-center justify-between gap-3 mb-2">
-        <p className="text-[12px] font-bold text-slate-700 inline-flex items-center gap-1.5">
+        <p className="text-[12px] font-semibold text-slate-700 inline-flex items-center gap-1.5">
           <FileCheck2 size={13} style={{ color: acento }} /> Documentos del acta
           {docs.length > 0 && <span className="font-normal text-slate-400">· {vista.descargados}/{docs.length} disponibles</span>}
         </p>
@@ -98,7 +98,7 @@ export default function DocumentosActa({ codigo, isAdmin, acento = '#4f46e5' }: 
           <div className="flex items-center gap-1.5">
             {pendientes > 0 && docs.length > 0 && (
               <button onClick={() => accion(true)} disabled={trabajando !== null}
-                className="inline-flex items-center gap-1.5 text-[11.5px] font-semibold text-indigo-600 border border-indigo-200 hover:bg-indigo-50 disabled:text-slate-300 disabled:border-slate-200 px-2.5 py-1 rounded-lg transition-colors">
+                className="inline-flex items-center gap-1.5 text-[11.5px] font-semibold text-teal-600 border border-teal-200 hover:bg-teal-50 disabled:text-slate-300 disabled:border-slate-200 px-2.5 py-1 rounded-lg transition-colors">
                 {trabajando === 'bajar'
                   ? <><Loader2 size={11} className="animate-spin" /> Descargando…</>
                   : <><Download size={11} /> Traer {pendientes} pendiente(s)</>}
@@ -130,7 +130,7 @@ export default function DocumentosActa({ codigo, isAdmin, acento = '#4f46e5' }: 
                 <span className="inline-flex items-center gap-1"><Phone size={11} /> {vista.contactoLicitacion.telefono}</span>
               )}
               {vista.contactoLicitacion.email && (
-                <a href={`mailto:${vista.contactoLicitacion.email}`} className="inline-flex items-center gap-1 hover:text-indigo-600"><Mail size={11} /> {vista.contactoLicitacion.email}</a>
+                <a href={`mailto:${vista.contactoLicitacion.email}`} className="inline-flex items-center gap-1 hover:text-teal-600"><Mail size={11} /> {vista.contactoLicitacion.email}</a>
               )}
             </div>
           </div>
@@ -170,11 +170,11 @@ export default function DocumentosActa({ codigo, isAdmin, acento = '#4f46e5' }: 
               {d.url ? (
                 <>
                   <button onClick={() => setVisor({ nombre: d.nombre, url: d.url! })} title="Ver sin descargar"
-                    className="text-slate-400 hover:text-indigo-600 p-1 rounded hover:bg-indigo-50 transition-colors flex-shrink-0">
+                    className="text-slate-400 hover:text-teal-600 p-1 rounded hover:bg-teal-50 transition-colors flex-shrink-0">
                     <Eye size={13} />
                   </button>
                   <a href={d.url} target="_blank" rel="noopener noreferrer" title="Descargar"
-                    className="text-slate-400 hover:text-indigo-600 p-1 rounded hover:bg-indigo-50 transition-colors flex-shrink-0">
+                    className="text-slate-400 hover:text-teal-600 p-1 rounded hover:bg-teal-50 transition-colors flex-shrink-0">
                     <Download size={13} />
                   </a>
                 </>

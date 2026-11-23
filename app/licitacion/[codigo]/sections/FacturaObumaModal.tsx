@@ -30,10 +30,10 @@ const fmtFecha = (f: string | null) => {
 function BloqueParte({ titulo, parte }: { titulo: string; parte: DteParte }) {
   return (
     <div className="rounded-xl border border-slate-200 p-4">
-      <p className="text-[10.5px] font-bold uppercase tracking-wide text-slate-400 mb-1.5 flex items-center gap-1.5">
+      <p className="text-[10.5px] font-semibold text-slate-400 mb-1.5 flex items-center gap-1.5">
         <Building2 size={11} /> {titulo}
       </p>
-      <p className="text-[13.5px] font-bold text-slate-800">{parte.razonSocial || '—'}</p>
+      <p className="text-[13.5px] font-semibold text-slate-800">{parte.razonSocial || '—'}</p>
       {parte.rut && <p className="text-[12px] text-slate-500 font-mono mt-0.5">{parte.rut}</p>}
       {parte.giro && <p className="text-[11.5px] text-slate-500 mt-1">{parte.giro}</p>}
       {(parte.direccion || parte.comuna) && (
@@ -75,9 +75,9 @@ export function FacturaObumaModal({ codigo, compraOcId, dteId, onClose }: {
 
   return createPortal(
     <div className="fixed inset-0 z-[100] flex items-start sm:items-center justify-center bg-black/60 backdrop-blur-sm p-0 sm:p-4 overflow-y-auto">
-      <div className="bg-white w-full sm:max-w-5xl sm:rounded-2xl shadow-2xl my-0 sm:my-8" onClick={e => e.stopPropagation()}>
+      <div className="bg-white w-full sm:max-w-5xl sm:rounded-xl shadow-flotante my-0 sm:my-8" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-100 sticky top-0 bg-white sm:rounded-t-2xl">
-          <span className="text-[13px] font-bold text-slate-700">
+          <span className="text-[13px] font-semibold text-slate-700">
             {factura ? factura.tipoDteNombre : 'Factura'}{factura?.folio ? ` N° ${factura.folio}` : ''}
           </span>
           <button onClick={onClose} aria-label="Cerrar" className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg">
@@ -107,7 +107,7 @@ export function FacturaObumaModal({ codigo, compraOcId, dteId, onClose }: {
                   )}
                   {factura.formaPago && <p className="text-[12px] text-slate-400">Forma de pago: {factura.formaPago}</p>}
                 </div>
-                <span className="text-[20px] font-bold text-slate-800">{fmtCLP(factura.totales.total)}</span>
+                <span className="text-[20px] font-semibold text-slate-800">{fmtCLP(factura.totales.total)}</span>
               </div>
 
               <div className="grid sm:grid-cols-2 gap-3">
@@ -119,11 +119,11 @@ export function FacturaObumaModal({ codigo, compraOcId, dteId, onClose }: {
                 <div className="rounded-xl border border-slate-200 overflow-hidden">
                   <table className="w-full text-[12.5px]">
                     <thead>
-                      <tr className="bg-slate-50 text-slate-500 text-[10.5px] uppercase tracking-wide">
-                        <th className="text-left font-bold px-3 py-2">Descripción</th>
-                        <th className="text-right font-bold px-3 py-2 whitespace-nowrap">Cant.</th>
-                        <th className="text-right font-bold px-3 py-2 whitespace-nowrap">Precio unit.</th>
-                        <th className="text-right font-bold px-3 py-2 whitespace-nowrap">Monto</th>
+                      <tr className="bg-slate-50 text-slate-500 text-[10.5px]">
+                        <th className="text-left font-semibold px-3 py-2">Descripción</th>
+                        <th className="text-right font-semibold px-3 py-2 whitespace-nowrap">Cant.</th>
+                        <th className="text-right font-semibold px-3 py-2 whitespace-nowrap">Precio unit.</th>
+                        <th className="text-right font-semibold px-3 py-2 whitespace-nowrap">Monto</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -159,7 +159,7 @@ export function FacturaObumaModal({ codigo, compraOcId, dteId, onClose }: {
                       <span>{fmtCLP(factura.totales.iva)}</span>
                     </div>
                   )}
-                  <div className="flex justify-between font-bold text-slate-800 pt-1 border-t border-slate-200">
+                  <div className="flex justify-between font-semibold text-slate-800 pt-1 border-t border-slate-200">
                     <span>Total</span><span>{fmtCLP(factura.totales.total)}</span>
                   </div>
                 </div>
@@ -167,7 +167,7 @@ export function FacturaObumaModal({ codigo, compraOcId, dteId, onClose }: {
 
               {factura.referencias.length > 0 && (
                 <div className="pt-1">
-                  <p className="text-[10.5px] font-bold uppercase tracking-wide text-slate-400 mb-1.5">Referencias</p>
+                  <p className="text-[10.5px] font-semibold text-slate-400 mb-1.5">Referencias</p>
                   <div className="flex flex-wrap gap-1.5">
                     {factura.referencias.map((r, i) => (
                       <span key={i} className="inline-flex items-center gap-1 text-[11.5px] text-slate-600 bg-slate-100 rounded-full px-2.5 py-1">

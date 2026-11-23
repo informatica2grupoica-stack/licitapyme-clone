@@ -27,9 +27,9 @@ export function FacturaVisor({ negocioId, dteId, onCerrar }: { negocioId: number
 
   return (
     <div className="fixed inset-0 z-[80] bg-black/50 flex items-start justify-center overflow-y-auto p-4 print:bg-white print:p-0" role="dialog" aria-modal="true" onClick={onCerrar} data-testid="factura-visor">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-3xl my-6 print:shadow-none print:my-0" onClick={e => e.stopPropagation()}>
+      <div className="bg-white rounded-xl shadow-flotante w-full max-w-3xl my-6 print:shadow-none print:my-0" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-3 border-b border-zinc-200 print:hidden">
-          <p className="text-[13px] font-bold text-zinc-800">Vista de factura · generada por Licitank desde el XML</p>
+          <p className="text-[13px] font-semibold text-zinc-800">Vista de factura · generada por Licitank desde el XML</p>
           <div className="flex items-center gap-3">
             {f && <button onClick={() => window.print()} className="flex items-center gap-1 text-[12px] font-semibold text-zinc-600 hover:text-zinc-900"><Printer size={14} /> Imprimir</button>}
             {xmlUrl && <a href={xmlUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-[12px] font-semibold text-teal-700 hover:text-teal-900"><FileCode size={14} /> XML original</a>}
@@ -42,14 +42,14 @@ export function FacturaVisor({ negocioId, dteId, onCerrar }: { negocioId: number
           <div className="p-6 text-zinc-800">
             <div className="flex flex-wrap gap-5 justify-between">
               <div className="min-w-0 flex-1">
-                <p className="text-[18px] font-extrabold leading-tight">{f.emisor.razonSocial}</p>
+                <p className="text-[18px] font-semibold leading-tight">{f.emisor.razonSocial}</p>
                 {f.emisor.giro && <p className="text-[11.5px] text-zinc-500 mt-0.5">{f.emisor.giro}</p>}
                 {f.emisor.direccion && <p className="text-[11.5px] text-zinc-500">{f.emisor.direccion}</p>}
               </div>
               <div className="border-2 border-rose-600 text-rose-700 rounded-md px-5 py-3 text-center min-w-[200px]">
-                <p className="text-[12px] font-bold">R.U.T.: {f.emisor.rut}</p>
-                <p className="text-[13px] font-extrabold uppercase">{f.tipoNombre}</p>
-                <p className="text-[13px] font-extrabold">N° {f.folio}</p>
+                <p className="text-[12px] font-semibold">R.U.T.: {f.emisor.rut}</p>
+                <p className="text-[13px] font-semibold uppercase">{f.tipoNombre}</p>
+                <p className="text-[13px] font-semibold">N° {f.folio}</p>
               </div>
             </div>
             <div className="mt-4 grid sm:grid-cols-2 gap-x-6 gap-y-1 text-[12.5px] border border-zinc-200 rounded-lg p-3">
@@ -74,7 +74,7 @@ export function FacturaVisor({ negocioId, dteId, onCerrar }: { negocioId: number
                 {f.totales.neto != null && <tr><td className="pr-6 py-0.5 text-zinc-500">Monto neto</td><td className="text-right tabular-nums">{fmt(f.totales.neto)}</td></tr>}
                 {f.totales.exento != null && <tr><td className="pr-6 py-0.5 text-zinc-500">Monto exento</td><td className="text-right tabular-nums">{fmt(f.totales.exento)}</td></tr>}
                 {f.totales.iva != null && <tr><td className="pr-6 py-0.5 text-zinc-500">IVA {f.totales.tasaIva ?? 19}%</td><td className="text-right tabular-nums">{fmt(f.totales.iva)}</td></tr>}
-                <tr className="border-t border-zinc-300"><td className="pr-6 pt-1 font-bold">Total</td><td className="pt-1 text-right tabular-nums font-extrabold">{fmt(f.totales.total)}</td></tr>
+                <tr className="border-t border-zinc-300"><td className="pr-6 pt-1 font-semibold">Total</td><td className="pt-1 text-right tabular-nums font-semibold">{fmt(f.totales.total)}</td></tr>
               </tbody></table>
             </div>
             {f.referencias.length > 0 && <p className="mt-4 text-[11.5px] text-zinc-500">Referencias: {f.referencias.map(r => `${r.tipoDoc === '801' ? 'Orden de compra' : `Doc. ${r.tipoDoc}`} ${r.folio}${r.fecha ? ` (${fecha(r.fecha)})` : ''}`).join(' · ')}</p>}

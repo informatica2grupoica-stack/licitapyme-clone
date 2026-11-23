@@ -11,7 +11,7 @@ import DocumentosCompraCard from './DocumentosCompraCard';
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useToast } from '@/app/components/ui/toast';
-import { Select } from '@/app/components/ui/Select';
+import { ModalElegirEncargado } from './ModalElegirEncargado';
 import { Banner } from '@/app/components/ui/Banner';
 import { DocumentViewerModal, type VisorDoc } from '@/app/components/DocumentViewerModal';
 import { useCosteoFlotante } from '@/app/components/CosteoFlotanteContext';
@@ -113,10 +113,9 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
     }
   }, [loading]);
   const [asignando, setAsignando] = useState(false);
-  const [candidatoElegido, setCandidatoElegido] = useState('');
+  const [modalEncargado, setModalEncargado] = useState(false);
   // Reasignar (pedido explícito del usuario, 15-sep-2026): solo admin puede cambiar un encargado
   // que ya tiene otro asignado — misma restricción que la lista de Compras (app/compras/page.tsx).
-  const [reasignando, setReasignando] = useState(false);
   const [visorOC, setVisorOC] = useState<VisorDoc | null>(null);
   const [cargandoPdfOC, setCargandoPdfOC] = useState(false);
   // Abre el PDF en el visor de la app (proxy inline): el link directo a R2 no se podía ver. Si el cron
@@ -180,13 +179,12 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
     });
   }, [asignacion?.ordenCompra]);
 
-  const asignar = async () => {
-    if (!candidatoElegido) return;
+  const asignar = async (encargadoId: number) => {
     setAsignando(true);
     try {
       const res = await fetch(`/api/compras/${negocioId}/asignar`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ encargadoId: Number(candidatoElegido) }),
+        body: JSON.stringify({ encargadoId }),
       });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo asignar');
@@ -194,8 +192,7 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
         asignacion?.asignadoA ? 'Encargado cambiado' : 'Encargado asignado',
         asignacion?.asignadoA ? undefined : 'Se sembraron las tareas de Compras.',
       );
-      setReasignando(false);
-      setCandidatoElegido('');
+      setModalEncargado(false);
       await recargar();
     } catch (e: any) {
       toast.error('No se pudo asignar', e.message);
@@ -299,6 +296,8 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
     if (paso.fase) {
       setFaseActiva(paso.fase);
       setTimeout(() => document.getElementById('compras-flujo')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
+    } else if (paso.ancla === 'encargado' && esJefeDeVentas) {
+      setModalEncargado(true);
     } else if (paso.ancla) {
       document.getElementById(`compras-${paso.ancla}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
@@ -325,6 +324,11 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
 
   return (
     <div className="space-y-3 @container">
+      {/* Negocio ganado sin encargado: el modal se abre solo y no se puede cerrar hasta asignar (sin encargado no hay tareas). Solo para quien puede asignar. */}
+      <ModalElegirEncargado open={modalEncargado || (!asignacion.asignadoA && esJefeDeVentas)} obligatorio={!asignacion.asignadoA && esJefeDeVentas}
+        negocio={{ codigo: asignacion.licitacionCodigo, nombre: licitacionNombre }}
+        onClose={() => setModalEncargado(false)} candidatos={candidatos}
+        actualId={asignacion.asignadoA ?? null} guardando={asignando} onConfirmar={asignar} />
       {/* Cabecera + encargado en UNA tarjeta (antes dos cajas apiladas: en un notebook se comían la
           primera pantalla antes de llegar al flujo). */}
       <div className="bg-white rounded-xl border border-zinc-200 shadow-tarjeta overflow-hidden">
@@ -338,7 +342,7 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
               {licitacionNombre || `Negocio #${negocioId}`}
             </h2>
             {asignacion.urgente && (
-              <span className="inline-flex items-center gap-1 text-[10.5px] font-bold text-rose-700 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded-full">
+              <span className="inline-flex items-center gap-1 text-[10.5px] font-semibold text-rose-700 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded-full">
                 <AlertTriangle size={11} /> Cadena de Urgencia
               </span>
             )}
@@ -365,30 +369,16 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
           pequeño") — ahora es la fila de abajo de la tarjeta de cabecera. */}
       <div id="compras-encargado" className="bg-zinc-50/70 border-t border-zinc-100 px-4 py-2 flex items-center gap-2 flex-wrap text-[12px] scroll-mt-4">
         <span className="text-[11px] font-medium text-zinc-400 flex-shrink-0">Encargado</span>
-        {asignacion.asignadoA && !reasignando ? (
+        {asignacion.asignadoA ? (
           <div className="flex items-center gap-1.5 flex-wrap flex-1 min-w-0">
-            <span className="font-bold text-zinc-800">{asignacion.asignadoNombre}</span>
+            <span className="font-semibold text-zinc-800">{asignacion.asignadoNombre}</span>
             <span className="text-zinc-400 text-[11px]">— {fmtFecha(asignacion.asignadoAt)}{asignacion.asignadoPor == null ? ' · automático' : ''}</span>
             {esAdmin && (
-              <button onClick={() => setReasignando(true)}
+              <button onClick={() => setModalEncargado(true)}
                 className="text-[11px] font-semibold text-teal-700 hover:text-teal-800">Cambiar</button>
             )}
             <CoencargadosCompras negocioId={negocioId} principalId={asignacion.asignadoA} coencargados={asignacion.coencargados || []} candidatos={candidatos}
               puedeEditar={esAdmin || esJefeDeVentas} onCambio={recargar} />
-          </div>
-        ) : asignacion.asignadoA && reasignando ? (
-          <div className="flex items-center gap-2 flex-wrap flex-1">
-            <Select
-              value={candidatoElegido} onChange={setCandidatoElegido}
-              placeholder="Nuevo encargado…" minWidth={180}
-              options={candidatos.map(c => ({ value: String(c.id), label: `${c.nombre || `Usuario ${c.id}`} (${c.carga} tarea${c.carga === 1 ? '' : 's'} activa${c.carga === 1 ? '' : 's'})` }))}
-            />
-            <button onClick={asignar} disabled={!candidatoElegido || asignando}
-              className="inline-flex items-center gap-1 text-[11.5px] font-semibold text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-50 px-2.5 py-1.5 rounded-lg transition-colors">
-              {asignando ? <Loader2 size={12} className="animate-spin" /> : <UserPlus size={12} />} Cambiar
-            </button>
-            <button onClick={() => { setReasignando(false); setCandidatoElegido(''); }} disabled={asignando}
-              className="text-[11.5px] text-zinc-500 hover:text-zinc-700">Cancelar</button>
           </div>
         ) : (
           <div className="flex items-center gap-2 flex-wrap flex-1">
@@ -400,14 +390,9 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
             </span>
             {esJefeDeVentas && (
               <>
-                <Select
-                  value={candidatoElegido} onChange={setCandidatoElegido}
-                  placeholder="Elegir encargado…" minWidth={180}
-                  options={candidatos.map(c => ({ value: String(c.id), label: `${c.nombre || `Usuario ${c.id}`} (${c.carga} tarea${c.carga === 1 ? '' : 's'} activa${c.carga === 1 ? '' : 's'})` }))}
-                />
-                <button onClick={asignar} disabled={!candidatoElegido || asignando}
+                <button onClick={() => setModalEncargado(true)} disabled={asignando}
                   className="inline-flex items-center gap-1 text-[11.5px] font-semibold text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-50 px-2.5 py-1.5 rounded-lg transition-colors">
-                  {asignando ? <Loader2 size={12} className="animate-spin" /> : <UserPlus size={12} />} Asignar
+                  <UserPlus size={12} /> Elegir encargado
                 </button>
               </>
             )}
@@ -450,7 +435,7 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
         <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
           <div className="w-full flex items-center justify-between px-4 py-3 hover:bg-zinc-50 transition-colors">
             <button onClick={() => setResumenAbierto(v => !v)} className="flex-1 flex items-center justify-between text-left">
-              <p className="text-[12.5px] font-bold text-zinc-700">Resumen ejecutivo</p>
+              <p className="text-[12.5px] font-semibold text-zinc-700">Resumen ejecutivo</p>
             </button>
             <div className="flex items-center gap-2 pl-2">
               {puedeOperar && (
@@ -486,25 +471,31 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
                     <span className="w-6 h-6 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center"><DollarSign size={14} /></span> Precio de venta ganado
                     <span className="ml-auto text-[11.5px] font-semibold text-emerald-700 flex items-center gap-0.5 opacity-80 group-hover:opacity-100">{ganadasAbierto ? 'Ocultar' : 'Ver líneas'} {ganadasAbierto ? <ChevronUp size={13} /> : <ChevronDown size={13} />}</span>
                   </p>
-                  <p className="text-[21px] leading-tight font-extrabold text-zinc-900 mt-1 tabular-nums">{fmtCLP(r.montoNuestro)} <span className="text-[12px] font-semibold text-zinc-400">neto</span></p>
+                  <p className="text-[21px] leading-tight font-semibold text-zinc-900 mt-1 tabular-nums">{fmtCLP(r.montoNuestro)} <span className="text-[12px] font-semibold text-zinc-400">neto</span></p>
                   {r.montoNuestro != null && <p className="text-[12px] text-zinc-500 mt-0.5 tabular-nums">{fmtCLP(Math.round(r.montoNuestro * 1.19))} con IVA</p>}
                 </button>
                 <div className={`rounded-xl px-3.5 py-3 border ${excedePresupuesto ? 'bg-amber-50/60 border-amber-300' : 'bg-white border-zinc-200'}`}>
                   <p className="text-[12px] font-semibold text-zinc-500 flex items-center gap-1.5">
                     <span className={`w-6 h-6 rounded-lg flex items-center justify-center ${excedePresupuesto ? 'bg-amber-100 text-amber-600' : 'bg-slate-100 text-slate-600'}`}><Calculator size={14} /></span> Monto costeado
-                    {excedePresupuesto && <span className="ml-auto text-[11px] font-bold text-amber-700 flex items-center gap-1"><AlertTriangle size={12} /> Sobre el presupuesto</span>}
+                    {excedePresupuesto && <span className="ml-auto text-[11px] font-semibold text-amber-700 flex items-center gap-1"><AlertTriangle size={12} /> Sobre el presupuesto</span>}
                   </p>
-                  <p className="text-[21px] leading-tight font-extrabold text-zinc-900 mt-1 tabular-nums">
+                  <p className="text-[21px] leading-tight font-semibold text-zinc-900 mt-1 tabular-nums">
                     {r.existeCosteo ? <>{fmtCLP(r.montoCosteado)} <span className="text-[12px] font-semibold text-zinc-400">neto</span></> : <span className="text-[18px] text-zinc-400">Sin costeo</span>}
                   </p>
                   {r.existeCosteo && r.montoCosteado != null && <p className="text-[12px] text-zinc-500 mt-0.5 tabular-nums">{fmtCLP(Math.round(r.montoCosteado * 1.19))} con IVA{r.costoDesdeCompraAprobada && <span className="text-zinc-400"> · según la compra aprobada (sin costeo)</span>}</p>}
+                  {r.costeoGanado && (
+                    <p className="text-[11.5px] text-emerald-700 font-semibold mt-1" title={`Postulamos ${r.costeoGanado.postuladas.length} líneas (costeo de ${fmtCLP(r.costeoGanado.costoPostulado)} neto); el acta de Mercado Público nos adjudicó solo ${r.costeoGanado.ganadas.length}.${r.costeoGanado.filasSinLinea ? ' Hay filas del costeo sin número de línea: revisa que el monto sea el correcto.' : ''}`}>
+                      {r.costeoGanado.ganadas.length === 1 ? 'Solo la línea ' : 'Solo las líneas '}{r.costeoGanado.ganadas.join(', ')} · de {r.costeoGanado.postuladas.length} postuladas
+                      <span className="block font-normal text-zinc-400">Costeo de lo postulado: {fmtCLP(r.costeoGanado.costoPostulado)} neto</span>
+                    </p>
+                  )}
                 </div>
                 <div className={`rounded-xl px-3.5 py-3 border ${margenBajo ? 'bg-rose-50/60 border-rose-300' : 'bg-white border-zinc-200'}`}>
                   <p className="text-[12px] font-semibold text-zinc-500 flex items-center gap-1.5">
                     <span className={`w-6 h-6 rounded-lg flex items-center justify-center ${margenBajo ? 'bg-rose-100 text-rose-600' : 'bg-teal-50 text-teal-600'}`}><Gauge size={14} /></span> Margen previsto
-                    {margenBajo && <span className="ml-auto text-[11px] font-bold text-rose-700 flex items-center gap-1"><AlertTriangle size={12} /> Bajo el piso</span>}
+                    {margenBajo && <span className="ml-auto text-[11px] font-semibold text-rose-700 flex items-center gap-1"><AlertTriangle size={12} /> Bajo el piso</span>}
                   </p>
-                  <p className={`text-[21px] leading-tight font-extrabold mt-1 tabular-nums ${margenBajo ? 'text-rose-700' : 'text-zinc-900'}`}>
+                  <p className={`text-[21px] leading-tight font-semibold mt-1 tabular-nums ${margenBajo ? 'text-rose-700' : 'text-zinc-900'}`}>
                     {r.margenPrevisto != null ? `${r.margenPrevisto}%` : <span className="text-[18px] text-zinc-400">Sin costeo</span>}
                   </p>
                   {r.margenPrevisto != null && (
@@ -521,7 +512,7 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
 
               {ganadasAbierto && (
                 <div className="rounded-xl border border-emerald-200 bg-white overflow-hidden">
-                  <p className="px-3 py-2 text-[11px] font-bold text-emerald-800 bg-emerald-50 border-b border-emerald-100">
+                  <p className="px-3 py-2 text-[11px] font-semibold text-emerald-800 bg-emerald-50 border-b border-emerald-100">
                     Líneas que se ganaron según el acta de Mercado Público
                   </p>
                   {cargandoGanadas ? (
@@ -544,13 +535,13 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
                                   g.montoUnitario != null ? `${fmtCLP(g.montoUnitario)} unitario neto` : null].filter(Boolean).join(' · ')}
                               </p>
                             </div>
-                            <p className="text-[12px] font-bold text-emerald-800 flex-shrink-0">{fmtCLP(total)}</p>
+                            <p className="text-[12px] font-semibold text-emerald-800 flex-shrink-0">{fmtCLP(total)}</p>
                           </div>
                         );
                       })}
                       <div className="px-3 py-2 flex items-center justify-between bg-emerald-50/50">
-                        <p className="text-[11px] font-bold text-emerald-800">{ganadas.length} línea(s) ganada(s)</p>
-                        <p className="text-[12px] font-extrabold text-emerald-800">{fmtCLP(ganadas.reduce((s, g) => s + (g.montoUnitario ?? 0) * (g.cantidad ?? 1), 0))} neto</p>
+                        <p className="text-[11px] font-semibold text-emerald-800">{ganadas.length} línea(s) ganada(s)</p>
+                        <p className="text-[12px] font-semibold text-emerald-800">{fmtCLP(ganadas.reduce((s, g) => s + (g.montoUnitario ?? 0) * (g.cantidad ?? 1), 0))} neto</p>
                       </div>
                     </div>
                   )}
@@ -855,7 +846,7 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
                         <span className={`relative inline-flex items-center justify-center w-10 h-10 rounded-full border-2 text-[15px] font-semibold transition-all ${ESTADO_STYLE[estado]} ${activa ? '' : 'group-hover:border-zinc-500'}`}>
                           {estado === 'ok' ? <Check size={18} strokeWidth={3} /> : estado === 'alerta' ? '!' : i + 1}
                           {badge != null && badge > 0 && estado !== 'ok' && (
-                            <span className={`absolute -top-1.5 -right-1.5 text-[10px] font-bold min-w-[18px] h-[18px] px-1 rounded-full flex items-center justify-center ring-2 ring-white text-white ${estado === 'alerta' ? 'bg-rose-500' : 'bg-amber-400'}`}>{badge}</span>
+                            <span className={`absolute -top-1.5 -right-1.5 text-[10px] font-semibold min-w-[18px] h-[18px] px-1 rounded-full flex items-center justify-center ring-2 ring-white text-white ${estado === 'alerta' ? 'bg-rose-500' : 'bg-amber-400'}`}>{badge}</span>
                           )}
                         </span>
                         <span className={`text-[12.5px] leading-tight text-center ${activa ? 'font-semibold text-teal-800' : 'font-medium text-zinc-600 group-hover:text-zinc-900'}`}>{f.label}</span>
@@ -921,13 +912,13 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
                   contenido: (
                     <div className="space-y-6">
                       <section className="space-y-2">
-                        <p className="text-[13px] font-bold text-zinc-800"><span className="inline-flex w-5 h-5 mr-1.5 rounded-full bg-teal-600 text-white text-[11px] items-center justify-center">1</span>Emite las órdenes de compra a los proveedores</p>
+                        <p className="text-[13px] font-semibold text-zinc-800"><span className="inline-flex w-5 h-5 mr-1.5 rounded-full bg-teal-600 text-white text-[11px] items-center justify-center">1</span>Emite las órdenes de compra a los proveedores</p>
                         <RepartoAdminCard negocioId={negocioId} puedeOperar={puedeOperar || esAdministracion} parte="oc" />
                         {/* OC que emite una empresa del grupo sin Obuma (Comercial MP → Inversiones Claro); no se muestra si el negocio va por Obuma. */}
                         <OcPropiaCard negocioId={negocioId} puedeOperar={puedeOperar || esAdministracion} />
                       </section>
                       <section className="space-y-2">
-                        <p className="text-[13px] font-bold text-zinc-800"><span className="inline-flex w-5 h-5 mr-1.5 rounded-full bg-teal-600 text-white text-[11px] items-center justify-center">2</span>Avance: pagos, facturas y proyecto en Obuma</p>
+                        <p className="text-[13px] font-semibold text-zinc-800"><span className="inline-flex w-5 h-5 mr-1.5 rounded-full bg-teal-600 text-white text-[11px] items-center justify-center">2</span>Avance: pagos, facturas y proyecto en Obuma</p>
                         <RepartoAdminCard negocioId={negocioId} puedeOperar={puedeOperar || esAdministracion} parte="hitos" />
                       </section>
                     </div>

@@ -29,7 +29,7 @@ interface Etiqueta { id: number; nombre: string; color: string; }
 
 const ESTADO_COLOR: Record<string, string> = {
   'Publicada':  'bg-green-100 text-green-700',
-  'Adjudicada': 'bg-indigo-100 text-indigo-700',
+  'Adjudicada': 'bg-teal-100 text-teal-700',
   'Cerrada':    'bg-slate-100 text-slate-600',
   'Desierta':   'bg-red-100 text-red-600',
   'Suspendida': 'bg-yellow-100 text-yellow-700',
@@ -115,18 +115,18 @@ function ModalAsignar({
     <div
       className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm p-0 sm:p-4"
     >
-      <div className="bg-white w-full sm:max-w-2xl rounded-t-3xl sm:rounded-2xl shadow-2xl scale-in overflow-hidden">
+      <div className="bg-white w-full sm:max-w-2xl rounded-t-3xl sm:rounded-xl shadow-flotante scale-in overflow-hidden">
         <div className="flex justify-center pt-3 sm:hidden">
           <div className="w-10 h-1 bg-zinc-200 rounded-full" />
         </div>
 
         <div className="flex items-center justify-between px-5 py-4">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 bg-indigo-600/10 rounded-lg flex items-center justify-center">
-              <UserPlus size={15} className="text-indigo-600" />
+            <div className="w-8 h-8 bg-teal-600/10 rounded-lg flex items-center justify-center">
+              <UserPlus size={15} className="text-teal-600" />
             </div>
             <div>
-              <h3 className="text-[14px] font-bold text-zinc-900 leading-none">Asignar a perfil</h3>
+              <h3 className="text-[14px] font-semibold text-zinc-900 leading-none">Asignar a perfil</h3>
               <p className="text-[11px] text-zinc-400 mt-0.5">Agregar al pipeline de negocios</p>
             </div>
           </div>
@@ -141,9 +141,9 @@ function ModalAsignar({
               {favorito.nombre || favorito.codigo}
             </p>
             <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-zinc-500">
-              <span className="font-mono text-indigo-600 font-semibold">{favorito.codigo}</span>
+              <span className="font-mono text-teal-600 font-semibold">{favorito.codigo}</span>
               {tipo && (
-                <span className={`${TIPO_COLOR_CLASS[tipo] || 'bg-gray-500'} text-white text-[10px] px-1.5 py-0.5 rounded font-bold`}>
+                <span className={`${TIPO_COLOR_CLASS[tipo] || 'bg-gray-500'} text-white text-[10px] px-1.5 py-0.5 rounded font-semibold`}>
                   {tipo}
                 </span>
               )}
@@ -156,12 +156,12 @@ function ModalAsignar({
               <div className="w-14 h-14 rounded-2xl bg-emerald-100 flex items-center justify-center">
                 <Check size={26} className="text-emerald-600" stroke={2.5} />
               </div>
-              <p className="font-bold text-zinc-900 text-[14px]">¡Listo!</p>
+              <p className="font-semibold text-zinc-900 text-[14px]">¡Listo!</p>
             </div>
           ) : (
             <>
               <div>
-                <label className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider mb-1.5 block">
+                <label className="text-[11px] font-semibold text-zinc-500 mb-1.5 block">
                   Usuario destino *
                 </label>
                 <Select
@@ -173,7 +173,7 @@ function ModalAsignar({
 
               {etiquetas.length > 0 && (
                 <div>
-                  <label className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider mb-1.5 block">
+                  <label className="text-[11px] font-semibold text-zinc-500 mb-1.5 block">
                     Líneas de negocio
                   </label>
                   <div className="flex flex-wrap gap-1.5">
@@ -208,7 +208,7 @@ function ModalAsignar({
                 <button
                   onClick={asignar}
                   disabled={guardando || !usuarioId}
-                  className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-indigo-600 text-white rounded-xl text-[13px] font-semibold hover:bg-indigo-500 disabled:opacity-40"
+                  className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-teal-600 text-white rounded-xl text-[13px] font-semibold hover:bg-teal-500 disabled:opacity-40"
                 >
                   {guardando ? <Loader2 size={14} className="animate-spin" /> : <UserPlus size={14} />}
                   Asignar
@@ -296,7 +296,7 @@ export default function FavoritosPage() {
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+            <h1 className="text-2xl font-semibold text-gray-900 flex items-center gap-2">
               <Star size={24} className="text-amber-500 fill-amber-500" />
               Mis favoritos
             </h1>
@@ -307,7 +307,7 @@ export default function FavoritosPage() {
           <div className="flex items-center gap-2">
             <Link
               href="/"
-              className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors"
+              className="flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg text-sm font-medium hover:bg-teal-700 transition-colors"
             >
               <Search size={15} /> Buscar licitaciones
             </Link>
@@ -326,7 +326,7 @@ export default function FavoritosPage() {
                 value={search}
                 onChange={e => setSearch(e.target.value)}
                 placeholder="Filtrar por nombre, organismo o código…"
-                className="w-full pl-9 pr-4 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                className="w-full pl-9 pr-4 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-teal-500 outline-none"
               />
             </div>
             {tiposDisponibles.length > 1 && (
@@ -348,7 +348,7 @@ export default function FavoritosPage() {
                       key={t}
                       onClick={() => setFiltroTipo(filtroTipo === t ? '' : t)}
                       title={info?.label}
-                      className={`px-3 py-1 rounded-full text-xs font-bold border transition-all ${
+                      className={`px-3 py-1 rounded-full text-xs font-semibold border transition-all ${
                         filtroTipo === t ? `${bg} text-white border-transparent` : 'bg-white text-gray-600 border-slate-200 hover:border-gray-400'
                       }`}
                     >
@@ -396,7 +396,7 @@ export default function FavoritosPage() {
                   {search || filtroTipo ? 'Cambia los filtros' : 'Busca licitaciones y guárdalas con la estrella ★'}
                 </p>
                 {!search && !filtroTipo && (
-                  <Link href="/" className="inline-flex items-center gap-2 px-5 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700">
+                  <Link href="/" className="inline-flex items-center gap-2 px-5 py-2.5 bg-teal-600 text-white rounded-lg text-sm font-medium hover:bg-teal-700">
                     <Search size={15} /> Ir al buscador
                   </Link>
                 )}
@@ -417,8 +417,8 @@ export default function FavoritosPage() {
                       className="bg-white rounded-xl border border-gray-100 shadow-sm hover:shadow-md hover:border-slate-200 transition-all p-4 sm:p-5"
                     >
                       <div className="flex items-start gap-3">
-                        <div className="w-10 h-10 bg-indigo-50 rounded-xl flex items-center justify-center flex-shrink-0 mt-0.5">
-                          <FileText size={18} className="text-indigo-600" />
+                        <div className="w-10 h-10 bg-teal-50 rounded-xl flex items-center justify-center flex-shrink-0 mt-0.5">
+                          <FileText size={18} className="text-teal-600" />
                         </div>
 
                         <div className="flex-1 min-w-0">
@@ -427,7 +427,7 @@ export default function FavoritosPage() {
                               <div className="flex items-center gap-2 mb-0.5 flex-wrap">
                                 {tipo && (
                                   <span
-                                    className={`${tipoBg} text-white text-[10px] font-black px-1.5 py-0.5 rounded flex-shrink-0`}
+                                    className={`${tipoBg} text-white text-[10px] font-semibold px-1.5 py-0.5 rounded flex-shrink-0`}
                                     title={tipoInfo?.label}
                                   >
                                     {tipo}
@@ -435,7 +435,7 @@ export default function FavoritosPage() {
                                 )}
                                 <Link
                                   href={`/licitacion/${encodeURIComponent(fav.codigo)}`}
-                                  className="text-sm font-semibold text-gray-900 hover:text-indigo-600 transition-colors line-clamp-1"
+                                  className="text-sm font-semibold text-gray-900 hover:text-teal-600 transition-colors line-clamp-1"
                                 >
                                   {fav.nombre || 'Sin nombre'}
                                 </Link>
@@ -485,14 +485,14 @@ export default function FavoritosPage() {
                               {isAdmin && (
                                 <button
                                   onClick={() => setAsignando(fav)}
-                                  className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white text-xs rounded-lg hover:bg-indigo-500 transition-colors font-semibold shadow-sm shadow-blue-600/20"
+                                  className="flex items-center gap-1.5 px-3 py-1.5 bg-teal-600 text-white text-xs rounded-lg hover:bg-teal-500 transition-colors font-semibold shadow-sm shadow-blue-600/20"
                                 >
                                   <UserPlus size={12} /> Asignar
                                 </button>
                               )}
                               <Link
                                 href={`/licitacion/${encodeURIComponent(fav.codigo)}`}
-                                className="flex items-center gap-1 px-3 py-1.5 text-xs text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors font-medium"
+                                className="flex items-center gap-1 px-3 py-1.5 text-xs text-teal-600 hover:bg-teal-50 rounded-lg transition-colors font-medium"
                               >
                                 <ExternalLink size={12} /> Ver
                               </Link>

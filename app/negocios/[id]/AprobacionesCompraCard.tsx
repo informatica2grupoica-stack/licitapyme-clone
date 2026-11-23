@@ -76,9 +76,9 @@ function BloqueCompuerta({ tipo, titulo, aprobacion, esJefeDeVentas, puedeOperar
   return (
     <div className="bg-white rounded-xl border border-zinc-200 p-3.5">
       <div className="flex items-center justify-between gap-2">
-        <p className="text-[12.5px] font-bold text-zinc-800">{titulo}</p>
+        <p className="text-[12.5px] font-semibold text-zinc-800">{titulo}</p>
         {aprobacion && (
-          <span className={`text-[10.5px] font-bold px-2 py-0.5 rounded-full border ${ESTADO_STYLE[aprobacion.estado]}`}>{ESTADO_LABEL[aprobacion.estado]}</span>
+          <span className={`text-[10.5px] font-semibold px-2 py-0.5 rounded-full border ${ESTADO_STYLE[aprobacion.estado]}`}>{ESTADO_LABEL[aprobacion.estado]}</span>
         )}
       </div>
       <div className="mt-1.5 text-[12px] text-zinc-600">{resumen}</div>
@@ -109,14 +109,14 @@ function BloqueCompuerta({ tipo, titulo, aprobacion, esJefeDeVentas, puedeOperar
       )}
       {aprobacion?.estado === 'RECHAZADA' && (
         <div className="mt-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2" data-testid="aprobacion-rechazada">
-          <p className="text-[12.5px] font-bold text-rose-800">✖ Rechazada por {aprobacion.resueltoPorNombre || 'el jefe de ventas'}</p>
+          <p className="text-[12.5px] font-semibold text-rose-800">✖ Rechazada por {aprobacion.resueltoPorNombre || 'el jefe de ventas'}</p>
           {aprobacion.comentarioResolucion && <p className="text-[12.5px] text-rose-900 mt-0.5">Motivo: {aprobacion.comentarioResolucion}</p>}
           <p className="text-[12px] text-rose-800/80 mt-1">Qué hacer: corrige lo que pidió y usa «Corregir y volver a enviar» (Paso A). Mientras tanto no se pueden crear SKU ni órdenes de compra.</p>
         </div>
       )}
       {aprobacion?.estado === 'APROBADA_CON_MODIFICACION' && (
         <div className="mt-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2" data-testid="aprobacion-con-cambios">
-          <p className="text-[12.5px] font-bold text-amber-900">✔ Aprobada con cambios por {aprobacion.resueltoPorNombre || 'el jefe de ventas'}</p>
+          <p className="text-[12.5px] font-semibold text-amber-900">✔ Aprobada con cambios por {aprobacion.resueltoPorNombre || 'el jefe de ventas'}</p>
           {aprobacion.comentarioResolucion && <p className="text-[12.5px] text-amber-950 mt-0.5">Hay que ajustar: {aprobacion.comentarioResolucion}</p>}
           <p className="text-[12px] text-amber-900/80 mt-1">Ya se puede seguir (SKU y órdenes de compra), pero el encargado debe aplicar estos cambios. Le llegó un aviso por campana, en pantalla y por correo.</p>
         </div>
@@ -140,14 +140,14 @@ function BloqueCompuerta({ tipo, titulo, aprobacion, esJefeDeVentas, puedeOperar
         </p>
         ) : (
         <div className="mt-3 space-y-1.5 rounded-lg border border-zinc-200 px-3 py-2.5">
-          <p className="text-[11px] font-bold uppercase tracking-wide text-zinc-500">Paso A · El encargado la envía al jefe de ventas</p>
+          <p className="text-[11px] font-semibold text-zinc-500">Paso A · El encargado la envía al jefe de ventas</p>
           <p className="text-[12px] text-zinc-500">{aprobacion?.estado === 'PENDIENTE'
             ? 'Ya fue enviada y espera decisión. Solo vuelve a enviarla si cambiaste cotizaciones o el escenario: así el jefe ve los datos de hoy.'
             : aprobacion?.estado === 'RECHAZADA' ? 'Corrige lo que pidió el jefe de ventas y vuelve a enviarla para que decida de nuevo.'
             : 'Esto avisa al jefe de ventas que ya puede decidir.'}</p>
           {requiereMotivo && (
             <div className="bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-2">
-              <p className="text-[11.5px] font-bold text-amber-700 flex items-center gap-1"><AlertTriangle size={12} /> Escribe el motivo (es obligatorio para poder enviarla)</p>
+              <p className="text-[11.5px] font-semibold text-amber-700 flex items-center gap-1"><AlertTriangle size={12} /> Escribe el motivo (es obligatorio para poder enviarla)</p>
               <input value={motivoPropuesta} onChange={e => setMotivoPropuesta(e.target.value)} placeholder={motivoLabel || 'Motivo…'}
                 className="mt-1 w-full text-[11.5px] border border-amber-300 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-amber-500 bg-white" />
             </div>
@@ -180,10 +180,10 @@ function BloqueCompuerta({ tipo, titulo, aprobacion, esJefeDeVentas, puedeOperar
 
       {aprobacion?.estado === 'PENDIENTE' && esJefeDeVentas && (
         <div className="mt-3 space-y-1.5 rounded-lg border border-teal-200 bg-teal-50/30 px-3 py-2.5">
-          <p className="text-[11px] font-bold uppercase tracking-wide text-teal-700">Paso B · El jefe de ventas decide</p>
+          <p className="text-[11px] font-semibold text-teal-700">Paso B · El jefe de ventas decide</p>
           {detalleAprobar && (
             <div className="rounded-lg border border-zinc-200 bg-white px-3 py-2.5">
-              <p className="text-[11px] font-bold uppercase tracking-wide text-zinc-500 mb-1.5">Lo que estás aprobando</p>
+              <p className="text-[11px] font-semibold text-zinc-500 mb-1.5">Lo que estás aprobando</p>
               {detalleAprobar}
               <label className="mt-2.5 flex items-start gap-2 text-[12px] font-semibold text-zinc-800 cursor-pointer">
                 <input type="checkbox" checked={reviso} onChange={e => setReviso(e.target.checked)} className="mt-0.5" data-testid={`confirmar-revision-${tipo}`} />
@@ -193,7 +193,7 @@ function BloqueCompuerta({ tipo, titulo, aprobacion, esJefeDeVentas, puedeOperar
           )}
           <ul className="text-[12px] text-zinc-600 space-y-0.5">
             <li><b className="text-emerald-700">Aprobar:</b> se puede comprar tal como está.</li>
-            <li><b className="text-indigo-700">Aprobar con cambios:</b> se aprueba y se sigue, pero escribe abajo qué hay que ajustar: el encargado recibe ese texto por campana, en pantalla y por correo (obligatorio).</li>
+            <li><b className="text-teal-700">Aprobar con cambios:</b> se aprueba y se sigue, pero escribe abajo qué hay que ajustar: el encargado recibe ese texto por campana, en pantalla y por correo (obligatorio).</li>
             <li><b className="text-rose-700">Rechazar:</b> no se aprueba; escribe abajo el motivo. El encargado lo recibe por campana, en pantalla y por correo, con un botón que lo lleva a corregir; corrige y vuelve a enviar. Hasta entonces no se crean SKU ni órdenes de compra (obligatorio).</li>
           </ul>
           <input value={comentario} onChange={e => setComentario(e.target.value)} placeholder="Comentario (obligatorio si apruebas con cambios o rechazas)…"
@@ -204,7 +204,7 @@ function BloqueCompuerta({ tipo, titulo, aprobacion, esJefeDeVentas, puedeOperar
               <CheckCircle2 size={13} /> Aprobar
             </button>
             <button onClick={() => { if (!comentario.trim()) return; setDecidiendo(true); onResolver('APROBAR_CON_MODIFICACION', comentario); }} disabled={decidiendo || !comentario.trim() || (!!detalleAprobar && !reviso)} title={!comentario.trim() ? 'Escribe qué hay que ajustar' : undefined}
-              className="flex items-center gap-1 text-[12px] font-semibold text-indigo-700 border border-indigo-300 bg-white hover:bg-indigo-50 disabled:opacity-50 px-3 py-1.5 rounded-lg">
+              className="flex items-center gap-1 text-[12px] font-semibold text-teal-700 border border-teal-300 bg-white hover:bg-teal-50 disabled:opacity-50 px-3 py-1.5 rounded-lg">
               <Edit3 size={13} /> Aprobar con cambios
             </button>
             <button onClick={() => { if (!comentario.trim()) return; setDecidiendo(true); onResolver('RECHAZAR', comentario); }} disabled={decidiendo || !comentario.trim()} title={!comentario.trim() ? 'Escribe el motivo' : undefined}
@@ -616,7 +616,7 @@ export function AprobacionesCompraCard({ negocioId, puedeOperar, parte = 'todo' 
         const n = Number(ok(compra)) + Number(ok(margen));
         return (
           <div className={`rounded-xl border px-4 py-2.5 flex items-center gap-3 flex-wrap ${n === 2 ? 'border-emerald-200 bg-emerald-50' : 'border-zinc-200 bg-zinc-50'}`} data-testid="aprobacion-avance">
-            <span className={`text-[20px] font-extrabold tabular-nums ${n === 2 ? 'text-emerald-700' : 'text-zinc-800'}`}>{n} de 2</span>
+            <span className={`text-[20px] font-semibold tabular-nums ${n === 2 ? 'text-emerald-700' : 'text-zinc-800'}`}>{n} de 2</span>
             <p className="text-[12.5px] text-zinc-600 flex-1 min-w-[220px]"><b className="text-zinc-800 flex items-center gap-1"><ShieldCheck size={13} /> aprobaciones listas</b>El jefe de ventas debe aprobar las dos antes de crear los SKU y emitir órdenes de compra.</p>
           </div>
         );

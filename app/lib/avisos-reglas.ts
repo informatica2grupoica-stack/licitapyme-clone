@@ -37,6 +37,8 @@ export interface Persona {
   nombre: string | null;
   email?: string | null;
   rol: string;
+  /** Casilla «Recibir avisos de administrador»: un perfil que no es admin recibe lo del grupo «admin». */
+  avisosAdmin?: boolean;
   /** Área del perfil (texto libre en Admin > Usuarios): «Compras», «Mercado Público»… */
   area?: string | null;
   activo: boolean | number;
@@ -64,7 +66,7 @@ export function esDestinatario(alerta: Alerta, p: Persona, encargados: ReadonlyS
   if (esEncargado && grupos.includes('encargado')) return true;
   // El perfil externo solo ve lo que lleva él: nunca por rol ni por Área.
   if (p.rol === 'externo') return false;
-  if (grupos.includes('admin') && p.rol === 'admin') return true;
+  if (grupos.includes('admin') && (p.rol === 'admin' || p.avisosAdmin)) return true;
   const eq = equipoDe(p.area);
   if (eq && grupos.includes(eq)) return true;
   return false;
@@ -86,11 +88,11 @@ export function elegirPersonas<T extends Persona>(alerta: Alerta, personas: T[],
 }
 
 /** ¿Tiene sentido mostrar este aviso en el perfil? (por rol y Área; todos pueden ser «encargado» de alguna licitación). */
-export function alertaAplicaAPerfil(alerta: Alerta, perfil: { rol: string; area?: string | null }): boolean {
+export function alertaAplicaAPerfil(alerta: Alerta, perfil: { rol: string; area?: string | null; avisosAdmin?: boolean }): boolean {
   const grupos = REGLAS[alerta];
   if (grupos.includes('encargado')) return true;
   if (perfil.rol === 'externo') return false;
-  if (grupos.includes('admin') && perfil.rol === 'admin') return true;
+  if (grupos.includes('admin') && (perfil.rol === 'admin' || perfil.avisosAdmin)) return true;
   const eq = equipoDe(perfil.area);
   return !!eq && grupos.includes(eq);
 }

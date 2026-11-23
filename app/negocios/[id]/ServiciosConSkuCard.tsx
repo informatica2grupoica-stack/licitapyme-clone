@@ -194,7 +194,7 @@ export function ServiciosConSkuCard({ negocioId, puedeOperar }: { negocioId: num
     <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden" data-testid="servicios-con-sku">
       <div className="px-4 py-3 bg-zinc-50 border-b border-zinc-100 flex items-start gap-3 flex-wrap">
         <div className="flex-1 min-w-[240px] space-y-0.5">
-          <p className="text-[13px] font-bold text-zinc-800 flex items-center gap-1.5"><Barcode size={15} /> Gastos con SKU y orden de compra{lista.length > 0 && <span className="text-zinc-400 font-semibold">({lista.length})</span>}</p>
+          <p className="text-[13px] font-semibold text-zinc-800 flex items-center gap-1.5"><Barcode size={15} /> Gastos con SKU y orden de compra{lista.length > 0 && <span className="text-zinc-400 font-semibold">({lista.length})</span>}</p>
           <p className="text-[11.5px] text-zinc-500">Un flete, un adicional (grúa, armado, instalación) o una carga de combustible que necesita SKU, OC y factura. Lo aprueba el jefe de ventas solo a él: no toca el costeo ni lo que ya estaba aprobado.</p>
         </div>
         {puedeOperar && !form && (
@@ -211,7 +211,7 @@ export function ServiciosConSkuCard({ negocioId, puedeOperar }: { negocioId: num
             const cot = cotizaciones.find(c => c.archivoUrl && c.items.some(i => i.productoId === s.id));
             return (
               <li key={s.id} className="px-4 py-2.5 flex items-start gap-3 flex-wrap" data-testid={`servicio-sku-${s.id}`}>
-                <span className={`mt-0.5 inline-flex items-center gap-1 text-[10.5px] font-bold px-1.5 py-0.5 rounded border ${tipo === 'FLETE' ? 'bg-sky-50 text-sky-800 border-sky-200' : tipo === 'COMBUSTIBLE' ? 'bg-amber-50 text-amber-800 border-amber-200' : 'bg-violet-50 text-violet-800 border-violet-200'}`}>
+                <span className={`mt-0.5 inline-flex items-center gap-1 text-[10.5px] font-semibold px-1.5 py-0.5 rounded border ${tipo === 'FLETE' ? 'bg-sky-50 text-sky-800 border-sky-200' : tipo === 'COMBUSTIBLE' ? 'bg-amber-50 text-amber-800 border-amber-200' : 'bg-cyan-50 text-cyan-800 border-cyan-200'}`}>
                   {tipo === 'FLETE' ? <Truck size={11} /> : tipo === 'COMBUSTIBLE' ? <Fuel size={11} /> : <Tool size={11} />} {ETIQUETA[tipo].toUpperCase()}
                 </span>
                 <div className="flex-1 min-w-[200px]">
@@ -313,7 +313,7 @@ export function ServiciosConSkuCard({ negocioId, puedeOperar }: { negocioId: num
           )}
           <div className="flex items-center gap-3 pt-0.5">
             <button type="button" onClick={guardar} disabled={guardando || !form.tipo || leyendo?.estado === 'leyendo'} data-testid="guardar-con-sku"
-              className="inline-flex items-center gap-1.5 text-[12.5px] font-bold text-white bg-teal-700 hover:bg-teal-800 disabled:opacity-50 px-3.5 py-1.5 rounded-lg">
+              className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-white bg-teal-700 hover:bg-teal-800 disabled:opacity-50 px-3.5 py-1.5 rounded-lg">
               {guardando && <Loader2 size={13} className="animate-spin" />} Guardar y enviar a aprobación
             </button>
             <button type="button" onClick={() => { setForm(null); setArchivo(null); setLeyendo(null); setProvInfo(null); }} disabled={guardando} className="text-[12.5px] text-zinc-500 hover:text-zinc-800">Cancelar</button>

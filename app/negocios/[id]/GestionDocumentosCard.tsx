@@ -202,7 +202,7 @@ export function GestionDocumentosCard({ negocioId }: { negocioId: number }) {
                 {elegida.campos.map((c, i) => (
                   <label key={c.clave} className="block">
                     <span className="flex items-baseline gap-2 mb-1">
-                      <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-amber-100 text-amber-800 text-[11px] font-bold flex-shrink-0">{i + 1}</span>
+                      <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-amber-100 text-amber-800 text-[11px] font-semibold flex-shrink-0">{i + 1}</span>
                       <span className="text-[13px] font-semibold text-zinc-800">{c.etiqueta}</span>
                     </span>
                     {c.donde && <span className="block text-[12px] text-zinc-500 mb-1.5 ml-7">{c.donde}</span>}
@@ -219,7 +219,7 @@ export function GestionDocumentosCard({ negocioId }: { negocioId: number }) {
               {elegida.porPersona && (
                 <div className="space-y-2">
                   <span className="flex items-baseline gap-2">
-                    <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-amber-100 text-amber-800 text-[11px] font-bold flex-shrink-0">{elegida.campos.length + 1}</span>
+                    <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-amber-100 text-amber-800 text-[11px] font-semibold flex-shrink-0">{elegida.campos.length + 1}</span>
                     <span className="text-[13px] font-semibold text-zinc-800">Personas que reciben el certificado</span>
                   </span>
                   <span className="block text-[12px] text-zinc-500 ml-7">Sale una hoja por cada persona, con su nombre y RUT en grande.</span>

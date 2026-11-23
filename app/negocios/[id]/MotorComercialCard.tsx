@@ -102,7 +102,7 @@ export function MotorComercialCard({ negocioId, licitacionCodigo }: { negocioId:
   return (
     <div className="px-4 py-3 border-b border-zinc-100 bg-zinc-50/60">
       <div className="flex items-center justify-between gap-2 mb-1 flex-wrap">
-        <div className="flex items-center gap-1.5 text-[12px] font-bold text-zinc-700">
+        <div className="flex items-center gap-1.5 text-[12px] font-semibold text-zinc-700">
           <FileSpreadsheet size={13} className="text-zinc-400" /> Motor Comercial
         </div>
         <div className="flex items-center gap-2">
@@ -140,7 +140,7 @@ export function MotorComercialCard({ negocioId, licitacionCodigo }: { negocioId:
                   type="button"
                   onClick={() => setVisorDoc({ nombre: vigente.archivo_nombre, url: vigente.archivo_url! })}
                   title="Ver el Excel del costeo"
-                  className="p-0.5 text-zinc-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors"
+                  className="p-0.5 text-zinc-400 hover:text-teal-600 hover:bg-teal-50 rounded transition-colors"
                 >
                   <Eye size={12} />
                 </button>
@@ -191,7 +191,7 @@ export function MotorComercialCard({ negocioId, licitacionCodigo }: { negocioId:
                     type="button"
                     onClick={() => setVisorDoc({ nombre: h.archivo_nombre, url: h.archivo_url! })}
                     title="Ver esta versión"
-                    className="p-0.5 text-zinc-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors"
+                    className="p-0.5 text-zinc-400 hover:text-teal-600 hover:bg-teal-50 rounded transition-colors"
                   >
                     <Eye size={11} />
                   </button>

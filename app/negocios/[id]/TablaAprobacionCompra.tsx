@@ -172,7 +172,7 @@ export function TablaAprobacionCompra({ negocioId, refresco, esJefeDeVentas, pue
 
   return (
     <div className="space-y-3" data-testid="tabla-aprobacion">
-      <p className="text-[11px] font-bold text-zinc-400 uppercase px-0.5">Qué se va a aprobar</p>
+      <p className="text-[11px] font-semibold text-zinc-400 uppercase px-0.5">Qué se va a aprobar</p>
 
       {/* Resumen en cuatro números */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
@@ -187,7 +187,7 @@ export function TablaAprobacionCompra({ negocioId, refresco, esJefeDeVentas, pue
 
       {/* Lista de verificaciones: qué pasa y qué no */}
       <div className="bg-white rounded-xl border border-zinc-200 p-3.5">
-        <p className="text-[12.5px] font-bold text-zinc-800 mb-2">Revisión automática antes de aprobar</p>
+        <p className="text-[12.5px] font-semibold text-zinc-800 mb-2">Revisión automática antes de aprobar</p>
         <ul className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-1.5">
           {tabla.verificaciones.map(v => (
             <li key={v.titulo} className="flex items-start gap-2 text-[12px]">
@@ -201,7 +201,7 @@ export function TablaAprobacionCompra({ negocioId, refresco, esJefeDeVentas, pue
       {/* Tabla por línea */}
       <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
         <div className="flex items-center gap-2 flex-wrap px-3.5 py-2.5 bg-zinc-50 border-b border-zinc-100">
-          <p className="text-[12.5px] font-bold text-zinc-800 mr-1">Detalle por producto</p>
+          <p className="text-[12.5px] font-semibold text-zinc-800 mr-1">Detalle por producto</p>
           <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full border bg-emerald-50 text-emerald-700 border-emerald-200">{conteo.PASA} pasan</span>
           <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full border bg-amber-50 text-amber-800 border-amber-200">{conteo.REVISAR} por revisar</span>
           <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full border bg-rose-50 text-rose-700 border-rose-200">{conteo.NO_PASA} no pasan</span>
@@ -218,7 +218,7 @@ export function TablaAprobacionCompra({ negocioId, refresco, esJefeDeVentas, pue
         <div className="overflow-x-auto">
           <table className="w-full text-[12px] min-w-[980px]">
             <thead>
-              <tr className="text-left text-[10.5px] font-bold uppercase text-zinc-400 border-b border-zinc-100">
+              <tr className="text-left text-[10.5px] font-semibold uppercase text-zinc-400 border-b border-zinc-100">
                 <th className="px-3 py-2 w-8">#</th>
                 <th className="px-2 py-2">Producto</th>
                 <th className="px-2 py-2 text-right">Cant.</th>
@@ -242,7 +242,7 @@ export function TablaAprobacionCompra({ negocioId, refresco, esJefeDeVentas, pue
                     <td className="px-2 py-2 align-top max-w-[260px]">
                       <p className="font-semibold text-zinc-800 leading-snug">{corto(l.descripcion)}</p>
                       {l.compraRapida && (
-                        <p className={`mt-1 inline-block text-[11px] font-bold px-1.5 py-0.5 rounded border ${l.compraRapida.yaComprada ? 'bg-sky-50 text-sky-800 border-sky-200' : 'bg-amber-50 text-amber-800 border-amber-200'}`} data-testid={`apr-rapida-${l.productoId}`}
+                        <p className={`mt-1 inline-block text-[11px] font-semibold px-1.5 py-0.5 rounded border ${l.compraRapida.yaComprada ? 'bg-sky-50 text-sky-800 border-sky-200' : 'bg-amber-50 text-amber-800 border-amber-200'}`} data-testid={`apr-rapida-${l.productoId}`}
                           title={`${l.compraRapida.proveedor ?? ''} · RUT ${l.compraRapida.rut ?? ''} · ${clp(l.compraRapida.precio)} neto c/u`}>
                           ⚡ Compra rápida · {l.compraRapida.yaComprada ? 'Ya comprada' : 'Por comprar'} · {l.compraRapida.proveedor} · {clp(l.compraRapida.precio)}
                         </p>
@@ -274,7 +274,7 @@ export function TablaAprobacionCompra({ negocioId, refresco, esJefeDeVentas, pue
                         : <span className={`inline-block text-[11px] font-semibold px-1.5 py-0.5 rounded border ${te.clase}`}>{te.texto}</span>}
                       {l.tecnico.modelo && <span className="block text-[10.5px] text-zinc-400 mt-0.5">{l.tecnico.modelo}</span>}
                     </td>
-                    <td className="px-2 py-2 align-top"><span className={`inline-flex items-center gap-1 text-[11.5px] font-bold px-2 py-0.5 rounded-full border ${e.clase}`}>{l.estado === 'NO_PASA' ? <No size={12} /> : l.estado === 'REVISAR' ? <Alerta size={12} /> : <Ok size={12} />}{e.texto}</span>
+                    <td className="px-2 py-2 align-top"><span className={`inline-flex items-center gap-1 text-[11.5px] font-semibold px-2 py-0.5 rounded-full border ${e.clase}`}>{l.estado === 'NO_PASA' ? <No size={12} /> : l.estado === 'REVISAR' ? <Alerta size={12} /> : <Ok size={12} />}{e.texto}</span>
                       {/* Qué dijo cada parte: el «Pasa» solo no decía si era por el precio o por la ficha (28-oct-2026). */}
                       <span className="mt-1 block space-y-0.5 text-[11px] leading-snug" data-testid={`apr-partes-${l.productoId}`}>
                         <ParteVeredicto rotulo="Precio" estado={l.porPrecio} />
@@ -287,7 +287,7 @@ export function TablaAprobacionCompra({ negocioId, refresco, esJefeDeVentas, pue
                           const r = l.compraRapida;
                           if (r.estado === 'APROBADA') return (
                             <div className="space-y-1">
-                              <span className="inline-flex items-center gap-1 text-[11.5px] font-bold px-2 py-0.5 rounded-full border bg-emerald-50 text-emerald-700 border-emerald-200">{r.yaComprada ? '✔ Ratificada' : '✔ Aprobada'}</span>
+                              <span className="inline-flex items-center gap-1 text-[11.5px] font-semibold px-2 py-0.5 rounded-full border bg-emerald-50 text-emerald-700 border-emerald-200">{r.yaComprada ? '✔ Ratificada' : '✔ Aprobada'}</span>
                               {esJefeDeVentas && rechazando !== l.productoId && (
                                 <button type="button" onClick={() => { setRechazando(l.productoId); setMotivo(''); }} disabled={guardando} data-testid={`apr-deshacer-${l.productoId}`} className="block text-[11px] font-semibold text-rose-700 underline">Deshacer aprobación</button>
                               )}
@@ -304,7 +304,7 @@ export function TablaAprobacionCompra({ negocioId, refresco, esJefeDeVentas, pue
                           );
                           if (r.estado === 'RECHAZADA') return (
                             <div className="space-y-0.5">
-                              <span className="inline-flex items-center gap-1 text-[11.5px] font-bold px-2 py-0.5 rounded-full border bg-rose-50 text-rose-700 border-rose-300">✖ Rechazada</span>
+                              <span className="inline-flex items-center gap-1 text-[11.5px] font-semibold px-2 py-0.5 rounded-full border bg-rose-50 text-rose-700 border-rose-300">✖ Rechazada</span>
                               {r.comentario && <span className="block text-[11px] text-rose-700 leading-snug">{r.comentario}</span>}
                               <span className="block text-[11px] text-zinc-500">{puedeOperar ? 'Corrígela y reenvíala desde Costeo → Productos.' : 'El encargado debe corregirla.'}</span>
                             </div>
@@ -329,7 +329,7 @@ export function TablaAprobacionCompra({ negocioId, refresco, esJefeDeVentas, pue
                         const d = decisiones[l.productoId];
                         if (d?.estado === 'CORREGIDA') return (
                           <div className="space-y-1">
-                            <span className="inline-flex items-center gap-1 text-[11.5px] font-bold px-2 py-0.5 rounded-full border bg-amber-50 text-amber-800 border-amber-300">↻ Corregido: por revisar</span>
+                            <span className="inline-flex items-center gap-1 text-[11.5px] font-semibold px-2 py-0.5 rounded-full border bg-amber-50 text-amber-800 border-amber-300">↻ Corregido: por revisar</span>
                             {d.comentario && <span className="block text-[11px] text-rose-700 leading-snug">Se rechazó por: {d.comentario}</span>}
                             <span className="block text-[11px] text-zinc-600 leading-snug"><b>{d.corregidoPorNombre || 'El encargado'}</b> dice: {d.notaCorreccion}</span>
                             {!esJefeDeVentas && <span className="block text-[11px] text-zinc-400">Esperando que el jefe de ventas lo revise de nuevo</span>}
@@ -352,7 +352,7 @@ export function TablaAprobacionCompra({ negocioId, refresco, esJefeDeVentas, pue
                         );
                         if (d) return (
                           <div className="space-y-0.5">
-                            <span className={`inline-flex items-center gap-1 text-[11.5px] font-bold px-2 py-0.5 rounded-full border ${d.estado === 'APROBADA' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-rose-50 text-rose-700 border-rose-200'}`}>{d.estado === 'APROBADA' ? '✔ Aprobado' : '✖ Rechazado'}</span>
+                            <span className={`inline-flex items-center gap-1 text-[11.5px] font-semibold px-2 py-0.5 rounded-full border ${d.estado === 'APROBADA' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-rose-50 text-rose-700 border-rose-200'}`}>{d.estado === 'APROBADA' ? '✔ Aprobado' : '✖ Rechazado'}</span>
                             {d.comentario && <span className="block text-[11px] text-zinc-500 leading-snug">{d.comentario}</span>}
                             {d.estado === 'RECHAZADA' && puedeOperar && (
                               <div className="space-y-1 pt-0.5" data-testid={`apr-corregir-${l.productoId}`}>
@@ -401,7 +401,7 @@ export function TablaAprobacionCompra({ negocioId, refresco, esJefeDeVentas, pue
               {visibles.length === 0 && <tr><td colSpan={12} className="px-3 py-6 text-center text-zinc-400">Ninguna línea con observaciones.</td></tr>}
             </tbody>
             <tfoot>
-              <tr className="bg-zinc-50 font-bold text-zinc-800 border-t border-zinc-200">
+              <tr className="bg-zinc-50 font-semibold text-zinc-800 border-t border-zinc-200">
                 <td className="px-3 py-2" colSpan={3}>Total</td>
                 <td className="px-2 py-2 text-right tabular-nums" title="Lo que paga el cliente">{clp(t.venta)}</td>
                 <td className="px-2 py-2 text-right tabular-nums text-zinc-500" title="Lo costeado">{clp(t.costeado)}</td>
@@ -419,7 +419,7 @@ export function TablaAprobacionCompra({ negocioId, refresco, esJefeDeVentas, pue
       {/* Cierre: con todos los productos aprobados, la compra completa se aprueba con UN botón */}
       <div className={`rounded-xl border-2 px-4 py-3 flex items-center gap-4 flex-wrap ${compraAprobada ? 'border-emerald-300 bg-emerald-50' : todosAprobados ? 'border-teal-400 bg-teal-50/60' : 'border-zinc-200 bg-zinc-50'}`} data-testid="apr-cierre">
         <div className="flex-1 min-w-[240px]">
-          <p className="text-[15px] font-extrabold text-zinc-900 tabular-nums">{aprobados} de {tabla.lineas.length} productos aprobados</p>
+          <p className="text-[15px] font-semibold text-zinc-900 tabular-nums">{aprobados} de {tabla.lineas.length} productos aprobados</p>
           <p className="text-[12.5px] text-zinc-600">
             {!tablaLineasOk ? 'Falta aplicar la migración 147 para aprobar producto por producto (node scripts/aplicar-migration-147.mjs).'
               : compraAprobada ? '✔ La compra completa ya está aprobada.'
@@ -433,7 +433,7 @@ export function TablaAprobacionCompra({ negocioId, refresco, esJefeDeVentas, pue
         {esJefeDeVentas && !compraAprobada && (
           <button type="button" disabled={!tablaLineasOk || tabla.lineas.length === 0 || rechazados > 0 || compraEstado !== 'PENDIENTE' || aprobandoCompra} data-testid="apr-aprobar-compra-completa"
             onClick={aprobarTodoYCompra}
-            className="inline-flex items-center gap-1.5 text-[13.5px] font-bold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed px-5 py-2.5 rounded-lg">
+            className="inline-flex items-center gap-1.5 text-[13.5px] font-semibold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed px-5 py-2.5 rounded-lg">
             {aprobandoCompra && <Loader2 size={14} className="animate-spin" />} Aprobar la compra completa
           </button>
         )}
@@ -450,8 +450,8 @@ export function TablaAprobacionCompra({ negocioId, refresco, esJefeDeVentas, pue
 function Cifra({ titulo, valor, sub, alerta, bien }: { titulo: string; valor: string; sub: string; alerta?: string | null; bien?: string | null }) {
   return (
     <div className="bg-white rounded-xl border border-zinc-200 px-3.5 py-3">
-      <p className="text-[10.5px] font-bold uppercase text-zinc-400">{titulo}</p>
-      <p className="text-[19px] font-bold text-zinc-900 tabular-nums leading-tight mt-0.5">{valor}</p>
+      <p className="text-[10.5px] font-semibold uppercase text-zinc-400">{titulo}</p>
+      <p className="text-[19px] font-semibold text-zinc-900 tabular-nums leading-tight mt-0.5">{valor}</p>
       <p className="text-[11px] text-zinc-500 mt-0.5">{sub}</p>
       {alerta && <p className="text-[11px] font-semibold text-rose-600 mt-1">{alerta}</p>}
       {bien && <p className="text-[11px] font-semibold text-emerald-600 mt-1">{bien}</p>}

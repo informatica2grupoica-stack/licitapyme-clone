@@ -9,7 +9,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { AppLayout } from '@/app/components/AppLayout';
 import { useSession } from '@/app/lib/session-context';
-import { IconSparkles as Sparkles, IconLoader2 as Loader2, IconChevronRight as ChevronRight, IconBuilding as Building2, IconCalendar as Calendar, IconSearch as Search, IconFilter as Filter, IconX as X, IconGauge as Gauge, IconTrophy as Trophy, IconStack2 as Layers, IconUsers as Users, IconArrowsUpDown as ArrowUpDown, IconClock as Clock, IconRefresh as RefreshCw, IconWallet as Wallet } from '@tabler/icons-react';
+import { IconWand as Sparkles, IconLoader2 as Loader2, IconChevronRight as ChevronRight, IconBuilding as Building2, IconCalendar as Calendar, IconSearch as Search, IconFilter as Filter, IconX as X, IconGauge as Gauge, IconTrophy as Trophy, IconStack2 as Layers, IconUsers as Users, IconArrowsUpDown as ArrowUpDown, IconClock as Clock, IconRefresh as RefreshCw, IconWallet as Wallet } from '@tabler/icons-react';
 import { MultiSelect } from '@/app/components/ui/MultiSelect';
 import { Select } from '@/app/components/ui/Select';
 import { colorUsuario, inicialesUsuario } from '@/app/lib/user-color';
@@ -58,7 +58,7 @@ type Orden = 'reciente' | 'antiguo' | 'nivel' | 'score_desc' | 'score_asc' | 'ci
 export default function AnalizadasPage() {
   const { usuario, cargando: cargandoSesion } = useSession();
   const router = useRouter();
-  const puedeVer = usuario?.rol === 'admin';
+  const puedeVer = !!usuario?.permisos?.ver_analizadas;
 
   const [lics, setLics] = useState<Analizada[]>([]);
   const [cargando, setCargando] = useState(true);
@@ -150,9 +150,9 @@ export default function AnalizadasPage() {
       <div className="max-w-6xl mx-auto p-4 sm:p-6">
         <div className="flex items-center justify-between mb-5 gap-3 flex-wrap">
           <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-violet-600 flex items-center justify-center"><Sparkles size={18} className="text-white" /></div>
+            <div className="w-9 h-9 rounded-xl bg-cyan-600 flex items-center justify-center"><Sparkles size={18} className="text-white" /></div>
             <div>
-              <h1 className="text-[18px] font-bold text-slate-900 leading-tight">Licitaciones analizadas</h1>
+              <h1 className="text-[18px] font-semibold text-slate-900 leading-tight">Licitaciones analizadas</h1>
               <p className="text-[12px] text-slate-400">
                 {hayFiltro || q ? `${filtradas.length} de ${lics.length}` : lics.length} con análisis de viabilidad completado
               </p>
@@ -161,7 +161,7 @@ export default function AnalizadasPage() {
           <div className="relative">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input value={q} onChange={e => setQ(e.target.value)} placeholder="Buscar nombre, código, organismo o perfil…"
-              className="pl-8 pr-3 py-2 text-[13px] border border-slate-200 rounded-lg focus:ring-1 focus:ring-violet-500 outline-none w-72" />
+              className="pl-8 pr-3 py-2 text-[13px] border border-slate-200 rounded-lg focus:ring-1 focus:ring-cyan-500 outline-none w-72" />
           </div>
         </div>
 
@@ -225,22 +225,22 @@ export default function AnalizadasPage() {
               return (
                 <Link key={l.codigo} href={`/licitacion/${encodeURIComponent(l.codigo)}`}
                   style={{ '--stagger-i': Math.min(i, 12) } as React.CSSProperties}
-                  className="stagger-item flex items-stretch gap-3.5 bg-white border border-slate-200 rounded-xl p-3.5 hover:border-violet-300 hover:shadow-sm transition-all group">
+                  className="stagger-item flex items-stretch gap-3.5 bg-white border border-slate-200 rounded-xl p-3.5 hover:border-cyan-300 hover:shadow-sm transition-all group">
                   {/* Nivel (v4) o score (análisis anteriores) */}
                   {l.nivel && RES[l.nivel] ? (
                     <div className={`w-12 h-12 rounded-xl ${RES[l.nivel].bg} flex items-center justify-center text-white flex-shrink-0 self-center text-center px-0.5`} title={l.accion || ''}>
-                      <span className="text-[9.5px] font-black leading-tight">{RES[l.nivel].label}</span>
+                      <span className="text-[9.5px] font-semibold leading-tight">{RES[l.nivel].label}</span>
                     </div>
                   ) : (
                   <div className={`w-12 h-12 rounded-xl ${sem.bg} flex flex-col items-center justify-center text-white flex-shrink-0 self-center`}>
-                    <span className="text-[15px] font-black leading-none">{l.score ?? '—'}</span>
+                    <span className="text-[15px] font-semibold leading-none">{l.score ?? '—'}</span>
                     <span className="text-[8px] opacity-80">/100</span>
                   </div>
                   )}
 
                   {/* Identidad + análisis */}
                   <div className="min-w-0 flex-1">
-                    <p className="text-[14px] font-semibold text-slate-800 truncate group-hover:text-violet-700">{l.nombre}</p>
+                    <p className="text-[14px] font-semibold text-slate-800 truncate group-hover:text-cyan-700">{l.nombre}</p>
                     <div className="flex items-center gap-2 flex-wrap mt-0.5 text-[11.5px] text-slate-400">
                       <span className="font-mono">{l.codigo}</span>
                       {l.organismo && <span className="flex items-center gap-1 truncate max-w-[220px]"><Building2 size={11} />{l.organismo}</span>}
@@ -248,8 +248,8 @@ export default function AnalizadasPage() {
                     </div>
                     <div className="flex items-center gap-2 flex-wrap mt-1.5">
                       {res
-                        ? <span className={`text-[10px] font-black text-white px-1.5 py-0.5 rounded ${res.bg}`}>{res.label}</span>
-                        : <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">SIN VEREDICTO</span>}
+                        ? <span className={`text-[10px] font-semibold text-white px-1.5 py-0.5 rounded ${res.bg}`}>{res.label}</span>
+                        : <span className="text-[10px] font-semibold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">SIN VEREDICTO</span>}
                       <span className={`text-[11px] font-semibold ${sem.text}`}>{sem.label}</span>
                       {l.presupuesto != null && <span className="inline-flex items-center gap-1 text-[11px] text-emerald-700 font-semibold"><Wallet size={11} />{fmt(l.presupuesto)}</span>}
                       {l.modalidad && <span className="text-[10px] text-slate-500 bg-slate-50 border border-slate-200 px-1.5 py-0.5 rounded-full">{modalidadLabel(l.modalidad)}</span>}
@@ -262,7 +262,7 @@ export default function AnalizadasPage() {
                   <div className="hidden md:flex flex-col items-end justify-center gap-1 flex-shrink-0 w-[190px] border-l border-slate-100 pl-3">
                     {ownerKey ? (
                       <span className="inline-flex items-center gap-1.5 text-[11.5px] font-semibold text-slate-600">
-                        <span style={{ background: colorUsuario(ownerKey) }} className="inline-flex items-center justify-center w-5 h-5 rounded-full text-white text-[8px] font-bold flex-shrink-0">
+                        <span style={{ background: colorUsuario(ownerKey) }} className="inline-flex items-center justify-center w-5 h-5 rounded-full text-white text-[8px] font-semibold flex-shrink-0">
                           {inicialesUsuario(l.owner_nombre, l.owner_email)}
                         </span>
                         <span className="truncate max-w-[140px]">{l.owner_nombre || l.owner_email}</span>
@@ -271,13 +271,13 @@ export default function AnalizadasPage() {
                       <span className="text-[11px] text-slate-300 italic">Sin asignar</span>
                     )}
                     <span className="inline-flex items-center gap-1 text-[11px] text-slate-500" title={`Analizada el ${fechaHora(l.analizado_at)}`}>
-                      {l.reanalizada ? <RefreshCw size={11} className="text-violet-400" /> : <Clock size={11} className="text-slate-400" />}
+                      {l.reanalizada ? <RefreshCw size={11} className="text-cyan-400" /> : <Clock size={11} className="text-slate-400" />}
                       {fechaHora(l.analizado_at)}
                     </span>
                     <span className="text-[9.5px] text-slate-300">{l.reanalizada ? 're-analizada' : 'analizada'} · {l.esquema}</span>
                   </div>
 
-                  <ChevronRight size={18} className="text-slate-300 group-hover:text-violet-500 flex-shrink-0 self-center" />
+                  <ChevronRight size={18} className="text-slate-300 group-hover:text-cyan-500 flex-shrink-0 self-center" />
                 </Link>
               );
             })}

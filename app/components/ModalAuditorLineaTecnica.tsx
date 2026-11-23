@@ -593,7 +593,7 @@ caracteristicas.length === 0 ? (
     >
       {/* El clic en el fondo NO cierra: acá se sube ficha, se corrigen casillas y se aprueba una
           línea, así que un clic afuera por descuido perdía trabajo. Solo cierra la X o "Cerrar". */}
-      <div className="w-[96vw] max-w-[1400px] h-[94vh] bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col">
+      <div className="w-[96vw] max-w-[1400px] h-[94vh] bg-white rounded-xl shadow-flotante overflow-hidden flex flex-col">
         <div ref={contenidoRef} className="flex flex-col flex-1 min-h-0">
         <div className="px-5 py-4 border-b border-zinc-100 flex items-start gap-3 flex-shrink-0">
           <div className="w-8 h-8 rounded-lg bg-teal-50 flex items-center justify-center flex-shrink-0"><Wrench size={15} className="text-teal-600" /></div>

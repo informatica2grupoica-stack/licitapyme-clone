@@ -55,13 +55,13 @@ export function AprobacionPendienteModal() {
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden">
+      <div className="bg-white rounded-xl shadow-flotante w-full max-w-2xl overflow-hidden">
         <div className="px-6 py-5 flex items-start gap-3">
-          <div className="w-10 h-10 rounded-xl bg-violet-50 border border-violet-200 flex items-center justify-center flex-shrink-0">
-            <ClipboardCheck size={18} className="text-violet-600" />
+          <div className="w-10 h-10 rounded-xl bg-cyan-50 border border-cyan-200 flex items-center justify-center flex-shrink-0">
+            <ClipboardCheck size={18} className="text-cyan-600" />
           </div>
           <div className="flex-1 min-w-0">
-            <h2 className="text-[15px] font-bold text-zinc-900">
+            <h2 className="text-[15px] font-semibold text-zinc-900">
               {totalPendientes === 1 ? 'Hay 1 negocio esperando tu aprobación' : `Hay ${totalPendientes} negocios esperando tu aprobación`}
             </h2>
             <p className="text-[12px] text-zinc-500 mt-1">
@@ -76,7 +76,7 @@ export function AprobacionPendienteModal() {
           <button onClick={cerrar} className="flex-1 px-4 py-2 rounded-lg text-[13px] font-semibold text-zinc-600 border border-zinc-200 hover:bg-zinc-50 transition-colors">
             Ahora no
           </button>
-          <button onClick={ir} className="flex-1 px-4 py-2 rounded-lg text-[13px] font-semibold text-white bg-violet-600 hover:bg-violet-700 transition-colors">
+          <button onClick={ir} className="flex-1 px-4 py-2 rounded-lg text-[13px] font-semibold text-white bg-cyan-600 hover:bg-cyan-700 transition-colors">
             Ir a Aprobaciones
           </button>
         </div>

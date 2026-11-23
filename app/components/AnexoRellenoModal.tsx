@@ -132,7 +132,7 @@ function CampoAuto({
   // 'auditor' (21-ago-2026): sale del Auditor Técnico/Comercial YA APROBADO por el asesor — mismo
   // verde que 'ia' pero con su propia marca, es la fuente más autoritativa que hay (pasó por
   // Aprobaciones), no un dato adivinado.
-  const colorClase = via === 'costeo' ? 'text-cyan-700' : via === 'bases' || via === 'ordenes_compra' ? 'text-amber-700' : via === 'auditor' ? 'text-violet-700' : 'text-emerald-700';
+  const colorClase = via === 'costeo' ? 'text-cyan-700' : via === 'bases' || via === 'ordenes_compra' ? 'text-amber-700' : via === 'auditor' ? 'text-cyan-700' : 'text-emerald-700';
 
   // La corrección que además ENSEÑA: la casilla se corrige acá y el motor aprende la regla para
   // los próximos anexos. Es la de siempre, ahora explícita en su propio botón — antes era el único
@@ -181,13 +181,13 @@ function CampoAuto({
             if (e.key === 'Escape') setEditando(false);
           }}
           autoFocus
-          className="inline-block w-40 px-1 py-0.5 text-[12px] bg-white border border-indigo-300 rounded-sm focus:outline-none focus:ring-1 focus:ring-indigo-400"
+          className="inline-block w-40 px-1 py-0.5 text-[12px] bg-white border border-teal-300 rounded-sm focus:outline-none focus:ring-1 focus:ring-teal-400"
         />
         {editable && (
           <button
             type="button" disabled={!valorNuevo.trim()} onClick={guardarSoloAqui}
             title="Usar este valor en este documento (no enseña nada al sistema)"
-            className="inline-flex items-center justify-center w-5 h-5 rounded bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 text-white"
+            className="inline-flex items-center justify-center w-5 h-5 rounded bg-teal-600 hover:bg-teal-700 disabled:bg-teal-300 text-white"
           >
             <Check size={10} />
           </button>
@@ -196,7 +196,7 @@ function CampoAuto({
           <button
             type="button" disabled={guardando || !valorNuevo.trim()} onClick={guardarCorreccion}
             title="Usarlo acá Y enseñárselo al sistema para los próximos anexos"
-            className="inline-flex items-center justify-center h-5 px-1.5 gap-0.5 rounded bg-violet-600 hover:bg-violet-700 disabled:bg-violet-300 text-white text-[9.5px] font-bold"
+            className="inline-flex items-center justify-center h-5 px-1.5 gap-0.5 rounded bg-cyan-600 hover:bg-cyan-700 disabled:bg-cyan-300 text-white text-[9.5px] font-semibold"
           >
             {guardando ? <Loader2 size={10} className="animate-spin" /> : <GraduationCap size={10} />}
             aprender
@@ -214,7 +214,7 @@ function CampoAuto({
 
   return (
     <span
-      className={`group/campo inline-flex items-center gap-0.5 font-semibold ${corregidoAMano ? 'text-indigo-700 underline decoration-dotted' : colorClase} ${etiqueta || editable ? 'cursor-pointer' : ''}`}
+      className={`group/campo inline-flex items-center gap-0.5 font-semibold ${corregidoAMano ? 'text-teal-700 underline decoration-dotted' : colorClase} ${etiqueta || editable ? 'cursor-pointer' : ''}`}
       title={
         corregidoAMano ? 'Lo corregiste a mano para este documento — clic para volver a editarlo'
           : !etiqueta && !editable ? undefined
@@ -232,10 +232,10 @@ function CampoAuto({
           duplicaría a la derecha y se lee como si el símbolo fuera parte de la cifra, al revés de
           como se escribe un monto — reportado por el usuario viendo "43.629.578 $" en pantalla. La
           procedencia igual se ve: el color verde y el tooltip no cambian. */}
-      {via === 'costeo' && !valorMostrado.trim().startsWith('$') && <span className="shrink-0 text-[9px] font-bold align-super">$</span>}
-      {via === 'auditor' && <span className="shrink-0 text-[9px] font-bold align-super">auditor</span>}
-      {via === 'bases' && <span className="shrink-0 text-[9px] font-bold align-super">bases</span>}
-      {via === 'ordenes_compra' && <span className="shrink-0 text-[9px] font-bold align-super">OC</span>}
+      {via === 'costeo' && !valorMostrado.trim().startsWith('$') && <span className="shrink-0 text-[9px] font-semibold align-super">$</span>}
+      {via === 'auditor' && <span className="shrink-0 text-[9px] font-semibold align-super">auditor</span>}
+      {via === 'bases' && <span className="shrink-0 text-[9px] font-semibold align-super">bases</span>}
+      {via === 'ordenes_compra' && <span className="shrink-0 text-[9px] font-semibold align-super">OC</span>}
       {(etiqueta || editable) && <Pencil size={9} className="shrink-0 opacity-0 group-hover/campo:opacity-60 transition-opacity" />}
     </span>
   );
@@ -278,8 +278,8 @@ function TextoConOpciones({ v }: { v: string }) {
         type="button"
         onClick={() => ctx.onChange(grupo, elegida ? '' : opcion)}
         title={elegida ? 'Quitar la marca' : 'Marcar esta opción'}
-        className={`inline-flex items-center justify-center min-w-[2.1rem] mx-0.5 px-1 rounded border text-[11px] font-bold leading-5 align-baseline transition ${
-          elegida ? 'bg-emerald-50 border-emerald-400 text-emerald-700' : 'bg-white border-indigo-300 text-indigo-400 hover:bg-indigo-50'
+        className={`inline-flex items-center justify-center min-w-[2.1rem] mx-0.5 px-1 rounded border text-[11px] font-semibold leading-5 align-baseline transition ${
+          elegida ? 'bg-emerald-50 border-emerald-400 text-emerald-700' : 'bg-white border-teal-300 text-teal-400 hover:bg-teal-50'
         }`}
       >{elegida ? '( X )' : '(   )'}</button>,
     );
@@ -303,7 +303,7 @@ function TablaReal({
   return (
     <div className="space-y-1">
       {tabla.titulo && (
-        <p className="text-[11px] font-bold text-slate-600 uppercase tracking-wide">{tabla.titulo}</p>
+        <p className="text-[11px] font-semibold text-slate-600">{tabla.titulo}</p>
       )}
       {/* Ancho mínimo por columna (en vez de `w-full` a secas): con muchas columnas (tablas de
           especificaciones técnicas, 6+), forzar el 100% del contenedor angosto aplastaba cada
@@ -361,7 +361,7 @@ function TablaReal({
                             value={respuestas[s.id] || ''}
                             onChange={e => onChange(s.id, e.target.value)}
                             placeholder="…"
-                            className="inline-block w-20 mx-0.5 px-1 py-0.5 text-[11.5px] bg-indigo-50/50 border-0 border-b-2 border-indigo-300 rounded-sm focus:outline-none focus:bg-indigo-50 focus:border-indigo-500"
+                            className="inline-block w-20 mx-0.5 px-1 py-0.5 text-[11.5px] bg-teal-50/50 border-0 border-b-2 border-teal-300 rounded-sm focus:outline-none focus:bg-teal-50 focus:border-teal-500"
                           />
                         );
                       })}
@@ -376,7 +376,7 @@ function TablaReal({
                         value={respuestas[c.input.id] || ''}
                         onChange={e => onChange(c.input!.id, e.target.value)}
                         placeholder="…"
-                        className="w-full min-w-0 text-[11.5px] px-1.5 py-1 border border-indigo-200 rounded focus:outline-none focus:ring-1 focus:ring-indigo-400 focus:border-indigo-400"
+                        className="w-full min-w-0 text-[11.5px] px-1.5 py-1 border border-teal-200 rounded focus:outline-none focus:ring-1 focus:ring-teal-400 focus:border-teal-400"
                       />
                     </div>
                   ) : c.auto ? (
@@ -436,7 +436,7 @@ function BloqueParrafo({ b, respuestas, onChange, motivoPorId, alternativasPorId
         if (s.t === 'salto') return <br key={i} />;
         if (s.t === 'texto') {
           return (
-            <span key={i} className={`${s.negrita ? 'font-bold' : ''} ${s.subrayado ? 'underline' : ''}`}>
+            <span key={i} className={`${s.negrita ? 'font-semibold' : ''} ${s.subrayado ? 'underline' : ''}`}>
               {modoOriginal ? s.v : <TextoConOpciones v={s.v} />}
             </span>
           );
@@ -461,8 +461,8 @@ function BloqueParrafo({ b, respuestas, onChange, motivoPorId, alternativasPorId
             title={motivo}
             placeholder="…"
             style={{ width: Math.min(320, Math.max(70, (s.largo ?? 12) * 8)) }}
-            className={`inline-block align-baseline mx-0.5 px-1 py-0.5 text-[12.5px] bg-indigo-50/50 border-0 border-b-2 rounded-sm focus:outline-none focus:bg-indigo-50 ${
-              motivo ? 'border-amber-400' : 'border-indigo-300 focus:border-indigo-500'
+            className={`inline-block align-baseline mx-0.5 px-1 py-0.5 text-[12.5px] bg-teal-50/50 border-0 border-b-2 rounded-sm focus:outline-none focus:bg-teal-50 ${
+              motivo ? 'border-amber-400' : 'border-teal-300 focus:border-teal-500'
             }`}
           />
         );
@@ -483,8 +483,8 @@ function BloqueParrafo({ b, respuestas, onChange, motivoPorId, alternativasPorId
                     onClick={() => onChange(s.id, op)}
                     className={`px-1.5 py-0 rounded text-[11px] font-semibold border ${
                       actual === op.toLowerCase() || (op === 'Sí' && actual === 'si')
-                        ? 'bg-indigo-600 text-white border-indigo-600'
-                        : 'bg-white text-indigo-600 border-indigo-200 hover:bg-indigo-50'
+                        ? 'bg-teal-600 text-white border-teal-600'
+                        : 'bg-white text-teal-600 border-teal-200 hover:bg-teal-50'
                     }`}
                   >{op}</button>
                 ))}
@@ -506,7 +506,7 @@ function BloqueParrafo({ b, respuestas, onChange, motivoPorId, alternativasPorId
               type="button"
               onClick={() => onChange(s.id, siguiente.valor)}
               title={`Usar ${siguiente.etiqueta}: "${siguiente.valor}"`}
-              className="p-0.5 rounded text-indigo-400 hover:text-indigo-700 hover:bg-indigo-50"
+              className="p-0.5 rounded text-teal-400 hover:text-teal-700 hover:bg-teal-50"
             >
               <ArrowLeftRight size={11} />
             </button>
@@ -543,7 +543,7 @@ function AlertasInadmisibilidad({ alertas }: { alertas: AlertaInadmisibilidad[] 
   if (!pendientes.length) return null;
   return (
     <div className="rounded-lg border border-red-200 bg-red-50/80 px-3 py-2.5">
-      <p className="flex items-center gap-1.5 text-[12px] font-bold text-red-700 mb-1.5">
+      <p className="flex items-center gap-1.5 text-[12px] font-semibold text-red-700 mb-1.5">
         <ShieldAlert size={13} className="flex-shrink-0" /> Riesgo de inadmisibilidad — revisa antes de postular
       </p>
       <ul className="space-y-1 pl-1">
@@ -592,7 +592,7 @@ function FaltaEnLaFicha({ campos }: { campos: { campo: string; nombre: string; e
     <div className="space-y-2">
       {deFicha.length > 0 && (
         <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2.5">
-          <p className="flex items-center gap-1.5 text-[12px] font-bold text-amber-800 mb-1">
+          <p className="flex items-center gap-1.5 text-[12px] font-semibold text-amber-800 mb-1">
             <AlertTriangle size={13} className="flex-shrink-0" />
             {deFicha.length === 1 ? 'Falta 1 dato en la ficha de la empresa' : `Faltan ${deFicha.length} datos en la ficha de la empresa`}
           </p>
@@ -606,7 +606,7 @@ function FaltaEnLaFicha({ campos }: { campos: { campo: string; nombre: string; e
       )}
       {deLicitacion.length > 0 && (
         <div className="rounded-lg border border-orange-300 bg-orange-50 px-3 py-2.5">
-          <p className="flex items-center gap-1.5 text-[12px] font-bold text-orange-800 mb-1">
+          <p className="flex items-center gap-1.5 text-[12px] font-semibold text-orange-800 mb-1">
             <AlertTriangle size={13} className="flex-shrink-0" />
             No se pudieron leer {deLicitacion.length} dato(s) de la licitación desde Mercado Público
           </p>
@@ -658,25 +658,25 @@ function SeccionesEscaneadas({ secciones }: { secciones: SeccionEscaneada[] }) {
   return (
     <div className="space-y-2">
       {secciones.map((s, i) => (
-        <div key={i} className="rounded-lg border border-indigo-200 bg-indigo-50/70 px-3 py-2.5">
-          <p className="flex items-center gap-1.5 text-[12px] font-bold text-indigo-800 mb-1">
+        <div key={i} className="rounded-lg border border-teal-200 bg-teal-50/70 px-3 py-2.5">
+          <p className="flex items-center gap-1.5 text-[12px] font-semibold text-teal-800 mb-1">
             <AlertTriangle size={13} className="flex-shrink-0" /> Esta sección es una imagen escaneada — {s.titulo}
           </p>
-          <p className="text-[11.5px] text-indigo-700 mb-1.5">
+          <p className="text-[11.5px] text-teal-700 mb-1.5">
             No se puede rellenar automáticamente (no hay texto que editar, es una foto). Complétala a mano con estos datos:
           </p>
           {s.ocrFallido ? (
-            <p className="text-[11.5px] text-indigo-600 italic">No se pudo leer la imagen (falló el OCR). Revísala directamente en el documento.</p>
+            <p className="text-[11.5px] text-teal-600 italic">No se pudo leer la imagen (falló el OCR). Revísala directamente en el documento.</p>
           ) : s.campos.length === 0 ? (
-            <p className="text-[11.5px] text-indigo-600 italic">No se identificaron casillas — revísala directamente en el documento.</p>
+            <p className="text-[11.5px] text-teal-600 italic">No se identificaron casillas — revísala directamente en el documento.</p>
           ) : (
             <ul className="space-y-0.5 pl-1">
               {s.campos.map((c, j) => (
-                <li key={j} className="text-[11.5px] text-indigo-900 leading-snug">
+                <li key={j} className="text-[11.5px] text-teal-900 leading-snug">
                   <span className="font-semibold">{c.etiqueta}:</span>{' '}
                   {c.valor
-                    ? <span className="text-indigo-700">{c.valor}</span>
-                    : <span className="text-indigo-400 italic">complétalo tú (no es un dato de tu ficha)</span>}
+                    ? <span className="text-teal-700">{c.valor}</span>
+                    : <span className="text-teal-400 italic">complétalo tú (no es un dato de tu ficha)</span>}
                 </li>
               ))}
             </ul>
@@ -1123,24 +1123,24 @@ export function AnexoRellenoModal({
           usuario — con tablas de varias columnas (especificaciones técnicas), cuanto más angosto
           el panel del formulario, más se aprietan las celdas. */}
       <div
-        className="flex flex-col w-[98vw] h-[97vh] bg-white rounded-2xl overflow-hidden shadow-2xl"
+        className="flex flex-col w-[98vw] h-[97vh] bg-white rounded-2xl overflow-hidden shadow-flotante"
         onClick={e => e.stopPropagation()}
       >
         {/* Cabecera */}
         <div className="flex items-center gap-2 px-4 py-3 border-b border-slate-200 bg-slate-50 flex-shrink-0">
-          <Wand2 size={16} className="text-indigo-600 flex-shrink-0" />
+          <Wand2 size={16} className="text-teal-600 flex-shrink-0" />
           <p className="flex-1 min-w-0 text-[13px] font-semibold text-slate-800 truncate" title={doc.nombre}>
             {doc.nombre}
           </p>
           {progreso && (
-            <span className="flex-shrink-0 text-[11px] font-bold px-2 py-1 rounded-lg bg-indigo-100 text-indigo-700">
+            <span className="flex-shrink-0 text-[11px] font-semibold px-2 py-1 rounded-lg bg-teal-100 text-teal-700">
               Anexo {progreso.actual} de {progreso.total}
             </span>
           )}
           <DatosEmpresaBoton empresaId={empresaId} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-slate-200 bg-white text-[11.5px] font-semibold text-slate-600 hover:bg-slate-100 disabled:opacity-50" />
           <a
             href={doc.url} target="_blank" rel="noopener noreferrer"
-            className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+            className="p-1.5 text-slate-400 hover:text-teal-600 hover:bg-teal-50 rounded-lg transition-colors"
             title="Abrir en pestaña nueva"
           >
             <ExternalLink size={15} />
@@ -1183,12 +1183,12 @@ export function AnexoRellenoModal({
           >
             {cargando && (
               <div className="flex items-center justify-center gap-2 py-10 text-sm text-slate-500">
-                <Loader2 size={16} className="animate-spin text-indigo-500" /> Cargando documento…
+                <Loader2 size={16} className="animate-spin text-teal-500" /> Cargando documento…
               </div>
             )}
             {!cargando && analisis && analisis.documento.length > 0 && (
               <>
-                <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide mb-2">Documento original</p>
+                <p className="text-[11px] font-semibold text-slate-500 mb-2">Documento original</p>
                 <DocumentoReplica
                   documento={analisis.documento} respuestas={{}} onChange={() => {}} motivoPorId={motivoPorId}
                   alternativasPorId={alternativasPorId}
@@ -1222,7 +1222,7 @@ export function AnexoRellenoModal({
         >
           {cargando && (
             <div className="flex items-center justify-center gap-2 py-10 text-sm text-slate-500">
-              <Loader2 size={16} className="animate-spin text-indigo-500" /> Analizando documento…
+              <Loader2 size={16} className="animate-spin text-teal-500" /> Analizando documento…
             </div>
           )}
 
@@ -1350,7 +1350,7 @@ export function AnexoRellenoModal({
                   type="button"
                   onClick={handleGenerar}
                   disabled={generando || cargandoPdf}
-                  className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 px-4 py-2 rounded-lg transition-colors"
+                  className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-white bg-teal-600 hover:bg-teal-700 disabled:bg-teal-300 px-4 py-2 rounded-lg transition-colors"
                 >
                   {generando
                     ? <><Loader2 size={13} className="animate-spin" /> Generando…</>
@@ -1365,7 +1365,7 @@ export function AnexoRellenoModal({
                   title={analisis.firma.disponible
                     ? 'Genera el Word con la firma sobre la raya. Ábrelo en Word y guárdalo como PDF: queda igual al original.'
                     : 'La empresa no tiene firma cargada'}
-                  className="inline-flex items-center gap-1.5 text-[12.5px] font-medium text-indigo-600 border border-indigo-200 hover:bg-indigo-50 disabled:opacity-50 px-3 py-2 rounded-lg transition-colors"
+                  className="inline-flex items-center gap-1.5 text-[12.5px] font-medium text-teal-600 border border-teal-200 hover:bg-teal-50 disabled:opacity-50 px-3 py-2 rounded-lg transition-colors"
                 >
                   {generando
                     ? <><Loader2 size={13} className="animate-spin" /> Generando…</>
@@ -1378,8 +1378,8 @@ export function AnexoRellenoModal({
                 disabled={generando || cargandoPdf}
                 title={analisis.firma.lugares.length === 0 ? 'Este documento no pide firma, pero puedes agregarla igual' : undefined}
                 className={analisis.firma.lugares.length > 0
-                  ? 'inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 px-4 py-2 rounded-lg transition-colors'
-                  : 'inline-flex items-center gap-1.5 text-[12.5px] font-medium text-indigo-600 border border-indigo-200 hover:bg-indigo-50 disabled:opacity-50 px-3 py-2 rounded-lg transition-colors'}
+                  ? 'inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-white bg-teal-600 hover:bg-teal-700 disabled:bg-teal-300 px-4 py-2 rounded-lg transition-colors'
+                  : 'inline-flex items-center gap-1.5 text-[12.5px] font-medium text-teal-600 border border-teal-200 hover:bg-teal-50 disabled:opacity-50 px-3 py-2 rounded-lg transition-colors'}
               >
                 {cargandoPdf
                   ? <><Loader2 size={13} className="animate-spin" /> Preparando PDF…</>

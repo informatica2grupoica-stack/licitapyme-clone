@@ -12,7 +12,7 @@
 // Lee lo mismo que la pestaña Competencia (/api/postuladas/ofertas).
 
 import { useEffect, useState } from 'react';
-import { IconLoader2 as Loader2, IconFileText as FileText, IconEye as Eye, IconAlertTriangle as AlertTriangle, IconFolders as Folders, IconSparkles as Sparkles, IconUsers as Users } from '@tabler/icons-react';
+import { IconLoader2 as Loader2, IconFileText as FileText, IconEye as Eye, IconAlertTriangle as AlertTriangle, IconFolders as Folders, IconWand as Sparkles, IconUsers as Users } from '@tabler/icons-react';
 import { DocumentViewerModal, type VisorDoc } from '@/app/components/DocumentViewerModal';
 import { SeccionTabs } from '@/app/components/MenuNegocioLateral';
 import { MultiSelect } from '@/app/components/ui/MultiSelect';
@@ -74,8 +74,8 @@ export default function DocumentosCompetencia({ codigo }: { codigo: string }) {
     <div>
       <div className="mb-4 flex items-start justify-between gap-3 flex-wrap">
         <div>
-          <h2 className="text-[15px] font-bold text-zinc-800 inline-flex items-center gap-2">
-            <Folders size={16} className="text-indigo-600" /> Documentos de Competencia
+          <h2 className="text-[15px] font-semibold text-zinc-800 inline-flex items-center gap-2">
+            <Folders size={16} className="text-teal-600" /> Documentos de Competencia
           </h2>
           <p className="text-[12px] text-zinc-500 mt-0.5">
             Lo que presentó cada oferente en el Cuadro de ofertas de Mercado Público, ordenado por oferente.
@@ -147,17 +147,17 @@ export default function DocumentosCompetencia({ codigo }: { codigo: string }) {
 // Un oferente en modo cuadro: una columna por tipo de anexo.
 function CuadroOferente({ o, onVer }: { o: OferenteVista; onVer: (d: VisorDoc) => void }) {
   return (
-    <section className={`rounded-xl border overflow-hidden ${o.esNuestra ? 'border-indigo-300 bg-indigo-50/40' : 'border-zinc-200 bg-white'}`}>
+    <section className={`rounded-xl border overflow-hidden ${o.esNuestra ? 'border-teal-300 bg-teal-50/40' : 'border-zinc-200 bg-white'}`}>
       <header className="flex items-center gap-3 px-3.5 py-3 border-b border-zinc-100">
         <div className="min-w-0 flex-1">
           <p className="text-[13px] font-semibold text-zinc-800 truncate">
             {o.proveedorNombre}
-            {o.esNuestra && <span className="ml-1.5 text-[10.5px] font-bold text-indigo-500">NOSOTROS</span>}
+            {o.esNuestra && <span className="ml-1.5 text-[10.5px] font-semibold text-teal-500">NOSOTROS</span>}
           </p>
           <p className="text-[11px] text-zinc-400 truncate"><span className="font-mono">{o.proveedorRut}</span>{o.nombreOferta ? ` · ${o.nombreOferta}` : ''}</p>
         </div>
         {o.estado && <span className="text-[10.5px] font-semibold rounded-full px-2 py-0.5 border text-emerald-700 bg-emerald-50 border-emerald-200">{o.estado}</span>}
-        <span className="text-[13.5px] font-bold tabular-nums text-zinc-800">{fmtMonto(o.monto, o.moneda)}</span>
+        <span className="text-[13.5px] font-semibold tabular-nums text-zinc-800">{fmtMonto(o.monto, o.moneda)}</span>
       </header>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 p-3.5">
@@ -176,7 +176,7 @@ function CuadroOferente({ o, onVer }: { o: OferenteVista; onVer: (d: VisorDoc) =
                     {d.tamanoKb != null && <span className="text-[10.5px] text-zinc-400 flex-shrink-0">{peso(d.tamanoKb)}</span>}
                     {d.url ? (
                       <button onClick={() => onVer({ nombre: d.nombre, url: d.url! })} title="Ver sin descargar" aria-label={`Ver ${d.nombre}`}
-                        className="text-zinc-400 hover:text-indigo-600 p-1 rounded hover:bg-indigo-50 flex-shrink-0"><Eye size={13} /></button>
+                        className="text-zinc-400 hover:text-teal-600 p-1 rounded hover:bg-teal-50 flex-shrink-0"><Eye size={13} /></button>
                     ) : (
                       <span className="text-[10.5px] text-amber-600 flex-shrink-0" title={d.error || 'Pendiente de descarga'}>{d.error ? 'no se pudo bajar' : 'pendiente'}</span>
                     )}
@@ -211,7 +211,7 @@ function AnalisisIA({ elegidos }: { elegidos: OferenteVista[] }) {
         )}
         <div className="mt-3 flex justify-end">
           <button disabled title="Disponible cuando se defina el prompt de análisis"
-            className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-white bg-indigo-600 px-3 py-1.5 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed">
+            className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-white bg-teal-600 px-3 py-1.5 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed">
             <Sparkles size={13} /> Analizar con IA
           </button>
         </div>

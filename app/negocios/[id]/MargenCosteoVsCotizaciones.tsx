@@ -26,14 +26,14 @@ function FilaResumen({ rotulo, nota, a, b, dif, difTono, fuerte, compras, compra
   return (
     <tr className={fuerte ? 'border-y border-zinc-200 bg-slate-50' : ''}>
       <th scope="row" className="px-3 py-2 text-left font-normal">
-        <span className={fuerte ? 'text-base font-bold text-slate-900' : 'text-[13px] font-medium text-slate-800'}>{rotulo}</span>
+        <span className={fuerte ? 'text-base font-semibold text-slate-900' : 'text-[13px] font-medium text-slate-800'}>{rotulo}</span>
         {nota && <span className="block text-xs text-slate-500">{nota}</span>}
       </th>
-      <td className={`${TD} ${fuerte ? 'text-lg font-bold text-slate-900' : 'text-slate-700'}`}>{a}</td>
-      {compras != null && <td className={`${TD} ${fuerte ? 'text-lg font-bold' : 'font-medium'} ${comprasTono ?? 'text-slate-700'}`}>{compras}</td>}
-      <td className={`${TD} ${fuerte ? `text-lg font-bold ${t}` : 'text-slate-700'}`}>{b}</td>
-      {flete != null && <td className={`${TD} ${fuerte ? 'text-lg font-bold' : 'font-medium'} ${fleteTono ?? 'text-slate-700'}`}>{flete}</td>}
-      <td className={`${TD} ${fuerte ? 'text-lg font-bold' : 'font-semibold'} ${t}`}>{dif}</td>
+      <td className={`${TD} ${fuerte ? 'text-lg font-semibold text-slate-900' : 'text-slate-700'}`}>{a}</td>
+      {compras != null && <td className={`${TD} ${fuerte ? 'text-lg font-semibold' : 'font-medium'} ${comprasTono ?? 'text-slate-700'}`}>{compras}</td>}
+      <td className={`${TD} ${fuerte ? `text-lg font-semibold ${t}` : 'text-slate-700'}`}>{b}</td>
+      {flete != null && <td className={`${TD} ${fuerte ? 'text-lg font-semibold' : 'font-medium'} ${fleteTono ?? 'text-slate-700'}`}>{flete}</td>}
+      <td className={`${TD} ${fuerte ? 'text-lg font-semibold' : 'font-semibold'} ${t}`}>{dif}</td>
     </tr>
   );
 }
@@ -46,8 +46,8 @@ function FilaGrupo({ rotulo, b }: { rotulo: string; b: BloqueMargen }) {
       <td className={`${TD} text-slate-700`}>{clp(b.costoInicial)}</td>
       <td className={`${TD} text-slate-700`}>{clp(b.costoNuevo)}</td>
       <td className={`${TD} text-slate-700`}>{pct(b.pctInicial)}</td>
-      <td className={`${TD} font-bold ${tono(b.puntos)}`}>{pct(b.pctNuevo)}</td>
-      <td className={`${TD} font-bold ${tono(b.puntos)}`}>{b.puntos === 0 ? 'sin cambio' : `${flecha(b.puntos)}${pts(b.puntos)}`}</td>
+      <td className={`${TD} font-semibold ${tono(b.puntos)}`}>{pct(b.pctNuevo)}</td>
+      <td className={`${TD} font-semibold ${tono(b.puntos)}`}>{b.puntos === 0 ? 'sin cambio' : `${flecha(b.puntos)}${pts(b.puntos)}`}</td>
     </tr>
   );
 }
@@ -96,21 +96,21 @@ export function MargenCosteoVsCotizaciones({ resumen: r, fletesCotizados = [], a
       {/* La conclusión en una frase, para leerla sin recorrer las tablas */}
       {t.pctInicial != null && t.pctNuevo != null && (
         <p className="mt-3 text-base text-slate-800">
-          Con las cotizaciones el margen sobre la venta {sube ? 'sube' : baja ? 'baja' : 'no cambia'}: de <b className="font-bold text-slate-900">{pct(t.pctInicial)}</b> a <b className={`font-bold ${tono(t.puntos)}`}>{pct(t.pctNuevo)}</b>
-          {t.puntos !== 0 && <> (<b className={`font-bold ${tono(t.puntos)}`}>{pts(t.puntos)}</b>; en pesos <b className={`font-bold ${tono(t.puntos)}`}>{clpFirmado(t.margenNuevo - t.margenInicial)}</b>)</>}.
+          Con las cotizaciones el margen sobre la venta {sube ? 'sube' : baja ? 'baja' : 'no cambia'}: de <b className="font-semibold text-slate-900">{pct(t.pctInicial)}</b> a <b className={`font-semibold ${tono(t.puntos)}`}>{pct(t.pctNuevo)}</b>
+          {t.puntos !== 0 && <> (<b className={`font-semibold ${tono(t.puntos)}`}>{pts(t.puntos)}</b>; en pesos <b className={`font-semibold ${tono(t.puntos)}`}>{clpFirmado(t.margenNuevo - t.margenInicial)}</b>)</>}.
         </p>
       )}
 
       {hayReal && pctConFlete != null && t.pctInicial != null && (
         <p className="mt-3 text-base text-slate-800" data-testid="margen-flete-frase">
-          Con {hayFlete && <>el <b className="font-bold text-slate-900">flete real ({clp(fleteReal)})</b></>}{hayFlete && hayAdicional && ' y '}{hayAdicional && <>los <b className="font-bold text-slate-900">adicionales ({clp(adicionalTotal)}: {nombresAdic})</b></>} el margen sobre la venta queda en <b className={`font-bold ${tono(dPtsFlete)}`}>{pct(pctConFlete)}</b> ({clp(margenConFlete)} en pesos): frente al costeo inicial <b className={`font-bold ${tono(dPtsFlete)}`}>{pts(dPtsFlete)}</b>.
+          Con {hayFlete && <>el <b className="font-semibold text-slate-900">flete real ({clp(fleteReal)})</b></>}{hayFlete && hayAdicional && ' y '}{hayAdicional && <>los <b className="font-semibold text-slate-900">adicionales ({clp(adicionalTotal)}: {nombresAdic})</b></>} el margen sobre la venta queda en <b className={`font-semibold ${tono(dPtsFlete)}`}>{pct(pctConFlete)}</b> ({clp(margenConFlete)} en pesos): frente al costeo inicial <b className={`font-semibold ${tono(dPtsFlete)}`}>{pts(dPtsFlete)}</b>.
         </p>
       )}
 
       {hayCompras ? (
         <p className="mt-3 text-base text-slate-800" data-testid="margen-compras-frase">
-          Con el <b className="font-bold text-slate-900">costo real de Compras</b> el margen sobre la venta {(t.puntosCompras ?? 0) > 0 ? 'sube' : (t.puntosCompras ?? 0) < 0 ? 'baja' : 'no cambia'}: de <b className="font-bold text-slate-900">{pct(t.pctInicial)}</b> a <b className={`font-bold ${tono(t.puntosCompras)}`}>{pct(t.pctCompras)}</b>
-          {t.puntosCompras !== 0 && <> (<b className={`font-bold ${tono(t.puntosCompras)}`}>{pts(t.puntosCompras)}</b>; en pesos <b className={`font-bold ${tono(t.puntosCompras)}`}>{clpFirmado(t.margenCompras - t.margenInicial)}</b>)</>}.
+          Con el <b className="font-semibold text-slate-900">costo real de Compras</b> el margen sobre la venta {(t.puntosCompras ?? 0) > 0 ? 'sube' : (t.puntosCompras ?? 0) < 0 ? 'baja' : 'no cambia'}: de <b className="font-semibold text-slate-900">{pct(t.pctInicial)}</b> a <b className={`font-semibold ${tono(t.puntosCompras)}`}>{pct(t.pctCompras)}</b>
+          {t.puntosCompras !== 0 && <> (<b className={`font-semibold ${tono(t.puntosCompras)}`}>{pts(t.puntosCompras)}</b>; en pesos <b className={`font-semibold ${tono(t.puntosCompras)}`}>{clpFirmado(t.margenCompras - t.margenInicial)}</b>)</>}.
           <span className="block text-[13px] text-slate-500">Compras anotó el costo real de {t.nCompras} de {r.lineas.length} líneas; las demás cuentan al costo inicial, así que este margen es una idea provisional. Al mandar la compra a aprobación estos montos se reemplazan por los precios cotizados.</span>
         </p>
       ) : (
@@ -165,17 +165,17 @@ export function MargenCosteoVsCotizaciones({ resumen: r, fletesCotizados = [], a
         const mal = difFlete > 0;
         return (
           <div className="mt-5" data-testid="margen-fletes-detalle">
-            <h4 className="text-[13px] font-bold text-slate-900">Fletes: lo estimado contra lo real</h4>
+            <h4 className="text-[13px] font-semibold text-slate-900">Fletes: lo estimado contra lo real</h4>
             <p className="mt-0.5 text-xs text-slate-500">Se parte del margen con cotizaciones antes de la reserva. En vez de la reserva del {Math.round(GASTO_ENTREGA_PCT * 100)} % se resta el flete real cargado (neto, sin IVA).</p>
             <ul className="mt-2 divide-y divide-zinc-100 rounded-xl border border-zinc-200 text-[13px]">
               {fletesCotizados.map((f, i) => (
                 <li key={`${f.cotizacionId}-${i}`} className="flex items-baseline gap-3 px-3 py-2">
                   <span className="min-w-0 flex-1 truncate text-slate-800" title={f.nombre}>{f.nombre || 'Flete'}{f.proveedor ? <span className="text-slate-500"> · {f.proveedor}</span> : null}</span>
-                  <span className="font-bold tabular-nums text-slate-900">{clp(f.monto)}</span>
+                  <span className="font-semibold tabular-nums text-slate-900">{clp(f.monto)}</span>
                 </li>
               ))}
               {fletesCotizados.length > 1 && (
-                <li className="flex items-baseline gap-3 bg-slate-50 px-3 py-2"><span className="flex-1 font-bold text-slate-900">Total flete real</span><span className="font-bold tabular-nums text-slate-900">{clp(real)}</span></li>
+                <li className="flex items-baseline gap-3 bg-slate-50 px-3 py-2"><span className="flex-1 font-semibold text-slate-900">Total flete real</span><span className="font-semibold tabular-nums text-slate-900">{clp(real)}</span></li>
               )}
             </ul>
             <div className="mt-2 overflow-x-auto">
@@ -196,7 +196,7 @@ export function MargenCosteoVsCotizaciones({ resumen: r, fletesCotizados = [], a
                 </tbody>
               </table>
             </div>
-            <p className={`mt-2 text-[13px] font-bold ${difFlete === 0 ? 'text-slate-600' : mal ? 'text-red-600' : 'text-emerald-700'}`}>
+            <p className={`mt-2 text-[13px] font-semibold ${difFlete === 0 ? 'text-slate-600' : mal ? 'text-red-600' : 'text-emerald-700'}`}>
               {difFlete === 0 ? 'El flete real es igual a la reserva: el margen no cambia.'
                 : mal ? `El flete real es ${clp(difFlete)} más caro que la reserva: el margen final es ${clp(Math.abs(difMargen))} menor.`
                 : `El flete real es ${clp(difFlete)} más barato que la reserva: el margen final es ${clp(Math.abs(difMargen))} mayor.`}
@@ -208,20 +208,20 @@ export function MargenCosteoVsCotizaciones({ resumen: r, fletesCotizados = [], a
       {/* 1c · Adicionales (grúa, instalación…): no son flete. No reemplazan la reserva: son un gasto más que el costeo no tenía. */}
       {hayAdicional && (
         <div className="mt-5" data-testid="margen-adicionales-detalle">
-          <h4 className="text-[13px] font-bold text-slate-900">Adicionales: gastos que no estaban en el costeo</h4>
+          <h4 className="text-[13px] font-semibold text-slate-900">Adicionales: gastos que no estaban en el costeo</h4>
           <p className="mt-0.5 text-xs text-slate-500">Servicios que se compran con su SKU y su orden de compra (grúa, instalación, armado). No son flete: no reemplazan la reserva del {Math.round(GASTO_ENTREGA_PCT * 100)} %, se restan aparte (neto, sin IVA).</p>
           <ul className="mt-2 divide-y divide-zinc-100 rounded-xl border border-zinc-200 text-[13px]">
             {adicionales.map((f, i) => (
               <li key={`${f.cotizacionId}-${i}`} className="flex items-baseline gap-3 px-3 py-2">
                 <span className="min-w-0 flex-1 truncate text-slate-800" title={f.nombre}>{f.nombre || 'Adicional'}{f.proveedor ? <span className="text-slate-500"> · {f.proveedor}</span> : null}</span>
-                <span className="font-bold tabular-nums text-slate-900">{clp(f.monto)}</span>
+                <span className="font-semibold tabular-nums text-slate-900">{clp(f.monto)}</span>
               </li>
             ))}
             {adicionales.length > 1 && (
-              <li className="flex items-baseline gap-3 bg-slate-50 px-3 py-2"><span className="flex-1 font-bold text-slate-900">Total adicionales</span><span className="font-bold tabular-nums text-slate-900">{clp(adicionalTotal)}</span></li>
+              <li className="flex items-baseline gap-3 bg-slate-50 px-3 py-2"><span className="flex-1 font-semibold text-slate-900">Total adicionales</span><span className="font-semibold tabular-nums text-slate-900">{clp(adicionalTotal)}</span></li>
             )}
           </ul>
-          <p className="mt-2 text-[13px] font-bold text-red-600">
+          <p className="mt-2 text-[13px] font-semibold text-red-600">
             Los adicionales bajan el margen en {clp(adicionalTotal)}{t.venta > 0 ? ` (${(Math.round((adicionalTotal / t.venta) * 1000) / 10).toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} puntos de la venta)` : ''}.
           </p>
         </div>
@@ -250,7 +250,7 @@ export function MargenCosteoVsCotizaciones({ resumen: r, fletesCotizados = [], a
 
       <ul className="mt-3 space-y-1.5 text-[13px] text-slate-700">
         {r.sinCotizar.n > 0 && (
-          <li>{r.cotizadas.n} de {r.lineas.length} líneas ya tienen cotización. El margen con cotizaciones es <b className="font-bold text-amber-700">provisional</b>: las {r.sinCotizar.n} sin cotizar se mantienen al costo costeado y pueden mover el margen cuando se coticen.</li>
+          <li>{r.cotizadas.n} de {r.lineas.length} líneas ya tienen cotización. El margen con cotizaciones es <b className="font-semibold text-amber-700">provisional</b>: las {r.sinCotizar.n} sin cotizar se mantienen al costo costeado y pueden mover el margen cuando se coticen.</li>
         )}
         {r.conMenosMargen > 0 && (
           <li className="font-medium text-red-600">▼ {r.conMenosMargen} línea{r.conMenosMargen === 1 ? '' : 's'} con la mejor cotización más cara que lo costeado: bajan el margen (en rojo en el detalle).</li>
@@ -267,9 +267,9 @@ export function MargenCosteoVsCotizaciones({ resumen: r, fletesCotizados = [], a
           <span className="hidden group-open:inline">Ocultar detalle por línea ({r.lineas.length})</span>
         </summary>
         <p className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-xs text-slate-600">
-          <span><b className="font-bold text-emerald-700">▲ Verde</b>: la cotización mejora el margen</span>
-          <span><b className="font-bold text-red-600">▼ Rojo</b>: lo baja (cotización más cara que lo costeado)</span>
-          <span><b className="font-bold text-slate-500">Gris</b>: sin cotizar, sigue al costo costeado</span>
+          <span><b className="font-semibold text-emerald-700">▲ Verde</b>: la cotización mejora el margen</span>
+          <span><b className="font-semibold text-red-600">▼ Rojo</b>: lo baja (cotización más cara que lo costeado)</span>
+          <span><b className="font-semibold text-slate-500">Gris</b>: sin cotizar, sigue al costo costeado</span>
         </p>
         <div className="mt-2 overflow-x-auto rounded-xl border border-zinc-200">
           <table className="w-full min-w-[1040px]">
@@ -307,9 +307,9 @@ export function MargenCosteoVsCotizaciones({ resumen: r, fletesCotizados = [], a
                         <td className={`${TD} text-slate-700`}>{clp(l.costoNuevo)}
                           <span className={`block text-xs font-medium ${tono(l.costoInicial - l.costoNuevo)}`}>{clpFirmado(l.costoNuevo - l.costoInicial)}</span>
                         </td>
-                        <td className={`${TD} font-bold ${mejor ? 'bg-emerald-50' : ''} ${t2}`}>{clp(l.margenNuevo)}<span className="block text-xs font-bold">{pct(l.pctNuevo)}</span></td>
-                        <td className={`${TD} font-bold ${mejor ? 'bg-emerald-50' : ''} ${t2}`}>{flecha(l.puntos)}{pts(l.puntos)}
-                          <span className="block text-xs font-bold">{clpFirmado(l.margenNuevo - l.margenInicial)}</span>
+                        <td className={`${TD} font-semibold ${mejor ? 'bg-emerald-50' : ''} ${t2}`}>{clp(l.margenNuevo)}<span className="block text-xs font-semibold">{pct(l.pctNuevo)}</span></td>
+                        <td className={`${TD} font-semibold ${mejor ? 'bg-emerald-50' : ''} ${t2}`}>{flecha(l.puntos)}{pts(l.puntos)}
+                          <span className="block text-xs font-semibold">{clpFirmado(l.margenNuevo - l.margenInicial)}</span>
                         </td>
                       </>
                     ) : (
@@ -321,18 +321,18 @@ export function MargenCosteoVsCotizaciones({ resumen: r, fletesCotizados = [], a
             </tbody>
             <tfoot>
               <tr className="border-t border-zinc-300 bg-slate-50">
-                <th scope="row" className="px-3 py-2 text-left text-sm font-bold text-slate-900">Total ({r.lineas.length} líneas)</th>
+                <th scope="row" className="px-3 py-2 text-left text-sm font-semibold text-slate-900">Total ({r.lineas.length} líneas)</th>
                 <td />
-                <td className={`${TD} text-sm font-bold text-slate-900`}>{clp(t.venta)}</td>
-                <td className={`${TD} text-sm font-bold text-slate-900`}>{clp(t.costoInicial)}</td>
-                <td className={`${TD} text-sm font-bold text-slate-900`}>{clp(t.margenInicial)}<span className="block text-xs font-bold">{pct(t.pctInicial)}</span></td>
+                <td className={`${TD} text-sm font-semibold text-slate-900`}>{clp(t.venta)}</td>
+                <td className={`${TD} text-sm font-semibold text-slate-900`}>{clp(t.costoInicial)}</td>
+                <td className={`${TD} text-sm font-semibold text-slate-900`}>{clp(t.margenInicial)}<span className="block text-xs font-semibold">{pct(t.pctInicial)}</span></td>
                 <td />
-                <td className={`${TD} text-sm font-bold text-slate-900`}>{clp(t.costoNuevo)}
-                  <span className={`block text-xs font-bold ${tono(t.costoInicial - t.costoNuevo)}`}>{clpFirmado(t.costoNuevo - t.costoInicial)}</span>
+                <td className={`${TD} text-sm font-semibold text-slate-900`}>{clp(t.costoNuevo)}
+                  <span className={`block text-xs font-semibold ${tono(t.costoInicial - t.costoNuevo)}`}>{clpFirmado(t.costoNuevo - t.costoInicial)}</span>
                 </td>
-                <td className={`${TD} text-sm font-bold ${tono(t.puntos)}`}>{clp(t.margenNuevo)}<span className="block text-xs font-bold">{pct(t.pctNuevo)}</span></td>
-                <td className={`${TD} text-sm font-bold ${tono(t.puntos)}`}>{flecha(t.puntos)}{pts(t.puntos)}
-                  <span className="block text-xs font-bold">{clpFirmado(t.margenNuevo - t.margenInicial)}</span>
+                <td className={`${TD} text-sm font-semibold ${tono(t.puntos)}`}>{clp(t.margenNuevo)}<span className="block text-xs font-semibold">{pct(t.pctNuevo)}</span></td>
+                <td className={`${TD} text-sm font-semibold ${tono(t.puntos)}`}>{flecha(t.puntos)}{pts(t.puntos)}
+                  <span className="block text-xs font-semibold">{clpFirmado(t.margenNuevo - t.margenInicial)}</span>
                 </td>
               </tr>
             </tfoot>

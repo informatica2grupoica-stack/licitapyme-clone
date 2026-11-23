@@ -1,6 +1,7 @@
 // app/api/etiquetas/route.ts
 // Gestión de etiquetas/líneas de negocio — GET público, POST/DELETE solo admin
 import { mensajeSeguro } from '@/app/lib/errores-api';
+import { tienePermiso } from '@/app/lib/api-auth';
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { registrarActividad } from '@/app/lib/actividad';
@@ -34,7 +35,7 @@ export async function GET(request: NextRequest) {
 // POST — crear etiqueta (solo admin)
 export async function POST(request: NextRequest) {
   const { id: userId, rol } = getUser(request);
-  if (!userId || rol !== 'admin')
+  if (!userId || !(await tienePermiso(request, 'admin_etiquetas')))
     return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });
   const clienteId = clienteDeHeader(request);
   if (!clienteId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
@@ -62,7 +63,7 @@ export async function POST(request: NextRequest) {
 // PATCH — actualizar etiqueta (solo admin)
 export async function PATCH(request: NextRequest) {
   const { id: userId, rol } = getUser(request);
-  if (!userId || rol !== 'admin')
+  if (!userId || !(await tienePermiso(request, 'admin_etiquetas')))
     return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });
   const clienteId = clienteDeHeader(request);
   if (!clienteId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
@@ -88,7 +89,7 @@ export async function PATCH(request: NextRequest) {
 // DELETE — eliminar etiqueta (solo admin)
 export async function DELETE(request: NextRequest) {
   const { id: userId, rol } = getUser(request);
-  if (!userId || rol !== 'admin')
+  if (!userId || !(await tienePermiso(request, 'admin_etiquetas')))
     return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });
   const clienteId = clienteDeHeader(request);
   if (!clienteId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });

@@ -55,15 +55,15 @@ function RestablecerContent() {
     <div className="min-h-screen flex items-center justify-center bg-slate-50 px-6 py-10">
       <div className="w-full max-w-sm">
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-12 h-12 bg-indigo-600 rounded-2xl shadow-lg mb-3">
+          <div className="inline-flex items-center justify-center w-12 h-12 bg-teal-600 rounded-2xl shadow-lg mb-3">
             <Building2 size={22} className="text-white" />
           </div>
-          <h1 className="text-xl font-bold text-slate-900">ICA Licitaciones</h1>
+          <h1 className="text-xl font-semibold text-slate-900">ICA Licitaciones</h1>
         </div>
 
         {estado === 'verificando' && (
           <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-10 text-center text-slate-500">
-            <Loader2 size={22} className="animate-spin mx-auto mb-3 text-indigo-500" />
+            <Loader2 size={22} className="animate-spin mx-auto mb-3 text-teal-500" />
             Verificando el enlace...
           </div>
         )}
@@ -73,11 +73,11 @@ function RestablecerContent() {
             <div className="inline-flex items-center justify-center w-12 h-12 bg-red-50 rounded-full mb-4">
               <AlertCircle size={24} className="text-red-500" />
             </div>
-            <h2 className="text-lg font-bold text-slate-900 mb-2">Enlace no válido</h2>
+            <h2 className="text-lg font-semibold text-slate-900 mb-2">Enlace no válido</h2>
             <p className="text-[13px] text-slate-500 leading-relaxed">
               Este enlace venció o ya fue usado. Solicita uno nuevo desde la pantalla de recuperación.
             </p>
-            <Link href="/recuperar" className="inline-flex items-center gap-1.5 mt-6 text-[13px] text-indigo-600 hover:text-indigo-800 font-semibold">
+            <Link href="/recuperar" className="inline-flex items-center gap-1.5 mt-6 text-[13px] text-teal-600 hover:text-teal-800 font-semibold">
               <KeyRound size={14} /> Pedir un enlace nuevo
             </Link>
           </div>
@@ -88,7 +88,7 @@ function RestablecerContent() {
             <div className="inline-flex items-center justify-center w-12 h-12 bg-green-50 rounded-full mb-4">
               <CheckCircle size={24} className="text-green-600" />
             </div>
-            <h2 className="text-lg font-bold text-slate-900 mb-2">Contraseña actualizada</h2>
+            <h2 className="text-lg font-semibold text-slate-900 mb-2">Contraseña actualizada</h2>
             <p className="text-[13px] text-slate-500 leading-relaxed">Ya puedes iniciar sesión con tu clave nueva. Te llevamos al inicio...</p>
           </div>
         )}
@@ -96,7 +96,7 @@ function RestablecerContent() {
         {estado === 'valido' && (
           <>
             <div className="mb-6">
-              <h2 className="text-2xl font-bold text-slate-900 mb-1">Crea tu contraseña</h2>
+              <h2 className="text-2xl font-semibold text-slate-900 mb-1">Crea tu contraseña</h2>
               <p className="text-[13px] text-slate-500">Elige una clave nueva de al menos 8 caracteres.</p>
             </div>
 
@@ -108,7 +108,7 @@ function RestablecerContent() {
 
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
-                <label htmlFor="restablecer-password" className="block text-[12px] font-semibold text-slate-600 mb-1.5 uppercase tracking-wider">Contraseña nueva</label>
+                <label htmlFor="restablecer-password" className="block text-[12px] font-semibold text-slate-600 mb-1.5">Contraseña nueva</label>
                 <div className="relative">
                   <Lock size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
                   <input
@@ -117,7 +117,7 @@ function RestablecerContent() {
                     value={form.password}
                     onChange={e => setForm(p => ({ ...p, password: e.target.value }))}
                     placeholder="••••••••" required minLength={8} autoComplete="new-password"
-                    className="w-full pl-10 pr-10 py-2.5 border border-slate-200 bg-white rounded-xl text-[13px] focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all shadow-sm"
+                    className="w-full pl-10 pr-10 py-2.5 border border-slate-200 bg-white rounded-xl text-[13px] focus:ring-2 focus:ring-teal-500 focus:border-transparent outline-none transition-all shadow-sm"
                   />
                   <button type="button" onClick={() => setMostrarPass(!mostrarPass)}
                     aria-label={mostrarPass ? 'Ocultar contraseña' : 'Mostrar contraseña'}
@@ -128,7 +128,7 @@ function RestablecerContent() {
               </div>
 
               <div>
-                <label htmlFor="restablecer-confirm" className="block text-[12px] font-semibold text-slate-600 mb-1.5 uppercase tracking-wider">Repetir contraseña</label>
+                <label htmlFor="restablecer-confirm" className="block text-[12px] font-semibold text-slate-600 mb-1.5">Repetir contraseña</label>
                 <div className="relative">
                   <Lock size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
                   <input
@@ -137,7 +137,7 @@ function RestablecerContent() {
                     value={form.confirm}
                     onChange={e => setForm(p => ({ ...p, confirm: e.target.value }))}
                     placeholder="••••••••" required minLength={8} autoComplete="new-password"
-                    className="w-full pl-10 pr-4 py-2.5 border border-slate-200 bg-white rounded-xl text-[13px] focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all shadow-sm"
+                    className="w-full pl-10 pr-4 py-2.5 border border-slate-200 bg-white rounded-xl text-[13px] focus:ring-2 focus:ring-teal-500 focus:border-transparent outline-none transition-all shadow-sm"
                   />
                 </div>
               </div>
@@ -145,7 +145,7 @@ function RestablecerContent() {
               <button
                 type="submit"
                 disabled={cargando || !form.password || !form.confirm}
-                className="w-full flex items-center justify-center gap-2 py-3 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-bold rounded-xl transition-colors text-[14px] shadow-sm shadow-indigo-200"
+                className="w-full flex items-center justify-center gap-2 py-3 bg-teal-600 hover:bg-teal-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-semibold rounded-xl transition-colors text-[14px] shadow-sm shadow-teal-200"
               >
                 {cargando
                   ? <><Loader2 size={15} className="animate-spin" />Guardando...</>

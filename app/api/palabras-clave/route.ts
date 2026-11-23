@@ -1,6 +1,7 @@
 // app/api/palabras-clave/route.ts
 // CRUD de palabras clave para búsqueda automática
 import { mensajeSeguro } from '@/app/lib/errores-api';
+import { tienePermiso } from '@/app/lib/api-auth';
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { clienteDeHeader } from '@/app/lib/tenant';
@@ -13,8 +14,8 @@ function getUserId(req: NextRequest): number | null {
 }
 
 // Solo el admin puede crear/editar/eliminar palabras clave de búsqueda.
-function esAdmin(req: NextRequest): boolean {
-  return req.headers.get('x-user-rol') === 'admin';
+async function esAdmin(req: NextRequest): Promise<boolean> {
+  return tienePermiso(req, 'admin_palabras_clave');
 }
 const SOLO_ADMIN = NextResponse.json({ error: 'Solo el admin puede gestionar las palabras clave' }, { status: 403 });
 
@@ -29,7 +30,7 @@ export async function GET(request: NextRequest) {
   // Multi-cliente: siempre dentro de la propia empresa.
   const clienteId = clienteDeHeader(request);
   if (!clienteId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
-  const admin = esAdmin(request);
+  const admin = await esAdmin(request);
   const filtro = admin ? 'WHERE pc.cliente_id = ?' : 'WHERE pc.cliente_id = ? AND pc.usuario_id = ?';
   const filtroSimple = admin ? 'WHERE cliente_id = ?' : 'WHERE cliente_id = ? AND usuario_id = ?';
   const params = admin ? [clienteId] : [clienteId, userId];
@@ -80,7 +81,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const userId = getUserId(request);
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
-  if (!esAdmin(request)) return SOLO_ADMIN;
+  if (!(await esAdmin(request))) return SOLO_ADMIN;
   const clienteId = clienteDeHeader(request);
   if (!clienteId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
 
@@ -147,7 +148,7 @@ export async function POST(request: NextRequest) {
 export async function PATCH(request: NextRequest) {
   const userId = getUserId(request);
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
-  if (!esAdmin(request)) return SOLO_ADMIN;
+  if (!(await esAdmin(request))) return SOLO_ADMIN;
   const clienteId = clienteDeHeader(request);
   if (!clienteId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
 
@@ -181,7 +182,7 @@ export async function PATCH(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   const userId = getUserId(request);
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
-  if (!esAdmin(request)) return SOLO_ADMIN;
+  if (!(await esAdmin(request))) return SOLO_ADMIN;
   const clienteId = clienteDeHeader(request);
   if (!clienteId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
 

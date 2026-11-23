@@ -26,9 +26,9 @@ interface ItemPrep { nivel: 'falta' | 'aviso' | 'ok'; texto: string; comoSolucio
 interface Preparacion { lista: boolean; items: ItemPrep[]; resumen: { faltas: number; avisos: number } }
 interface EvidenciaResp { id: string; tipo: 'COTIZACION' | 'LINK'; titulo: string; archivoUrl: string | null; capturaId: number | null; fecha: string | null; texto: string; contieneCita: boolean; meta: string[] }
 const ACCION: Record<Accion, { txt: string; cls: string }> = {
-  subir: { txt: 'Sube un documento', cls: 'bg-sky-50 text-sky-700 border-sky-200' }, pedir_proveedor: { txt: 'Pídeselo al proveedor', cls: 'bg-violet-50 text-violet-700 border-violet-200' },
+  subir: { txt: 'Sube un documento', cls: 'bg-sky-50 text-sky-700 border-sky-200' }, pedir_proveedor: { txt: 'Pídeselo al proveedor', cls: 'bg-cyan-50 text-cyan-700 border-cyan-200' },
   corregir_costeo: { txt: 'Corrige el costeo', cls: 'bg-amber-50 text-amber-800 border-amber-200' }, justificar: { txt: 'Justifica por escrito', cls: 'bg-zinc-50 text-zinc-700 border-zinc-200' },
-  habilitar: { txt: 'Pide habilitación', cls: 'bg-violet-50 text-violet-700 border-violet-200' }, revisar: { txt: 'Revisa y decide', cls: 'bg-zinc-50 text-zinc-700 border-zinc-200' },
+  habilitar: { txt: 'Pide habilitación', cls: 'bg-cyan-50 text-cyan-700 border-cyan-200' }, revisar: { txt: 'Revisa y decide', cls: 'bg-zinc-50 text-zinc-700 border-zinc-200' },
 };
 interface Opcion { opcion: string; origen: 'asistente' | 'auditor'; costo_bodega: number | null; neto_unitario: number | null; motivo_sin_normalizar: string | null; stock?: string; tipo_respaldo?: string; url?: string; despacho?: string }
 interface LineaPanel {
@@ -70,7 +70,7 @@ const clp = (n: number | null | undefined) => (n == null ? '—' : `$${Math.roun
 const VER: Record<Veredicto, { txt: string; cls: string }> = {
   VERIFICADO: { txt: 'Verificado', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
   VERIFICADO_CON_ALERTAS: { txt: 'Verificado con alertas', cls: 'bg-amber-50 text-amber-700 border-amber-200' },
-  REQUIERE_HABILITACION: { txt: 'Requiere habilitación', cls: 'bg-violet-50 text-violet-700 border-violet-200' },
+  REQUIERE_HABILITACION: { txt: 'Requiere habilitación', cls: 'bg-cyan-50 text-cyan-700 border-cyan-200' },
   NO_VERIFICADO: { txt: 'No verificado', cls: 'bg-rose-50 text-rose-700 border-rose-200' },
   SIN_RESPALDO: { txt: 'Sin respaldo', cls: 'bg-rose-50 text-rose-700 border-rose-200' },
   PENDIENTE_CRUCE_TECNICO: { txt: 'Pendiente cruce técnico', cls: 'bg-sky-50 text-sky-700 border-sky-200' },
@@ -131,7 +131,7 @@ export function AuditorCosteoCard({ negocioId, puedeOperar }: { negocioId: numbe
       <div className="bg-white rounded-xl border border-teal-200 overflow-hidden">
         <div className="px-4 py-3 bg-teal-50/60 flex flex-wrap items-center gap-2 justify-between">
           <div>
-            <p className="flex items-center gap-1.5 text-[13px] font-bold text-teal-900"><ShieldCheck size={15} /> Auditor de Compras · Verificador de cotizaciones</p>
+            <p className="flex items-center gap-1.5 text-[13px] font-semibold text-teal-900"><ShieldCheck size={15} /> Auditor de Compras · Verificador de cotizaciones</p>
             <p className="text-[11.5px] text-teal-700/80 mt-0.5">Revisa que cada costo tenga un respaldo real, sea el mismo producto y no esconda costos. Es una ayuda: cada punto trae qué hacer.</p>
             <ol className="mt-1.5 flex flex-wrap gap-x-4 gap-y-0.5 text-[11.5px] text-teal-900/80">
               <li><b>1.</b> Pulsa «Auditar todas las líneas»</li>
@@ -163,15 +163,15 @@ export function AuditorCosteoCard({ negocioId, puedeOperar }: { negocioId: numbe
             { n: r.sinAuditar, et: 'Sin auditar', sub: 'falta correr', cls: 'bg-zinc-50 border-zinc-200 text-zinc-700' },
           ]).map(t => (
             <div key={t.et} className={`rounded-lg border px-3 py-2 ${t.cls}`}>
-              <p className="text-[22px] font-extrabold leading-none tabular-nums">{t.n}</p>
-              <p className="text-[12px] font-bold mt-1">{t.et}</p>
+              <p className="text-[22px] font-semibold leading-none tabular-nums">{t.n}</p>
+              <p className="text-[12px] font-semibold mt-1">{t.et}</p>
               <p className="text-[10.5px] opacity-70">{t.sub}</p>
             </div>
           ))}
         </div>
         <div className="px-4 py-2 border-t border-teal-100 flex flex-wrap items-center gap-2 text-[11.5px]">
           {panel.margen && <Chip cls="bg-zinc-50 text-zinc-700 border-zinc-200">Margen del proyecto: {panel.margen.margenBase ?? '—'}% costeado → {panel.margen.margenFinal ?? '—'}% con costos auditados{panel.margen.caidaPuntos ? ` (−${panel.margen.caidaPuntos} pts)` : ''}</Chip>}
-          <span className={`ml-auto font-bold ${r.pasaAnexosOk ? 'text-emerald-700' : 'text-rose-600'}`}>{r.pasaAnexosOk ? '✔ Sin bloqueos pendientes' : `🚫 ${r.bloqueadas} línea(s) con bloqueos sin resolver`}</span>
+          <span className={`ml-auto font-semibold ${r.pasaAnexosOk ? 'text-emerald-700' : 'text-rose-600'}`}>{r.pasaAnexosOk ? '✔ Sin bloqueos pendientes' : `🚫 ${r.bloqueadas} línea(s) con bloqueos sin resolver`}</span>
         </div>
         {(r.desactualizadas ?? 0) > 0 && !enLote && (
           <div className="px-4 py-2.5 border-t border-amber-200 bg-amber-50 text-[12px] text-amber-900 flex flex-wrap items-center gap-2" data-testid="auditoria-desactualizada">
@@ -198,7 +198,7 @@ export function AuditorCosteoCard({ negocioId, puedeOperar }: { negocioId: numbe
         {panel.lineas.map(lp => {
           if (lp.noAdjudicada) return (
             <div key={lp.linea.id} aria-disabled className="flex items-center gap-3 px-3.5 py-2.5 rounded-xl border border-zinc-200 bg-zinc-50/70 opacity-60 cursor-not-allowed select-none">
-              <span className="text-[11px] font-bold text-zinc-400 w-6 shrink-0">#{lp.linea.lineaReal ?? lp.linea.item}</span>
+              <span className="text-[11px] font-semibold text-zinc-400 w-6 shrink-0">#{lp.linea.lineaReal ?? lp.linea.item}</span>
               <span className="flex-1 min-w-0">
                 <span className="block text-[12.5px] font-semibold text-zinc-600 truncate line-through decoration-zinc-400">{lp.linea.detalle || '(sin detalle)'}</span>
                 <span className="block text-[11px] text-zinc-500">Línea NO adjudicada: el acta de Mercado Público se la dio a otro proveedor. No se audita ni se compra.</span>
@@ -212,15 +212,15 @@ export function AuditorCosteoCard({ negocioId, puedeOperar }: { negocioId: numbe
           return (
             <div key={lp.linea.id} className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
               <button onClick={() => setAbierta(abiertaEsta ? null : lp.linea.id)} className="w-full flex items-center gap-3 px-3.5 py-2.5 text-left hover:bg-zinc-50/70">
-                <span className="text-[11px] font-bold text-zinc-400 w-6 shrink-0">#{lp.linea.lineaReal ?? lp.linea.item}</span>
+                <span className="text-[11px] font-semibold text-zinc-400 w-6 shrink-0">#{lp.linea.lineaReal ?? lp.linea.item}</span>
                 <span className="flex-1 min-w-0">
-                  <span className="block text-[12.5px] font-semibold text-zinc-800 truncate">{lp.linea.detalle || '(sin detalle)'}{lp.linea.esGastoExtra && <span className="ml-1.5 text-[10px] font-bold text-zinc-400">GASTO EXTRA</span>}</span>
+                  <span className="block text-[12.5px] font-semibold text-zinc-800 truncate">{lp.linea.detalle || '(sin detalle)'}{lp.linea.esGastoExtra && <span className="ml-1.5 text-[10px] font-semibold text-zinc-400">GASTO EXTRA</span>}</span>
                   <span className="block text-[11px] text-zinc-500">{lp.linea.cantidad ?? '—'} {lp.linea.unidad} · costeado {clp(lp.linea.costoRegistradoNeto)} neto/u{s?.verificadoNeto != null ? ` · verificado ${clp(s.verificadoNeto)}` : ''}{s?.diffPct != null && Math.abs(s.diffPct) >= 0.5 ? <b className={s.diffPct > 0 ? 'text-rose-600' : 'text-emerald-600'}> ({s.diffPct > 0 ? '+' : ''}{s.diffPct}%)</b> : null}</span>
                 </span>
                 {lp.auditando ? <span className="flex items-center gap-1 text-[11px] text-teal-700"><Loader2 size={12} className="animate-spin" /> Auditando…</span>
                   : panel.programadas.includes(lp.linea.id) ? <span className="flex items-center gap-1 text-[11px] text-teal-700"><Loader2 size={12} className="animate-spin" /> Cambió algo: se re-audita sola…</span>
-                  : v && lp.desactualizada ? <span title="Se cargó o cambió una cotización de esta línea después de la última auditoría: este veredicto es de antes. Vuelve a auditarla." className="text-[10.5px] font-bold px-2 py-0.5 rounded-full border bg-amber-50 text-amber-800 border-amber-300">Desactualizada · volver a auditar</span>
-                  : v ? <span className={`text-[10.5px] font-bold px-2 py-0.5 rounded-full border ${VER[v].cls}`}>{VER[v].txt}{lp.derivada!.bloqueos.length ? ` · ${lp.derivada!.bloqueos.length} bloqueo(s)` : ''}</span>
+                  : v && lp.desactualizada ? <span title="Se cargó o cambió una cotización de esta línea después de la última auditoría: este veredicto es de antes. Vuelve a auditarla." className="text-[10.5px] font-semibold px-2 py-0.5 rounded-full border bg-amber-50 text-amber-800 border-amber-300">Desactualizada · volver a auditar</span>
+                  : v ? <span className={`text-[10.5px] font-semibold px-2 py-0.5 rounded-full border ${VER[v].cls}`}>{VER[v].txt}{lp.derivada!.bloqueos.length ? ` · ${lp.derivada!.bloqueos.length} bloqueo(s)` : ''}</span>
                   : <span className="text-[10.5px] font-semibold px-2 py-0.5 rounded-full border bg-zinc-50 text-zinc-500 border-zinc-200">Sin auditar</span>}
                 {abiertaEsta ? <ChevronUp size={14} className="text-zinc-400" /> : <ChevronDown size={14} className="text-zinc-400" />}
               </button>
@@ -245,7 +245,7 @@ export function AuditorCosteoCard({ negocioId, puedeOperar }: { negocioId: numbe
 
       {panel.mensajesProveedor.length > 0 && (
         <div className="bg-white rounded-xl border border-zinc-200 p-3.5 space-y-2">
-          <p className="text-[12.5px] font-bold text-zinc-800">Mensajes listos para los proveedores (uno por proveedor)</p>
+          <p className="text-[12.5px] font-semibold text-zinc-800">Mensajes listos para los proveedores (uno por proveedor)</p>
           {panel.mensajesProveedor.map(m => (
             <div key={m.proveedor} className="rounded-lg border border-zinc-200 bg-zinc-50 p-2.5">
               <div className="flex items-center justify-between"><p className="text-[11.5px] font-semibold text-zinc-700">{m.proveedor} · líneas {m.lineas.join(', ')}</p>
@@ -271,7 +271,7 @@ function PosicionPrecioCard({ pos, puedeOperar, ocupado, onLectura }: { pos: Pos
   const mp = pos.mercado_publico;
   return (
     <div className="bg-white rounded-xl border border-zinc-200 p-3.5">
-      <p className="flex items-center gap-1.5 text-[12.5px] font-bold text-zinc-800 mb-1"><Scale size={14} /> Posición de precio del proyecto <span className="text-[10.5px] font-normal text-zinc-400">— guía, el precio lo decide una persona</span></p>
+      <p className="flex items-center gap-1.5 text-[12.5px] font-semibold text-zinc-800 mb-1"><Scale size={14} /> Posición de precio del proyecto <span className="text-[10.5px] font-normal text-zinc-400">— guía, el precio lo decide una persona</span></p>
       <div className="divide-y divide-zinc-100">
         {fila('Presupuesto del organismo', clp(pos.presupuesto.monto_neto), pos.presupuesto.monto_neto ? `neto · ${pos.presupuesto.fuente}` : pos.presupuesto.fuente)}
         {fila('Precio de mercado público', mp.monto_neto != null ? clp(mp.monto_neto) : 'SIN DATOS SUFICIENTES', mp.monto_neto != null ? `${mp.n_datos} dato(s) · ${mp.rango_fechas} · ${mp.calidad === 'mismo_producto' && mp.n_datos >= 3 ? 'dato sólido' : 'dato débil'}` : undefined, mp.n_datos >= 3)}
@@ -283,7 +283,7 @@ function PosicionPrecioCard({ pos, puedeOperar, ocupado, onLectura }: { pos: Pos
       {pos.orden_sano != null && <p className={`mt-1.5 text-[11.5px] font-semibold ${pos.orden_sano ? 'text-emerald-700' : 'text-amber-700'}`}>{pos.orden_sano ? '✅ Orden sano: presupuesto ≥ mercado público > mercado privado ≥ nuestro costo.' : '⚠️ El orden esperado (presupuesto ≥ mercado público > mercado privado ≥ costo) no se cumple.'}</p>}
       <div className="mt-2 space-y-1">{pos.alertas.map((a, i) => <p key={i} className={`text-[11.5px] px-2 py-1 rounded border ${NIVEL_ALERTA[a.nivel]}`}>{a.nivel === 'rojo' ? '🔴 ' : a.nivel === 'amarillo' ? '🟡 ' : ''}{a.detalle}{a.lineas_que_mas_aportan.length ? ` (líneas que más aportan: ${a.lineas_que_mas_aportan.join(', ')})` : ''}</p>)}</div>
       <div className="mt-2 rounded-lg bg-zinc-50 border border-zinc-100 p-2.5">
-        <div className="flex items-center justify-between"><p className="text-[11px] font-bold text-zinc-500 uppercase tracking-wide">Lectura</p>
+        <div className="flex items-center justify-between"><p className="text-[11px] font-semibold text-zinc-500">Lectura</p>
           {puedeOperar && <button onClick={onLectura} disabled={ocupado} className="flex items-center gap-1 text-[11px] font-semibold text-teal-700 disabled:opacity-50">{ocupado ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />} {pos.lectura ? 'Volver a redactar' : 'Redactar lectura con IA'}</button>}</div>
         <p className="text-[12px] text-zinc-700 whitespace-pre-wrap mt-1">{pos.lectura || 'Aún no hay lectura. Se redacta con IA a partir de estos números (la IA no calcula ni recomienda un precio).'}</p>
       </div>
@@ -309,7 +309,7 @@ function DetalleLinea({ lp, negocioId, puedeOperar, ocupado, textos, setTextos, 
           <div className="flex items-start justify-between gap-2">
             <p className="text-[12px] font-semibold text-rose-800">🔴 {b.mensaje}</p>
             <span className="flex items-center gap-1 shrink-0">
-              {b.accion && <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full border ${ACCION[b.accion].cls}`}>{ACCION[b.accion].txt}</span>}
+              {b.accion && <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full border ${ACCION[b.accion].cls}`}>{ACCION[b.accion].txt}</span>}
               <button onClick={() => verOjo(b.cita ?? null, b.mensaje)} title="Ver de dónde sacó esta conclusión" className="p-1 rounded-md border border-rose-200 bg-white text-rose-700 hover:bg-rose-100"><Eye size={13} /></button>
             </span>
           </div>
@@ -340,7 +340,7 @@ function DetalleLinea({ lp, negocioId, puedeOperar, ocupado, textos, setTextos, 
 
       {g.sistema.comparador.length > 0 && (
         <div className="overflow-x-auto">
-          <p className="text-[11px] font-bold text-zinc-500 uppercase tracking-wide mb-1">Comparador · costo neto puesto en bodega (Talagante)</p>
+          <p className="text-[11px] font-semibold text-zinc-500 mb-1">Comparador · costo neto puesto en bodega (Talagante)</p>
           <table className="w-full text-[11.5px]"><thead><tr className="text-left text-zinc-400"><th className="py-1 pr-2">#</th><th className="pr-2">Opción</th><th className="pr-2">Origen</th><th className="pr-2 text-right">Neto puesto en bodega</th><th className="pr-2">Stock</th><th>Respaldo</th></tr></thead>
             <tbody>{g.sistema.comparador.map((o, i) => (
               <tr key={i} className="border-t border-zinc-100"><td className="py-1 pr-2 text-zinc-400">{i + 1}</td>
@@ -381,7 +381,7 @@ function DetalleLinea({ lp, negocioId, puedeOperar, ocupado, textos, setTextos, 
       {lp.justificacionAhorro && <p className="text-[11.5px] text-zinc-600"><b>Justificación ({lp.justificacionPor || '—'}):</b> {lp.justificacionAhorro}</p>}
 
       {lp.habilitacion
-        ? <div className="flex items-center justify-between rounded-lg border border-violet-200 bg-violet-50 p-2 text-[11.5px] text-violet-800">
+        ? <div className="flex items-center justify-between rounded-lg border border-cyan-200 bg-cyan-50 p-2 text-[11.5px] text-cyan-800">
             <span><Flag size={12} className="inline mr-1" />Habilitada por {lp.habilitacion.porNombre || '—'} ({lp.habilitacion.nivel}, {lp.habilitacion.at}): {lp.habilitacion.motivo}</span>
             {puedeOperar && <button onClick={() => accion({ accion: 'habilitar', filaId: id, nivel: null }, `h-${id}`)} className="font-semibold underline">Quitar</button>}
           </div>
@@ -390,12 +390,12 @@ function DetalleLinea({ lp, negocioId, puedeOperar, ocupado, textos, setTextos, 
             <p className="text-[11.5px] font-semibold text-zinc-700">Habilitación excepcional · el EM habilita respaldos informales o históricos; el jefe de ventas puede habilitar cualquier línea</p>
             <textarea value={textos[`h-${id}`] || ''} onChange={e => setTextos(t => ({ ...t, [`h-${id}`]: e.target.value }))} rows={2} className="w-full text-[12px] border border-zinc-200 rounded-lg p-2" placeholder="Motivo (mínimo 15 caracteres)" />
             <div className="flex gap-2">
-              <button onClick={() => accion({ accion: 'habilitar', filaId: id, nivel: 'EM', motivo: textos[`h-${id}`] || '' }, `h-${id}`, 'Línea habilitada (EM)')} disabled={!!ocupado} className="px-2.5 py-1 text-[11px] font-semibold rounded-lg border border-violet-300 text-violet-800 disabled:opacity-50">Habilitar como EM</button>
-              <button onClick={() => accion({ accion: 'habilitar', filaId: id, nivel: 'CA', motivo: textos[`h-${id}`] || '' }, `h-${id}`, 'Línea habilitada (jefe de ventas)')} disabled={!!ocupado} className="px-2.5 py-1 text-[11px] font-semibold rounded-lg border border-violet-300 text-violet-800 disabled:opacity-50">Habilitar como jefe de ventas</button>
+              <button onClick={() => accion({ accion: 'habilitar', filaId: id, nivel: 'EM', motivo: textos[`h-${id}`] || '' }, `h-${id}`, 'Línea habilitada (EM)')} disabled={!!ocupado} className="px-2.5 py-1 text-[11px] font-semibold rounded-lg border border-cyan-300 text-cyan-800 disabled:opacity-50">Habilitar como EM</button>
+              <button onClick={() => accion({ accion: 'habilitar', filaId: id, nivel: 'CA', motivo: textos[`h-${id}`] || '' }, `h-${id}`, 'Línea habilitada (jefe de ventas)')} disabled={!!ocupado} className="px-2.5 py-1 text-[11px] font-semibold rounded-lg border border-cyan-300 text-cyan-800 disabled:opacity-50">Habilitar como jefe de ventas</button>
             </div>
           </div>
         )}
-      {!d.pasaAnexosOk && <p className="text-[11.5px] font-bold text-rose-600 flex items-center gap-1"><AlertTriangle size={12} /> Línea con bloqueos: resuélvelos o habilítala antes de pedir la aprobación de la compra</p>}
+      {!d.pasaAnexosOk && <p className="text-[11.5px] font-semibold text-rose-600 flex items-center gap-1"><AlertTriangle size={12} /> Línea con bloqueos: resuélvelos o habilítala antes de pedir la aprobación de la compra</p>}
     </div>
   );
 }
@@ -407,7 +407,7 @@ function PreparacionCard({ prep }: { prep: Preparacion }) {
   return (
     <div className={`rounded-xl border overflow-hidden ${prep.lista ? 'border-emerald-200 bg-emerald-50/40' : 'border-amber-300 bg-amber-50/50'}`}>
       <button onClick={() => setAbierta(a => !a)} className="w-full flex items-center justify-between gap-2 px-3.5 py-2.5 text-left">
-        <span className="text-[12.5px] font-bold text-zinc-800">
+        <span className="text-[12.5px] font-semibold text-zinc-800">
           {prep.lista ? '✅ Tiene lo necesario para auditarse' : `⚠️ Falta cargar ${faltas.length} cosa(s) para que la auditoría sea completa`}
           <span className="ml-2 text-[11px] font-normal text-zinc-500">{avisos.length} aviso(s)</span>
         </span>
@@ -418,7 +418,7 @@ function PreparacionCard({ prep }: { prep: Preparacion }) {
           <p className="text-[11px] text-zinc-500">Se revisa sola cada vez que subes o cambias algo. Lo de «falta» impide auditar bien; lo de «aviso» se puede auditar igual, pero con menos certeza.</p>
           {[...faltas, ...avisos].map((i, k) => (
             <div key={k} className={`rounded-lg border px-2.5 py-1.5 text-[11.5px] ${i.nivel === 'falta' ? 'border-rose-200 bg-white' : 'border-amber-200 bg-white'}`}>
-              <p className="font-semibold text-zinc-800">{i.nivel === 'falta' ? '🔴' : '🟡'} {i.texto}{i.donde && <span className="ml-1.5 text-[10px] font-bold text-zinc-400 uppercase">{i.donde}</span>}</p>
+              <p className="font-semibold text-zinc-800">{i.nivel === 'falta' ? '🔴' : '🟡'} {i.texto}{i.donde && <span className="ml-1.5 text-[10px] font-semibold text-zinc-400 uppercase">{i.donde}</span>}</p>
               <p className="text-zinc-600">↳ Cómo se arregla: {i.comoSolucionar}</p>
             </div>
           ))}
@@ -433,7 +433,7 @@ function RespaldosLeidos({ respaldos, cantidadRequerida, dolarUsado, verOjo }: {
   if (cots.length === 0) return null;
   return (
     <div className="overflow-x-auto">
-      <p className="text-[11px] font-bold text-zinc-500 uppercase tracking-wide mb-1">Cotizaciones leídas · cantidad a comprar: <span className="text-zinc-800">{cantidadRequerida ?? '—'}</span>{dolarUsado ? <span className="normal-case font-normal"> · dólar BCCh + $10 para importación: ${dolarUsado.toLocaleString('es-CL')}</span> : null}</p>
+      <p className="text-[11px] font-semibold text-zinc-500 mb-1">Cotizaciones leídas · cantidad a comprar: <span className="text-zinc-800">{cantidadRequerida ?? '—'}</span>{dolarUsado ? <span className="normal-case font-normal"> · dólar BCCh + $10 para importación: ${dolarUsado.toLocaleString('es-CL')}</span> : null}</p>
       <table className="w-full text-[11.5px]">
         <thead><tr className="text-left text-zinc-400"><th className="py-1 pr-2">Cotización</th><th className="pr-2">Cantidad que cotiza</th><th className="pr-2 text-right">Precio original</th><th className="pr-2 text-right">Tipo de cambio</th><th className="pr-2 text-right">Unitario en pesos</th><th className="pr-2">Plazo / vigencia</th><th></th></tr></thead>
         <tbody>{cots.map(r => {
@@ -441,7 +441,7 @@ function RespaldosLeidos({ respaldos, cantidadRequerida, dolarUsado, verOjo }: {
           return (
             <tr key={r.id} className="border-t border-zinc-100 align-top">
               <td className="py-1 pr-2"><span className="font-semibold text-zinc-800">{r.etiqueta}</span>{r.rutEsPropio && <span className="block text-[10px] text-amber-600">El RUT que traía era el de tu empresa: se ignora</span>}</td>
-              <td className={`pr-2 ${distinta ? 'text-rose-600 font-bold' : 'text-zinc-600'}`}>{r.cantidadCotizada ?? 'no identificada'}{distinta && ' ≠ ' + cantidadRequerida}</td>
+              <td className={`pr-2 ${distinta ? 'text-rose-600 font-semibold' : 'text-zinc-600'}`}>{r.cantidadCotizada ?? 'no identificada'}{distinta && ' ≠ ' + cantidadRequerida}</td>
               <td className="pr-2 text-right tabular-nums">{r.precioOriginal != null ? `${r.moneda && r.moneda !== 'CLP' ? r.moneda + ' ' : '$'}${r.precioOriginal.toLocaleString('es-CL')}` : '—'}</td>
               <td className="pr-2 text-right tabular-nums text-zinc-500">{r.moneda && r.moneda !== 'CLP' ? (r.tipoCambio ? `$${r.tipoCambio.toLocaleString('es-CL')}` : <b className="text-rose-600">sin tipo de cambio</b>) : '—'}</td>
               <td className="pr-2 text-right tabular-nums font-semibold">{r.precioClp != null ? `$${Math.round(r.precioClp).toLocaleString('es-CL')}` : '—'}{r.fleteMonto ? <span className="block text-[10px] font-normal text-zinc-400">+ flete ${Math.round(r.fleteMonto).toLocaleString('es-CL')}</span> : null}</td>
@@ -480,9 +480,9 @@ function EvidenciaModal({ negocioId, filaId, cita, titulo, respaldoId, onClose }
   }, [negocioId, filaId, cita]);
   return (
     <div className="fixed inset-0 z-[80] bg-black/40 flex items-start justify-center p-3 overflow-y-auto" role="dialog" aria-modal="true" onClick={onClose}>
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-6xl my-6" onClick={e => e.stopPropagation()}>
+      <div className="bg-white rounded-xl shadow-flotante w-full max-w-6xl my-6" onClick={e => e.stopPropagation()}>
         <div className="flex items-start justify-between gap-3 px-4 py-3 border-b border-zinc-100">
-          <div><p className="text-[13px] font-bold text-zinc-800 flex items-center gap-1.5"><Eye size={15} /> De dónde salió esta conclusión</p>
+          <div><p className="text-[13px] font-semibold text-zinc-800 flex items-center gap-1.5"><Eye size={15} /> De dónde salió esta conclusión</p>
             <p className="text-[11.5px] text-zinc-500 mt-0.5">{titulo}</p>
             {cita && <p className="text-[11.5px] mt-1 px-2 py-1 rounded bg-yellow-50 border border-yellow-200 text-yellow-900">Cita literal buscada: «{cita}»</p>}</div>
           <button onClick={onClose} aria-label="Cerrar" className="p-1 rounded-md hover:bg-zinc-100"><X size={16} /></button>
@@ -494,7 +494,7 @@ function EvidenciaModal({ negocioId, filaId, cita, titulo, respaldoId, onClose }
           {data && [...data.respaldos].sort((a, b) => Number(b.id === respaldoId) - Number(a.id === respaldoId)).map(r => (
             <div key={r.id} className={`rounded-lg border ${r.contieneCita ? 'border-yellow-300 ring-1 ring-yellow-200' : 'border-zinc-200'}`}>
               <div className="flex items-center justify-between gap-2 px-3 py-2 bg-zinc-50 rounded-t-lg">
-                <p className="text-[12px] font-semibold text-zinc-800">{r.titulo}{r.contieneCita && <span className="ml-2 text-[10px] font-bold text-yellow-800 bg-yellow-100 px-1.5 py-0.5 rounded-full">contiene la cita</span>}</p>
+                <p className="text-[12px] font-semibold text-zinc-800">{r.titulo}{r.contieneCita && <span className="ml-2 text-[10px] font-semibold text-yellow-800 bg-yellow-100 px-1.5 py-0.5 rounded-full">contiene la cita</span>}</p>
                 <span className="flex gap-2 text-[11px]">
                   {r.archivoUrl && <a href={r.archivoUrl} target="_blank" rel="noreferrer" className="font-semibold text-teal-700 inline-flex items-center gap-1"><ExternalLink size={12} /> {r.tipo === 'COTIZACION' ? 'Abrir el documento original' : 'Abrir el link'}</a>}
                   {r.capturaId && <a href={`/api/compras/${negocioId}/auditor-costeo/captura/${r.capturaId}`} target="_blank" rel="noreferrer" className="font-semibold text-teal-700 inline-flex items-center gap-1"><Photo size={12} /> Ver la captura</a>}
@@ -539,7 +539,7 @@ function TextoLegible({ texto, cita }: { texto: string; cita: string | null }) {
         const limpio = p.replace(/!\[\]\([^)]*\)/g, '').replace(/<[^>]+>/g, ' ');
         return limpio.split(/\n{2,}/).map(b => b.trim()).filter(Boolean).map((b, k) => {
           const titulo = /^#{1,6}\s+/.test(b);
-          return <p key={`${i}-${k}`} className={`whitespace-pre-wrap ${titulo ? 'font-bold text-zinc-800' : ''}`}><Marcado texto={b.replace(/^#{1,6}\s+/, '')} cita={cita} /></p>;
+          return <p key={`${i}-${k}`} className={`whitespace-pre-wrap ${titulo ? 'font-semibold text-zinc-800' : ''}`}><Marcado texto={b.replace(/^#{1,6}\s+/, '')} cita={cita} /></p>;
         });
       })}
     </div>

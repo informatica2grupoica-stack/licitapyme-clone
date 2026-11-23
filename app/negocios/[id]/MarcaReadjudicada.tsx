@@ -30,14 +30,14 @@ export function MarcaReadjudicada({ negocioId }: { negocioId: number }) {
       {estado.readjudicada ? (
         <div className="flex items-center gap-3 flex-wrap">
           <span><b>Readjudicada a nosotros</b>{estado.nota ? ` — ${estado.nota}` : ''}{estado.por ? ` (marcado por ${estado.por})` : ''}. Esta marca prevalece sobre la ficha de Mercado Público.</span>
-          <button disabled={guardando} onClick={() => guardar(false)} className="ml-auto text-indigo-600 font-semibold hover:underline">Quitar marca</button>
+          <button disabled={guardando} onClick={() => guardar(false)} className="ml-auto text-teal-600 font-semibold hover:underline">Quitar marca</button>
         </div>
       ) : (
         <div className="flex items-center gap-2 flex-wrap">
           <span>¿El organismo readjudicó a nosotros pero Mercado Público no lo refleja?</span>
           <input value={nota} onChange={e => setNota(e.target.value)} maxLength={300} placeholder="Ej: Decreto Alcaldicio N.º 4253"
             className="flex-1 min-w-[200px] border border-slate-200 rounded-lg px-2 py-1" />
-          <button disabled={guardando} onClick={() => guardar(true)} className="text-indigo-600 font-semibold hover:underline">Marcar como readjudicada</button>
+          <button disabled={guardando} onClick={() => guardar(true)} className="text-teal-600 font-semibold hover:underline">Marcar como readjudicada</button>
         </div>
       )}
       {error && <p className="text-red-600 mt-2">{error}</p>}
@@ -54,7 +54,7 @@ export function InsigniaReadjudicada({ negocioId }: { negocioId: number }) {
   if (!info?.readjudicada) return null;
   return (
     <span title={info.nota || 'Readjudicada a nosotros'}
-      className="text-[11px] px-2.5 py-0.5 rounded-full font-bold border bg-emerald-50 text-emerald-700 border-emerald-200">
+      className="text-[11px] px-2.5 py-0.5 rounded-full font-semibold border bg-emerald-50 text-emerald-700 border-emerald-200">
       Readjudicada
     </span>
   );

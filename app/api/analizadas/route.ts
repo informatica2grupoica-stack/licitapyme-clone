@@ -6,7 +6,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
-import { getAuthedUser } from '@/app/lib/api-auth';
+import { getAuthedUser, tienePermiso } from '@/app/lib/api-auth';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -23,7 +23,7 @@ export async function GET(request: NextRequest) {
   // (auditoría ago-2026). getAuthedUser() vuelve a verificar el JWT, no confía en el header.
   const u = await getAuthedUser(request);
   if (!u) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
-  if (u.rol !== 'admin') return NextResponse.json({ error: 'Solo administradores.' }, { status: 403 });
+  if (!(await tienePermiso(request, 'ver_analizadas'))) return NextResponse.json({ error: 'No tienes permiso para ver Analizadas.' }, { status: 403 });
 
   try {
     // Dueño = el negocio ACTIVO más reciente de esa licitación (una fila por código, sin

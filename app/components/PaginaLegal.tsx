@@ -8,7 +8,7 @@ export function PaginaLegal({ titulo, vigencia, children }: { titulo: string; vi
     <div className="min-h-screen bg-white text-tinta dark:bg-slate-950 dark:text-slate-100">
       <header className="border-b border-linea dark:border-slate-800">
         <div className="mx-auto flex max-w-3xl items-center justify-between px-5 py-4">
-          <Link href="/bienvenida" className="flex items-center gap-2.5 text-sm font-bold">
+          <Link href="/bienvenida" className="flex items-center gap-2.5 text-sm font-semibold">
             <LicitankIcon size={22} /> LICITANK
           </Link>
           <Link href="/login" className="text-sm text-marca hover:underline">Ingresar</Link>

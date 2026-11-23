@@ -5,7 +5,7 @@
 // proxy.ts ya bloquea /api/admin a no-admins; se reverifica contra el JWT (defensa en profundidad).
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
-import { esAdmin } from '@/app/lib/api-auth';
+import { tienePermiso } from '@/app/lib/api-auth';
 import { ahoraChileSQL } from '@/app/lib/tz';
 import { MODULOS_IA } from '@/app/lib/ia-uso';
 
@@ -13,7 +13,7 @@ const FECHA = /^\d{4}-\d{2}-\d{2}$/;
 const num = (x: unknown) => Number(x ?? 0);
 
 export async function GET(req: NextRequest) {
-  if (!(await esAdmin(req))) return NextResponse.json({ error: 'Sin permisos de administrador' }, { status: 403 });
+  if (!(await tienePermiso(req, 'soporte_tecnico'))) return NextResponse.json({ error: 'Sin permisos de administrador' }, { status: 403 });
   try {
     const hoy = ahoraChileSQL().slice(0, 10);
     const hasta = FECHA.test(req.nextUrl.searchParams.get('hasta') || '') ? req.nextUrl.searchParams.get('hasta')! : hoy;

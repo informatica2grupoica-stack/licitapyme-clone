@@ -119,8 +119,8 @@ export function AuditoriaCotizacionPanel({ negocioId, cotizacionId, productoId, 
     <div className={`border rounded-lg ${v.borde}`}>
       <div className="px-3 py-2.5">
         <div className="flex items-start gap-2 flex-wrap">
-          <p className="text-[13px] font-bold text-zinc-900 flex-1 min-w-[200px]">{productoNombre}</p>
-          <span className={`inline-flex items-center gap-1 text-[12px] font-bold px-2 py-0.5 rounded-full ${v.cls}`}><v.Icono size={13} /> {v.label}</span>
+          <p className="text-[13px] font-semibold text-zinc-900 flex-1 min-w-[200px]">{productoNombre}</p>
+          <span className={`inline-flex items-center gap-1 text-[12px] font-semibold px-2 py-0.5 rounded-full ${v.cls}`}><v.Icono size={13} /> {v.label}</span>
           {puedeOperar && (
             <button onClick={comparar} disabled={comparando} title="Volver a comparar" className="text-zinc-400 hover:text-teal-700 disabled:opacity-50">
               {comparando ? <Loader2 size={14} className="animate-spin" /> : <Refresh size={14} />}
@@ -129,8 +129,8 @@ export function AuditoriaCotizacionPanel({ negocioId, cotizacionId, productoId, 
         </div>
         {precio && precio.resultado !== 'NO_VERIFICABLE' && (
           <div className="grid grid-cols-2 gap-3 mt-2">
-            <div><p className="text-[11px] font-bold text-zinc-400 uppercase">Lo costeado</p><p className="text-[14px] font-bold text-zinc-800">{precio.requerido?.replace(/^Hasta /, '').replace(' (lo costeado)', '') || '—'}</p></div>
-            <div><p className="text-[11px] font-bold text-zinc-400 uppercase">Esta cotización</p><p className="text-[14px] font-bold text-zinc-800">{precio.cotizado || '—'}</p></div>
+            <div><p className="text-[11px] font-semibold text-zinc-400 uppercase">Lo costeado</p><p className="text-[14px] font-semibold text-zinc-800">{precio.requerido?.replace(/^Hasta /, '').replace(' (lo costeado)', '') || '—'}</p></div>
+            <div><p className="text-[11px] font-semibold text-zinc-400 uppercase">Esta cotización</p><p className="text-[14px] font-semibold text-zinc-800">{precio.cotizado || '—'}</p></div>
           </div>
         )}
         {item && item.adicionales.length > 0 && !editando && (
@@ -151,35 +151,35 @@ export function AuditoriaCotizacionPanel({ negocioId, cotizacionId, productoId, 
           </ul>
         )}
         {puedeOperar && item && !editando && (
-          <button onClick={abrirEditor} className="mt-1.5 mr-3 inline-flex items-center gap-1 text-[12px] font-semibold text-indigo-700 hover:text-indigo-900">
+          <button onClick={abrirEditor} className="mt-1.5 mr-3 inline-flex items-center gap-1 text-[12px] font-semibold text-teal-700 hover:text-teal-900">
             <Plus size={13} /> {item.adicionales.length ? 'Editar adicionales' : 'Agregar adicionales (quemador, bandejas…)'}
           </button>
         )}
         {editando && (
-          <div className="mt-2 rounded-lg border border-indigo-200 bg-indigo-50/50 p-3 space-y-2.5">
-            <p className="text-[12.5px] text-indigo-900">La cotización a veces trae el producto solo y lo demás aparte. Agrega aquí lo que hace falta para <b>entregar este producto</b>: se suma al precio que se compara. Valores netos, por unidad del producto.</p>
+          <div className="mt-2 rounded-lg border border-teal-200 bg-teal-50/50 p-3 space-y-2.5">
+            <p className="text-[12.5px] text-teal-900">La cotización a veces trae el producto solo y lo demás aparte. Agrega aquí lo que hace falta para <b>entregar este producto</b>: se suma al precio que se compara. Valores netos, por unidad del producto.</p>
             <label className="block text-[12px] font-semibold text-zinc-600">Precio del producto solo (neto)
               <input value={baseTxt} onChange={e => setBaseTxt(e.target.value)} inputMode="decimal" placeholder="Ej.: 12000000"
-                className="mt-0.5 w-full sm:w-56 text-[13px] font-normal border border-zinc-300 rounded-lg px-2 py-1.5 bg-white outline-none focus:ring-1 focus:ring-indigo-500" />
+                className="mt-0.5 w-full sm:w-56 text-[13px] font-normal border border-zinc-300 rounded-lg px-2 py-1.5 bg-white outline-none focus:ring-1 focus:ring-teal-500" />
             </label>
             <datalist id={`conceptos-${cotizacionId}-${productoId}`}>{CONCEPTOS.map(c => <option key={c} value={c} />)}</datalist>
             {filas.map((f, i) => (
               <div key={i} className="grid grid-cols-12 gap-2 items-end">
                 <label className="col-span-12 sm:col-span-6 text-[11.5px] font-semibold text-zinc-500">Qué es
                   <input list={`conceptos-${cotizacionId}-${productoId}`} value={f.concepto} onChange={e => setFilas(fs => fs.map((x, j) => j === i ? { ...x, concepto: e.target.value } : x))} placeholder="Quemador a gas"
-                    className="mt-0.5 w-full text-[13px] font-normal border border-zinc-300 rounded-lg px-2 py-1.5 bg-white outline-none focus:ring-1 focus:ring-indigo-500" /></label>
+                    className="mt-0.5 w-full text-[13px] font-normal border border-zinc-300 rounded-lg px-2 py-1.5 bg-white outline-none focus:ring-1 focus:ring-teal-500" /></label>
                 <label className="col-span-4 sm:col-span-2 text-[11.5px] font-semibold text-zinc-500">Cantidad
                   <input value={f.cantidad} onChange={e => setFilas(fs => fs.map((x, j) => j === i ? { ...x, cantidad: e.target.value } : x))} inputMode="decimal"
-                    className="mt-0.5 w-full text-[13px] font-normal border border-zinc-300 rounded-lg px-2 py-1.5 bg-white outline-none focus:ring-1 focus:ring-indigo-500" /></label>
+                    className="mt-0.5 w-full text-[13px] font-normal border border-zinc-300 rounded-lg px-2 py-1.5 bg-white outline-none focus:ring-1 focus:ring-teal-500" /></label>
                 <label className="col-span-6 sm:col-span-3 text-[11.5px] font-semibold text-zinc-500">Precio neto c/u
                   <input value={f.precio} onChange={e => setFilas(fs => fs.map((x, j) => j === i ? { ...x, precio: e.target.value } : x))} inputMode="decimal" placeholder="800000"
-                    className="mt-0.5 w-full text-[13px] font-normal border border-zinc-300 rounded-lg px-2 py-1.5 bg-white outline-none focus:ring-1 focus:ring-indigo-500" /></label>
+                    className="mt-0.5 w-full text-[13px] font-normal border border-zinc-300 rounded-lg px-2 py-1.5 bg-white outline-none focus:ring-1 focus:ring-teal-500" /></label>
                 <button type="button" onClick={() => setFilas(fs => fs.filter((_, j) => j !== i))} title="Quitar" className="col-span-2 sm:col-span-1 pb-2 text-rose-500 hover:text-rose-700"><Trash size={15} /></button>
               </div>
             ))}
-            <button type="button" onClick={() => setFilas(fs => [...fs, { concepto: '', cantidad: '1', precio: '' }])} className="inline-flex items-center gap-1 text-[12.5px] font-semibold text-indigo-700 hover:text-indigo-900"><Plus size={14} /> Otro adicional</button>
+            <button type="button" onClick={() => setFilas(fs => [...fs, { concepto: '', cantidad: '1', precio: '' }])} className="inline-flex items-center gap-1 text-[12.5px] font-semibold text-teal-700 hover:text-teal-900"><Plus size={14} /> Otro adicional</button>
             <div className="flex items-center gap-3 pt-1">
-              <button onClick={guardarAdicionales} disabled={guardando} className="inline-flex items-center gap-1.5 text-[13px] font-bold text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 px-3.5 py-1.5 rounded-lg">
+              <button onClick={guardarAdicionales} disabled={guardando} className="inline-flex items-center gap-1.5 text-[13px] font-semibold text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-50 px-3.5 py-1.5 rounded-lg">
                 {guardando ? <Loader2 size={13} className="animate-spin" /> : null} Guardar
               </button>
               <button onClick={() => setEditando(false)} disabled={guardando} className="text-[13px] text-zinc-500 hover:text-zinc-800">Cancelar</button>

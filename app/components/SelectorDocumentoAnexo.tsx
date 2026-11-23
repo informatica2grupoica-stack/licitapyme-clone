@@ -62,11 +62,11 @@ export function SelectorDocumentoAnexo({
       aria-label="Elegir documento del anexo"
     >
       <div
-        className="w-full max-w-2xl bg-white rounded-2xl shadow-2xl overflow-hidden"
+        className="w-full max-w-2xl bg-white rounded-xl shadow-flotante overflow-hidden"
         onClick={e => e.stopPropagation()}
       >
         <div className="flex items-center gap-2 px-4 py-3 border-b border-slate-200 bg-slate-50">
-          <Wand2 size={15} className="text-indigo-600 flex-shrink-0" />
+          <Wand2 size={15} className="text-teal-600 flex-shrink-0" />
           <div className="min-w-0 flex-1">
             <p className="text-[12.5px] font-semibold text-slate-800 truncate" title={tituloItem}>{tituloItem}</p>
             <p className="text-[10.5px] text-slate-400">¿Cuál de estos Word es este anexo?</p>
@@ -79,7 +79,7 @@ export function SelectorDocumentoAnexo({
         <div className="max-h-[50vh] overflow-y-auto p-2">
           {cargando && (
             <div className="flex items-center justify-center gap-2 py-8 text-sm text-slate-500">
-              <Loader2 size={15} className="animate-spin text-indigo-500" /> Buscando documentos…
+              <Loader2 size={15} className="animate-spin text-teal-500" /> Buscando documentos…
             </div>
           )}
           {!cargando && error && (
@@ -99,14 +99,14 @@ export function SelectorDocumentoAnexo({
             <button
               key={c.id}
               onClick={() => onSeleccionar({ id: c.id, nombre: c.documento_nombre, url: c.documento_url_local })}
-              className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl hover:bg-indigo-50 text-left transition-colors group"
+              className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl hover:bg-teal-50 text-left transition-colors group"
             >
-              <FileText size={15} className="text-slate-400 group-hover:text-indigo-500 flex-shrink-0" />
+              <FileText size={15} className="text-slate-400 group-hover:text-teal-500 flex-shrink-0" />
               <span className="flex-1 min-w-0 text-[12.5px] font-medium text-slate-700 truncate" title={c.documento_nombre}>
                 {c.documento_nombre}
               </span>
               {i === 0 && mejorPuntaje > 0 && (
-                <span className="flex-shrink-0 text-[9.5px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">
+                <span className="flex-shrink-0 text-[9.5px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">
                   Sugerido
                 </span>
               )}

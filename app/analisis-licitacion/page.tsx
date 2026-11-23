@@ -111,7 +111,7 @@ function ChartTooltip({ active, payload, label, sufijo }: any) {
       {payload.map((p: any, i: number) => (
         <p key={i} className="text-slate-600 flex items-center gap-1.5">
           <span className="w-2 h-2 rounded-sm" style={{ background: p.color || p.payload?.color }} />
-          <span className="font-bold tabular-nums">{p.value}</span> {sufijo || p.name || ''}
+          <span className="font-semibold tabular-nums">{p.value}</span> {sufijo || p.name || ''}
         </p>
       ))}
     </div>
@@ -139,7 +139,7 @@ export default function AnalisisLicitacionPage() {
   const [ordenLista, setOrdenLista] = useState<'cierre' | 'monto' | 'reciente'>('cierre');
   const [maxLista, setMaxLista] = useState(30);
 
-  const esAdmin = usuario?.rol === 'admin';
+  const esAdmin = !!usuario?.permisos?.analisis_licitacion;   // casilla «Análisis de licitación» (admin la tiene siempre)
 
   useEffect(() => {
     if (!cargandoSesion && usuario && !esAdmin) router.replace('/negocios');
@@ -414,11 +414,11 @@ export default function AnalisisLicitacionPage() {
         {/* Encabezado */}
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-indigo-50 flex items-center justify-center text-indigo-600">
+            <div className="w-10 h-10 rounded-xl bg-teal-50 flex items-center justify-center text-teal-600">
               <Activity size={18} />
             </div>
             <div>
-              <h1 className="text-[16px] font-bold text-slate-900">Análisis de licitación</h1>
+              <h1 className="text-[16px] font-semibold text-slate-900">Análisis de licitación</h1>
               <p className="text-xs text-slate-500">Estadísticas y gráficos por perfil</p>
             </div>
           </div>
@@ -432,7 +432,7 @@ export default function AnalisisLicitacionPage() {
 
         {cargando ? (
           <div className="flex items-center justify-center py-16 gap-2 text-sm text-slate-500">
-            <Loader2 size={16} className="animate-spin text-indigo-500" /> Cargando…
+            <Loader2 size={16} className="animate-spin text-teal-500" /> Cargando…
           </div>
         ) : negocios.length === 0 ? (
           <div className="text-center py-16">
@@ -447,7 +447,7 @@ export default function AnalisisLicitacionPage() {
                 Queda fija al hacer scroll para poder re-filtrar sin volver arriba. */}
             <div className="sticky top-0 z-30 bg-white/95 backdrop-blur rounded-xl border border-slate-200 shadow-sm p-3">
               <div className="flex flex-wrap items-center gap-2">
-                <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-slate-500 uppercase tracking-wider mr-1">
+                <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-slate-500 mr-1">
                   <Filter size={13} className="text-slate-400" /> Filtros
                 </span>
                 <div className="relative w-full sm:w-64 order-last sm:order-none">
@@ -455,7 +455,7 @@ export default function AnalisisLicitacionPage() {
                   <input
                     type="text" value={busqueda} onChange={e => setBusqueda(e.target.value)}
                     placeholder="Nombre, código u organismo…"
-                    className="w-full pl-8 pr-7 py-2 text-[13px] rounded-lg border border-slate-200 bg-white text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/25 focus:border-indigo-400 transition" />
+                    className="w-full pl-8 pr-7 py-2 text-[13px] rounded-lg border border-slate-200 bg-white text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500/25 focus:border-teal-400 transition" />
                   {busqueda && (
                     <button onClick={() => setBusqueda('')} title="Limpiar búsqueda"
                       className="absolute right-1.5 top-1/2 -translate-y-1/2 p-0.5 rounded text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition">
@@ -483,7 +483,7 @@ export default function AnalisisLicitacionPage() {
 
             {/* Título del scope + chips de lo que se está midiendo ahora mismo */}
             <div className="flex items-center gap-2 text-[13px] text-slate-500 flex-wrap">
-              <span className="font-bold text-slate-800">{perfilNombre}</span>
+              <span className="font-semibold text-slate-800">{perfilNombre}</span>
               <span>·</span>
               <span>
                 {stats.total} licitación{stats.total !== 1 ? 'es' : ''}
@@ -494,7 +494,7 @@ export default function AnalisisLicitacionPage() {
                 return (
                   <button key={id} onClick={() => toggleEstado(id)}
                     style={{ background: col + '18', color: col, borderColor: col + '40' }}
-                    className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full border hover:opacity-75">
+                    className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full border hover:opacity-75">
                     {labelDe(id)} <X size={11} />
                   </button>
                 );
@@ -504,20 +504,20 @@ export default function AnalisisLicitacionPage() {
                 return (
                   <button key={t} onClick={() => toggleTipo(t)}
                     style={{ background: col + '18', color: col, borderColor: col + '40' }}
-                    className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full border hover:opacity-75">
+                    className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full border hover:opacity-75">
                     Tipo {t} <X size={11} />
                   </button>
                 );
               })}
               {organismosSel.map(o => (
                 <button key={o} onClick={() => setOrganismosSel(a => a.filter(x => x !== o))}
-                  className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full border bg-slate-50 text-slate-600 border-slate-200 hover:opacity-75 max-w-[220px]">
+                  className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full border bg-slate-50 text-slate-600 border-slate-200 hover:opacity-75 max-w-[220px]">
                   <span className="truncate">{o}</span> <X size={11} className="flex-shrink-0" />
                 </button>
               ))}
               {busqueda && (
                 <button onClick={() => setBusqueda('')}
-                  className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full border bg-amber-50 text-amber-700 border-amber-200 hover:opacity-75">
+                  className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full border bg-amber-50 text-amber-700 border-amber-200 hover:opacity-75">
                   <Search size={10} /> “{busqueda}” <X size={11} />
                 </button>
               )}
@@ -528,11 +528,11 @@ export default function AnalisisLicitacionPage() {
 
             {/* KPIs */}
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 stagger-grid">
-              <KPI icon={<Briefcase size={16} />} label="Vigentes" value={String(stats.vigentes)} tint="#4f46e5" sub="en trabajo" />
+              <KPI icon={<Briefcase size={16} />} label="Vigentes" value={String(stats.vigentes)} tint="#0d9488" sub="en trabajo" />
               <KPI icon={<Send size={16} />} label="Postuladas" value={String(stats.postuladas)} tint="#b45309" sub="ofertas presentadas" />
               <KPI icon={<Trophy size={16} />} label="Ganadas" value={String(stats.ganadas)} tint="#16a34a" sub="ganadas según acta" />
               <KPI icon={<Ban size={16} />} label="Descartadas" value={String(stats.descartadas)} tint="#dc2626" />
-              <KPI icon={<Target size={16} />} label="Tasa de éxito" value={`${stats.tasaExito}%`} tint="#7c3aed"
+              <KPI icon={<Target size={16} />} label="Tasa de éxito" value={`${stats.tasaExito}%`} tint="#0891b2"
                 sub={stats.resueltas ? `${stats.ganadas} de ${stats.resueltas} resueltas` : 'sin resueltas aún'} />
               <KPI icon={<Clock size={16} />} label="Cierran ≤ 7 días" value={String(stats.cierran7)} tint={stats.cierran7 > 0 ? '#dc2626' : '#64748b'} />
             </div>
@@ -540,27 +540,27 @@ export default function AnalisisLicitacionPage() {
             {/* Montos — TRES bolsas separadas y no comparables entre sí salvo ofertado→adjudicado,
                 que ahora sí es una tasa de conversión legítima (misma población: lo que se ofertó). */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div className="bg-gradient-to-br from-sky-50 to-white rounded-xl border border-sky-100 p-4 flex items-center gap-3">
+              <div className="bg-sky-50 rounded-xl border border-sky-100 p-4 flex items-center gap-3">
                 <div className="w-11 h-11 rounded-xl bg-sky-100 text-sky-600 flex items-center justify-center flex-shrink-0"><Briefcase size={20} /></div>
                 <div>
-                  <p className="text-[11px] text-sky-700 font-semibold uppercase tracking-wide">Presupuesto en cartera</p>
-                  <p className="text-[22px] font-black text-slate-900 tabular-nums leading-tight">{fmtMonto(stats.montoCartera)}</p>
+                  <p className="text-[11px] text-sky-700 font-semibold">Presupuesto en cartera</p>
+                  <p className="text-[22px] font-semibold text-slate-900 tabular-nums leading-tight">{fmtMonto(stats.montoCartera)}</p>
                   <p className="text-[10px] text-slate-400">suma de <span className="font-semibold">licitacion_monto</span> (presupuesto MP) de las {stats.vigentes} vigentes</p>
                 </div>
               </div>
-              <div className="bg-gradient-to-br from-teal-50 to-white rounded-xl border border-teal-100 p-4 flex items-center gap-3">
+              <div className="bg-teal-50 rounded-xl border border-teal-100 p-4 flex items-center gap-3">
                 <div className="w-11 h-11 rounded-xl bg-teal-100 text-teal-600 flex items-center justify-center flex-shrink-0"><DollarSign size={20} /></div>
                 <div>
-                  <p className="text-[11px] text-teal-700 font-semibold uppercase tracking-wide">Ofertado real</p>
-                  <p className="text-[22px] font-black text-slate-900 tabular-nums leading-tight">{fmtMonto(stats.montoOfertado)}</p>
+                  <p className="text-[11px] text-teal-700 font-semibold">Ofertado real</p>
+                  <p className="text-[22px] font-semibold text-slate-900 tabular-nums leading-tight">{fmtMonto(stats.montoOfertado)}</p>
                   <p className="text-[10px] text-slate-400">suma de <span className="font-semibold">monto_ofertado</span> de las {stats.postuladas} que se presentaron. No incluye descartadas ni presupuesto estimado.</p>
                 </div>
               </div>
-              <div className="bg-gradient-to-br from-emerald-50 to-white rounded-xl border border-emerald-100 p-4 flex items-center gap-3">
+              <div className="bg-emerald-50 rounded-xl border border-emerald-100 p-4 flex items-center gap-3">
                 <div className="w-11 h-11 rounded-xl bg-emerald-100 text-emerald-600 flex items-center justify-center flex-shrink-0"><Trophy size={20} /></div>
                 <div>
-                  <p className="text-[11px] text-emerald-700 font-semibold uppercase tracking-wide">Monto adjudicado</p>
-                  <p className="text-[22px] font-black text-slate-900 tabular-nums leading-tight">{fmtMonto(stats.montoAdjudicado)}</p>
+                  <p className="text-[11px] text-emerald-700 font-semibold">Monto adjudicado</p>
+                  <p className="text-[22px] font-semibold text-slate-900 tabular-nums leading-tight">{fmtMonto(stats.montoAdjudicado)}</p>
                   <p className="text-[10px] text-slate-400">
                     <span className="font-semibold">montoNuestro</span> del acta de Mercado Público en las {stats.ganadas} ganadas
                     {stats.montoOfertado > 0 && <> · convierte el <span className="font-semibold">{Math.round((stats.montoAdjudicado / stats.montoOfertado) * 100)}%</span> de lo ofertado</>}
@@ -613,13 +613,13 @@ export default function AnalisisLicitacionPage() {
                 <div className="flex items-center gap-4">
                   <div style={{ width: 180, height: 200 }} className="relative">
                     <ResponsiveContainer width="100%" height="100%">
-                      <RadialBarChart innerRadius="70%" outerRadius="100%" data={[{ name: 'tasa', value: stats.tasaExito, fill: '#7c3aed' }]}
+                      <RadialBarChart innerRadius="70%" outerRadius="100%" data={[{ name: 'tasa', value: stats.tasaExito, fill: '#0891b2' }]}
                         startAngle={90} endAngle={90 - (stats.tasaExito / 100) * 360}>
                         <RadialBar background dataKey="value" cornerRadius={10} />
                       </RadialBarChart>
                     </ResponsiveContainer>
                     <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                      <span className="text-[30px] font-black text-violet-700 leading-none tabular-nums">{stats.tasaExito}%</span>
+                      <span className="text-[30px] font-semibold text-cyan-700 leading-none tabular-nums">{stats.tasaExito}%</span>
                       <span className="text-[10px] text-slate-400 font-semibold">éxito</span>
                     </div>
                   </div>
@@ -681,15 +681,15 @@ export default function AnalisisLicitacionPage() {
                     <AreaChart data={stats.porMes} margin={{ left: -18, right: 12, top: 8, bottom: 4 }}>
                       <defs>
                         <linearGradient id="gradArea" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="#6366f1" stopOpacity={0.35} />
-                          <stop offset="100%" stopColor="#6366f1" stopOpacity={0} />
+                          <stop offset="0%" stopColor="#14b8a6" stopOpacity={0.35} />
+                          <stop offset="100%" stopColor="#14b8a6" stopOpacity={0} />
                         </linearGradient>
                       </defs>
                       <CartesianGrid vertical={false} stroke="#f1f5f9" />
                       <XAxis dataKey="mes" tick={{ fontSize: 11, fill: '#94a3b8' }} />
                       <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} allowDecimals={false} width={30} />
                       <RTooltip content={<ChartTooltip sufijo="cierran" />} />
-                      <Area type="monotone" dataKey="value" stroke="#6366f1" strokeWidth={2} fill="url(#gradArea)" />
+                      <Area type="monotone" dataKey="value" stroke="#14b8a6" strokeWidth={2} fill="url(#gradArea)" />
                     </AreaChart>
                   </ResponsiveContainer>
                   <Procedencia
@@ -729,7 +729,7 @@ export default function AnalisisLicitacionPage() {
             <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
               <div className="flex items-center gap-2 px-4 py-2.5 border-b border-slate-100 flex-wrap">
                 <Briefcase size={13} className="text-slate-400" />
-                <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Lista de licitaciones</span>
+                <span className="text-[11px] font-semibold text-slate-500">Lista de licitaciones</span>
                 <span className="text-[11px] text-slate-400">({lista.length})</span>
                 <div className="inline-flex items-center gap-1.5 ml-2">
                   <span className="inline-flex items-center gap-1 text-[10.5px] font-semibold text-slate-400">
@@ -769,22 +769,22 @@ export default function AnalisisLicitacionPage() {
                       className="flex items-center gap-3 px-4 py-2.5 hover:bg-slate-50 transition-colors group">
                       <span className="text-[10.5px] font-mono font-semibold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded flex-shrink-0 w-[130px] truncate">{n.licitacion_codigo}</span>
                       <div className="min-w-0 flex-1">
-                        <p className="text-[13px] font-semibold text-slate-800 truncate group-hover:text-indigo-700 transition-colors">{n.licitacion_nombre || '(sin nombre)'}</p>
+                        <p className="text-[13px] font-semibold text-slate-800 truncate group-hover:text-teal-700 transition-colors">{n.licitacion_nombre || '(sin nombre)'}</p>
                         {n.licitacion_organismo && <p className="text-[11px] text-slate-400 truncate flex items-center gap-1"><Building2 size={9} /> {n.licitacion_organismo}</p>}
                       </div>
                       {/* El avatar sobra solo si estás mirando UN perfil: ahí ya se sabe de quién es. */}
                       {perfilesSel.length !== 1 && (
-                        <span className="w-6 h-6 rounded-full flex items-center justify-center text-[8px] font-bold text-white flex-shrink-0" style={{ background: perfilCol }} title={n.usuario_nombre || n.usuario_email || ''}>
+                        <span className="w-6 h-6 rounded-full flex items-center justify-center text-[8px] font-semibold text-white flex-shrink-0" style={{ background: perfilCol }} title={n.usuario_nombre || n.usuario_email || ''}>
                           {inicialesUsuario(n.usuario_nombre, n.usuario_email)}
                         </span>
                       )}
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border flex-shrink-0 whitespace-nowrap"
+                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full border flex-shrink-0 whitespace-nowrap"
                         style={{ background: col + '18', color: col, borderColor: col + '40' }}>{cfg?.label || n.estado_pipeline}</span>
                       <span className="text-[12px] font-semibold text-slate-700 tabular-nums w-16 text-right flex-shrink-0">{fmtMontoCorto(n.monto_ofertado || n.licitacion_monto || 0)}</span>
                       <span className="inline-flex items-center gap-1 text-[11px] font-medium tabular-nums w-20 justify-end flex-shrink-0" style={{ color: cierreTint }}>
                         <Calendar size={10} /> {fmtFecha(n.licitacion_cierre)}
                       </span>
-                      <ChevronRight size={14} className="text-slate-300 group-hover:text-indigo-500 flex-shrink-0" />
+                      <ChevronRight size={14} className="text-slate-300 group-hover:text-teal-500 flex-shrink-0" />
                     </Link>
                   );
                 })}
@@ -812,9 +812,9 @@ function KPI({ icon, label, value, tint, sub }: { icon: React.ReactNode; label: 
     <div className="bg-white rounded-xl border border-slate-200 shadow-sm px-3.5 py-3">
       <div className="flex items-center gap-2 mb-1.5">
         <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: `${tint}14`, color: tint }}>{icon}</div>
-        <p className="text-[10.5px] text-slate-400 font-semibold uppercase tracking-wide leading-tight">{label}</p>
+        <p className="text-[10.5px] text-slate-400 font-semibold leading-tight">{label}</p>
       </div>
-      <p className="text-[24px] font-black text-slate-900 leading-none tabular-nums">{value}</p>
+      <p className="text-[24px] font-semibold text-slate-900 leading-none tabular-nums">{value}</p>
       {sub && <p className="text-[10px] text-slate-400 mt-1">{sub}</p>}
     </div>
   );
@@ -825,7 +825,7 @@ function MiniStat({ label, value, color }: { label: string; value: number; color
     <div className="flex items-center gap-2">
       <span className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ background: color }} />
       <span className="text-[12px] text-slate-500 flex-1">{label}</span>
-      <span className="text-[15px] font-bold text-slate-800 tabular-nums">{value}</span>
+      <span className="text-[15px] font-semibold text-slate-800 tabular-nums">{value}</span>
     </div>
   );
 }
@@ -838,10 +838,10 @@ function Procedencia({ fuente, universo, calculo, ojo }: {
 }) {
   return (
     <div className="mt-3 pt-2.5 border-t border-slate-100 space-y-1 text-[10.5px] leading-snug text-slate-500">
-      <p><span className="font-bold text-slate-600 uppercase tracking-wide">Fuente</span> · {fuente}</p>
-      <p><span className="font-bold text-slate-600 uppercase tracking-wide">Mide</span> · {universo}</p>
-      <p><span className="font-bold text-slate-600 uppercase tracking-wide">Cálculo</span> · {calculo}</p>
-      {ojo && <p className="text-amber-700 bg-amber-50 border border-amber-100 rounded px-1.5 py-1"><span className="font-bold">Ojo</span> · {ojo}</p>}
+      <p><span className="font-semibold text-slate-600">Fuente</span> · {fuente}</p>
+      <p><span className="font-semibold text-slate-600">Mide</span> · {universo}</p>
+      <p><span className="font-semibold text-slate-600">Cálculo</span> · {calculo}</p>
+      {ojo && <p className="text-amber-700 bg-amber-50 border border-amber-100 rounded px-1.5 py-1"><span className="font-semibold">Ojo</span> · {ojo}</p>}
     </div>
   );
 }
@@ -878,7 +878,7 @@ function DonaEstados({ data, total, centroLabel, seleccion = [], onSelect }: {
           </PieChart>
         </ResponsiveContainer>
         <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-          <span className="text-[26px] font-black text-slate-900 leading-none tabular-nums">{total}</span>
+          <span className="text-[26px] font-semibold text-slate-900 leading-none tabular-nums">{total}</span>
           <span className="text-[10px] text-slate-400 font-semibold">{centroLabel}</span>
         </div>
       </div>
@@ -892,8 +892,8 @@ function DonaEstados({ data, total, centroLabel, seleccion = [], onSelect }: {
               }`}
               style={{ opacity: atenuado(e.id) }}>
               <span className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ background: e.color }} />
-              <span className={`truncate flex-1 ${activo ? 'font-bold text-slate-900' : 'text-slate-600'}`}>{e.name}</span>
-              <span className="font-bold text-slate-800 tabular-nums">{e.value}</span>
+              <span className={`truncate flex-1 ${activo ? 'font-semibold text-slate-900' : 'text-slate-600'}`}>{e.name}</span>
+              <span className="font-semibold text-slate-800 tabular-nums">{e.value}</span>
               <span className="text-slate-400 tabular-nums w-9 text-right">{e.pct}%</span>
             </button>
           );

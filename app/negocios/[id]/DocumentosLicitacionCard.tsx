@@ -13,7 +13,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useToast } from '@/app/components/ui/toast';
 import { useConfirm } from '@/app/components/ui/confirm';
 import { useCompras } from '@/app/compras/[negocioId]/ComprasContext';
-import { IconFileText as FileText, IconLoader2 as Loader2, IconEye as Eye, IconFolderOpen as FolderOpen, IconUpload as Upload, IconTrash as Trash2, IconCloudUpload as UploadCloud, IconSparkles as Sparkles } from '@tabler/icons-react';
+import { IconFileText as FileText, IconLoader2 as Loader2, IconEye as Eye, IconFolderOpen as FolderOpen, IconUpload as Upload, IconTrash as Trash2, IconCloudUpload as UploadCloud, IconWand as Sparkles } from '@tabler/icons-react';
 
 interface Documento { nombre: string; url: string; categoria: string | null; fecha: string }
 
@@ -210,9 +210,9 @@ export function DocumentosLicitacionCard({ licitacionCodigo }: { licitacionCodig
     <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
       <div className="w-full flex items-center justify-between gap-3 px-4 py-3 bg-zinc-50 border-b border-zinc-100">
         <button onClick={() => setAbierto(v => !v)} className="flex-1 min-w-0 flex items-center gap-1.5 text-left hover:opacity-80 transition-opacity">
-          <p className="text-[12.5px] font-bold text-zinc-700 flex items-center gap-1.5">
+          <p className="text-[12.5px] font-semibold text-zinc-700 flex items-center gap-1.5">
             <FolderOpen size={14} /> Documentación del proyecto
-            <span className="text-[10.5px] font-bold text-zinc-400 bg-zinc-100 border border-zinc-200 px-1.5 py-0.5 rounded-full">{documentos.length}</span>
+            <span className="text-[10.5px] font-semibold text-zinc-400 bg-zinc-100 border border-zinc-200 px-1.5 py-0.5 rounded-full">{documentos.length}</span>
           </p>
         </button>
         <button onClick={prepararCompra} disabled={preparando} title="Reintenta traer Bases, Anexos y Acta de evaluación desde Mercado Público — lo que ya está guardado se salta solo"
@@ -231,7 +231,7 @@ export function DocumentosLicitacionCard({ licitacionCodigo }: { licitacionCodig
             <div className="divide-y divide-zinc-100 max-h-64 overflow-y-auto">
               {[...CATS_BASES, 'ACTA'].map(cat => (porCategoria[cat]?.length ? (
                 <div key={cat}>
-                  <p className="px-4 py-1.5 text-[10px] font-bold text-zinc-400 uppercase bg-zinc-50/60">{CATEGORIA_LABEL[cat]}</p>
+                  <p className="px-4 py-1.5 text-[10px] font-semibold text-zinc-400 uppercase bg-zinc-50/60">{CATEGORIA_LABEL[cat]}</p>
                   {porCategoria[cat].map((d, i) => (
                     <a key={i} href={d.url} target="_blank" rel="noopener noreferrer"
                       className="flex items-center justify-between gap-2 px-4 py-2 hover:bg-zinc-50 transition-colors">
@@ -248,7 +248,7 @@ export function DocumentosLicitacionCard({ licitacionCodigo }: { licitacionCodig
 
           <div className="px-4 py-3 border-t border-zinc-100 space-y-2">
             <div className="flex items-center justify-between gap-2">
-              <p className="text-[10px] font-bold text-zinc-400 uppercase">{CATEGORIA_LABEL.DOCUMENTOS_PROPIOS}</p>
+              <p className="text-[10px] font-semibold text-zinc-400 uppercase">{CATEGORIA_LABEL.DOCUMENTOS_PROPIOS}</p>
               <button type="button" onClick={() => fileRef.current?.click()} disabled={!!subiendo}
                 className="inline-flex items-center gap-1.5 text-[11.5px] font-semibold text-white bg-teal-600 hover:bg-teal-700 disabled:bg-zinc-300 px-2.5 py-1.5 rounded-lg transition-colors">
                 {subiendo ? <><Loader2 size={12} className="animate-spin" /> Subiendo {subiendo.actual}/{subiendo.total}…</> : <><Upload size={12} /> Subir documento(s)</>}

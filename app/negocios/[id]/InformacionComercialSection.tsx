@@ -36,7 +36,7 @@ import {
   CLAVE_ITEM_PLAZO, rangoPlazoDeDescripcion, validarPlazoOfertado,
   esAlertaDeCumplimiento, esLineaTecnica,
 } from '@/app/lib/checklist-comercial';
-import { IconShieldCheck as ShieldCheck, IconBuilding as Building2, IconCheck as Check, IconX as X, IconUpload as Upload, IconLoader2 as Loader2, IconAlertTriangle as AlertTriangle, IconCopy as Copy, IconFileText as FileText, IconCurrencyDollar as DollarSign, IconTool as Wrench, IconClipboardCheck as ClipboardCheck, IconRefresh as RefreshCw, IconArrowBackUp as Undo2, IconSparkles as Sparkles, IconEye as Eye, IconDownload as Download, IconTrash as Trash2, IconHistory as History } from '@tabler/icons-react';
+import { IconShieldCheck as ShieldCheck, IconBuilding as Building2, IconCheck as Check, IconX as X, IconUpload as Upload, IconLoader2 as Loader2, IconAlertTriangle as AlertTriangle, IconCopy as Copy, IconFileText as FileText, IconCurrencyDollar as DollarSign, IconTool as Wrench, IconClipboardCheck as ClipboardCheck, IconRefresh as RefreshCw, IconArrowBackUp as Undo2, IconWand as Sparkles, IconEye as Eye, IconDownload as Download, IconTrash as Trash2, IconHistory as History } from '@tabler/icons-react';
 
 // ── Tipos (espejo de lo que devuelve /api/negocios/[id]/comercial) ──────────────
 interface Documento {

@@ -148,12 +148,12 @@ function EnviarExperienciaModal({ oc, onClose }: { oc: OrdenCompra; onClose: () 
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-[2px] z-50 flex items-center justify-center p-4 overlay-in"
       role="dialog" aria-modal="true">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl modal-in">
+      <div className="bg-white rounded-xl shadow-flotante w-full max-w-2xl modal-in">
         <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 bg-indigo-50 rounded-xl flex items-center justify-center"><FolderInput size={16} className="text-indigo-600" /></div>
+            <div className="w-9 h-9 bg-teal-50 rounded-xl flex items-center justify-center"><FolderInput size={16} className="text-teal-600" /></div>
             <div>
-              <h3 className="text-[13px] font-bold text-slate-800">Usar como experiencia</h3>
+              <h3 className="text-[13px] font-semibold text-slate-800">Usar como experiencia</h3>
               <p className="text-[11px] text-slate-500 font-mono">{oc.codigo}</p>
             </div>
           </div>
@@ -170,11 +170,11 @@ function EnviarExperienciaModal({ oc, onClose }: { oc: OrdenCompra; onClose: () 
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input autoFocus value={q} onChange={e => setQ(e.target.value)}
               placeholder="Buscar por código o nombre de la licitación destino…"
-              className="w-full pl-8 pr-3 py-2 text-[13px] border border-slate-200 rounded-lg focus:ring-1 focus:ring-indigo-500 outline-none" />
+              className="w-full pl-8 pr-3 py-2 text-[13px] border border-slate-200 rounded-lg focus:ring-1 focus:ring-teal-500 outline-none" />
           </div>
           <div className="mt-2 max-h-64 overflow-y-auto space-y-1">
             {buscando ? (
-              <div className="flex items-center justify-center py-4"><Loader2 size={16} className="animate-spin text-indigo-500" /></div>
+              <div className="flex items-center justify-center py-4"><Loader2 size={16} className="animate-spin text-teal-500" /></div>
             ) : q.trim().length < 2 ? (
               <p className="text-[12px] text-slate-400 text-center py-4">Escribe al menos 2 caracteres</p>
             ) : resultados.length === 0 ? (
@@ -191,7 +191,7 @@ function EnviarExperienciaModal({ oc, onClose }: { oc: OrdenCompra; onClose: () 
                     <p className="text-[12.5px] font-semibold text-slate-700 truncate">{n.licitacion_nombre || '—'}</p>
                     {n.licitacion_organismo && <p className="text-[11px] text-slate-400 truncate">{n.licitacion_organismo}</p>}
                   </div>
-                  {cargando ? <Loader2 size={15} className="animate-spin text-indigo-500 flex-shrink-0" />
+                  {cargando ? <Loader2 size={15} className="animate-spin text-teal-500 flex-shrink-0" />
                     : enviado ? <Check size={15} className="text-emerald-600 flex-shrink-0" /> : null}
                 </button>
               );
@@ -230,7 +230,7 @@ function AccionesDocumento({ codigo, nombre, pdfUrlInicial, onVer }: { codigo: s
   return (
     <div className="inline-flex items-center gap-1">
       <button type="button" onClick={ver} disabled={cargando !== null} title="Ver"
-        className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors disabled:opacity-50">
+        className="p-1 text-slate-400 hover:text-teal-600 hover:bg-teal-50 rounded transition-colors disabled:opacity-50">
         {cargando === 'ver' ? <Loader2 size={13} className="animate-spin" /> : <Eye size={13} />}
       </button>
       <button type="button" onClick={descargar} disabled={cargando !== null} title="Descargar"
@@ -269,9 +269,9 @@ function FilaOrden({ oc, onVer, onEnviarExperiencia, etiqueta }: { oc: OrdenComp
         <span className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${c.fondo} ${c.texto}`}><Receipt size={16} /></span>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-[13px] font-bold text-slate-800 font-mono">{oc.codigo}</span>
-            {etiqueta && <span className={`text-[10.5px] font-bold px-2 py-0.5 rounded-full border ${etiqueta.clase}`}>{etiqueta.texto}</span>}
-            {oc.estado && <span className={`text-[10.5px] font-bold px-2 py-0.5 rounded-full border ${c.fondo} ${c.texto} ${c.borde}`}>{oc.estado}</span>}
+            <span className="text-[13px] font-semibold text-slate-800 font-mono">{oc.codigo}</span>
+            {etiqueta && <span className={`text-[10.5px] font-semibold px-2 py-0.5 rounded-full border ${etiqueta.clase}`}>{etiqueta.texto}</span>}
+            {oc.estado && <span className={`text-[10.5px] font-semibold px-2 py-0.5 rounded-full border ${c.fondo} ${c.texto} ${c.borde}`}>{oc.estado}</span>}
             {oc.empresaNombre && <span className="text-[10.5px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">{oc.empresaNombre}</span>}
             {fecha && <span className="text-[10.5px] text-slate-400">{fecha}</span>}
           </div>
@@ -285,7 +285,7 @@ function FilaOrden({ oc, onVer, onEnviarExperiencia, etiqueta }: { oc: OrdenComp
           )}
           {oc.licitacionCodigo ? (
             <Link href={`/licitacion/${encodeURIComponent(oc.licitacionCodigo)}`}
-              className="mt-1 inline-flex items-center gap-1 text-[11.5px] font-semibold text-indigo-600 hover:text-indigo-700">
+              className="mt-1 inline-flex items-center gap-1 text-[11.5px] font-semibold text-teal-600 hover:text-teal-700">
               {oc.licitacionNombre || oc.licitacionCodigo} <ArrowUpRight size={11} />
             </Link>
           ) : (
@@ -293,7 +293,7 @@ function FilaOrden({ oc, onVer, onEnviarExperiencia, etiqueta }: { oc: OrdenComp
           )}
         </div>
         <div className="text-right whitespace-nowrap">
-          <span className="block text-[14px] font-bold text-slate-800">{fmtCLP(oc.total, oc.moneda)}</span>
+          <span className="block text-[14px] font-semibold text-slate-800">{fmtCLP(oc.total, oc.moneda)}</span>
           {oc.totalNeto != null && oc.totalNeto !== oc.total && <span className="block text-[11px] text-slate-400">neto {fmtCLP(oc.totalNeto, oc.moneda)}</span>}
         </div>
       </div>
@@ -307,12 +307,12 @@ function FilaOrden({ oc, onVer, onEnviarExperiencia, etiqueta }: { oc: OrdenComp
         )}
         <div className="ml-auto flex items-center gap-3">
           {onEnviarExperiencia && <button onClick={() => onEnviarExperiencia(oc)}
-            className="text-[11.5px] font-semibold text-slate-600 hover:text-indigo-600 inline-flex items-center gap-1"
+            className="text-[11.5px] font-semibold text-slate-600 hover:text-teal-600 inline-flex items-center gap-1"
             title="Copiar a Documentos Propios de otra licitación">
             <FolderInput size={13} /> Usar como experiencia
           </button>}
           <AccionesDocumento codigo={oc.codigo} nombre={`OC_${oc.codigo}.pdf`} pdfUrlInicial={oc.pdfUrl} onVer={onVer} />
-          <a href={oc.url} target="_blank" rel="noopener noreferrer" className="text-[11.5px] font-semibold text-indigo-600 hover:text-indigo-700 inline-flex items-center gap-1">
+          <a href={oc.url} target="_blank" rel="noopener noreferrer" className="text-[11.5px] font-semibold text-teal-600 hover:text-teal-700 inline-flex items-center gap-1">
             <ExternalLink size={12} /> Mercado Público
           </a>
         </div>
@@ -366,7 +366,7 @@ function PestanaAceptacion({ onVer }: { onVer: (doc: VisorDoc) => void }) {
     <div className="space-y-6">
       <section className="space-y-2">
         <div className="flex items-baseline gap-2 flex-wrap">
-          <h2 className="text-[14px] font-bold text-slate-800">Por aceptar</h2>
+          <h2 className="text-[14px] font-semibold text-slate-800">Por aceptar</h2>
           <span className="text-[12px] text-slate-500">
             {totalPor} orden{totalPor !== 1 ? 'es' : ''} · {venceHoy} vence{venceHoy !== 1 ? 'n' : ''} hoy · {vencidas} vencida{vencidas !== 1 ? 's' : ''}
           </span>
@@ -378,7 +378,7 @@ function PestanaAceptacion({ onVer }: { onVer: (doc: VisorDoc) => void }) {
 
       <section className="space-y-2">
         <div className="flex items-baseline gap-2 flex-wrap">
-          <h2 className="text-[14px] font-bold text-slate-800">Aceptadas</h2>
+          <h2 className="text-[14px] font-semibold text-slate-800">Aceptadas</h2>
           <span className="text-[12px] text-slate-500">{aceptadas.length} orden{aceptadas.length !== 1 ? 'es' : ''} · las más recientes primero</span>
         </div>
         {aceptadas.length === 0
@@ -478,9 +478,9 @@ export default function OrdenesCompraPage() {
       <div className="p-4 sm:p-6 max-w-5xl mx-auto space-y-4">
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-lg bg-indigo-50 flex items-center justify-center flex-shrink-0"><Receipt size={17} className="text-indigo-600" /></div>
+            <div className="w-9 h-9 rounded-lg bg-teal-50 flex items-center justify-center flex-shrink-0"><Receipt size={17} className="text-teal-600" /></div>
             <div>
-              <h1 className="text-[16px] font-bold text-slate-900 leading-tight">Órdenes de compra</h1>
+              <h1 className="text-[16px] font-semibold text-slate-900 leading-tight">Órdenes de compra</h1>
               <p className="text-[12px] text-slate-500">
                 {loading ? 'Cargando…' : `${total} orden${total !== 1 ? 'es' : ''}${hayFiltro ? ' con estos filtros' : ''} · ${fmtCLP(sumaTotal)}`}
               </p>
@@ -490,14 +490,14 @@ export default function OrdenesCompraPage() {
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input value={q} onChange={e => setQ(e.target.value)}
               placeholder="Buscar código, organismo, proveedor, licitación o ítem…"
-              className="pl-8 pr-3 py-2 text-[13px] border border-slate-200 rounded-lg focus:ring-1 focus:ring-indigo-500 outline-none w-80" />
+              className="pl-8 pr-3 py-2 text-[13px] border border-slate-200 rounded-lg focus:ring-1 focus:ring-teal-500 outline-none w-80" />
           </div>}
         </div>
 
         <div className="flex gap-1 border-b border-slate-200">
           {([['todas', 'Todas'], ['aceptacion', 'Aceptación']] as const).map(([v, label]) => (
             <button key={v} onClick={() => setPestana(v)}
-              className={`px-3.5 py-2 text-[13px] font-semibold -mb-px border-b-2 transition-colors ${pestana === v ? 'border-indigo-600 text-indigo-700' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>
+              className={`px-3.5 py-2 text-[13px] font-semibold -mb-px border-b-2 transition-colors ${pestana === v ? 'border-teal-600 text-teal-700' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>
               {label}
             </button>
           ))}
@@ -531,7 +531,7 @@ export default function OrdenesCompraPage() {
           </div>
 
           <label className="flex items-center gap-1.5 text-[12px] font-medium text-slate-600 border border-slate-200 rounded-lg px-2.5 py-2 cursor-pointer hover:bg-slate-50">
-            <input type="checkbox" checked={incluirTerceros} onChange={e => setIncluirTerceros(e.target.checked)} className="accent-indigo-600" />
+            <input type="checkbox" checked={incluirTerceros} onChange={e => setIncluirTerceros(e.target.checked)} className="accent-teal-600" />
             Incluir de terceros
           </label>
 

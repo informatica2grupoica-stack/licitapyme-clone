@@ -14,6 +14,7 @@ import { useToast } from '@/app/components/ui/toast';
 import { Banner } from '@/app/components/ui/Banner';
 import { MultiSelect } from '@/app/components/ui/MultiSelect';
 import { Select } from '@/app/components/ui/Select';
+import { ModalElegirEncargado } from './[negocioId]/ModalElegirEncargado';
 import { colorUsuario, inicialesUsuario } from '@/app/lib/user-color';
 import { useRealtime } from '@/app/lib/use-realtime';
 import { fechaHoraParaExcel, hojaDeFilas } from '@/app/lib/exportar-fechas';
@@ -126,7 +127,7 @@ function AvatarAsignado({ nombre, seed, size = 22 }: { nombre: string | null; se
   return (
     <span
       style={{ background: colorUsuario(seed), width: size, height: size, fontSize: size * 0.4 }}
-      className="inline-flex items-center justify-center rounded-full text-white font-bold flex-shrink-0"
+      className="inline-flex items-center justify-center rounded-full text-white font-semibold flex-shrink-0"
       title={nombre}
     >
       {inicialesUsuario(nombre, null)}
@@ -262,7 +263,7 @@ function PanelObumaCerrada({ o, negocioId }: { o: ObumaDeCerrada | undefined; ne
   if (!p && o.ocs.length === 0) return <p className="text-[11.5px] text-zinc-400 border-t border-zinc-100 pt-2">Sin datos en Obuma: no hay proyecto ni órdenes de compra de esta licitación.</p>;
   const margen = p && p.precioNeto && p.costo != null ? p.precioNeto - p.costo : null;
   const dato = (etq: string, v: string) => (
-    <div className="min-w-[92px]"><p className="text-[10px] uppercase tracking-wide text-zinc-400">{etq}</p><p className="text-[12.5px] font-semibold text-zinc-800 tabular-nums">{v}</p></div>
+    <div className="min-w-[92px]"><p className="text-[10px] text-zinc-400">{etq}</p><p className="text-[12.5px] font-semibold text-zinc-800 tabular-nums">{v}</p></div>
   );
   return (
     <div className="border-t border-zinc-100 pt-2 space-y-2">
@@ -324,28 +325,25 @@ function FilaCompras({ f, esJefeDeVentas, esAdmin, puedeCerrar, candidatos, onAs
   f: ComprasFila; esJefeDeVentas: boolean; esAdmin: boolean; puedeCerrar: boolean; candidatos: Candidato[]; onAsignado: () => void; ultimaUrgente?: boolean; obuma?: ObumaDeCerrada;
 }) {
   const toast = useToast();
-  const [candidatoElegido, setCandidatoElegido] = useState('');
   const [asignando, setAsignando] = useState(false);
   // Reasignar (pedido explícito del usuario, 15-sep-2026): antes solo se podía elegir encargado
   // mientras el negocio estaba "sin asignar" — una vez asignado no había forma de cambiarlo desde
   // acá. El endpoint /asignar ya soportaba reasignar (no valida "ya tiene encargado"), solo faltaba
   // la UI.
-  const [reasignando, setReasignando] = useState(false);
+  const [modalEncargado, setModalEncargado] = useState(false);
   const vencimientoPasado = new Date(f.vencimientoAsignacionAt.replace(' ', 'T')).getTime() < Date.now();
 
-  const asignar = async () => {
-    if (!candidatoElegido) return;
+  const asignar = async (encargadoId: number) => {
     setAsignando(true);
     try {
       const res = await fetch(`/api/compras/${f.negocioId}/asignar`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ encargadoId: Number(candidatoElegido) }),
+        body: JSON.stringify({ encargadoId }),
       });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo asignar');
       toast.success('Encargado asignado');
-      setReasignando(false);
-      setCandidatoElegido('');
+      setModalEncargado(false);
       onAsignado();
     } catch (e: any) {
       toast.error('No se pudo asignar', e.message);
@@ -356,6 +354,8 @@ function FilaCompras({ f, esJefeDeVentas, esAdmin, puedeCerrar, candidatos, onAs
 
   return (
     <div className={`bg-white rounded-xl border overflow-hidden ${f.urgente ? 'border-rose-200' : 'border-zinc-200'}`}>
+      <ModalElegirEncargado open={modalEncargado} onClose={() => setModalEncargado(false)} candidatos={candidatos}
+        actualId={f.asignadoA ?? null} guardando={asignando} onConfirmar={asignar} />
       <div className="flex items-center justify-between gap-3 px-4 py-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
@@ -410,30 +410,16 @@ function FilaCompras({ f, esJefeDeVentas, esAdmin, puedeCerrar, candidatos, onAs
       </div>
 
       <div className="border-t border-zinc-100 px-4 py-2.5 bg-zinc-50/60 flex items-center justify-between gap-3 flex-wrap">
-        {f.asignadoA && !reasignando ? (
+        {f.asignadoA ? (
           <p className="text-[12px] text-zinc-600 flex items-center gap-1.5">
             <AvatarAsignado nombre={f.asignadoNombre} seed={f.asignadoA} />
             <span className="font-semibold text-zinc-800">{f.asignadoNombre}</span>
             <span className="text-zinc-400"> — asignado {fmtFecha(f.asignadoAt || f.ganadoAt)}</span>
             {esAdmin && (
-              <button onClick={() => setReasignando(true)} title="Cambiar encargado"
+              <button onClick={() => setModalEncargado(true)} title="Cambiar encargado"
                 className="text-zinc-400 hover:text-teal-600"><Pencil size={12} /></button>
             )}
           </p>
-        ) : f.asignadoA && reasignando && esAdmin ? (
-          <div className="flex items-center gap-2 flex-wrap">
-            <Select
-              value={candidatoElegido} onChange={setCandidatoElegido}
-              placeholder="Nuevo encargado…" minWidth={200}
-              options={candidatos.map(c => ({ value: String(c.id), label: `${c.nombre || `Usuario ${c.id}`} (${c.carga})` }))}
-            />
-            <button onClick={asignar} disabled={!candidatoElegido || asignando}
-              className="inline-flex items-center gap-1 text-[11.5px] font-semibold text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-50 px-2.5 py-1.5 rounded-lg">
-              {asignando ? <Loader2 size={12} className="animate-spin" /> : <UserPlus size={12} />} Cambiar
-            </button>
-            <button onClick={() => { setReasignando(false); setCandidatoElegido(''); }} disabled={asignando}
-              className="text-[11.5px] text-zinc-500 hover:text-zinc-700 px-1.5 py-1.5">Cancelar</button>
-          </div>
         ) : (
           <div className="flex items-center gap-2 flex-wrap">
             <span className={`text-[11.5px] flex items-center gap-1 ${vencimientoPasado ? 'text-rose-600 font-semibold' : 'text-amber-600'}`}>
@@ -441,14 +427,9 @@ function FilaCompras({ f, esJefeDeVentas, esAdmin, puedeCerrar, candidatos, onAs
             </span>
             {esJefeDeVentas && (
               <>
-                <Select
-                  value={candidatoElegido} onChange={setCandidatoElegido}
-                  placeholder="Elegir encargado…" minWidth={200}
-                  options={candidatos.map(c => ({ value: String(c.id), label: `${c.nombre || `Usuario ${c.id}`} (${c.carga})` }))}
-                />
-                <button onClick={asignar} disabled={!candidatoElegido || asignando}
+                <button onClick={() => setModalEncargado(true)} disabled={asignando}
                   className="inline-flex items-center gap-1 text-[11.5px] font-semibold text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-50 px-2.5 py-1.5 rounded-lg">
-                  {asignando ? <Loader2 size={12} className="animate-spin" /> : <UserPlus size={12} />} Asignar
+                  <UserPlus size={12} /> Elegir encargado
                 </button>
               </>
             )}
@@ -487,7 +468,7 @@ function TarjetaDiaCompras({ f, compacta = false }: { f: ComprasFila; compacta?:
         className={`block rounded-md border border-zinc-200 bg-white px-1.5 py-1 shadow-sm transition-all hover:shadow-md ${f.urgente ? 'ring-1 ring-rose-100' : ''}`}>
         <p className="text-[10px] font-semibold text-zinc-900 leading-snug line-clamp-2">{f.licitacionNombre || f.licitacionCodigo}</p>
         <div className="flex items-center justify-between gap-1 mt-0.5">
-          <span className="text-[9.5px] font-bold text-teal-700 flex-shrink-0">{fmtCLPCorto(f.montoNuestro)}</span>
+          <span className="text-[9.5px] font-semibold text-teal-700 flex-shrink-0">{fmtCLPCorto(f.montoNuestro)}</span>
           {f.urgente ? (
             <span title={explicacionUrgente(f)} className="inline-flex items-center gap-0.5 text-[10px] font-medium text-rose-700 flex-shrink-0 cursor-help">
               <AlertTriangle size={7} /> {f.plazoEntregaDias != null ? `${f.plazoEntregaDias}d` : 'Urg'}
@@ -532,7 +513,7 @@ function TarjetaDiaCompras({ f, compacta = false }: { f: ComprasFila; compacta?:
         <p className="text-[9.5px] text-zinc-500 flex items-center gap-1 mt-0.5 truncate"><Building2 size={9} className="flex-shrink-0" /> {f.licitacionOrganismo}</p>
       )}
       <div className="flex items-center justify-between gap-1 mt-1.5">
-        <span className="text-[11px] font-bold text-teal-700">{fmtCLP(f.montoNuestro)}</span>
+        <span className="text-[11px] font-semibold text-teal-700">{fmtCLP(f.montoNuestro)}</span>
         {f.tareasTotal > 0 && (
           <span className={`text-[11px] tabular-nums ${f.tareasVencidas > 0 ? 'text-rose-700 font-medium' : 'text-zinc-500'}`}>{f.tareasHechas}/{f.tareasTotal} tareas</span>
         )}
@@ -613,8 +594,8 @@ function GrillaMesCompras({ mes, porDia, hoy, compacta, onAbrirDia }: {
                 }`}>
                 <div className="flex items-center justify-between px-0.5">
                   <span className={esHoy
-                    ? `bg-teal-600 text-white rounded-full inline-flex items-center justify-center font-bold shadow-sm ${compacta ? 'w-4.5 h-4.5 text-[9.5px]' : 'w-5.5 h-5.5 text-[11px]'}`
-                    : `font-bold ${fueraMes ? 'text-zinc-300' : 'text-zinc-600'} ${compacta ? 'text-[10px]' : 'text-[11.5px]'}`}>{d.date()}</span>
+                    ? `bg-teal-600 text-white rounded-full inline-flex items-center justify-center font-semibold shadow-sm ${compacta ? 'w-4.5 h-4.5 text-[9.5px]' : 'w-5.5 h-5.5 text-[11px]'}`
+                    : `font-semibold ${fueraMes ? 'text-zinc-300' : 'text-zinc-600'} ${compacta ? 'text-[10px]' : 'text-[11.5px]'}`}>{d.date()}</span>
                   {items.length > 0 && (
                     <span className={`font-semibold tabular-nums ${hayUrgente ? 'text-rose-700' : 'text-zinc-500'} ${compacta ? 'text-[10px]' : 'text-[11px]'}`}>{items.length}</span>
                   )}
@@ -726,7 +707,7 @@ function ModalDiaCompras({ dia, negocios, onClose }: { dia: string; negocios: Co
   useCerrarConEsc(onClose);
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-xl max-w-2xl w-full max-h-[92vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+      <div className="bg-white rounded-xl shadow-flotante max-w-2xl w-full max-h-[92vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-4 bg-white border-b border-zinc-200 sticky top-0">
           <p className="text-[15px] font-semibold tracking-tight text-zinc-900">{dayjs(dia).date()} de {MESES[dayjs(dia).month()]}</p>
           <button onClick={onClose} aria-label="Cerrar" className="text-zinc-400 hover:text-zinc-700"><X size={16} /></button>
@@ -1019,7 +1000,7 @@ function FilaGantt({ f, inicioRango, pxDia, onSeleccionar, seleccionada, ultimaU
 function PanelDetalleGantt({ f, onClose }: { f: ComprasFila; onClose: () => void }) {
   const h = calcularHitosGantt(f);
   return (
-    <div className="flex flex-col bg-white border border-zinc-200 rounded-2xl shadow-flotante overflow-hidden w-full max-w-5xl" style={{ maxHeight: '92vh' }} onClick={e => e.stopPropagation()}>
+    <div className="flex flex-col bg-white border border-zinc-200 rounded-xl shadow-flotante overflow-hidden w-full max-w-5xl" style={{ maxHeight: '92vh' }} onClick={e => e.stopPropagation()}>
       <div className="flex items-start justify-between gap-2 px-6 py-4 border-b border-zinc-200">
         <div className="min-w-0">
           <p className="text-[17px] font-semibold tracking-tight text-zinc-900 leading-snug">{f.licitacionNombre || f.licitacionCodigo}</p>
@@ -1031,15 +1012,15 @@ function PanelDetalleGantt({ f, onClose }: { f: ComprasFila; onClose: () => void
         <div className="grid grid-cols-3 gap-1.5 text-center">
           <div className="bg-zinc-50 rounded-lg py-1.5">
             <p className="text-[11px] text-zinc-400">Adjudicación</p>
-            <p className="text-[11px] font-bold text-zinc-700">{h.adjudicacion.format('DD-MM-YY')}</p>
+            <p className="text-[11px] font-semibold text-zinc-700">{h.adjudicacion.format('DD-MM-YY')}</p>
           </div>
           <div className="bg-amber-50 rounded-lg py-1.5">
             <p className="text-[11px] text-amber-500">Aceptar OC</p>
-            <p className="text-[11px] font-bold text-amber-700">{h.aceptacionOCLimite.format('DD-MM-YY')}{h.aceptacionOCEstimada && '*'}</p>
+            <p className="text-[11px] font-semibold text-amber-700">{h.aceptacionOCLimite.format('DD-MM-YY')}{h.aceptacionOCEstimada && '*'}</p>
           </div>
           <div className={`rounded-lg py-1.5 ${h.entregaVencida ? 'bg-rose-50' : 'bg-teal-50'}`}>
             <p className={`text-[11px] ${h.entregaVencida ? 'text-rose-500' : 'text-teal-600'}`}>Entrega</p>
-            <p className={`text-[11px] font-bold ${h.entregaVencida ? 'text-rose-700' : 'text-teal-800'}`}>{h.entrega ? h.entrega.format('DD-MM-YY') : h.porValidar ? 'Por validar' : h.esperandoOC ? (h.faltaAceptar ? 'Al aceptar la OC' : 'Al llegar la OC') : '— sin dato'}</p>
+            <p className={`text-[11px] font-semibold ${h.entregaVencida ? 'text-rose-700' : 'text-teal-800'}`}>{h.entrega ? h.entrega.format('DD-MM-YY') : h.porValidar ? 'Por validar' : h.esperandoOC ? (h.faltaAceptar ? 'Al aceptar la OC' : 'Al llegar la OC') : '— sin dato'}</p>
           </div>
         </div>
         {h.aceptacionOCEstimada && <p className="text-[10px] text-zinc-400">*Estimado — tope legal (5 días corridos), sin dato en las bases.</p>}
@@ -1048,7 +1029,7 @@ function PanelDetalleGantt({ f, onClose }: { f: ComprasFila; onClose: () => void
             si ya se registró una prórroga. Si no está fijado, apunta a dónde fijarlo. */}
         {f.reloj?.fechaLimiteVigente ? (
           <div className={`rounded-lg border px-3 py-2 ${f.reloj.prorrogado ? 'bg-amber-50 border-amber-200' : 'bg-emerald-50 border-emerald-200'}`}>
-            <p className={`text-[11px] font-bold flex items-center gap-1.5 ${f.reloj.prorrogado ? 'text-amber-700' : 'text-emerald-700'}`}>
+            <p className={`text-[11px] font-semibold flex items-center gap-1.5 ${f.reloj.prorrogado ? 'text-amber-700' : 'text-emerald-700'}`}>
               <CalendarClock size={12} /> {f.reloj.prorrogado ? 'Plazo prorrogado' : 'Reloj de Entrega fijado'}
             </p>
             {f.reloj.prorrogado && (
@@ -1312,7 +1293,7 @@ function VistaGanttCompras({ negocios, ultimaUrgenteId }: { negocios: ComprasFil
                       return (
                         <div key={i} title={d.format('dddd DD-MM-YYYY')}
                           className={`absolute inset-y-0 flex items-center justify-center text-[10px] leading-none ${
-                            esHoy ? 'bg-rose-500 text-white font-bold rounded-sm' : finde ? 'bg-zinc-100 text-zinc-400' : 'text-zinc-500'
+                            esHoy ? 'bg-rose-500 text-white font-semibold rounded-sm' : finde ? 'bg-zinc-100 text-zinc-400' : 'text-zinc-500'
                           }`}
                           style={{ left: i * pxDia, width: pxDia }}>
                           {d.date()}
@@ -1326,7 +1307,7 @@ function VistaGanttCompras({ negocios, ultimaUrgenteId }: { negocios: ComprasFil
                       {/* Etiqueta "pegajosa": al desplazarse dentro de un mes ancho, su nombre se queda
                           pegado al borde de la columna fija en vez de desaparecer por la izquierda —
                           pero sin salirse de los límites de SU mes (se lo pasa al siguiente al llegar). */}
-                      <div className={`sticky h-full flex items-center px-2 text-[11px] font-bold capitalize ${m.par ? 'text-zinc-500' : 'text-zinc-400'}`}
+                      <div className={`sticky h-full flex items-center px-2 text-[11px] font-semibold capitalize ${m.par ? 'text-zinc-500' : 'text-zinc-400'}`}
                         style={{ left: ANCHO_ETIQUETA_GANTT + 8 }}>
                         {m.label}
                       </div>
@@ -1497,7 +1478,7 @@ export default function ComprasPage() {
   // es solo de admin (el backend en /api/compras/[negocioId]/asignar/route.ts hace el mismo
   // corte) — la asignación inicial (negocio sin nadie encima todavía) la sigue haciendo el jefe
   // de ventas.
-  const esAdmin = usuario?.rol === 'admin';
+  const esAdmin = usuario?.rol === 'admin' || !!usuario?.permisos?.reasignar_negocios;
 
   const cargar = useCallback(async () => {
     try {
@@ -1662,7 +1643,7 @@ export default function ComprasPage() {
               <ShoppingCart size={17} className="text-teal-600" />
             </div>
             <div>
-              <h1 className="text-[16px] font-bold text-zinc-900 leading-tight">Compras</h1>
+              <h1 className="text-[16px] font-semibold text-zinc-900 leading-tight">Compras</h1>
               <p className="text-[12px] text-zinc-500">
                 {negocios.length === 0 ? 'Sin negocios ganados todavía'
                   : hayFiltro || q || estado !== 'abiertas' ? `${filtrados.length} negocio(s)`
@@ -1743,7 +1724,7 @@ export default function ComprasPage() {
               { key: 'canceladas', label: 'Canceladas', n: nPorEstado.canceladas, clase: 'border-rose-600 text-rose-700' },
               { key: 'todas', label: 'Todas', n: nPorEstado.todas, clase: 'border-zinc-700 text-zinc-800' },
               { key: 'precompras', label: 'Pre-compras (POSIBLE ADJ)', n: nPrecompras, clase: 'border-slate-600 text-slate-700' },
-              { key: 'avances', label: 'Licitaciones por avances', n: nPorEstado.abiertas, clase: 'border-indigo-600 text-indigo-700' },
+              { key: 'avances', label: 'Licitaciones por avances', n: nPorEstado.abiertas, clase: 'border-teal-600 text-teal-700' },
             ] as const).map(t => {
               const activa = t.key === 'precompras' ? ambito === 'precompras' : t.key === 'avances' ? ambito === 'avances' : ambito === 'ganadas' && estado === t.key;
               return (

@@ -13,6 +13,7 @@
 // mutación — ver el comentario de ese archivo: nada de lo que ya leía la firma única se entera.
 // Mutaciones solo admin, igual que el resto del CRUD de empresas.
 import { mensajeSeguro } from '@/app/lib/errores-api';
+import { tienePermiso } from '@/app/lib/api-auth';
 import { NextRequest, NextResponse } from 'next/server';
 import { registroEsDeMiEmpresa } from '@/app/lib/tenant';
 import pool from '@/app/lib/db';
@@ -43,7 +44,7 @@ export async function GET(request: NextRequest, { params }: Params) {
 
 export async function POST(request: NextRequest, { params }: Params) {
   const { id: userId, rol } = getUser(request);
-  if (!userId || rol !== 'admin')
+  if (!userId || !(await tienePermiso(request, 'config_empresa')))
     return NextResponse.json({ error: 'Solo el admin puede editar las firmas de la empresa' }, { status: 403 });
   const { id } = await params;
   // SEC-005: la empresa tiene que ser de la empresa-cliente de quien consulta (antes cualquier admin podía tocar la de otro cliente por id).
@@ -86,7 +87,7 @@ export async function POST(request: NextRequest, { params }: Params) {
 
 export async function PATCH(request: NextRequest, { params }: Params) {
   const { id: userId, rol } = getUser(request);
-  if (!userId || rol !== 'admin')
+  if (!userId || !(await tienePermiso(request, 'config_empresa')))
     return NextResponse.json({ error: 'Solo el admin puede editar las firmas de la empresa' }, { status: 403 });
   const { id } = await params;
   // SEC-005: la empresa tiene que ser de la empresa-cliente de quien consulta (antes cualquier admin podía tocar la de otro cliente por id).
@@ -116,7 +117,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
 
 export async function DELETE(request: NextRequest, { params }: Params) {
   const { id: userId, rol } = getUser(request);
-  if (!userId || rol !== 'admin')
+  if (!userId || !(await tienePermiso(request, 'config_empresa')))
     return NextResponse.json({ error: 'Solo el admin puede eliminar firmas de la empresa' }, { status: 403 });
   const { id } = await params;
   // SEC-005: la empresa tiene que ser de la empresa-cliente de quien consulta (antes cualquier admin podía tocar la de otro cliente por id).

@@ -20,6 +20,7 @@ export interface ResumenCompras {
   plazoEntregaOfertado: string | null; hitoInicioPlazo: string | null;
   requiereBoletaFielCumplimiento: boolean; requiereFirmaContrato: boolean; plazoAceptacionOC: string;
   existeCosteo: boolean; montoCosteado: number | null; margenPrevisto: number | null; costoDesdeCompraAprobada?: boolean;
+  costeoGanado?: { ganadas: number[]; postuladas: number[]; perdidas: number[]; costoPostulado: number; filasSinLinea: boolean };
   contactosCliente: {
     organismo: string | null; unidad: string | null; direccion: string | null; comuna: string | null;
     region?: string | null; rut?: string | null;
@@ -167,7 +168,7 @@ export function ComprasProvider({ negocioId, children }: { negocioId: number; ch
   // Pedido explícito del usuario, 15-sep-2026: cambiar un encargado que YA tiene otro asignado es
   // solo de admin (mismo corte que el backend en /api/compras/[negocioId]/asignar/route.ts) —
   // esJefeDeVentas de arriba sigue habilitando la asignación INICIAL.
-  const esAdmin = usuario?.rol === 'admin';
+  const esAdmin = usuario?.rol === 'admin' || !!usuario?.permisos?.reasignar_negocios;   // «Cambiar» encargado: casilla «Reasignar negocios y encargados»
 
   return (
     <Ctx.Provider value={{

@@ -54,12 +54,12 @@ export default function ReglasIAPage() {
   ), [reglas, tipo, estado]);
   const nSin = (reglas || []).filter(r => r.sin_destilar && r.activa).length;
 
-  const chip = (act: boolean) => `px-3 py-1.5 rounded-full text-[12px] font-semibold border transition ${act ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-slate-600 border-slate-200 hover:border-indigo-300'}`;
+  const chip = (act: boolean) => `px-3 py-1.5 rounded-full text-[12px] font-semibold border transition ${act ? 'bg-teal-600 text-white border-teal-600' : 'bg-white text-slate-600 border-slate-200 hover:border-teal-300'}`;
 
   return (
     <AppLayout breadcrumb={[{ label: 'Reglas de la IA' }]}>
       <div className="max-w-5xl mx-auto px-4 py-6">
-        <div className="flex items-center gap-2 mb-1"><Brain size={22} className="text-indigo-600" /><h1 className="text-xl font-bold text-slate-800">Reglas que aprende la IA de viabilidad</h1></div>
+        <div className="flex items-center gap-2 mb-1"><Brain size={22} className="text-teal-600" /><h1 className="text-xl font-semibold text-slate-800">Reglas que aprende la IA de viabilidad</h1></div>
         <p className="text-sm text-slate-500 mb-5">Solo CA ve y crea estas reglas. Una regla enseña qué <b>leer, reportar o advertir</b>; nunca mueve el nivel de atractivo ni cómo se adjudica (eso lo decide el sistema). Desactivar una regla la deja en el historial.</p>
 
         {cargando ? <Loader2 className="animate-spin text-slate-400" /> : !esCA ? (
@@ -82,9 +82,9 @@ export default function ReglasIAPage() {
                 {visibles.map(r => (
                   <li key={r.id} className={`rounded-xl border p-4 ${r.activa ? 'bg-white border-slate-200' : 'bg-slate-50 border-slate-200 opacity-80'}`}>
                     <div className="flex flex-wrap items-center gap-2 text-[11px] mb-2">
-                      <span className={`px-2 py-0.5 rounded-full font-bold ${r.ambito === 'lectura' ? 'bg-cyan-100 text-cyan-700' : 'bg-indigo-100 text-indigo-700'}`}>{r.ambito === 'lectura' ? 'Lectura' : 'Viabilidad'}</span>
-                      <span className={`px-2 py-0.5 rounded-full font-bold ${r.activa ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-600'}`}>{r.activa ? 'Activa' : 'Inactiva'}</span>
-                      {r.sin_destilar && <span className="px-2 py-0.5 rounded-full font-bold bg-amber-100 text-amber-700">Sin convertir</span>}
+                      <span className={`px-2 py-0.5 rounded-full font-semibold ${r.ambito === 'lectura' ? 'bg-cyan-100 text-cyan-700' : 'bg-teal-100 text-teal-700'}`}>{r.ambito === 'lectura' ? 'Lectura' : 'Viabilidad'}</span>
+                      <span className={`px-2 py-0.5 rounded-full font-semibold ${r.activa ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-600'}`}>{r.activa ? 'Activa' : 'Inactiva'}</span>
+                      {r.sin_destilar && <span className="px-2 py-0.5 rounded-full font-semibold bg-amber-100 text-amber-700">Sin convertir</span>}
                       <span className="text-slate-500">{fecha(r.created_at)} · {r.licitacion_codigo}{r.autor ? ` · ${r.autor}` : ''}</span>
                       <span className="ml-auto text-slate-500">Usada en {r.veces_usada} {r.veces_usada === 1 ? 'análisis' : 'análisis'}</span>
                     </div>
@@ -96,7 +96,7 @@ export default function ReglasIAPage() {
                           placeholder="Escribe la regla general (condicional: «Si las bases … entonces …»), máx. 240 caracteres"
                           value={borrador[r.id] ?? ''} onChange={e => setBorrador(b => ({ ...b, [r.id]: e.target.value }))} />
                         <button disabled={trabajando === r.id || (borrador[r.id] || '').trim().length < 8} onClick={() => patch(r.id, { regla: borrador[r.id] }, 'Regla aprobada')}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-[12px] font-semibold disabled:opacity-40"><Check size={14} /> Aprobar regla</button>
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-teal-600 text-white text-[12px] font-semibold disabled:opacity-40"><Check size={14} /> Aprobar regla</button>
                       </div>
                     ) : (
                       <>

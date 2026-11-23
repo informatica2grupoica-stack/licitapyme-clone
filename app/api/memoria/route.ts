@@ -11,7 +11,7 @@
 // El rol `externo` queda fuera por completo (solo ve lo suyo, y esto es transversal).
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getAuthedUser, esAdmin } from '@/app/lib/api-auth';
+import { getAuthedUser, tienePermiso } from '@/app/lib/api-auth';
 import {
   listarCasos, guardarCaso, borrarCaso, resumenMemoria, obtenerCaso,
 } from '@/app/lib/memoria-historica';
@@ -53,7 +53,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const u = await getAuthedUser(req);
   if (!u) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
-  if (!(await esAdmin(req))) {
+  if (!(await tienePermiso(req, 'memoria_experiencia'))) {
     return NextResponse.json({ error: 'Solo un administrador puede cargar experiencia' }, { status: 403 });
   }
 
@@ -91,7 +91,7 @@ export async function POST(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
-  if (!(await esAdmin(req))) {
+  if (!(await tienePermiso(req, 'memoria_experiencia'))) {
     return NextResponse.json({ error: 'Solo un administrador puede borrar experiencia' }, { status: 403 });
   }
   const id = Number(req.nextUrl.searchParams.get('id'));

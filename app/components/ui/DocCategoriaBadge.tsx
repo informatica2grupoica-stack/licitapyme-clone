@@ -25,7 +25,7 @@ const CONFIG: Record<DocCategoria, { label: string; shortLabel: string; classNam
   BASES_TECNICAS: {
     label: 'Bases Técnicas',
     shortLabel: 'Bases Téc.',
-    className: 'bg-purple-50 text-purple-700 border border-purple-200',
+    className: 'bg-slate-50 text-slate-700 border border-slate-200',
     icon: <FileText size={10} />,
   },
   CRITERIOS_EVALUACION: {

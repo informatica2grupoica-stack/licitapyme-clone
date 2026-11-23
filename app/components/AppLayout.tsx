@@ -144,12 +144,18 @@ const NAV_GROUPS: NavGroup[] = [
 
 // Perfil de Compras: ítems del menú visibles y prefijos de página permitidos. Las páginas de
 // detalle de negocio/licitación quedan permitidas (van enlazadas desde Compras) pero sin ítem propio.
+// Entradas que antes eran «solo admin» y ahora se muestran a quien tenga su casilla (menú de privilegios, 23-nov-2026).
+const PERMISO_DE_NAV: Record<string, 'ver_descartadas' | 'analisis_licitacion' | 'ver_analizadas' | 'ver_historial' | 'buscador_licitaciones' | 'admin_etiquetas' | 'admin_usuarios' | 'soporte_tecnico' | 'config_empresa'> = {
+  '/descartadas': 'ver_descartadas', '/analisis-licitacion': 'analisis_licitacion', '/analizadas': 'ver_analizadas', '/alertas': 'ver_historial',
+  '/': 'buscador_licitaciones', '/admin/etiquetas': 'admin_etiquetas', '/admin/usuarios': 'admin_usuarios',
+  '/admin/errores': 'soporte_tecnico', '/admin/gasto-ia': 'soporte_tecnico', '/admin/whatsapp': 'soporte_tecnico', '/empresas': 'config_empresa',
+};
 const HREFS_SOLO_COMPRAS = ['/compras', '/compras/cerradas', '/compras/proyectos', '/compras/proveedores', '/compras/oc-comercial-mp', '/logistica/fleteros', '/ordenes-compra', '/entregas', '/mis-reportes'];
 const PAGINAS_SOLO_COMPRAS = ['/compras', '/logistica', '/ordenes-compra', '/entregas', '/perfil', '/mis-reportes', '/negocios/', '/licitacion/'];
 
 const AVATAR_BG: Record<string, string> = {
-  indigo: 'bg-indigo-600', violet: 'bg-violet-600', cyan: 'bg-cyan-600',
-  teal: 'bg-teal-600', grape: 'bg-purple-600', blue: 'bg-blue-600',
+  indigo: 'bg-teal-600', violet: 'bg-cyan-600', cyan: 'bg-cyan-600',
+  teal: 'bg-teal-600', grape: 'bg-slate-600', blue: 'bg-blue-600',
 };
 const AVATAR_SEEDS = ['indigo', 'violet', 'cyan', 'teal', 'grape', 'blue'];
 function colorDe(seed: string) { return AVATAR_SEEDS[(seed?.charCodeAt(0) || 0) % AVATAR_SEEDS.length]; }
@@ -158,7 +164,7 @@ function AvatarIcon({ initials, color, size = 34, fotoUrl }: { initials: string;
   if (fotoUrl) return <img src={fotoUrl} alt="" className="rounded-lg object-cover flex-shrink-0" style={{ width: size, height: size }} />;
   return (
     <div
-      className={`rounded-lg flex items-center justify-center text-white font-semibold flex-shrink-0 ${AVATAR_BG[color] || 'bg-indigo-600'}`}
+      className={`rounded-lg flex items-center justify-center text-white font-semibold flex-shrink-0 ${AVATAR_BG[color] || 'bg-teal-600'}`}
       style={{ width: size, height: size, fontSize: size * 0.38 }}
     >
       {initials}
@@ -207,7 +213,7 @@ function UserMenu({ dark = false, angosto = false }: { dark?: boolean; angosto?:
       </Tooltip>
 
       {open && (
-        <div className="absolute bottom-full left-0 mb-2 w-[230px] bg-white dark:bg-[#1c1f26] border border-slate-200 dark:border-white/[0.08] rounded-xl shadow-xl py-1 z-50">
+        <div className="absolute bottom-full left-0 mb-2 w-[230px] bg-white dark:bg-[#1c1f26] border border-slate-200 dark:border-white/[0.08] rounded-xl shadow-flotante py-1 z-50">
           <p className="px-3 py-1.5 text-[11px] text-slate-400 dark:text-slate-500 font-medium truncate">{usuario.email}</p>
           <div className="h-px bg-slate-100 dark:bg-white/[0.07] my-1" />
           <Link href="/perfil" onClick={() => setOpen(false)} className="flex items-center gap-2.5 px-3 py-2 text-[13px] text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/[0.06] transition-colors">
@@ -226,17 +232,17 @@ function UserMenu({ dark = false, angosto = false }: { dark?: boolean; angosto?:
               </Link>
             </>
           )}
-          {usuario.rol === 'admin' && (
+          {(!!usuario.permisos?.admin_usuarios || !!usuario.permisos?.admin_etiquetas) && (
             <>
               {/* La administración de usuarios es de Grupo ICA; una empresa-cliente no la ve (el servidor también la bloquea). */}
-              {(usuario.clienteId == null || usuario.clienteId === 1) && (
+              {!!usuario.permisos?.admin_usuarios && (usuario.clienteId == null || usuario.clienteId === 1) && (
                 <Link href="/admin/usuarios" onClick={() => setOpen(false)} className="flex items-center gap-2.5 px-3 py-2 text-[13px] text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/[0.06] transition-colors">
                   <Users size={15} className="text-slate-400" /> Administrar usuarios
                 </Link>
               )}
-              <Link href="/admin/etiquetas" onClick={() => setOpen(false)} className="flex items-center gap-2.5 px-3 py-2 text-[13px] text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/[0.06] transition-colors">
+              {!!usuario.permisos?.admin_etiquetas && <Link href="/admin/etiquetas" onClick={() => setOpen(false)} className="flex items-center gap-2.5 px-3 py-2 text-[13px] text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/[0.06] transition-colors">
                 <Tag size={15} className="text-slate-400" /> Líneas de negocio
-              </Link>
+              </Link>}
             </>
           )}
           <div className="h-px bg-slate-100 dark:bg-white/[0.07] my-1" />
@@ -400,6 +406,8 @@ function Sidebar({ mobileOpen, onCloseMobile }: { mobileOpen: boolean; onCloseMo
       if (soloCompras) return HREFS_SOLO_COMPRAS.includes(i.href);
       if (esExterno) return i.href === '/negocios' || i.href === '/mis-reportes'; // externo: "Mis licitaciones" + sus reportes
       if (!i.adminOnly || usuario?.rol === 'admin') return true;
+      const permisoNav = PERMISO_DE_NAV[i.href];
+      if (permisoNav && usuario?.permisos?.[permisoNav]) return true;
       if (i.href === '/radar' && usuario?.permisos?.acceso_radar) return true;
       if (i.href === '/aprobaciones' && puedeAprobar) return true;
       if (i.href === '/puente' && puedeRepartir) return true;
@@ -445,7 +453,7 @@ function Sidebar({ mobileOpen, onCloseMobile }: { mobileOpen: boolean; onCloseMo
 
       <aside className={`
         fixed top-0 left-0 h-full z-50 flex flex-col w-64
-        bg-gradient-to-b from-[#1c2027] to-[#15181d]
+        bg-[#1a1d23]
         ${animarAncho ? 'transition-[transform,width]' : 'transition-transform'} duration-300 ease-out
         ${angosto ? ANCHO_COLAPSADO : 'lg:w-64'}
         ${mobileOpen ? 'translate-x-0' : '-translate-x-full'} lg:translate-x-0 lg:static lg:z-auto
@@ -459,8 +467,8 @@ function Sidebar({ mobileOpen, onCloseMobile }: { mobileOpen: boolean; onCloseMo
             <Link href="/dashboard" onClick={onCloseMobile} className="flex items-center gap-2.5 group min-w-0">
               <div className="group-hover:scale-105 transition-transform flex-shrink-0"><LicitankIcon size={36} /></div>
               <div className={`flex flex-col leading-none ${clsEtiqueta}`}>
-                <span className="text-white font-black text-[15px] tracking-tight">LICITANK</span>
-                <span className="text-slate-500 text-[9.5px] font-semibold tracking-[0.14em] uppercase mt-0.5">Licitaciones</span>
+                <span className="text-white font-semibold text-[15px] tracking-tight">LICITANK</span>
+                <span className="text-slate-500 text-[9.5px] font-semibold mt-0.5">Licitaciones</span>
               </div>
             </Link>
           )}
@@ -486,7 +494,7 @@ function Sidebar({ mobileOpen, onCloseMobile }: { mobileOpen: boolean; onCloseMo
 
         {/* Búsqueda rápida: solo admin — el buscador "/" es admin-only, mostrarla a un
             usuario normal lo mandaba a un redirect confuso hacia /negocios. */}
-        {usuario?.rol === 'admin' && (
+        {!!usuario?.permisos?.buscador_licitaciones && (
         <div className={`pb-3 flex-shrink-0 ${trans} ${angosto ? 'px-3 lg:px-2' : 'px-3'}`}>
           <Tooltip label="Buscar licitaciones  ⌘K" disabled={!angosto}>
             <Link href="/" onClick={onCloseMobile}
@@ -512,7 +520,7 @@ function Sidebar({ mobileOpen, onCloseMobile }: { mobileOpen: boolean; onCloseMo
               <div key={group.label}>
                 {/* Colapsado, el título del grupo cede su sitio a un separador: la agrupación
                     se sigue leyendo sin gastar los 76px de ancho en texto. */}
-                <p className={`px-2 mb-1.5 text-[9.5px] font-bold text-slate-600 tracking-[0.14em] uppercase
+                <p className={`px-2 mb-1.5 text-[9.5px] font-semibold text-slate-600
                   ${angosto ? 'lg:hidden' : ''}`}>{group.label}</p>
                 {angosto && <div className="hidden lg:block h-px bg-white/[0.07] mx-2 mb-2" />}
                 <div className="space-y-0.5">
@@ -548,7 +556,7 @@ function Sidebar({ mobileOpen, onCloseMobile }: { mobileOpen: boolean; onCloseMo
                             ${active
                               ? 'sidebar-tab-active -mr-3 rounded-l-2xl bg-slate-50 text-slate-900 font-semibold'
                               : 'rounded-xl font-medium text-slate-400 hover:text-slate-100 hover:bg-white/[0.05]'}`}>
-                          <span className={`relative flex-shrink-0 ${active ? 'text-indigo-600' : 'text-slate-500 group-hover:text-slate-300'}`}>
+                          <span className={`relative flex-shrink-0 ${active ? 'text-teal-600' : 'text-slate-500 group-hover:text-slate-300'}`}>
                             {item.icon}
                             {/* Colapsado no cabe el número: queda un punto sobre el icono para
                                 que la alerta no desaparezca al angostar. */}
@@ -656,17 +664,17 @@ function NotificacionesBell() {
       >
         <Bell size={18} />
         {noLeidas > 0 && (
-          <span className="absolute top-1 right-1 min-w-[16px] h-4 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center px-0.5 leading-none">
+          <span className="absolute top-1 right-1 min-w-[16px] h-4 bg-red-500 text-white text-[10px] font-semibold rounded-full flex items-center justify-center px-0.5 leading-none">
             {noLeidas > 9 ? '9+' : noLeidas}
           </span>
         )}
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full mt-2 w-[350px] bg-white dark:bg-[#1c1f26] border border-slate-200 dark:border-white/[0.08] rounded-xl shadow-xl z-50 overflow-hidden">
+        <div className="absolute right-0 top-full mt-2 w-[350px] bg-white dark:bg-[#1c1f26] border border-slate-200 dark:border-white/[0.08] rounded-xl shadow-flotante z-50 overflow-hidden">
           <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 dark:border-white/[0.07]">
-            <p className="text-[13px] font-bold text-slate-800 dark:text-slate-100">Notificaciones</p>
-            <Link href="/alertas" onClick={() => setOpen(false)} className="text-[12px] font-semibold text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300">
+            <p className="text-[13px] font-semibold text-slate-800 dark:text-slate-100">Notificaciones</p>
+            <Link href="/alertas" onClick={() => setOpen(false)} className="text-[12px] font-semibold text-teal-600 hover:text-teal-700 dark:text-teal-400 dark:hover:text-teal-300">
               Ver historial
             </Link>
           </div>
@@ -677,7 +685,7 @@ function NotificacionesBell() {
               eventos.map((e, i) => {
                 const content = (
                   <div className="flex items-start gap-2.5 px-4 py-3 hover:bg-slate-50 dark:hover:bg-white/[0.05] transition-colors cursor-pointer">
-                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5 ${e.leido ? 'bg-slate-100 text-slate-400 dark:bg-white/[0.06] dark:text-slate-500' : 'bg-indigo-50 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-400'}`}>
+                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5 ${e.leido ? 'bg-slate-100 text-slate-400 dark:bg-white/[0.06] dark:text-slate-500' : 'bg-teal-50 text-teal-600 dark:bg-teal-500/15 dark:text-teal-400'}`}>
                       <Briefcase size={15} />
                     </div>
                     <div className="flex-1 min-w-0">
@@ -796,7 +804,7 @@ export function AppLayout({ children, breadcrumb }: AppLayoutProps) {
   // Atajo ⌘K / Ctrl+K → buscador (solo admin, que es quien tiene acceso a "/").
   // Hace real el hint que muestra la búsqueda rápida del sidebar.
   useEffect(() => {
-    if (usuario?.rol !== 'admin') return;
+    if (!usuario?.permisos?.buscador_licitaciones) return;
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
@@ -816,11 +824,11 @@ export function AppLayout({ children, breadcrumb }: AppLayoutProps) {
         <TopBar breadcrumb={breadcrumb} onOpenMobile={() => setMobileOpen(true)} />
         {/* No bloqueante: falta el teléfono de contacto (perfil profesional, migración 125) */}
         {usuario?.perfilPendiente && !avisoPerfilCerrado && pathname !== '/perfil' && (
-          <div className="flex items-center gap-3 px-4 py-2 bg-indigo-50 dark:bg-indigo-500/10 border-b border-indigo-100 dark:border-indigo-500/20 text-[12.5px] text-indigo-800 dark:text-indigo-200">
+          <div className="flex items-center gap-3 px-4 py-2 bg-teal-50 dark:bg-teal-500/10 border-b border-teal-100 dark:border-teal-500/20 text-[12.5px] text-teal-800 dark:text-teal-200">
             <User size={14} className="flex-shrink-0" />
             <span className="flex-1 min-w-0">Completa tu perfil: falta tu teléfono de contacto.</span>
             <Link href="/perfil" className="font-semibold underline underline-offset-2 whitespace-nowrap">Completar ahora</Link>
-            <button onClick={() => setAvisoPerfilCerrado(true)} aria-label="Cerrar aviso" className="p-0.5 hover:bg-indigo-100 dark:hover:bg-white/10 rounded"><X size={13} /></button>
+            <button onClick={() => setAvisoPerfilCerrado(true)} aria-label="Cerrar aviso" className="p-0.5 hover:bg-teal-100 dark:hover:bg-white/10 rounded"><X size={13} /></button>
           </div>
         )}
         <main className="flex-1 overflow-y-auto">{children}</main>

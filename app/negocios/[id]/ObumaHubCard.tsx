@@ -23,7 +23,7 @@ function Fila({ ok, titulo, detalle, children }: { ok: boolean; titulo: string; 
     <div className="px-4 py-3 flex items-start gap-3">
       <span className={`mt-0.5 flex-shrink-0 ${ok ? 'text-emerald-600' : 'text-zinc-300'}`}>{ok ? <Check size={20} /> : <Pendiente size={20} />}</span>
       <div className="min-w-0 flex-1">
-        <p className="text-[13.5px] font-bold text-zinc-900">{titulo}</p>
+        <p className="text-[13.5px] font-semibold text-zinc-900">{titulo}</p>
         <p className="text-[12.5px] text-zinc-500 mt-0.5">{detalle}</p>
         {children}
       </div>
@@ -132,7 +132,7 @@ export function ObumaHubCard({ negocioId, puedeOperar, esAdministracion }: { neg
     <div className="space-y-4" data-testid="obuma-hub">
       {/* 1. Qué falta */}
       <div className="rounded-xl border border-zinc-200 bg-white overflow-hidden">
-        <p className="px-4 py-2.5 text-[11.5px] font-bold text-zinc-500 uppercase bg-zinc-50 border-b border-zinc-100 flex items-center gap-1.5"><Shield size={13} /> Listo para comprar en Obuma</p>
+        <p className="px-4 py-2.5 text-[11.5px] font-semibold text-zinc-500 uppercase bg-zinc-50 border-b border-zinc-100 flex items-center gap-1.5"><Shield size={13} /> Listo para comprar en Obuma</p>
         <div className="divide-y divide-zinc-100">
           <Fila ok={aprobado} titulo="Compra y margen aprobados"
             detalle={aprob == null ? 'Revisando…' : aprobado ? 'Las dos aprobaciones están listas: se puede emitir dinero real en Obuma.' : `Falta aprobar ${[!aprob.compra && 'la compra', !aprob.margen && 'el margen'].filter(Boolean).join(' y ')} (paso «Aprobación y SKU»). Sin eso no se pueden crear SKU ni órdenes de compra (salvo las compras rápidas que el jefe de ventas ya aprobó: esas sí pueden crear su SKU, su proveedor y su OC).`} />
@@ -144,7 +144,7 @@ export function ObumaHubCard({ negocioId, puedeOperar, esAdministracion }: { neg
                   <li key={p.nombre} className="flex items-center gap-2 flex-wrap text-[12.5px]">
                     <span className="font-semibold text-zinc-800">{p.nombre}</span>
                     <span className="text-amber-700">{p.estado === 'sin_rut' ? 'sin RUT' : 'no existe en Obuma'}</span>
-                    {puedeOperar && <button onClick={() => setModal({ rut: p.rut || '', razonSocial: p.nombre })} className="text-[12px] font-semibold text-indigo-600 hover:text-indigo-800">Crear proveedor</button>}
+                    {puedeOperar && <button onClick={() => setModal({ rut: p.rut || '', razonSocial: p.nombre })} className="text-[12px] font-semibold text-teal-600 hover:text-teal-800">Crear proveedor</button>}
                   </li>
                 ))}
               </ul>
@@ -177,8 +177,8 @@ export function ObumaHubCard({ negocioId, puedeOperar, esAdministracion }: { neg
       <div className="rounded-xl border border-zinc-200 bg-white overflow-hidden">
         <div className="px-4 py-2.5 bg-zinc-50 border-b border-zinc-100 flex items-center gap-1.5">
           <Proveedor size={14} className="text-zinc-400" />
-          <p className="text-[11.5px] font-bold text-zinc-500 uppercase">1 · Proveedor</p>
-          {puedeOperar && <button onClick={() => setModal({})} className="ml-auto inline-flex items-center gap-1 text-[12px] font-semibold text-indigo-600 hover:text-indigo-800"><Plus size={13} /> Crear proveedor en Obuma</button>}
+          <p className="text-[11.5px] font-semibold text-zinc-500 uppercase">1 · Proveedor</p>
+          {puedeOperar && <button onClick={() => setModal({})} className="ml-auto inline-flex items-center gap-1 text-[12px] font-semibold text-teal-600 hover:text-teal-800"><Plus size={13} /> Crear proveedor en Obuma</button>}
         </div>
         <div className="p-4 space-y-2">
           <p className="text-[12.5px] text-zinc-500">Busca por nombre o RUT para ver si ya existe antes de crearlo (también sirve para una compra directa).</p>
@@ -186,13 +186,13 @@ export function ObumaHubCard({ negocioId, puedeOperar, esAdministracion }: { neg
             <div className="relative flex-1">
               <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-400" />
               <input value={q} onChange={e => { setQ(e.target.value); setRutEstado({ estado: 'idle' }); }} onBlur={comprobarRutBuscado} placeholder="Nombre o RUT del proveedor"
-                className="w-full text-[13px] border border-zinc-200 rounded-lg pl-8 pr-2.5 py-2 outline-none focus:ring-1 focus:ring-indigo-500" />
+                className="w-full text-[13px] border border-zinc-200 rounded-lg pl-8 pr-2.5 py-2 outline-none focus:ring-1 focus:ring-teal-500" />
             </div>
           </div>
           {rutEstado.estado === 'cargando' && <p className="text-[12px] text-zinc-500 flex items-center gap-1.5"><Loader2 size={12} className="animate-spin" /> Consultando Obuma…</p>}
           {rutEstado.estado === 'existe' && <p className="text-[12.5px] font-semibold text-emerald-700">✓ Ese RUT ya existe en Obuma.</p>}
           {rutEstado.estado === 'no_existe' && (
-            <p className="text-[12.5px] font-semibold text-amber-700">Ese RUT no existe en Obuma. {puedeOperar && <button onClick={() => setModal({ rut: q.trim() })} className="underline text-indigo-600">Crear proveedor con este RUT</button>}</p>
+            <p className="text-[12.5px] font-semibold text-amber-700">Ese RUT no existe en Obuma. {puedeOperar && <button onClick={() => setModal({ rut: q.trim() })} className="underline text-teal-600">Crear proveedor con este RUT</button>}</p>
           )}
           {sugeridos.length > 0 && (
             <ul className="divide-y divide-zinc-100 rounded-lg border border-zinc-100" data-testid="hub-sugeridos">
@@ -217,7 +217,7 @@ export function ObumaHubCard({ negocioId, puedeOperar, esAdministracion }: { neg
 
       {/* 4. Órdenes de compra */}
       <div>
-        <p className="text-[11.5px] font-bold text-zinc-500 uppercase mb-2 flex items-center gap-1.5 px-0.5"><Oc size={13} /> 3 · Órdenes de compra a proveedores</p>
+        <p className="text-[11.5px] font-semibold text-zinc-500 uppercase mb-2 flex items-center gap-1.5 px-0.5"><Oc size={13} /> 3 · Órdenes de compra a proveedores</p>
         <RepartoAdminCard key={`oc-${version}`} negocioId={negocioId} puedeOperar={puedeOperar || esAdministracion} parte="oc" />
       </div>
 

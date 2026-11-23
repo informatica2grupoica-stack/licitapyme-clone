@@ -192,7 +192,7 @@ export default function EntregasPage() {
               <Trophy size={19} className="text-amber-500" />
             </div>
             <div>
-              <h1 className="text-[19px] font-bold text-zinc-900">Entrega de proyectos</h1>
+              <h1 className="text-[19px] font-semibold text-zinc-900">Entrega de proyectos</h1>
               <p className="text-[13px] text-zinc-500 mt-0.5">
                 {hayFiltro || q ? `${filtradas.length} de ${entregas.length}` : 'Proyectos ganados'} según el acta de Mercado Público, con lo que se comprometió al postular.
               </p>
@@ -363,7 +363,7 @@ export default function EntregasPage() {
                         <div className="flex items-start gap-2.5 text-[12.5px] text-red-800 bg-red-50 border border-red-200 rounded-lg px-3 py-2.5">
                           <ShieldAlert size={15} className="mt-0.5 flex-shrink-0 text-red-500" />
                           <div className="space-y-0.5">
-                            <p className="font-bold">Multas por atraso</p>
+                            <p className="font-semibold">Multas por atraso</p>
                             {r.multas.estructura && <p>{r.multas.estructura}</p>}
                             <p className="flex flex-wrap gap-x-3 text-[11.5px]">
                               {r.multas.costoPorDia && <span><span className="text-red-500">Por día:</span> {r.multas.costoPorDia}</span>}
@@ -482,7 +482,7 @@ export default function EntregasPage() {
                                 {d.subidoPorNombre && <span className="text-[10.5px] text-zinc-400 flex-shrink-0">subió {d.subidoPorNombre}</span>}
                                 <button
                                   onClick={() => setVisorDoc({ nombre: d.nombre, url: d.url })}
-                                  className="inline-flex items-center gap-1 text-[11px] font-semibold text-indigo-600 hover:text-indigo-700 flex-shrink-0"
+                                  className="inline-flex items-center gap-1 text-[11px] font-semibold text-teal-600 hover:text-teal-700 flex-shrink-0"
                                 >
                                   <Eye size={11} /> Ver
                                 </button>
@@ -544,8 +544,8 @@ export default function EntregasPage() {
 function Dato({ etiqueta, valor, destacado }: { etiqueta: string; valor: string; destacado?: boolean }) {
   return (
     <div className="bg-white border border-zinc-200 rounded-lg px-3 py-2">
-      <p className="text-[10.5px] font-semibold text-zinc-400 uppercase tracking-wide">{etiqueta}</p>
-      <p className={`text-[13px] mt-0.5 ${destacado ? 'font-bold text-emerald-700' : 'font-semibold text-zinc-800'}`}>{valor}</p>
+      <p className="text-[10.5px] font-semibold text-zinc-400">{etiqueta}</p>
+      <p className={`text-[13px] mt-0.5 ${destacado ? 'font-semibold text-emerald-700' : 'font-semibold text-zinc-800'}`}>{valor}</p>
     </div>
   );
 }
@@ -553,7 +553,7 @@ function Dato({ etiqueta, valor, destacado }: { etiqueta: string; valor: string;
 function Seccion({ titulo, children }: { titulo: string; children: React.ReactNode }) {
   return (
     <div>
-      <p className="text-[10.5px] font-semibold text-zinc-400 uppercase tracking-wide mb-1.5">{titulo}</p>
+      <p className="text-[10.5px] font-semibold text-zinc-400 mb-1.5">{titulo}</p>
       {children}
     </div>
   );

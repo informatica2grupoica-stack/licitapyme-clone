@@ -4,6 +4,7 @@
 //          selector al marcar una licitación como Postulada).
 //   POST → crea una empresa (solo admin).
 import { mensajeSeguro } from '@/app/lib/errores-api';
+import { tienePermiso } from '@/app/lib/api-auth';
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { clienteDeHeader } from '@/app/lib/tenant';
@@ -52,7 +53,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   const { id: userId, rol } = getUser(request);
-  if (!userId || rol !== 'admin')
+  if (!userId || !(await tienePermiso(request, 'config_empresa')))
     return NextResponse.json({ error: 'Solo el admin puede crear empresas' }, { status: 403 });
   const clienteId = clienteDeHeader(request);
   if (!clienteId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });

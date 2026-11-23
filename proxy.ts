@@ -6,6 +6,7 @@ import { estadoVigente } from '@/app/lib/rol-vigente';
 import { sesionRevocada } from '@/app/lib/sesiones-revocadas';
 import { fichaCliente, negocioEsDeCliente } from '@/app/lib/tenant';
 import { rutaPermitida, moduloDeRuta } from '@/app/lib/modulos';
+import { permisosDeUsuario, type Permiso } from '@/app/lib/api-auth';
 
 // Rutas que NO requieren autenticación
 const RUTAS_PUBLICAS = [
@@ -36,6 +37,15 @@ const PREFIJOS_IGNORAR = [
 
 // Rutas solo para admin
 const RUTAS_ADMIN = ['/admin', '/api/admin'];
+
+// Rutas de administración que un perfil NO admin puede usar si tiene el permiso (23-nov-2026, menú de privilegios).
+// Lo que no figura aquí (clientes, prefiltro…) sigue siendo solo para admin.
+const PERMISO_DE_RUTA_ADMIN: Array<[RegExp, Permiso]> = [
+  [/^\/(api\/)?admin\/usuarios(\/|$)/, 'admin_usuarios'],
+  [/^\/api\/admin\/whatsapp\/avisos(\/|$)/, 'admin_usuarios'],
+  [/^\/admin\/etiquetas(\/|$)/, 'admin_etiquetas'],
+  [/^\/(api\/)?admin\/(errores|reportes-error|gasto-ia|test-email|whatsapp)(\/|$)/, 'soporte_tecnico'],
+];
 
 // Rol EXTERNO (trabajador externo): acceso MUY restringido.
 //  · Páginas permitidas: solo "Mis licitaciones" y el detalle de una licitación (+ su perfil).
@@ -147,7 +157,9 @@ export async function proxy(request: NextRequest) {
   }
 
   // Rutas admin: verificar rol
-  if (RUTAS_ADMIN.some(r => pathname.startsWith(r)) && usuario.rol !== 'admin') {
+  const permisoAdmin = PERMISO_DE_RUTA_ADMIN.find(([re]) => re.test(pathname))?.[1];
+  if (RUTAS_ADMIN.some(r => pathname.startsWith(r)) && usuario.rol !== 'admin'
+      && !(permisoAdmin && usuario.rol === 'usuario' && (await permisosDeUsuario(usuario.id, usuario.rol))[permisoAdmin])) {
     if (pathname.startsWith('/api/')) {
       return NextResponse.json({ error: 'Sin permisos de administrador' }, { status: 403 });
     }

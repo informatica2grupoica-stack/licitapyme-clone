@@ -14,7 +14,7 @@ export function ChartCard({ title, icon, children, className = '', accion, sub }
     <div className={`bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 ${className}`}>
       <div className="flex items-start justify-between gap-3 mb-3">
         <div className="min-w-0">
-          <h3 className="text-[13.5px] font-bold text-slate-800 flex items-center gap-2">
+          <h3 className="text-[13.5px] font-semibold text-slate-800 flex items-center gap-2">
             {icon && <span className="text-slate-400">{icon}</span>}
             <span className="truncate">{title}</span>
           </h3>

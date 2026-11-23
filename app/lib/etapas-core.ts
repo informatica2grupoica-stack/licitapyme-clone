@@ -16,7 +16,7 @@ export const BASES_ETAPA: { id: string; label: string; ayuda: string }[] = [
   { id: 'POSTULADA',   label: 'Postulada',       ayuda: 'Ya se postuló en Mercado Público' },
   { id: 'POSIBLE_ADJ', label: 'Posible adj.',    ayuda: 'Hay opción real de adjudicación' },
 ];
-export const COLORES_ETAPA = ['#4F63D2', '#9333EA', '#EA580C', '#0D9488', '#0369A1', '#B45309', '#16A34A', '#DB2777', '#475569', '#CA8A04'];
+export const COLORES_ETAPA = ['#64748B', '#0891B2', '#EA580C', '#0D9488', '#0369A1', '#B45309', '#16A34A', '#DB2777', '#4D7C0F', '#CA8A04'];
 export const MAX_ETAPAS_POR_EMPRESA = 20;
 
 export const claveEtapa = (id: number) => `E${id}`;

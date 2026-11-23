@@ -42,7 +42,7 @@ function ChipOc({ codigo }: { codigo: string }) {
           error ? 'text-rose-700 bg-rose-50 border-rose-200 hover:bg-rose-100'
                 : 'text-emerald-700 bg-emerald-50 border-emerald-200 hover:bg-emerald-100'}`}>
         OC {codigo}
-        <span className="inline-flex items-center gap-0.5 font-sans font-bold">
+        <span className="inline-flex items-center gap-0.5 font-sans font-semibold">
           {cargando ? <Loader2 size={10} className="animate-spin" /> : <Eye size={11} />}
           {error ? 'Reintentar' : 'Ver'}
         </span>

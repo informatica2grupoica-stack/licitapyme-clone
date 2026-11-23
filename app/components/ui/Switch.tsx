@@ -20,9 +20,9 @@ export function Switch({
       onClick={onChange}
       className={`relative inline-flex h-5 w-9 flex-shrink-0 items-center rounded-full
         transition-colors duration-200 focus:outline-none focus-visible:ring-2
-        focus-visible:ring-indigo-500/40 focus-visible:ring-offset-1
+        focus-visible:ring-teal-500/40 focus-visible:ring-offset-1
         dark:focus-visible:ring-offset-zinc-900
-        ${checked ? 'bg-indigo-600' : 'bg-slate-200 dark:bg-zinc-700'}
+        ${checked ? 'bg-teal-600' : 'bg-slate-200 dark:bg-zinc-700'}
         ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
     >
       <span

@@ -240,7 +240,7 @@ export function GanttComprasCard({ tareas, hitos = null, plegable = true }: { ta
         {hitos && adj != null && finPre != null && (
           <div className={`grid ${LABEL_COL} gap-2 items-center rounded-xl bg-zinc-50 border border-zinc-200 -mx-1.5 px-1.5 py-2 mb-4`} data-testid="gantt-linea-padre">
             <div className="min-w-0">
-              <p className="text-[11.5px] font-bold text-zinc-800">Proyecto completo</p>
+              <p className="text-[11.5px] font-semibold text-zinc-800">Proyecto completo</p>
               <p className="text-[9.5px] text-zinc-500 leading-snug">{estadoPlazo}</p>
             </div>
             <div className="relative" style={{ height: 52 + 12 * maxNivel }}>
@@ -267,7 +267,7 @@ export function GanttComprasCard({ tareas, hitos = null, plegable = true }: { ta
                 <div key={i} className="absolute top-0 -translate-x-1/2 z-10" style={{ left: pct(h.t) }} title={`${h.etiqueta} · ${fmtCorta(h.t)}`}>
                   <span className={`block w-2.5 h-2.5 rotate-45 border-2 mx-auto ${h.hecho ? 'bg-emerald-500 border-emerald-600' : h.alerta ? 'bg-rose-500 border-rose-600' : 'bg-white border-zinc-400'}`} />
                   {h.nivel > 0 && <span className="block w-px bg-zinc-300 mx-auto" style={{ height: 24 + 12 * h.nivel }} />}
-                  <span className={`block text-[9px] font-bold whitespace-nowrap ${h.nivel > 0 ? '' : 'mt-6'} ${h.hecho ? 'text-emerald-700' : h.alerta ? 'text-rose-600' : 'text-zinc-500'}`}>{h.etiqueta} · {fmtCorta(h.t)}</span>
+                  <span className={`block text-[9px] font-semibold whitespace-nowrap ${h.nivel > 0 ? '' : 'mt-6'} ${h.hecho ? 'text-emerald-700' : h.alerta ? 'text-rose-600' : 'text-zinc-500'}`}>{h.etiqueta} · {fmtCorta(h.t)}</span>
                 </div>
               ))}
               <div className="absolute top-0 bottom-0 w-0.5 bg-rose-300 z-10" style={{ left: pct(hoy) }} />
@@ -318,7 +318,7 @@ export function GanttComprasCard({ tareas, hitos = null, plegable = true }: { ta
                               title={`${t.titulo} · ${fmtFechaHora(desde!)} → ${fmtFechaHora(hasta!)} · ${fmtDur(desde!, hasta!)}${t.responsableNombre ? ` · ${t.responsableNombre}` : ''}`}
                               className={`absolute top-1 bottom-1 rounded-full shadow-sm ring-1 ring-black/5 transition-all hover:brightness-95 hover:scale-y-110 ${estilo.barra}`}
                               style={{ left: pct(desde!), width: `max(6px, ${pctAncho(desde!, hasta!)})` }} />
-                            <span className={`absolute top-1/2 text-[10px] font-bold whitespace-nowrap z-10 ${estadoClase}`}
+                            <span className={`absolute top-1/2 text-[10px] font-semibold whitespace-nowrap z-10 ${estadoClase}`}
                               style={{ left: pct(hasta!), transform: 'translate(6px, -50%)' }}>
                               {estadoTxt}
                             </span>

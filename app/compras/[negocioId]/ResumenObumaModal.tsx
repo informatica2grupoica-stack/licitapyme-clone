@@ -50,10 +50,10 @@ export function ResumenObumaModal({ negocioId, onCerrar, onIrGestion, onIrSku }:
 
   return (
     <div className="fixed inset-0 z-[90] bg-black/50 flex items-start justify-center overflow-y-auto p-4" role="dialog" aria-modal="true" onClick={onCerrar} data-testid="resumen-obuma">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl my-10" onClick={e => e.stopPropagation()}>
+      <div className="bg-white rounded-xl shadow-flotante w-full max-w-2xl my-10" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-3 border-b border-zinc-200">
           <div>
-            <p className="text-[15px] font-bold text-zinc-900 flex items-center gap-1.5"><Zap size={16} className="text-teal-600" /> Lo creado en Obuma</p>
+            <p className="text-[15px] font-semibold text-zinc-900 flex items-center gap-1.5"><Zap size={16} className="text-teal-600" /> Lo creado en Obuma</p>
             <p className="text-[12px] text-zinc-500">Resumen de lo que este negocio ya tiene en Obuma, creado desde Licitank.</p>
           </div>
           <button type="button" onClick={onCerrar} className="text-zinc-400 hover:text-zinc-700" aria-label="Cerrar"><X size={18} /></button>
@@ -66,8 +66,8 @@ export function ResumenObumaModal({ negocioId, onCerrar, onIrGestion, onIrSku }:
             <>
               <section>
                 <div className="flex items-center justify-between mb-1.5">
-                  <p className="text-[13px] font-bold text-zinc-800">SKU de los productos</p>
-                  <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${conSku === datos.skus.length && conSku > 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{conSku} de {datos.skus.length}</span>
+                  <p className="text-[13px] font-semibold text-zinc-800">SKU de los productos</p>
+                  <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${conSku === datos.skus.length && conSku > 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{conSku} de {datos.skus.length}</span>
                 </div>
                 {datos.skus.length === 0 ? <p className="text-[12.5px] text-zinc-400">Todavía no hay productos.</p> : (
                   <ul className="rounded-lg border border-zinc-200 divide-y divide-zinc-100">
@@ -87,8 +87,8 @@ export function ResumenObumaModal({ negocioId, onCerrar, onIrGestion, onIrSku }:
 
               <section>
                 <div className="flex items-center justify-between mb-1.5">
-                  <p className="text-[13px] font-bold text-zinc-800">Órdenes de compra a proveedores</p>
-                  <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${datos.pendientesOc.length === 0 && datos.ocs.length > 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{datos.ocs.length} emitida{datos.ocs.length === 1 ? '' : 's'}</span>
+                  <p className="text-[13px] font-semibold text-zinc-800">Órdenes de compra a proveedores</p>
+                  <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${datos.pendientesOc.length === 0 && datos.ocs.length > 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{datos.ocs.length} emitida{datos.ocs.length === 1 ? '' : 's'}</span>
                 </div>
                 {datos.ocs.length === 0 ? <p className="text-[12.5px] text-zinc-400">Todavía no se emitió ninguna orden de compra.</p> : (
                   <ul className="rounded-lg border border-zinc-200 divide-y divide-zinc-100">

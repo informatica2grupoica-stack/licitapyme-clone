@@ -53,10 +53,10 @@ function TarjetaAvance({ n, titulo, valor, detalle, tono, accion }: { n: number;
   return (
     <div className={`rounded-xl border px-3.5 py-3 ${TONO[tono].borde}`}>
       <div className="flex items-center gap-2">
-        <span className={`flex-shrink-0 w-5 h-5 rounded-full text-[11px] font-bold flex items-center justify-center ${TONO[tono].circulo}`}>{tono === 'ok' ? '✔' : n}</span>
-        <p className="text-[11.5px] font-bold text-zinc-600 uppercase tracking-wide">{titulo}</p>
+        <span className={`flex-shrink-0 w-5 h-5 rounded-full text-[11px] font-semibold flex items-center justify-center ${TONO[tono].circulo}`}>{tono === 'ok' ? '✔' : n}</span>
+        <p className="text-[11.5px] font-semibold text-zinc-600">{titulo}</p>
       </div>
-      <p className="text-[20px] font-bold text-zinc-900 tabular-nums leading-tight mt-1.5">{valor}</p>
+      <p className="text-[20px] font-semibold text-zinc-900 tabular-nums leading-tight mt-1.5">{valor}</p>
       <p className="text-[11.5px] text-zinc-500 mt-0.5 leading-snug">{detalle}</p>
       {accion && <button type="button" onClick={accion.onClick} className="mt-1.5 text-[11.5px] font-semibold text-teal-700 hover:text-teal-900">{accion.texto} →</button>}
     </div>
@@ -177,9 +177,9 @@ export function ResumenGastosCard({ negocioId }: { negocioId: number }) {
       {costeado != null && gastado != null && (
         <section className="bg-white rounded-xl border border-zinc-200 px-4 py-3" aria-label="Costeado contra gastado">
           <div className="flex items-baseline justify-between gap-3 flex-wrap">
-            <p className="text-[13px] font-bold text-zinc-800">Lo costeado contra lo gastado <span className="font-normal text-zinc-400">(neto, sin IVA)</span></p>
+            <p className="text-[13px] font-semibold text-zinc-800">Lo costeado contra lo gastado <span className="font-normal text-zinc-400">(neto, sin IVA)</span></p>
             {variacion != null && (
-              <span className={`text-[12px] font-bold px-2.5 py-0.5 rounded-full border ${variacion > 0 ? 'text-rose-700 bg-rose-50 border-rose-200' : 'text-emerald-700 bg-emerald-50 border-emerald-200'}`}>
+              <span className={`text-[12px] font-semibold px-2.5 py-0.5 rounded-full border ${variacion > 0 ? 'text-rose-700 bg-rose-50 border-rose-200' : 'text-emerald-700 bg-emerald-50 border-emerald-200'}`}>
                 {variacion > 0 ? '+' : ''}{variacion}% {variacion > 0 ? 'sobre lo costeado' : 'bajo lo costeado'}
               </span>
             )}
@@ -197,8 +197,8 @@ export function ResumenGastosCard({ negocioId }: { negocioId: number }) {
       {/* 3. Órdenes de compra: una sola tabla */}
       <section className="bg-white rounded-xl border border-zinc-200 overflow-hidden" data-testid="resumen-documentos" aria-label="Órdenes de compra">
         <div className="px-4 py-3 border-b border-zinc-100 flex items-center gap-2 flex-wrap">
-          <p className="text-[13.5px] font-bold text-zinc-800">Órdenes de compra</p>
-          <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-zinc-100 text-zinc-600">{nOc}</span>
+          <p className="text-[13.5px] font-semibold text-zinc-800">Órdenes de compra</p>
+          <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-zinc-100 text-zinc-600">{nOc}</span>
           <p className="text-[11.5px] text-zinc-400 flex-1 min-w-[200px]">Las emitidas desde Licitank y las hechas directo en Obuma. Toca una fila para ver sus productos.</p>
         </div>
         {nOc === 0 ? (
@@ -207,7 +207,7 @@ export function ResumenGastosCard({ negocioId }: { negocioId: number }) {
           <div className="overflow-x-auto" data-testid="resumen-oc-obuma">
             <table className="w-full text-[12.5px] min-w-[860px]">
               <thead>
-                <tr className="text-left text-[10.5px] font-bold uppercase text-zinc-400 border-b border-zinc-100 bg-zinc-50/60">
+                <tr className="text-left text-[10.5px] font-semibold uppercase text-zinc-400 border-b border-zinc-100 bg-zinc-50/60">
                   <th className="px-3 py-2 w-7" />
                   <th className="px-2 py-2">OC</th>
                   <th className="px-2 py-2">Proveedor</th>
@@ -230,7 +230,7 @@ export function ResumenGastosCard({ negocioId }: { negocioId: number }) {
                 })}
               </tbody>
               <tfoot>
-                <tr className="bg-zinc-50 border-t border-zinc-200 font-bold text-zinc-800">
+                <tr className="bg-zinc-50 border-t border-zinc-200 font-semibold text-zinc-800">
                   <td className="px-3 py-2" colSpan={6}>Total de las {nOc} órdenes</td>
                   <td className="px-2 py-2 text-right tabular-nums">{fmtCLP(totalNetoOc)}</td>
                   <td className="px-2 py-2 text-right tabular-nums">{fmtCLP(filasOc.reduce((s, f) => s + (f.total ?? (f.neto != null ? Math.round(f.neto * 1.19) : 0)), 0))}</td>
@@ -245,12 +245,12 @@ export function ResumenGastosCard({ negocioId }: { negocioId: number }) {
       {/* 4. Facturas */}
       <section className="bg-white rounded-xl border border-zinc-200 overflow-hidden" aria-label="Facturas de compra">
         <div className="px-4 py-3 border-b border-zinc-100 flex items-center gap-2 flex-wrap">
-          <p className="text-[13.5px] font-bold text-zinc-800">Facturas de compra</p>
-          <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-zinc-100 text-zinc-600">{nFac}</span>
+          <p className="text-[13.5px] font-semibold text-zinc-800">Facturas de compra</p>
+          <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-zinc-100 text-zinc-600">{nFac}</span>
         </div>
         {(resumen.facturas.descartadas?.length ?? 0) > 0 && (
           <div className="mx-4 mt-3 rounded-lg border border-amber-200 bg-amber-50/70 px-3 py-2" data-testid="resumen-facturas-descartadas">
-            <p className="text-[10.5px] font-semibold text-amber-800 uppercase tracking-wide mb-1">Facturas que no se suman — revisar en Obuma</p>
+            <p className="text-[10.5px] font-semibold text-amber-800 mb-1">Facturas que no se suman — revisar en Obuma</p>
             <ul className="space-y-1">
               {resumen.facturas.descartadas!.map((f, i) => (
                 <li key={`${f.folio}-${i}`} className="text-[12px] text-amber-900"><b>{f.proveedor || 'Proveedor'}</b> · folio {f.folio} · {fmtCLP(f.total)} — {f.motivo}</li>
@@ -264,7 +264,7 @@ export function ResumenGastosCard({ negocioId }: { negocioId: number }) {
           <div className="overflow-x-auto">
             <table className="w-full text-[12.5px] min-w-[720px]" data-testid="resumen-facturas-tabla">
               <thead>
-                <tr className="text-left text-[10.5px] font-bold uppercase text-zinc-400 border-b border-zinc-100 bg-zinc-50/60">
+                <tr className="text-left text-[10.5px] font-semibold uppercase text-zinc-400 border-b border-zinc-100 bg-zinc-50/60">
                   <th className="px-4 py-2">Proveedor</th>
                   <th className="px-2 py-2">Folio</th>
                   <th className="px-2 py-2">Fecha</th>
@@ -298,7 +298,7 @@ export function ResumenGastosCard({ negocioId }: { negocioId: number }) {
                 })}
               </tbody>
               <tfoot>
-                <tr className="bg-zinc-50 border-t border-zinc-200 font-bold text-zinc-800">
+                <tr className="bg-zinc-50 border-t border-zinc-200 font-semibold text-zinc-800">
                   <td className="px-4 py-2" colSpan={4}>{plural(nFac, 'factura', 'facturas')}</td>
                   <td className="px-2 py-2 text-right tabular-nums">{fmtCLP(Math.round(resumen.facturas.total / 1.19))}</td>
                   <td className="px-2 py-2 text-right tabular-nums">{fmtCLP(resumen.facturas.total - Math.round(resumen.facturas.total / 1.19))}</td>
@@ -315,15 +315,15 @@ export function ResumenGastosCard({ negocioId }: { negocioId: number }) {
       <section className="grid grid-cols-1 lg:grid-cols-2 gap-2.5">
         {ocCliente && (
           <div className="bg-white rounded-xl border border-zinc-200 px-4 py-3">
-            <p className="text-[10.5px] font-bold text-zinc-400 uppercase tracking-wide">Orden de compra del cliente</p>
+            <p className="text-[10.5px] font-semibold text-zinc-400">Orden de compra del cliente</p>
             <p className="text-[13px] text-zinc-800 mt-0.5">N° <b>{ocCliente.numero || '—'}</b>{ocCliente.monto != null && <> · {fmtCLP(ocCliente.monto)}</>}</p>
             <p className="text-[11.5px] text-zinc-500">{ocCliente.aceptadaAt ? `Aceptada el ${fmtFecha(ocCliente.aceptadaAt)}` : ocCliente.emitidaAt ? `Emitida el ${fmtFecha(ocCliente.emitidaAt)}, todavía sin aceptar` : ''}</p>
           </div>
         )}
         <div className="bg-white rounded-xl border border-zinc-200 px-4 py-3">
-          <p className="text-[10.5px] font-bold text-zinc-400 uppercase tracking-wide">Proyecto completo en Obuma</p>
+          <p className="text-[10.5px] font-semibold text-zinc-400">Proyecto completo en Obuma</p>
           {estadoProyecto === 'idle' && licitacionCodigo && (
-            <button onClick={consultarProyecto} className="mt-1 text-[12px] font-semibold text-indigo-600 hover:text-indigo-700 inline-flex items-center gap-1">
+            <button onClick={consultarProyecto} className="mt-1 text-[12px] font-semibold text-teal-600 hover:text-teal-700 inline-flex items-center gap-1">
               <FolderSearch size={13} /> Ver cuánto se ha gastado en total (consulta a Obuma)
             </button>
           )}
@@ -388,10 +388,10 @@ function FilaOrden({ f, abierta, anulada, facturas, onAlternar, negocioId, onGua
     <>
       <tr className={`cursor-pointer hover:bg-zinc-50/70 ${anulada ? 'opacity-60' : ''}`} onClick={onAlternar} data-testid={`resumen-oc-${f.folio}`}>
         <td className="px-3 py-2"><Chevron size={14} className={`text-zinc-400 transition-transform ${abierta ? 'rotate-90' : ''}`} /></td>
-        <td className="px-2 py-2 font-bold text-zinc-800 tabular-nums whitespace-nowrap">OC {f.folio}</td>
+        <td className="px-2 py-2 font-semibold text-zinc-800 tabular-nums whitespace-nowrap">OC {f.folio}</td>
         <td className="px-2 py-2 text-zinc-800">{f.proveedor}</td>
         <td className="px-2 py-2 whitespace-nowrap text-zinc-600">{fmtFecha(f.fecha)}</td>
-        <td className="px-2 py-2">{f.estado ? <span className={`text-[10.5px] font-bold px-2 py-0.5 rounded-full border ${estadoCls}`}>{f.estado}</span> : <span className="text-zinc-300">—</span>}</td>
+        <td className="px-2 py-2">{f.estado ? <span className={`text-[10.5px] font-semibold px-2 py-0.5 rounded-full border ${estadoCls}`}>{f.estado}</span> : <span className="text-zinc-300">—</span>}</td>
         <td className="px-2 py-2">
           <span className={`text-[10.5px] font-semibold px-2 py-0.5 rounded-full border ${f.origen === 'obuma' ? 'bg-sky-50 text-sky-700 border-sky-200' : 'bg-teal-50 text-teal-700 border-teal-200'}`}>{f.origen === 'licitank' ? 'Desde Licitank' : f.origen === 'propia' ? 'OC propia (Licitank)' : 'Directo en Obuma'}</span>
         </td>
@@ -408,7 +408,7 @@ function FilaOrden({ f, abierta, anulada, facturas, onAlternar, negocioId, onGua
             ) : (
               <table className="w-full text-[12px] bg-white rounded-lg border border-zinc-100">
                 <thead>
-                  <tr className="text-left text-[10px] font-bold uppercase text-zinc-400">
+                  <tr className="text-left text-[10px] font-semibold uppercase text-zinc-400">
                     <th className="px-3 py-1.5">Producto</th><th className="px-2 py-1.5">SKU</th><th className="px-2 py-1.5 text-right">Cant.</th>
                     <th className="px-2 py-1.5 text-right" title="Cuántas unidades de esta línea son de ESTE negocio. Las que sobran no suman a su costo (quedan de inventario u otro uso).">Para este negocio</th>
                     <th className="px-2 py-1.5 text-right">Precio neto c/u</th><th className="px-2 py-1.5 text-right">Subtotal neto</th>
@@ -418,7 +418,7 @@ function FilaOrden({ f, abierta, anulada, facturas, onAlternar, negocioId, onGua
                   {f.lineas.map((l, i) => (
                     <tr key={i}>
                       <td className="px-3 py-1.5 text-zinc-700" title={l.producto}>{l.producto.length > 90 ? `${l.producto.slice(0, 90)}…` : l.producto}</td>
-                      <td className="px-2 py-1.5 whitespace-nowrap tabular-nums">{l.sku ? <span className="font-semibold text-indigo-600">{l.sku}</span> : <span className="text-zinc-300">sin SKU</span>}</td>
+                      <td className="px-2 py-1.5 whitespace-nowrap tabular-nums">{l.sku ? <span className="font-semibold text-teal-600">{l.sku}</span> : <span className="text-zinc-300">sin SKU</span>}</td>
                       <td className="px-2 py-1.5 text-right tabular-nums text-zinc-700">{l.cantidad ?? '—'}</td>
                       <td className="px-2 py-1.5 text-right">{f.origen !== 'propia' && f.compraOcId && l.lineaId && l.cantidad && l.cantidad >= 1 && !anulada
                         ? <UnidadesDelNegocio negocioId={negocioId} compraOcId={f.compraOcId} lineaId={l.lineaId} cantidad={l.cantidad} cantidadNegocio={l.cantidadNegocio ?? l.cantidad} onGuardado={onGuardado} />

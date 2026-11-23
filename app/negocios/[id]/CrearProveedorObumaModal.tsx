@@ -70,9 +70,9 @@ export function CrearProveedorObumaModal({ negocioId, inicial, onCerrar, onCread
   return (
     // No se cierra al hacer clic fuera: solo con "Cancelar" o al crear (así no se pierde lo tipeado).
     <div className="fixed inset-0 z-[210] bg-black/30 flex items-center justify-center p-4">
-      <div className="bg-white rounded-xl border border-zinc-200 shadow-xl w-[96vw] max-w-7xl max-h-[94vh] overflow-y-auto">
-        <p className="px-4 py-3 text-[12px] font-bold text-zinc-800 border-b border-zinc-100 flex items-center gap-1.5">
-          <Zap size={13} className="text-indigo-600" /> Crear proveedor en Obuma
+      <div className="bg-white rounded-xl border border-zinc-200 shadow-flotante w-[96vw] max-w-7xl max-h-[94vh] overflow-y-auto">
+        <p className="px-4 py-3 text-[12px] font-semibold text-zinc-800 border-b border-zinc-100 flex items-center gap-1.5">
+          <Zap size={13} className="text-teal-600" /> Crear proveedor en Obuma
         </p>
         <div className="p-4 space-y-2">
           <p className="text-[10.5px] text-zinc-400">Escritura real contra Obuma — se crea de verdad al guardar. Son los campos documentados de la API (obuma.cl/ayuda/articulo/157); RUT, razón social, contacto, teléfono y e-mail son obligatorios (los exige Obuma).</p>
@@ -80,77 +80,77 @@ export function CrearProveedorObumaModal({ negocioId, inicial, onCerrar, onCread
             <label className="text-[10.5px] font-semibold text-zinc-500 col-span-1">
               RUT *
               <input value={form.rut} onChange={e => setForm(f => ({ ...f, rut: e.target.value }))}
-                className="mt-0.5 w-full text-[13px] font-normal border border-zinc-200 rounded-lg px-2.5 py-2 outline-none focus:ring-1 focus:ring-indigo-500" />
+                className="mt-0.5 w-full text-[13px] font-normal border border-zinc-200 rounded-lg px-2.5 py-2 outline-none focus:ring-1 focus:ring-teal-500" />
             </label>
             <label className="text-[10.5px] font-semibold text-zinc-500">
               Razón social *
               <input value={form.razonSocial} onChange={e => setForm(f => ({ ...f, razonSocial: e.target.value }))}
-                className="mt-0.5 w-full text-[13px] font-normal border border-zinc-200 rounded-lg px-2.5 py-2 outline-none focus:ring-1 focus:ring-indigo-500" />
+                className="mt-0.5 w-full text-[13px] font-normal border border-zinc-200 rounded-lg px-2.5 py-2 outline-none focus:ring-1 focus:ring-teal-500" />
             </label>
             <label className="text-[10.5px] font-semibold text-zinc-500">
               Nombre fantasía
               <input value={form.nombreFantasia} onChange={e => setForm(f => ({ ...f, nombreFantasia: e.target.value }))}
-                className="mt-0.5 w-full text-[13px] font-normal border border-zinc-200 rounded-lg px-2.5 py-2 outline-none focus:ring-1 focus:ring-indigo-500" />
+                className="mt-0.5 w-full text-[13px] font-normal border border-zinc-200 rounded-lg px-2.5 py-2 outline-none focus:ring-1 focus:ring-teal-500" />
             </label>
             <label className="text-[10.5px] font-semibold text-zinc-500">
               Contacto *
               <input value={form.contacto} onChange={e => setForm(f => ({ ...f, contacto: e.target.value }))}
-                className="mt-0.5 w-full text-[13px] font-normal border border-zinc-200 rounded-lg px-2.5 py-2 outline-none focus:ring-1 focus:ring-indigo-500" />
+                className="mt-0.5 w-full text-[13px] font-normal border border-zinc-200 rounded-lg px-2.5 py-2 outline-none focus:ring-1 focus:ring-teal-500" />
             </label>
             <label className="text-[10.5px] font-semibold text-zinc-500">
               Giro comercial
               <input value={form.giro} onChange={e => setForm(f => ({ ...f, giro: e.target.value }))}
-                className="mt-0.5 w-full text-[13px] font-normal border border-zinc-200 rounded-lg px-2.5 py-2 outline-none focus:ring-1 focus:ring-indigo-500" />
+                className="mt-0.5 w-full text-[13px] font-normal border border-zinc-200 rounded-lg px-2.5 py-2 outline-none focus:ring-1 focus:ring-teal-500" />
             </label>
             <label className="text-[10.5px] font-semibold text-zinc-500 col-span-2">
               Dirección
               <input value={form.direccion} onChange={e => setForm(f => ({ ...f, direccion: e.target.value }))}
-                className="mt-0.5 w-full text-[13px] font-normal border border-zinc-200 rounded-lg px-2.5 py-2 outline-none focus:ring-1 focus:ring-indigo-500" />
+                className="mt-0.5 w-full text-[13px] font-normal border border-zinc-200 rounded-lg px-2.5 py-2 outline-none focus:ring-1 focus:ring-teal-500" />
             </label>
             <label className="text-[10.5px] font-semibold text-zinc-500">
               Comuna
               <input value={form.comuna} onChange={e => setForm(f => ({ ...f, comuna: e.target.value }))}
-                className="mt-0.5 w-full text-[13px] font-normal border border-zinc-200 rounded-lg px-2.5 py-2 outline-none focus:ring-1 focus:ring-indigo-500" />
+                className="mt-0.5 w-full text-[13px] font-normal border border-zinc-200 rounded-lg px-2.5 py-2 outline-none focus:ring-1 focus:ring-teal-500" />
             </label>
             <label className="text-[10.5px] font-semibold text-zinc-500">
               Región
               <input value={form.region} onChange={e => setForm(f => ({ ...f, region: e.target.value }))}
-                className="mt-0.5 w-full text-[13px] font-normal border border-zinc-200 rounded-lg px-2.5 py-2 outline-none focus:ring-1 focus:ring-indigo-500" />
+                className="mt-0.5 w-full text-[13px] font-normal border border-zinc-200 rounded-lg px-2.5 py-2 outline-none focus:ring-1 focus:ring-teal-500" />
             </label>
             <label className="text-[10.5px] font-semibold text-zinc-500">
               País
               <input value={form.pais} onChange={e => setForm(f => ({ ...f, pais: e.target.value }))}
-                className="mt-0.5 w-full text-[13px] font-normal border border-zinc-200 rounded-lg px-2.5 py-2 outline-none focus:ring-1 focus:ring-indigo-500" />
+                className="mt-0.5 w-full text-[13px] font-normal border border-zinc-200 rounded-lg px-2.5 py-2 outline-none focus:ring-1 focus:ring-teal-500" />
             </label>
             <label className="text-[10.5px] font-semibold text-zinc-500">
               Teléfono *
               <input value={form.telefono} onChange={e => setForm(f => ({ ...f, telefono: e.target.value }))}
-                className="mt-0.5 w-full text-[13px] font-normal border border-zinc-200 rounded-lg px-2.5 py-2 outline-none focus:ring-1 focus:ring-indigo-500" />
+                className="mt-0.5 w-full text-[13px] font-normal border border-zinc-200 rounded-lg px-2.5 py-2 outline-none focus:ring-1 focus:ring-teal-500" />
             </label>
             <label className="text-[10.5px] font-semibold text-zinc-500">
               Celular
               <input value={form.celular} onChange={e => setForm(f => ({ ...f, celular: e.target.value }))}
-                className="mt-0.5 w-full text-[13px] font-normal border border-zinc-200 rounded-lg px-2.5 py-2 outline-none focus:ring-1 focus:ring-indigo-500" />
+                className="mt-0.5 w-full text-[13px] font-normal border border-zinc-200 rounded-lg px-2.5 py-2 outline-none focus:ring-1 focus:ring-teal-500" />
             </label>
             <label className="text-[10.5px] font-semibold text-zinc-500">
               E-mail *
               <input value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
-                className="mt-0.5 w-full text-[13px] font-normal border border-zinc-200 rounded-lg px-2.5 py-2 outline-none focus:ring-1 focus:ring-indigo-500" />
+                className="mt-0.5 w-full text-[13px] font-normal border border-zinc-200 rounded-lg px-2.5 py-2 outline-none focus:ring-1 focus:ring-teal-500" />
             </label>
             <label className="text-[10.5px] font-semibold text-zinc-500">
               Sitio web
               <input value={form.website} onChange={e => setForm(f => ({ ...f, website: e.target.value }))}
-                className="mt-0.5 w-full text-[13px] font-normal border border-zinc-200 rounded-lg px-2.5 py-2 outline-none focus:ring-1 focus:ring-indigo-500" />
+                className="mt-0.5 w-full text-[13px] font-normal border border-zinc-200 rounded-lg px-2.5 py-2 outline-none focus:ring-1 focus:ring-teal-500" />
             </label>
             <label className="text-[10.5px] font-semibold text-zinc-500">
               Cuenta contable <span className="font-normal text-zinc-400">(código, opcional)</span>
               <input value={form.cuentaContable} onChange={e => setForm(f => ({ ...f, cuentaContable: e.target.value }))}
-                placeholder="ej. 2.1.01.001" className="mt-0.5 w-full text-[13px] font-normal border border-zinc-200 rounded-lg px-2.5 py-2 outline-none focus:ring-1 focus:ring-indigo-500" />
+                placeholder="ej. 2.1.01.001" className="mt-0.5 w-full text-[13px] font-normal border border-zinc-200 rounded-lg px-2.5 py-2 outline-none focus:ring-1 focus:ring-teal-500" />
             </label>
             <label className="text-[10.5px] font-semibold text-zinc-500">
               Forma de pago <span className="font-normal text-zinc-400">(opcional)</span>
               <select value={form.formaPago} onChange={e => setForm(f => ({ ...f, formaPago: e.target.value }))}
-                className="mt-0.5 w-full text-[13px] font-normal border border-zinc-200 rounded-lg px-2.5 py-2 outline-none focus:ring-1 focus:ring-indigo-500 bg-white">
+                className="mt-0.5 w-full text-[13px] font-normal border border-zinc-200 rounded-lg px-2.5 py-2 outline-none focus:ring-1 focus:ring-teal-500 bg-white">
                 <option value="">— sin definir —</option>
                 {formasPago.map(f => <option key={f.id} value={f.id}>{f.nombre}</option>)}
               </select>
@@ -158,12 +158,12 @@ export function CrearProveedorObumaModal({ negocioId, inicial, onCerrar, onCread
             <label className="text-[10.5px] font-semibold text-zinc-500">
               Centro de costo <span className="font-normal text-zinc-400">(ID de Obuma, opcional)</span>
               <input value={form.centroCosto} onChange={e => setForm(f => ({ ...f, centroCosto: e.target.value }))}
-                placeholder="ej. 4491" className="mt-0.5 w-full text-[13px] font-normal border border-zinc-200 rounded-lg px-2.5 py-2 outline-none focus:ring-1 focus:ring-indigo-500" />
+                placeholder="ej. 4491" className="mt-0.5 w-full text-[13px] font-normal border border-zinc-200 rounded-lg px-2.5 py-2 outline-none focus:ring-1 focus:ring-teal-500" />
             </label>
             <label className="text-[10.5px] font-semibold text-zinc-500">
               Banco <span className="font-normal text-zinc-400">(opcional)</span>
               <select value={form.bancoCuenta} onChange={e => setForm(f => ({ ...f, bancoCuenta: e.target.value }))}
-                className="mt-0.5 w-full text-[13px] font-normal border border-zinc-200 rounded-lg px-2.5 py-2 outline-none focus:ring-1 focus:ring-indigo-500 bg-white">
+                className="mt-0.5 w-full text-[13px] font-normal border border-zinc-200 rounded-lg px-2.5 py-2 outline-none focus:ring-1 focus:ring-teal-500 bg-white">
                 <option value="">— sin definir —</option>
                 {BANCOS_OBUMA.map(([id, nombre]) => <option key={id} value={id}>{nombre}</option>)}
               </select>
@@ -171,7 +171,7 @@ export function CrearProveedorObumaModal({ negocioId, inicial, onCerrar, onCread
             <label className="text-[10.5px] font-semibold text-zinc-500">
               Tipo de cuenta <span className="font-normal text-zinc-400">(opcional)</span>
               <select value={form.tipoCuenta} onChange={e => setForm(f => ({ ...f, tipoCuenta: e.target.value }))}
-                className="mt-0.5 w-full text-[13px] font-normal border border-zinc-200 rounded-lg px-2.5 py-2 outline-none focus:ring-1 focus:ring-indigo-500 bg-white">
+                className="mt-0.5 w-full text-[13px] font-normal border border-zinc-200 rounded-lg px-2.5 py-2 outline-none focus:ring-1 focus:ring-teal-500 bg-white">
                 <option value="">— sin definir —</option>
                 <option>Cuenta Corriente</option>
                 <option>Cuenta Vista</option>
@@ -181,17 +181,17 @@ export function CrearProveedorObumaModal({ negocioId, inicial, onCerrar, onCread
             <label className="text-[10.5px] font-semibold text-zinc-500">
               N° de cuenta <span className="font-normal text-zinc-400">(opcional)</span>
               <input value={form.nroCuenta} onChange={e => setForm(f => ({ ...f, nroCuenta: e.target.value }))}
-                placeholder="ej. 164-28444-03" className="mt-0.5 w-full text-[13px] font-normal border border-zinc-200 rounded-lg px-2.5 py-2 outline-none focus:ring-1 focus:ring-indigo-500" />
+                placeholder="ej. 164-28444-03" className="mt-0.5 w-full text-[13px] font-normal border border-zinc-200 rounded-lg px-2.5 py-2 outline-none focus:ring-1 focus:ring-teal-500" />
             </label>
             <label className="text-[10.5px] font-semibold text-zinc-500">
               Lista de precio <span className="font-normal text-zinc-400">(opcional)</span>
               <input value={form.listaPrecio} onChange={e => setForm(f => ({ ...f, listaPrecio: e.target.value }))}
-                className="mt-0.5 w-full text-[13px] font-normal border border-zinc-200 rounded-lg px-2.5 py-2 outline-none focus:ring-1 focus:ring-indigo-500" />
+                className="mt-0.5 w-full text-[13px] font-normal border border-zinc-200 rounded-lg px-2.5 py-2 outline-none focus:ring-1 focus:ring-teal-500" />
             </label>
             <label className="text-[10.5px] font-semibold text-zinc-500">
               Tipo de despacho <span className="font-normal text-zinc-400">(opcional)</span>
               <select value={form.tipoDespacho} onChange={e => setForm(f => ({ ...f, tipoDespacho: e.target.value }))}
-                className="mt-0.5 w-full text-[13px] font-normal border border-zinc-200 rounded-lg px-2.5 py-2 outline-none focus:ring-1 focus:ring-indigo-500 bg-white">
+                className="mt-0.5 w-full text-[13px] font-normal border border-zinc-200 rounded-lg px-2.5 py-2 outline-none focus:ring-1 focus:ring-teal-500 bg-white">
                 <option value="">— sin definir —</option>
                 <option value="1">Por cuenta CLIENTE</option>
                 <option value="2">EMISOR a instalaciones cliente</option>
@@ -200,42 +200,42 @@ export function CrearProveedorObumaModal({ negocioId, inicial, onCerrar, onCread
             <label className="text-[10.5px] font-semibold text-zinc-500">
               Medio de despacho <span className="font-normal text-zinc-400">(opcional)</span>
               <input value={form.medioDespacho} onChange={e => setForm(f => ({ ...f, medioDespacho: e.target.value }))}
-                className="mt-0.5 w-full text-[13px] font-normal border border-zinc-200 rounded-lg px-2.5 py-2 outline-none focus:ring-1 focus:ring-indigo-500" />
+                className="mt-0.5 w-full text-[13px] font-normal border border-zinc-200 rounded-lg px-2.5 py-2 outline-none focus:ring-1 focus:ring-teal-500" />
             </label>
             <label className="text-[10.5px] font-semibold text-zinc-500">
               Crédito aprobado <span className="font-normal text-zinc-400">(opcional)</span>
               <input value={form.creditoAprobado} onChange={e => setForm(f => ({ ...f, creditoAprobado: e.target.value }))} inputMode="numeric"
-                className="mt-0.5 w-full text-[13px] font-normal border border-zinc-200 rounded-lg px-2.5 py-2 outline-none focus:ring-1 focus:ring-indigo-500" />
+                className="mt-0.5 w-full text-[13px] font-normal border border-zinc-200 rounded-lg px-2.5 py-2 outline-none focus:ring-1 focus:ring-teal-500" />
             </label>
             <label className="text-[10.5px] font-semibold text-zinc-500">
               Días de pago <span className="font-normal text-zinc-400">(opcional)</span>
               <input value={form.diasPago} onChange={e => setForm(f => ({ ...f, diasPago: e.target.value }))} inputMode="numeric"
-                className="mt-0.5 w-full text-[13px] font-normal border border-zinc-200 rounded-lg px-2.5 py-2 outline-none focus:ring-1 focus:ring-indigo-500" />
+                className="mt-0.5 w-full text-[13px] font-normal border border-zinc-200 rounded-lg px-2.5 py-2 outline-none focus:ring-1 focus:ring-teal-500" />
             </label>
             <label className="text-[10.5px] font-semibold text-zinc-500">
               Plazo de pago (días) <span className="font-normal text-zinc-400">(opcional)</span>
               <input value={form.plazoPago} onChange={e => setForm(f => ({ ...f, plazoPago: e.target.value }))} inputMode="numeric"
-                className="mt-0.5 w-full text-[13px] font-normal border border-zinc-200 rounded-lg px-2.5 py-2 outline-none focus:ring-1 focus:ring-indigo-500" />
+                className="mt-0.5 w-full text-[13px] font-normal border border-zinc-200 rounded-lg px-2.5 py-2 outline-none focus:ring-1 focus:ring-teal-500" />
             </label>
             <label className="text-[10.5px] font-semibold text-zinc-500 col-span-2">
               Observación
               <textarea value={form.observacion} onChange={e => setForm(f => ({ ...f, observacion: e.target.value }))} rows={2}
-                className="mt-0.5 w-full text-[13px] font-normal border border-zinc-200 rounded-lg px-2.5 py-2 outline-none focus:ring-1 focus:ring-indigo-500" />
+                className="mt-0.5 w-full text-[13px] font-normal border border-zinc-200 rounded-lg px-2.5 py-2 outline-none focus:ring-1 focus:ring-teal-500" />
             </label>
             <label className="flex items-center gap-2 text-[11px] text-zinc-600">
-              <input type="checkbox" checked={form.esSupermercado} onChange={e => setForm(f => ({ ...f, esSupermercado: e.target.checked }))} className="accent-indigo-600" />
+              <input type="checkbox" checked={form.esSupermercado} onChange={e => setForm(f => ({ ...f, esSupermercado: e.target.checked }))} className="accent-teal-600" />
               Es supermercado
             </label>
             <label className="flex items-center gap-2 text-[11px] text-zinc-600">
-              <input type="checkbox" checked={form.esFactoring} onChange={e => setForm(f => ({ ...f, esFactoring: e.target.checked }))} className="accent-indigo-600" />
+              <input type="checkbox" checked={form.esFactoring} onChange={e => setForm(f => ({ ...f, esFactoring: e.target.checked }))} className="accent-teal-600" />
               Es factoring
             </label>
             <label className="flex items-center gap-2 text-[11px] text-zinc-600">
-              <input type="checkbox" checked={form.cuentaCorriente} onChange={e => setForm(f => ({ ...f, cuentaCorriente: e.target.checked }))} className="accent-indigo-600" />
+              <input type="checkbox" checked={form.cuentaCorriente} onChange={e => setForm(f => ({ ...f, cuentaCorriente: e.target.checked }))} className="accent-teal-600" />
               Cuenta corriente
             </label>
             <label className="flex items-center gap-2 text-[11px] text-zinc-600">
-              <input type="checkbox" checked={form.permitirDteSinOc} onChange={e => setForm(f => ({ ...f, permitirDteSinOc: e.target.checked }))} className="accent-indigo-600" />
+              <input type="checkbox" checked={form.permitirDteSinOc} onChange={e => setForm(f => ({ ...f, permitirDteSinOc: e.target.checked }))} className="accent-teal-600" />
               Permitir ingreso DTE sin referencia a O.C. emitida
             </label>
           </div>
@@ -245,7 +245,7 @@ export function CrearProveedorObumaModal({ negocioId, inicial, onCerrar, onCread
         </div>
         <div className="px-4 py-3 border-t border-zinc-100 flex items-center gap-2">
           <button onClick={crear} disabled={guardando || !listo}
-            className="text-[11px] font-semibold text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 px-3 py-1.5 rounded-lg">
+            className="text-[11px] font-semibold text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-50 px-3 py-1.5 rounded-lg">
             {guardando ? <Loader2 size={12} className="animate-spin" /> : 'Crear en Obuma'}
           </button>
           <button onClick={() => onCerrar()} className="text-[11px] text-zinc-400 hover:text-zinc-600">Cancelar</button>

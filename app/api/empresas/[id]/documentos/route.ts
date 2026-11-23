@@ -10,6 +10,7 @@
 //
 // Mutaciones solo admin, igual que el resto del CRUD de empresas (app/api/empresas/[id]/route.ts).
 import { errorDeArchivoSubido } from '@/app/lib/subidas';
+import { tienePermiso } from '@/app/lib/api-auth';
 import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import { registroEsDeMiEmpresa } from '@/app/lib/tenant';
@@ -34,7 +35,7 @@ const TIPOS_TABLA = ['certificado', 'experiencia', 'otro'] as const;
 
 export async function POST(request: NextRequest, { params }: Params) {
   const { id: userId, rol } = getUser(request);
-  if (!userId || rol !== 'admin')
+  if (!userId || !(await tienePermiso(request, 'config_empresa')))
     return NextResponse.json({ error: 'Solo el admin puede editar la identidad de la empresa' }, { status: 403 });
   const { id } = await params;
   // SEC-005: la empresa tiene que ser de la empresa-cliente de quien consulta (antes cualquier admin podía tocar la de otro cliente por id).
@@ -111,7 +112,7 @@ export async function GET(request: NextRequest, { params }: Params) {
 
 export async function DELETE(request: NextRequest, { params }: Params) {
   const { id: userId, rol } = getUser(request);
-  if (!userId || rol !== 'admin')
+  if (!userId || !(await tienePermiso(request, 'config_empresa')))
     return NextResponse.json({ error: 'Solo el admin puede eliminar documentos de la empresa' }, { status: 403 });
   const { id } = await params;
   // SEC-005: la empresa tiene que ser de la empresa-cliente de quien consulta (antes cualquier admin podía tocar la de otro cliente por id).

@@ -9,7 +9,7 @@
 // quién compitió. No se inventa un permiso nuevo para algo que ya tiene dueño definido.
 
 import { NextRequest, NextResponse } from 'next/server';
-import { puedeVerLicitacion, esAdmin } from '@/app/lib/api-auth';
+import { puedeVerLicitacion, tienePermiso } from '@/app/lib/api-auth';
 import { obtenerAperturaVista, leerYGuardarOfertas, descargarDocumentosOferta } from '@/app/lib/ofertas-competencia';
 import { publicarCambio } from '@/app/lib/sse-bus';
 
@@ -31,7 +31,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  if (!(await esAdmin(req))) {
+  if (!(await tienePermiso(req, 'leer_portal_mp'))) {
     return NextResponse.json({ error: 'Solo un administrador puede forzar la lectura de la apertura' }, { status: 403 });
   }
   const body = await req.json().catch(() => ({} as any));

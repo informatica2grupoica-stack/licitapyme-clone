@@ -81,7 +81,7 @@ function Campo({ label, value, onChange, placeholder, required }: {
       </span>
       <input
         value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder}
-        className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-[13px] outline-none focus:ring-2 focus:ring-indigo-400"
+        className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-[13px] outline-none focus:ring-2 focus:ring-teal-400"
       />
     </label>
   );
@@ -130,11 +130,11 @@ function SubidaArchivoUnico({ empresaId, tipo, label, urlActual, nombreActual, o
       </div>
       <div className="flex items-center gap-1 flex-shrink-0">
         {urlActual && (
-          <a href={urlActual} target="_blank" rel="noreferrer" title="Ver" className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors"><Eye size={14} /></a>
+          <a href={urlActual} target="_blank" rel="noreferrer" title="Ver" className="p-1.5 text-slate-400 hover:text-teal-600 hover:bg-teal-50 rounded transition-colors"><Eye size={14} /></a>
         )}
         <input ref={fileRef} type="file" accept="image/*,.pdf" className="hidden" onChange={e => subir(e.target.files)} />
         <button onClick={() => fileRef.current?.click()} disabled={subiendo} title="Subir"
-          className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors disabled:opacity-50">
+          className="p-1.5 text-slate-400 hover:text-teal-600 hover:bg-teal-50 rounded transition-colors disabled:opacity-50">
           {subiendo ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
         </button>
         {urlActual && (
@@ -265,7 +265,7 @@ function SeccionFirmas({ empresaId, onCambio }: { empresaId: number; onCambio: (
                 defaultValue={f.etiqueta}
                 onBlur={e => renombrar(f, e.target.value)}
                 title="De quien es esta firma - es lo que ves al elegirla en el anexo"
-                className="flex-1 min-w-0 text-[12.5px] text-slate-700 bg-transparent border border-transparent hover:border-slate-200 focus:border-indigo-400 rounded px-1.5 py-0.5 outline-none"
+                className="flex-1 min-w-0 text-[12.5px] text-slate-700 bg-transparent border border-transparent hover:border-slate-200 focus:border-teal-400 rounded px-1.5 py-0.5 outline-none"
               />
               <button
                 onClick={() => marcarPrincipal(f)} disabled={f.es_principal}
@@ -275,7 +275,7 @@ function SeccionFirmas({ empresaId, onCambio }: { empresaId: number; onCambio: (
                 <Star size={14} fill={f.es_principal ? 'currentColor' : 'none'} />
               </button>
               <a href={f.url} target="_blank" rel="noreferrer" title="Ver"
-                className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors"><Eye size={14} /></a>
+                className="p-1.5 text-slate-400 hover:text-teal-600 hover:bg-teal-50 rounded transition-colors"><Eye size={14} /></a>
               <button onClick={() => eliminar(f)} title="Eliminar"
                 className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors"><Trash2 size={14} /></button>
             </li>
@@ -287,11 +287,11 @@ function SeccionFirmas({ empresaId, onCambio }: { empresaId: number; onCambio: (
         <input
           value={etiqueta} onChange={e => setEtiqueta(e.target.value)}
           placeholder="De quien es (ej: Juan Perez - Rep. legal)"
-          className="flex-1 min-w-0 border border-slate-200 rounded-lg px-2.5 py-1.5 text-[12px] outline-none focus:ring-2 focus:ring-indigo-400"
+          className="flex-1 min-w-0 border border-slate-200 rounded-lg px-2.5 py-1.5 text-[12px] outline-none focus:ring-2 focus:ring-teal-400"
         />
         <input ref={fileRef} type="file" accept="image/png,image/jpeg" multiple className="hidden" onChange={e => subir(e.target.files)} />
         <button onClick={() => fileRef.current?.click()} disabled={subiendo}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors disabled:opacity-50">
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-semibold text-teal-700 bg-teal-50 hover:bg-teal-100 rounded-lg transition-colors disabled:opacity-50">
           {subiendo ? <Loader2 size={13} className="animate-spin" /> : <Upload size={13} />} Subir firma
         </button>
       </div>
@@ -356,7 +356,7 @@ function SeccionDocumentosEmpresa({ empresaId, tipo, label, placeholder }: {
 
   return (
     <div>
-      <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-2 flex items-center gap-1.5"><Award size={13} /> {label}</p>
+      <p className="text-[11px] font-semibold text-slate-400 mb-2 flex items-center gap-1.5"><Award size={13} /> {label}</p>
       {cargando ? (
         <p className="text-[12px] text-slate-400 mb-2">Cargando…</p>
       ) : (
@@ -365,7 +365,7 @@ function SeccionDocumentosEmpresa({ empresaId, tipo, label, placeholder }: {
             <div key={doc.id} className="flex items-center justify-between gap-2 px-2.5 py-1.5 bg-slate-50 rounded-lg">
               <span className="text-[12px] text-slate-700 truncate">{doc.titulo}</span>
               <div className="flex items-center gap-1 flex-shrink-0">
-                {doc.url && <a href={doc.url} target="_blank" rel="noreferrer" title="Ver" className="p-1 text-slate-400 hover:text-indigo-600"><Eye size={13} /></a>}
+                {doc.url && <a href={doc.url} target="_blank" rel="noreferrer" title="Ver" className="p-1 text-slate-400 hover:text-teal-600"><Eye size={13} /></a>}
                 <button onClick={() => eliminar(doc)} title="Eliminar" className="p-1 text-slate-400 hover:text-rose-600"><Trash2 size={13} /></button>
               </div>
             </div>
@@ -375,7 +375,7 @@ function SeccionDocumentosEmpresa({ empresaId, tipo, label, placeholder }: {
       )}
       <div className="flex items-center gap-1.5">
         <input value={titulo} onChange={e => setTitulo(e.target.value)} placeholder={placeholder}
-          className="flex-1 px-2.5 py-1.5 text-[12px] border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-400" />
+          className="flex-1 px-2.5 py-1.5 text-[12px] border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-teal-400" />
         <input ref={fileRef} type="file" className="hidden" onChange={e => subir(e.target.files)} />
         <button onClick={() => fileRef.current?.click()} disabled={subiendo}
           className="inline-flex items-center gap-1 px-2.5 py-1.5 border border-slate-200 text-slate-600 hover:bg-slate-50 text-[11.5px] font-semibold rounded-lg disabled:opacity-50 transition-colors">
@@ -429,10 +429,10 @@ function EmpresaModal({ inicial, onCerrar, onGuardada }: {
 
   return (
     <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/50 p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[90vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
+      <div className="bg-white rounded-xl shadow-flotante w-full max-w-5xl max-h-[90vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-100 bg-slate-50 flex-shrink-0">
-          <p className="text-[14px] font-bold text-slate-800 flex items-center gap-2">
-            <Building2 size={16} className="text-indigo-600" />
+          <p className="text-[14px] font-semibold text-slate-800 flex items-center gap-2">
+            <Building2 size={16} className="text-teal-600" />
             {esEdicion ? 'Editar empresa' : 'Nueva empresa'}
           </p>
           <button onClick={onCerrar} className="p-1.5 hover:bg-slate-200 rounded-lg text-slate-400 transition-colors"><X size={18} /></button>
@@ -441,7 +441,7 @@ function EmpresaModal({ inicial, onCerrar, onGuardada }: {
         <div className="overflow-y-auto p-5 space-y-5">
           {/* Datos generales */}
           <section>
-            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-2 flex items-center gap-1.5"><Building2 size={13} /> Datos de la empresa</p>
+            <p className="text-[11px] font-semibold text-slate-400 mb-2 flex items-center gap-1.5"><Building2 size={13} /> Datos de la empresa</p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <Campo label="Razón social" value={f.razon_social || ''} onChange={set('razon_social')} required />
               <Campo label="RUT" value={f.rut || ''} onChange={set('rut')} placeholder="76.902.659-2" required />
@@ -459,7 +459,7 @@ function EmpresaModal({ inicial, onCerrar, onGuardada }: {
               piden Fecha de la Escritura / Notaría / N° de Repertorio / Fojas cada uno en su
               propia casilla — un solo texto libre no se puede partir de forma confiable. */}
           <section>
-            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-2 flex items-center gap-1.5"><Building2 size={13} /> Escritura de constitución</p>
+            <p className="text-[11px] font-semibold text-slate-400 mb-2 flex items-center gap-1.5"><Building2 size={13} /> Escritura de constitución</p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <Campo label="Fecha de la escritura" value={f.fecha_escritura || ''} onChange={set('fecha_escritura')} placeholder="20 de agosto de 2018" />
               <Campo label="Notaría" value={f.notaria || ''} onChange={set('notaria')} placeholder="Segunda Notaría de La Serena" />
@@ -470,7 +470,7 @@ function EmpresaModal({ inicial, onCerrar, onGuardada }: {
 
           {/* Representante legal */}
           <section>
-            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-2 flex items-center gap-1.5"><User size={13} /> Representante legal</p>
+            <p className="text-[11px] font-semibold text-slate-400 mb-2 flex items-center gap-1.5"><User size={13} /> Representante legal</p>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <Campo label="Nombre" value={f.representante_nombre || ''} onChange={set('representante_nombre')} />
               <Campo label="RUT" value={f.representante_rut || ''} onChange={set('representante_rut')} />
@@ -484,7 +484,7 @@ function EmpresaModal({ inicial, onCerrar, onGuardada }: {
 
           {/* Contactos */}
           <section>
-            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-2 flex items-center gap-1.5"><Mail size={13} /> Contactos</p>
+            <p className="text-[11px] font-semibold text-slate-400 mb-2 flex items-center gap-1.5"><Mail size={13} /> Contactos</p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <Campo label="Email 1" value={f.email1 || ''} onChange={set('email1')} />
               <Campo label="Teléfono 1" value={f.telefono1 || ''} onChange={set('telefono1')} />
@@ -495,7 +495,7 @@ function EmpresaModal({ inicial, onCerrar, onGuardada }: {
 
           {/* Banco */}
           <section>
-            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-2 flex items-center gap-1.5"><Landmark size={13} /> Datos bancarios</p>
+            <p className="text-[11px] font-semibold text-slate-400 mb-2 flex items-center gap-1.5"><Landmark size={13} /> Datos bancarios</p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <Campo label="Tipo de cuenta" value={f.banco_tipo_cuenta || ''} onChange={set('banco_tipo_cuenta')} placeholder="Cuenta corriente / vista" />
               <Campo label="N° de cuenta" value={f.banco_numero || ''} onChange={set('banco_numero')} />
@@ -514,7 +514,7 @@ function EmpresaModal({ inicial, onCerrar, onGuardada }: {
           {esEdicion && inicial.id && (
             <>
               <section>
-                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-2 flex items-center gap-1.5"><ShieldCheck size={13} /> Identidad (Auditor Técnico)</p>
+                <p className="text-[11px] font-semibold text-slate-400 mb-2 flex items-center gap-1.5"><ShieldCheck size={13} /> Identidad (Auditor Técnico)</p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <SubidaArchivoUnico empresaId={inicial.id} tipo="logo" label="Logo" urlActual={f.logo_url} nombreActual={f.logo_nombre} onCambio={recargarEmpresa} />
                   <SubidaArchivoUnico empresaId={inicial.id} tipo="timbre" label="Timbre digital" urlActual={f.timbre_url} nombreActual={f.timbre_nombre} onCambio={recargarEmpresa} />
@@ -543,7 +543,7 @@ function EmpresaModal({ inicial, onCerrar, onGuardada }: {
             Cancelar
           </button>
           <button onClick={guardar} disabled={guardando}
-            className="inline-flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 text-white text-[13px] font-semibold rounded-lg transition-colors">
+            className="inline-flex items-center gap-1.5 px-4 py-2 bg-teal-600 hover:bg-teal-700 disabled:bg-slate-300 text-white text-[13px] font-semibold rounded-lg transition-colors">
             {guardando ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} Guardar
           </button>
         </div>
@@ -558,18 +558,18 @@ function EmpresaCard({ e, onEditar, onEliminar }: { e: Empresa; onEditar: () => 
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <div className="w-9 h-9 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center flex-shrink-0">
+            <div className="w-9 h-9 rounded-lg bg-teal-50 text-teal-600 flex items-center justify-center flex-shrink-0">
               <Building2 size={18} />
             </div>
             <div className="min-w-0">
-              <h3 className="text-[14px] font-bold text-slate-800 truncate">{e.razon_social}</h3>
+              <h3 className="text-[14px] font-semibold text-slate-800 truncate">{e.razon_social}</h3>
               <p className="text-[11.5px] font-mono text-slate-500">{e.rut}</p>
             </div>
           </div>
         </div>
         <div className="flex-shrink-0 flex items-center gap-1">
           <button onClick={onEditar} title="Editar"
-            className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-md transition-colors"><Pencil size={14} /></button>
+            className="p-1.5 text-slate-400 hover:text-teal-600 hover:bg-teal-50 rounded-md transition-colors"><Pencil size={14} /></button>
           <button onClick={onEliminar} title="Eliminar"
             className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors"><Trash2 size={14} /></button>
         </div>
@@ -589,7 +589,7 @@ function EmpresaCard({ e, onEditar, onEliminar }: { e: Empresa; onEditar: () => 
 
 export default function EmpresasPage() {
   const { usuario } = useSession();
-  const isAdmin = usuario?.rol === 'admin';
+  const isAdmin = !!usuario?.permisos?.config_empresa;
   const [empresas, setEmpresas] = useState<Empresa[]>([]);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -646,15 +646,15 @@ export default function EmpresasPage() {
       <div className="p-4 sm:p-6 lg:p-8">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-              <Building2 size={24} className="text-indigo-600" /> Empresas
+            <h1 className="text-2xl font-semibold text-gray-900 flex items-center gap-2">
+              <Building2 size={24} className="text-teal-600" /> Empresas
             </h1>
             <p className="text-sm text-gray-500 mt-0.5">
               {cargando ? 'Cargando…' : `${empresas.length} empresa${empresas.length !== 1 ? 's' : ''} con la${empresas.length !== 1 ? 's' : ''} que se postula`}
             </p>
           </div>
           <button onClick={() => setModal({ ...VACIA })}
-            className="inline-flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-[13px] font-semibold rounded-lg transition-colors self-start">
+            className="inline-flex items-center gap-1.5 px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white text-[13px] font-semibold rounded-lg transition-colors self-start">
             <Plus size={16} /> Nueva empresa
           </button>
         </div>

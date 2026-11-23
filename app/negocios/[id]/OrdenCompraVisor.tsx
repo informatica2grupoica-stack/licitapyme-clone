@@ -30,7 +30,7 @@ export function OrdenCompraVisor({ negocioId, folio, onCerrar }: { negocioId: nu
 
   return (
     <div className="fixed inset-0 z-[80] bg-black/50 flex items-center justify-center p-4" role="dialog" aria-modal="true" onClick={onCerrar} data-testid="oc-visor">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-4xl h-[92vh] flex flex-col" onClick={e => e.stopPropagation()}>
+      <div className="bg-white rounded-xl shadow-flotante w-full max-w-4xl h-[92vh] flex flex-col" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-3 border-b border-slate-200">
           <p className="text-[13px] font-semibold text-slate-800">Orden de compra {folio}</p>
           <div className="flex items-center gap-4">

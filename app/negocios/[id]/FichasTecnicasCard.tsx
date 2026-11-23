@@ -623,7 +623,7 @@ export function FichasTecnicasCard({ negocioId, puedeOperar, soloLectura = false
       {/* Modal: confirmar ficha sin marca ni modelo */}
       {confirmaSinMarca && (
         <div className="fixed inset-0 z-[95] bg-black/50 flex items-center justify-center p-4" role="alertdialog" aria-modal="true" onClick={() => confirmaSinMarca.responder(false)}>
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-md" onClick={e => e.stopPropagation()}>
+          <div className="bg-white rounded-xl shadow-flotante w-full max-w-md" onClick={e => e.stopPropagation()}>
             <div className="px-5 pt-4 pb-3">
               <p className="text-[15px] font-semibold text-zinc-900">La ficha no dice la marca ni el modelo</p>
               <p className="mt-2 text-[13px] text-zinc-600">«{confirmaSinMarca.documento}» no trae marca ni modelo del producto. Si es la ficha del producto que se va a comprar, puedes asignarla igual: el nombre del producto hará de modelo. Si es la propuesta técnica de la oferta, cancela y descártala.</p>
@@ -639,7 +639,7 @@ export function FichasTecnicasCard({ negocioId, puedeOperar, soloLectura = false
       {/* Modal: completar la ficha de un producto a mano */}
       {manual && (
         <div className="fixed inset-0 z-[90] bg-black/50 flex items-start justify-center overflow-y-auto p-4" role="dialog" aria-modal="true" onClick={() => setManual(null)}>
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl my-10" onClick={e => e.stopPropagation()}>
+          <div className="bg-white rounded-xl shadow-flotante w-full max-w-2xl my-10" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between px-5 py-3 border-b border-zinc-200">
               <p className="text-[14px] font-semibold text-zinc-800">Completar a mano: {manual.p.descripcion}</p>
               <button onClick={() => setManual(null)} aria-label="Cerrar" className="text-zinc-500 hover:text-zinc-900"><X size={18} /></button>
@@ -671,7 +671,7 @@ export function FichasTecnicasCard({ negocioId, puedeOperar, soloLectura = false
       {/* Modal: pegar texto */}
       {pegando && (
         <div className="fixed inset-0 z-[90] bg-black/50 flex items-start justify-center overflow-y-auto p-4" role="dialog" aria-modal="true" onClick={() => setPegando(null)}>
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-xl my-10" onClick={e => e.stopPropagation()}>
+          <div className="bg-white rounded-xl shadow-flotante w-full max-w-xl my-10" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between px-5 py-3 border-b border-zinc-200">
               <p className="text-[14px] font-semibold text-zinc-800">Pegar una ficha técnica como texto</p>
               <button onClick={() => setPegando(null)} aria-label="Cerrar" className="text-zinc-500 hover:text-zinc-900"><X size={18} /></button>
@@ -692,7 +692,7 @@ export function FichasTecnicasCard({ negocioId, puedeOperar, soloLectura = false
       {/* Modal: traer del proyecto */}
       {proyecto !== null && (
         <div className="fixed inset-0 z-[90] bg-black/50 flex items-start justify-center overflow-y-auto p-4" onClick={() => setProyecto(null)}>
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-xl my-10" onClick={e => e.stopPropagation()}>
+          <div className="bg-white rounded-xl shadow-flotante w-full max-w-xl my-10" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between px-5 py-3 border-b border-zinc-200">
               <p className="text-[14px] font-semibold text-zinc-800">Traer fichas del proyecto</p>
               <button onClick={() => setProyecto(null)} aria-label="Cerrar" className="text-zinc-500 hover:text-zinc-900"><X size={18} /></button>

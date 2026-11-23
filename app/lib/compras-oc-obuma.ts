@@ -78,7 +78,7 @@ function nombreComparable(n: string | null | undefined): string {
  *  el módulo (margen bajo, presupuesto excedido): mejor avisar y dejar decidir que bloquear de
  *  plano cuando la coincidencia podría ser casualidad. */
 async function buscarOcRealSimilar(
-  proveedorObumaId: string, descripciones: string[], excluirOcIds: Set<string> = new Set(),
+  proveedorObumaId: string, descripciones: string[], excluirOcIds: Set<string> = new Set(), licitacionCodigo: string | null = null,
 ): Promise<{ folio: string | null; referencia: string; fecha: string; total: number } | null> {
   const normalizar = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase();
   const palabrasClave = descripciones
@@ -91,6 +91,11 @@ async function buscarOcRealSimilar(
     if (excluirOcIds.has(String(oc.compra_oc_id))) continue;   // una OC que emitió Licitank para este negocio no es duplicado de lo que falta
     if (/anulad/i.test(String(oc.compra_oc_estado || ''))) continue;   // una OC anulada no es duplicado (negocio 256: la 3810 anulada hacía saltar el aviso de la 3811)
     const texto = normalizar(`${oc.compra_oc_referencia || ''} ${oc.compra_oc_observacion || ''}`);
+    // Si la OC nombra OTRA licitación (código tipo 2494-56-LE26) y no la nuestra, es de otro negocio: una palabra suelta como
+    // «COYHAIQUE» no la vuelve duplicado (negocio 183, 1095439-8-LP26: salía por las OC 3900/3901 de 2494-56-LE26).
+    // Regla del dueño: el aviso solo sale si la OC existente nombra ESTA licitación (por eso se escribe el código en la referencia).
+    // Una OC sin el código de esta licitación nunca es «posible duplicado», aunque comparta palabras.
+    if (licitacionCodigo && !texto.includes(normalizar(licitacionCodigo))) continue;
     if (palabrasClave.some(p => texto.includes(p))) {
       return {
         folio: oc.compra_oc_folio ? String(oc.compra_oc_folio) : null,
@@ -355,11 +360,14 @@ export async function proveedoresParaOrdenCompra(negocioId: number, { buscarDupl
     for (const it of g.items) if (propios.has(it.productoId)) it.foliosOc = [...(it.foliosOc ?? []), folio];
   }
 
-  if (buscarDuplicados) await Promise.all(lista.filter(g => !g.yaCreada && !g.ocRealObuma && g.proveedorId != null).map(async g => {
-    const obumaProveedorId = g.proveedorId != null ? fichaCompleta.get(g.proveedorId)?.obumaProveedorId : null;
-    if (!obumaProveedorId) return;
-    g.posibleDuplicadoObuma = await buscarOcRealSimilar(obumaProveedorId, g.items.map(it => it.descripcion), idsOcLicitank).catch(() => null);
-  }));
+  if (buscarDuplicados) {
+    const licitacionDup = await licitacionDeNegocio(negocioId).catch(() => null);
+    await Promise.all(lista.filter(g => !g.yaCreada && !g.ocRealObuma && g.proveedorId != null).map(async g => {
+      const obumaProveedorId = g.proveedorId != null ? fichaCompleta.get(g.proveedorId)?.obumaProveedorId : null;
+      if (!obumaProveedorId) return;
+      g.posibleDuplicadoObuma = await buscarOcRealSimilar(obumaProveedorId, g.items.map(it => it.descripcion), idsOcLicitank, licitacionDup).catch(() => null);
+    }));
+  }
 
   return lista;
 }

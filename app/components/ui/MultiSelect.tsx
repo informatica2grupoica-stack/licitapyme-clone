@@ -88,11 +88,11 @@ export function MultiSelect({
     <div className="relative" ref={wrapRef}>
       <button type="button" onClick={() => setOpen(o => !o)}
         className={`flex items-center gap-1.5 px-3 py-2 border rounded-lg text-[13px] outline-none transition-colors ${
-          n ? 'border-indigo-300 bg-indigo-50 text-indigo-700 font-semibold' : 'border-slate-200 text-slate-600 hover:border-slate-400'
+          n ? 'border-teal-300 bg-teal-50 text-teal-700 font-semibold' : 'border-slate-200 text-slate-600 hover:border-slate-400'
         }`}>
-        {icon && <span className={n ? 'text-indigo-500' : 'text-slate-400'}>{icon}</span>}
+        {icon && <span className={n ? 'text-teal-500' : 'text-slate-400'}>{icon}</span>}
         {label}
-        {n > 0 && <span className="text-[11px] font-bold bg-indigo-600 text-white rounded-full px-1.5 leading-5">{n}</span>}
+        {n > 0 && <span className="text-[11px] font-semibold bg-teal-600 text-white rounded-full px-1.5 leading-5">{n}</span>}
         <ChevronDown size={12} className={`transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
       {montado && open && coords && createPortal(
@@ -104,7 +104,7 @@ export function MultiSelect({
             return (
               <button type="button" onClick={() => onChange(todos ? [] : options.map(o => o.value))}
                 className="w-full flex items-center gap-2 px-2 py-1.5 mb-0.5 rounded-md hover:bg-slate-50 text-[13px] text-left font-semibold border-b border-slate-100">
-                <span className={`w-4 h-4 flex-shrink-0 rounded border flex items-center justify-center ${todos ? 'bg-indigo-600 border-indigo-600' : 'border-slate-300'}`}>
+                <span className={`w-4 h-4 flex-shrink-0 rounded border flex items-center justify-center ${todos ? 'bg-teal-600 border-teal-600' : 'border-slate-300'}`}>
                   {todos && <Check size={11} className="text-white" />}
                 </span>
                 <span className="text-slate-700 flex-1">Seleccionar todos</span>
@@ -118,7 +118,7 @@ export function MultiSelect({
             return (
               <button key={o.value} type="button" onClick={() => toggle(o.value)}
                 className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-slate-50 text-[13px] text-left">
-                <span className={`w-4 h-4 flex-shrink-0 rounded border flex items-center justify-center ${on ? 'bg-indigo-600 border-indigo-600' : 'border-slate-300'}`}>
+                <span className={`w-4 h-4 flex-shrink-0 rounded border flex items-center justify-center ${on ? 'bg-teal-600 border-teal-600' : 'border-slate-300'}`}>
                   {on && <Check size={11} className="text-white" />}
                 </span>
                 {o.color && <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: o.color }} />}

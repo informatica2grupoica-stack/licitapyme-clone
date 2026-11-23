@@ -11,6 +11,8 @@ interface ModalProps {
   children:   React.ReactNode;
   size?:      'sm' | 'md' | 'lg' | 'xl';
   footer?:    React.ReactNode;
+  /** Oculta la X de cerrar (paso obligatorio: el modal solo se va al completarlo). */
+  sinCerrar?: boolean;
 }
 
 const sizeMap = {
@@ -21,7 +23,7 @@ const sizeMap = {
 };
 
 export function Modal({
-  open, onClose, title, subtitle, children, size = 'md', footer,
+  open, onClose, title, subtitle, children, size = 'md', footer, sinCerrar = false,
 }: ModalProps) {
   const ref = useRef<HTMLDivElement>(null);
 
@@ -53,7 +55,7 @@ export function Modal({
         className={`
           relative w-full ${sizeMap[size]}
           max-h-[92vh] flex flex-col
-          bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl
+          bg-white dark:bg-zinc-900 rounded-xl shadow-flotante
           modal-in overflow-hidden
         `}
       >
@@ -62,19 +64,19 @@ export function Modal({
           <div className="flex items-start justify-between px-6 pt-5 pb-4 border-b border-slate-100 dark:border-white/10">
             <div className="flex-1 min-w-0 pr-4">
               {title && (
-                <h2 className="text-base font-bold text-slate-900 dark:text-zinc-100 leading-tight">{title}</h2>
+                <h2 className="text-base font-semibold text-slate-900 dark:text-zinc-100 leading-tight">{title}</h2>
               )}
               {subtitle && (
                 <p className="text-sm text-slate-500 dark:text-zinc-400 mt-0.5">{subtitle}</p>
               )}
             </div>
-            <button
+            {!sinCerrar && <button
               onClick={onClose}
               aria-label="Cerrar"
               className="flex-shrink-0 p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 dark:hover:text-zinc-200 dark:hover:bg-white/10 transition-colors"
             >
               <X size={16} />
-            </button>
+            </button>}
           </div>
         )}
 

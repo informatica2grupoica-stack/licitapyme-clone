@@ -563,7 +563,7 @@ export function ImportacionCard({ negocioId, puedeOperar }: { negocioId: number;
                         <td className="px-2 py-2 text-slate-600">{it.embarqueId != null ? nombreEmbarque.get(it.embarqueId) : <span className="text-amber-700">Sin embarque</span>}</td>
                         <td className="px-2 py-2 text-right tabular-nums text-slate-500">{fmtCLP(it.precioUnitarioFob)}</td>
                         <td className="px-2 py-2 text-right tabular-nums text-slate-500">{fmtCLP(Math.round(it.extraPorUnidad))}</td>
-                        <td className="px-3 py-2 text-right tabular-nums font-bold text-slate-900">{fmtCLP(it.costoUnitarioAterrizado)}</td>
+                        <td className="px-3 py-2 text-right tabular-nums font-semibold text-slate-900">{fmtCLP(it.costoUnitarioAterrizado)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -572,7 +572,7 @@ export function ImportacionCard({ negocioId, puedeOperar }: { negocioId: number;
                       <td className="px-3 py-2 font-medium text-slate-800" colSpan={2}>Costo real total de la compra</td>
                       <td className="px-2 py-2 text-right tabular-nums text-slate-500">{fmtCLP(costoAterrizado.totalFob)}</td>
                       <td />
-                      <td className="px-3 py-2 text-right tabular-nums font-bold text-slate-900">{fmtCLP(costoAterrizado.totalAterrizado)}</td>
+                      <td className="px-3 py-2 text-right tabular-nums font-semibold text-slate-900">{fmtCLP(costoAterrizado.totalAterrizado)}</td>
                     </tr>
                   </tfoot>
                 </table>

@@ -5,7 +5,7 @@
 // (precio + técnico), los requisitos con su resultado y se pueden complementar los «Falta dato». Los datos son los del paso «3 · Fichas
 // técnicas» (mismo panel, mismas fichas): lo que se cambie aquí se ve allá y al revés.
 import { useCallback, useEffect, useState } from 'react';
-import { IconLoader2 as Loader2, IconSparkles as Chispa } from '@tabler/icons-react';
+import { IconLoader2 as Loader2, IconWand as Chispa } from '@tabler/icons-react';
 import { useToast } from '@/app/components/ui/toast';
 import { irAPestana } from '@/app/compras/[negocioId]/Pestanas';
 import { OpcionFila, enviarComplemento, mismoProveedorFicha } from './FichasTecnicasCard';
@@ -101,9 +101,9 @@ export function TecnicoDeCelda({ negocioId, productoId, proveedor, proveedorRut,
   return (
     <div className="mt-3 border-t border-zinc-200 pt-3 space-y-2.5" data-testid="tecnico-de-celda">
       <div className="flex items-center gap-2 flex-wrap">
-        <p className="text-[13px] font-bold text-zinc-800">Ficha técnica de {proveedor}</p>
+        <p className="text-[13px] font-semibold text-zinc-800">Ficha técnica de {proveedor}</p>
         {puedeOperar && conFicha.length > 0 && (
-          <button type="button" onClick={comparar} disabled={comparando} className="ml-auto inline-flex items-center gap-1.5 text-[12px] font-semibold text-indigo-700 border border-indigo-200 hover:bg-indigo-50 disabled:opacity-50 px-3 py-1.5 rounded-lg">
+          <button type="button" onClick={comparar} disabled={comparando} className="ml-auto inline-flex items-center gap-1.5 text-[12px] font-semibold text-teal-700 border border-teal-200 hover:bg-teal-50 disabled:opacity-50 px-3 py-1.5 rounded-lg">
             {comparando ? <Loader2 size={12} className="animate-spin" /> : <Chispa size={13} />} {o && o.tecnico.estado !== 'NO_CORRIDO' ? 'Comparar de nuevo' : 'Comparar con las bases'}
           </button>
         )}

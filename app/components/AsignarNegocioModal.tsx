@@ -94,14 +94,14 @@ export function AsignarNegocioModal({
       className="fixed inset-0 bg-black/50 backdrop-blur-[2px] z-50 flex items-center justify-center p-4 overlay-in"
       role="dialog" aria-modal="true" aria-label="Asignar a Negocio"
     >
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl modal-in">
+      <div className="bg-white rounded-xl shadow-flotante w-full max-w-2xl modal-in">
         <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 bg-indigo-50 rounded-xl flex items-center justify-center">
-              <Briefcase size={16} className="text-indigo-600" />
+            <div className="w-9 h-9 bg-teal-50 rounded-xl flex items-center justify-center">
+              <Briefcase size={16} className="text-teal-600" />
             </div>
             <div>
-              <h3 className="text-[13px] font-bold text-slate-800">{yaAsignada ? 'Reasignar Negocio' : 'Asignar a Negocio'}</h3>
+              <h3 className="text-[13px] font-semibold text-slate-800">{yaAsignada ? 'Reasignar Negocio' : 'Asignar a Negocio'}</h3>
               <p className="text-[11px] text-slate-500">Selecciona el responsable</p>
             </div>
           </div>
@@ -124,13 +124,13 @@ export function AsignarNegocioModal({
         <div className="px-6 py-4">
           {cargando ? (
             <div className="flex items-center justify-center py-6">
-              <Loader2 size={20} className="animate-spin text-indigo-500" />
+              <Loader2 size={20} className="animate-spin text-teal-500" />
             </div>
           ) : usuarios.length === 0 ? (
             <p className="text-sm text-slate-500 text-center py-4">No hay usuarios disponibles</p>
           ) : (
             <div className="space-y-2">
-              <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+              <label className="block text-[10px] font-semibold text-slate-500">
                 Asignar a
               </label>
               <Select
@@ -153,7 +153,7 @@ export function AsignarNegocioModal({
           <button
             onClick={handleAsignar}
             disabled={!asignandoA || guardando}
-            className="flex items-center gap-2 px-5 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 text-white text-[13px] font-semibold rounded-xl transition-colors"
+            className="flex items-center gap-2 px-5 py-2 bg-teal-600 hover:bg-teal-700 disabled:bg-slate-300 text-white text-[13px] font-semibold rounded-xl transition-colors"
           >
             {guardando ? <Loader2 size={14} className="animate-spin" /> : <Briefcase size={14} />}
             {guardando ? (yaAsignada ? 'Reasignando...' : 'Asignando...') : (yaAsignada ? 'Reasignar' : 'Asignar')}

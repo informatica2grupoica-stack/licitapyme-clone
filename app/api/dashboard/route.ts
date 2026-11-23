@@ -52,9 +52,9 @@ export async function GET(request: NextRequest) {
   if (!clienteId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
 
   try {
-    const esAdmin = sesion.rol === 'admin';
     // Un usuario con permiso ver_otros_negocios ve el panorama ampliado (como admin) en negocios.
     const permisos = await permisosDeUsuario(sesion.id, sesion.rol);
+    const esAdmin = sesion.rol === 'admin' || !!permisos.dashboard_admin;   // casilla «Dashboard de administrador»
     const verOtros = esAdmin || !!permisos.ver_otros_negocios;
 
     // ── Favoritos recientes (común) ──────────────────────────────────────────────

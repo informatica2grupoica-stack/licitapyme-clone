@@ -48,8 +48,8 @@ export function PanelValidador({ validador }: { validador?: { ok?: boolean; hall
       <button onClick={() => setAbierto(o => !o)} className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-left">
         <AlertTriangle size={16} className={hayErrores ? 'text-red-600' : 'text-amber-600'} />
         <p className="flex-1 text-[13px] text-slate-700 leading-snug">
-          <span className="font-bold">Validador automático:</span> {hallazgos.length} {hallazgos.length === 1 ? 'inconsistencia' : 'inconsistencias'}
-          {errores.length > 0 && <span className="ml-2 text-[11.5px] font-bold text-red-700 bg-red-100 px-2 py-0.5 rounded-full">{errores.length} por revisar antes de confiar en el informe</span>}
+          <span className="font-semibold">Validador automático:</span> {hallazgos.length} {hallazgos.length === 1 ? 'inconsistencia' : 'inconsistencias'}
+          {errores.length > 0 && <span className="ml-2 text-[11.5px] font-semibold text-red-700 bg-red-100 px-2 py-0.5 rounded-full">{errores.length} por revisar antes de confiar en el informe</span>}
         </p>
         <ChevronDown size={14} className={`text-slate-400 transition-transform ${abierto ? 'rotate-180' : ''}`} />
       </button>
@@ -57,7 +57,7 @@ export function PanelValidador({ validador }: { validador?: { ok?: boolean; hall
         <div className="px-3 pb-3 space-y-1.5">
           {[...errores, ...avisos].map((h, i) => (
             <div key={i} className={`flex items-start gap-2 text-[12px] rounded-lg px-2.5 py-1.5 ${h.severidad === 'error' ? 'bg-red-100/60 text-red-800' : 'bg-amber-100/50 text-amber-800'}`}>
-              <span className="font-mono font-bold flex-shrink-0">{h.regla}</span>
+              <span className="font-mono font-semibold flex-shrink-0">{h.regla}</span>
               <span className="flex-1 leading-snug">{h.mensaje}</span>
             </div>
           ))}
@@ -111,7 +111,7 @@ export function BotonBuscarEquipo({ codigo, producto, region }: { codigo: string
     <div className="mt-2">
       <button type="button" onClick={buscar} disabled={estado === 'cargando'}
         title="Genera un prompt con las specs limpias, lo copia y abre AI Studio para buscar 3 proveedores chilenos"
-        className="inline-flex items-center gap-1.5 text-[12.5px] font-bold text-white bg-marca hover:bg-marca-fuerte disabled:opacity-60 px-3.5 py-2 rounded-lg shadow-sm shadow-teal-100 transition-all">
+        className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-white bg-marca hover:bg-marca-fuerte disabled:opacity-60 px-3.5 py-2 rounded-lg shadow-sm shadow-teal-100 transition-all">
         {estado === 'cargando' ? <><Loader2 size={14} className="animate-spin" /> Generando prompt…</> : <><Search size={14} /> Buscar proveedor en IA</>}
       </button>
       {estado === 'ok' && <span className="text-[10px] text-emerald-600 ml-2">✓ Prompt copiado — pégalo en AI Studio (se abrió en otra pestaña)</span>}
@@ -153,13 +153,13 @@ export function BotonProductoReferencia({ codigo, producto }: { codigo: string; 
     <div className="mt-2">
       <button type="button" onClick={buscar} disabled={estado === 'cargando'}
         title="Busca en la web el modelo que el cliente tenía en mente y lo compara con la ficha de las bases"
-        className="inline-flex items-center gap-1.5 text-[12.5px] font-bold text-marca bg-marca-suave hover:bg-teal-50 border border-teal-200 disabled:opacity-60 px-3.5 py-2 rounded-lg transition-all">
+        className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-marca bg-marca-suave hover:bg-teal-50 border border-teal-200 disabled:opacity-60 px-3.5 py-2 rounded-lg transition-all">
         {estado === 'cargando' ? <><Loader2 size={14} className="animate-spin" /> Buscando el modelo…</> : <><Search size={14} /> Producto de referencia</>}
       </button>
       {estado === 'error' && <span className="text-[11px] text-red-600 ml-2">{error}</span>}
       {estado === 'ok' && res && (
         <div className="mt-2 rounded-lg border border-slate-200 bg-white px-3 py-2">
-          <p className="text-[11px] font-bold text-slate-400">Referencia para buscar</p>
+          <p className="text-[11px] font-semibold text-slate-400">Referencia para buscar</p>
           {res.aviso_copiado && (
             <p className="flex items-start gap-1.5 mt-1 text-[12px] font-semibold text-amber-800"><AlertTriangle size={14} className="flex-shrink-0 mt-0.5" />Las especificaciones parecen copiadas de este modelo.</p>
           )}
@@ -167,7 +167,7 @@ export function BotonProductoReferencia({ codigo, producto }: { codigo: string; 
           <ul className="mt-1 space-y-2">
             {res.candidatos.map((c, i) => (
               <li key={i} className="text-[12.5px] text-slate-700">
-                <span className="font-bold text-slate-900">{[c.marca, c.modelo].filter(Boolean).join(' ') || 'Modelo sin identificar'}</span>
+                <span className="font-semibold text-slate-900">{[c.marca, c.modelo].filter(Boolean).join(' ') || 'Modelo sin identificar'}</span>
                 <span className="font-semibold text-marca"> · {c.porcentaje}%</span>
                 <span className="text-slate-400"> · {c.tipo_fuente.toLowerCase()}</span>
                 {' · '}<a href={c.url} target="_blank" rel="noopener noreferrer" className="text-marca underline break-all">ver ficha</a>

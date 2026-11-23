@@ -238,7 +238,7 @@ function PanelDetectar({ go }: { go: boolean }) {
           {kws.map((k, i) => (
             <Item key={k} d={i} className="flex items-center justify-between py-2.5 text-[13px] font-medium text-slate-800">
               {k}
-              <span className="text-xs font-normal text-slate-500"><b className="font-bold tabular-nums text-slate-900"><Cuenta b={[6, 5, 3][i]} go={go} delay={0.5 + i * 0.25} /></b> nuevas</span>
+              <span className="text-xs font-normal text-slate-500"><b className="font-semibold tabular-nums text-slate-900"><Cuenta b={[6, 5, 3][i]} go={go} delay={0.5 + i * 0.25} /></b> nuevas</span>
             </Item>
           ))}
         </ul>
@@ -249,7 +249,7 @@ function PanelDetectar({ go }: { go: boolean }) {
       </div>
       <div className="flex items-baseline justify-between border-t border-slate-200 bg-slate-50 px-5 py-4">
         <p className="text-xs text-slate-500">Licitaciones nuevas hoy</p>
-        <p className="text-3xl font-bold text-slate-900"><Cuenta b={14} go={go} delay={0.4} dur={1.5} /></p>
+        <p className="text-3xl font-semibold text-slate-900"><Cuenta b={14} go={go} delay={0.4} dur={1.5} /></p>
       </div>
     </Ventana>
   );
@@ -277,7 +277,7 @@ function PanelAsignar({ go }: { go: boolean }) {
               )}
               <dl className="ml-auto">
                 <Dato rotulo="Negocios activos">
-                  <span className="text-[15px] font-bold tabular-nums">{i === 1 ? <Cuenta a={g.act} b={g.act + 1} go={go} dur={0.4} delay={1.25} /> : g.act}</span>
+                  <span className="text-[15px] font-semibold tabular-nums">{i === 1 ? <Cuenta a={g.act} b={g.act + 1} go={go} dur={0.4} delay={1.25} /> : g.act}</span>
                 </Dato>
               </dl>
             </li>
@@ -495,7 +495,7 @@ function Cuadricula() {
                     <motion.span className="block h-full origin-left bg-teal-700" initial={{ scaleX: 0 }} whileInView={{ scaleX: n / 6 }}
                       viewport={{ once: true }} transition={{ delay: 0.2 + i * 0.12, duration: 0.8, ease: EASE }} />
                   </span>
-                  <span className="w-6 text-right text-xs font-bold tabular-nums text-slate-900">{n}</span>
+                  <span className="w-6 text-right text-xs font-semibold tabular-nums text-slate-900">{n}</span>
                 </li>
               ))}
             </ul>
@@ -506,7 +506,7 @@ function Cuadricula() {
               {([['María Fuentes', 'teal', 6], ['Diego Rojas', 'slate', 4]] as const).map(([n, tono, c], i) => (
                 <li key={n}>
                   <div className="flex items-center gap-2.5 text-[13px] font-medium text-slate-800"><Avatar nombre={n} tono={tono} />{n}
-                    <span className="ml-auto text-xs font-bold tabular-nums">{c}</span></div>
+                    <span className="ml-auto text-xs font-semibold tabular-nums">{c}</span></div>
                   <span className="mt-2 block h-[3px] overflow-hidden bg-slate-200">
                     <motion.span className="block h-full origin-left bg-slate-600" initial={{ scaleX: 0 }} whileInView={{ scaleX: c / 8 }}
                       viewport={{ once: true }} transition={{ delay: 0.3 + i * 0.15, duration: 0.8, ease: EASE }} />
@@ -583,7 +583,7 @@ export default function Landing() {
         <div className="mx-auto flex h-16 max-w-[1200px] items-center justify-between px-5 sm:px-8">
           <a href="#top" className="flex items-center gap-2.5">
             <LicitankIcon size={30} />
-            <span className="text-[15px] font-bold tracking-tight text-white">LICITANK</span>
+            <span className="text-[15px] font-semibold tracking-tight text-white">LICITANK</span>
           </a>
           <nav className="hidden items-center gap-8 text-[14px] text-slate-400 md:flex">
             <a className="lk-nav" href="#ciclo">El ciclo</a>
@@ -675,7 +675,7 @@ export default function Landing() {
               <dl>
                 <div className="flex items-baseline justify-between border-t border-white/15 py-5">
                   <dt className="text-[13px] text-slate-400">Usuarios incluidos</dt>
-                  <dd className="text-5xl font-bold tabular-nums text-white">2</dd>
+                  <dd className="text-5xl font-semibold tabular-nums text-white">2</dd>
                 </div>
                 <div className="flex items-baseline justify-between border-t border-white/15 py-5">
                   <dt className="text-[13px] text-slate-400">Usuarios adicionales</dt>
@@ -721,7 +721,7 @@ export default function Landing() {
         <div className="mx-auto flex max-w-[1200px] flex-col gap-5 px-5 py-8 text-[12.5px] text-slate-400 sm:flex-row sm:items-center sm:justify-between sm:px-8">
           <span className="flex items-center gap-2.5">
             <LicitankIcon size={22} />
-            <span className="font-bold text-white">LICITANK</span>
+            <span className="font-semibold text-white">LICITANK</span>
             <span>© {new Date().getFullYear()}</span>
           </span>
           <span className="flex items-center gap-4">

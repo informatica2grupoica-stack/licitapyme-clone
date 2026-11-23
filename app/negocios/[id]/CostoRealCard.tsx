@@ -34,8 +34,8 @@ const fmtPct = (n: number | null | undefined) => n == null ? '—' : `${n.toFixe
 function Linea({ etiqueta, valor, nota, fuerte }: { etiqueta: string; valor: number; nota?: string; fuerte?: boolean }) {
   return (
     <div className={`flex items-baseline justify-between gap-3 py-1 ${fuerte ? 'border-t border-zinc-200 mt-1 pt-1.5' : ''}`}>
-      <span className={`text-[12px] ${fuerte ? 'font-bold text-zinc-800' : 'text-zinc-600'}`}>{etiqueta}{nota && <span className="text-[10.5px] text-zinc-400"> · {nota}</span>}</span>
-      <span className={`tabular-nums ${fuerte ? 'text-[14px] font-bold text-zinc-900' : 'text-[12.5px] font-semibold text-zinc-700'}`}>{fmtCLP(valor)}</span>
+      <span className={`text-[12px] ${fuerte ? 'font-semibold text-zinc-800' : 'text-zinc-600'}`}>{etiqueta}{nota && <span className="text-[10.5px] text-zinc-400"> · {nota}</span>}</span>
+      <span className={`tabular-nums ${fuerte ? 'text-[14px] font-semibold text-zinc-900' : 'text-[12.5px] font-semibold text-zinc-700'}`}>{fmtCLP(valor)}</span>
     </div>
   );
 }
@@ -52,7 +52,7 @@ function Bloque({ titulo, total, nota, children }: { titulo: string; total: numb
       <button type="button" onClick={() => setAbierto(a => !a)} aria-expanded={abierto}
         className="w-full flex items-center justify-between gap-3 px-3 py-2 bg-zinc-50 hover:bg-zinc-100 text-left">
         <span className="text-[12.5px] font-semibold text-zinc-800">{abierto ? '▾' : '▸'} {titulo} <span className="text-[11px] font-normal text-zinc-500">· {nota}</span></span>
-        <span className="text-[13px] font-bold tabular-nums text-zinc-900">{fmtCLP(total)}</span>
+        <span className="text-[13px] font-semibold tabular-nums text-zinc-900">{fmtCLP(total)}</span>
       </button>
       {abierto && <div className="overflow-x-auto">{children}</div>}
     </div>
@@ -74,7 +74,7 @@ function DetalleCostoReal({ negocioId, venta, costoTotal, utilidad, margen }: { 
   const totCost = productos.reduce((s, f) => s + (f.costeoNeto ?? 0), 0);
   const totFlete = fletes.reduce((s, f) => s + real(f), 0);
   const totGasto = d.gastos.reduce((s, g) => s + Number(g.monto || 0), 0);
-  const th = 'px-3 py-1.5 text-[10.5px] font-semibold text-zinc-500 uppercase tracking-wide text-left';
+  const th = 'px-3 py-1.5 text-[10.5px] font-semibold text-zinc-500 text-left';
   const td = 'px-3 py-1.5 text-[12px] text-zinc-700';
   const tdN = `${td} text-right tabular-nums`;
   return (
@@ -193,13 +193,13 @@ export function CostoRealCard({ negocioId, puedeOperar, permitirCierre = true }:
     <div className="bg-white rounded-2xl border border-zinc-200 overflow-hidden">
       <div className="px-4 py-3 border-b border-zinc-100 flex items-center gap-2 flex-wrap">
         <Scale size={15} className="text-zinc-400" />
-        <span className="text-[13px] font-bold text-zinc-700">Costo real del negocio</span>
-        {cierre && <span className="ml-auto inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5"><Lock size={11} /> Resultado cerrado</span>}
+        <span className="text-[13px] font-semibold text-zinc-700">Costo real del negocio</span>
+        {cierre && <span className="ml-auto inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5"><Lock size={11} /> Resultado cerrado</span>}
       </div>
 
       <div className="p-4 grid grid-cols-1 lg:grid-cols-2 gap-5">
         <div>
-          <p className="text-[10.5px] font-semibold text-zinc-500 uppercase tracking-wide mb-1">De dónde sale el costo real</p>
+          <p className="text-[10.5px] font-semibold text-zinc-500 mb-1">De dónde sale el costo real</p>
           {res.lineas.fuente === 'oc' ? (
             <>
               <Linea etiqueta="Órdenes de compra" valor={res.lineas.costeoOfertado} nota="todo lo comprado, con fletes y armado que van en las OC" />
@@ -224,7 +224,7 @@ export function CostoRealCard({ negocioId, puedeOperar, permitirCierre = true }:
           )}
         </div>
         <div>
-          <p className="text-[10.5px] font-semibold text-zinc-500 uppercase tracking-wide mb-1">Contra lo vendido</p>
+          <p className="text-[10.5px] font-semibold text-zinc-500 mb-1">Contra lo vendido</p>
           <Linea etiqueta="Venta neta" valor={c.ventaNeta} />
           <Linea etiqueta="Costo estimado al postular" valor={c.costoNetoEstimado} nota={`utilidad ${fmtCLP(c.utilidadEstimada)} · ${fmtPct(c.margenEstimado)}`} />
           {hayReal ? (
@@ -270,10 +270,10 @@ export function CostoRealCard({ negocioId, puedeOperar, permitirCierre = true }:
             <span className="inline-flex items-center gap-2 ml-2 flex-wrap">
               {pideMotivo && (
                 <input value={motivo} onChange={e => setMotivo(e.target.value)} placeholder="Motivo de cerrar con lo que falta"
-                  className="min-w-[200px] text-[11.5px] border border-zinc-200 rounded-lg px-2 py-1 outline-none focus:border-indigo-400" />
+                  className="min-w-[200px] text-[11.5px] border border-zinc-200 rounded-lg px-2 py-1 outline-none focus:border-teal-400" />
               )}
               <button onClick={cerrar} disabled={cerrando || motivoCorto}
-                className="text-[11px] font-semibold text-indigo-600 hover:text-indigo-700 disabled:opacity-40">
+                className="text-[11px] font-semibold text-teal-600 hover:text-teal-700 disabled:opacity-40">
                 {cerrando ? 'Cerrando…' : 'Volver a cerrar con los números de hoy'}
               </button>
             </span>
@@ -288,10 +288,10 @@ export function CostoRealCard({ negocioId, puedeOperar, permitirCierre = true }:
           )}
           {pideMotivo && (
             <input value={motivo} onChange={e => setMotivo(e.target.value)} placeholder={faltaCierre.length ? '¿Por qué se cierra igual?' : `Faltan ${faltan} ítem(s) con costo real: ¿por qué se cierra igual?`}
-              className="flex-1 min-w-[220px] text-[12px] border border-zinc-200 rounded-lg px-2.5 py-1.5 outline-none focus:border-indigo-400" />
+              className="flex-1 min-w-[220px] text-[12px] border border-zinc-200 rounded-lg px-2.5 py-1.5 outline-none focus:border-teal-400" />
           )}
           <button onClick={cerrar} disabled={cerrando || motivoCorto}
-            className="inline-flex items-center gap-1.5 text-[12px] font-bold text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 rounded-lg px-3 py-1.5">
+            className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-40 rounded-lg px-3 py-1.5">
             {cerrando ? <Loader2 size={12} className="animate-spin" /> : <Lock size={12} />} Cerrar resultado
           </button>
         </div>

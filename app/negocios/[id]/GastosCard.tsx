@@ -113,7 +113,7 @@ export function GastosCard({ negocioId, puedeOperar }: { negocioId: number; pued
     <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
       <div className="px-4 py-3 bg-zinc-50 border-b border-zinc-100 space-y-1.5">
         <div className="flex items-center justify-between gap-3 flex-wrap">
-          <p className="text-[13px] font-bold text-zinc-800 flex items-center gap-1.5"><Receipt size={15} /> Gastos extra del proyecto</p>
+          <p className="text-[13px] font-semibold text-zinc-800 flex items-center gap-1.5"><Receipt size={15} /> Gastos extra del proyecto</p>
           {puedeOperar && (
             <button onClick={() => setFormAbierto(v => !v)} data-testid="gasto-agregar"
               className="flex-shrink-0 flex items-center gap-1.5 text-[12.5px] font-semibold text-white bg-teal-600 hover:bg-teal-700 px-3.5 py-2 rounded-lg">
@@ -126,7 +126,7 @@ export function GastosCard({ negocioId, puedeOperar }: { negocioId: number; pued
 
       {resumen.total > 0 && (
         <div className="px-4 py-2.5 border-b border-zinc-100 bg-zinc-50/60 flex flex-wrap items-center gap-x-4 gap-y-1">
-          <span className="text-[13px] font-bold text-zinc-800">Total: {fmtCLP(resumen.total)}</span>
+          <span className="text-[13px] font-semibold text-zinc-800">Total: {fmtCLP(resumen.total)}</span>
           {resumen.porCategoria.map(c => (
             <span key={c.clave || 'sin'} className="text-[11px] text-zinc-500">{c.etiqueta}: <span className="font-semibold text-zinc-700">{fmtCLP(c.total)}</span></span>
           ))}
@@ -137,7 +137,7 @@ export function GastosCard({ negocioId, puedeOperar }: { negocioId: number; pued
         <div className="border-b border-zinc-100 px-4 py-4 space-y-3 bg-zinc-50/60" data-testid="gasto-form">
           {ocsDisponibles.length > 0 && (
             <div data-testid="gasto-oc-existente">
-              <p className="text-[12.5px] font-bold text-zinc-800 mb-1">¿Este gasto ya tiene su orden de compra en Obuma?</p>
+              <p className="text-[12.5px] font-semibold text-zinc-800 mb-1">¿Este gasto ya tiene su orden de compra en Obuma?</p>
               <p className="text-[11.5px] text-zinc-500 mb-1.5">Estas órdenes ya existen y tienen una línea de transporte, flete o armado sin anotar. Si eliges una, el gasto queda enlazado a ella y <b>no se crea otra orden</b>.</p>
               <div className="space-y-1">
                 {ocsDisponibles.map(o => {
@@ -158,7 +158,7 @@ export function GastosCard({ negocioId, puedeOperar }: { negocioId: number; pued
             </div>
           )}
           <div>
-            <p className="text-[12.5px] font-bold text-zinc-800 mb-1">1. ¿Qué tipo de gasto es?</p>
+            <p className="text-[12.5px] font-semibold text-zinc-800 mb-1">1. ¿Qué tipo de gasto es?</p>
             <div className="flex items-center gap-1.5 flex-wrap">
               {categorias.map(c => {
                 const on = form.categoriaClave === c.clave;
@@ -174,12 +174,12 @@ export function GastosCard({ negocioId, puedeOperar }: { negocioId: number; pued
             )}
           </div>
           <div>
-            <p className="text-[12.5px] font-bold text-zinc-800 mb-1">2. ¿En qué se gastó?</p>
+            <p className="text-[12.5px] font-semibold text-zinc-800 mb-1">2. ¿En qué se gastó?</p>
             <input value={form.descripcion} onChange={e => setForm(f => ({ ...f, descripcion: e.target.value }))}
               placeholder="Ej: flete de Santiago a Coyhaique, camión de la empresa X" className="w-full text-[12.5px] border border-zinc-300 rounded-lg px-2.5 py-1.5 outline-none focus:ring-1 focus:ring-teal-500" />
           </div>
           <div>
-            <p className="text-[12.5px] font-bold text-zinc-800 mb-1">3. ¿Cuánto fue? <span className="font-normal text-zinc-500">neto, sin IVA (con factura, el IVA no es costo)</span></p>
+            <p className="text-[12.5px] font-semibold text-zinc-800 mb-1">3. ¿Cuánto fue? <span className="font-normal text-zinc-500">neto, sin IVA (con factura, el IVA no es costo)</span></p>
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-[13px] text-zinc-400">$</span>
               <input inputMode="numeric" value={form.monto} onChange={e => setForm(f => ({ ...f, monto: e.target.value }))}
@@ -190,7 +190,7 @@ export function GastosCard({ negocioId, puedeOperar }: { negocioId: number; pued
             {form.moneda !== 'CLP' && <p className="mt-1 text-[11.5px] text-amber-700">Se guarda en pesos con el tipo de cambio del día (el monto original queda en las notas) y suma al total.</p>}
           </div>
           <div>
-            <p className="text-[12.5px] font-bold text-zinc-800 mb-1">4. Datos opcionales</p>
+            <p className="text-[12.5px] font-semibold text-zinc-800 mb-1">4. Datos opcionales</p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               <label className="text-[11.5px] font-semibold text-zinc-500">
                 Fecha en que se pagó
@@ -226,9 +226,9 @@ export function GastosCard({ negocioId, puedeOperar }: { negocioId: number; pued
             <div key={g.id} className="px-4 py-2 flex items-center justify-between gap-2 flex-wrap">
               <div className="min-w-0">
                 <p className="text-[12px] text-zinc-800">
-                  {g.categoriaEtiqueta && <span className="text-[9.5px] font-bold text-zinc-500 bg-zinc-100 border border-zinc-200 px-1.5 py-0.5 rounded-full mr-1.5">{g.categoriaEtiqueta}</span>}
+                  {g.categoriaEtiqueta && <span className="text-[9.5px] font-semibold text-zinc-500 bg-zinc-100 border border-zinc-200 px-1.5 py-0.5 rounded-full mr-1.5">{g.categoriaEtiqueta}</span>}
                   {g.descripcion}
-                  {g.ocObumaFolio && <span className="text-[9.5px] font-bold text-teal-700 bg-teal-50 border border-teal-200 px-1.5 py-0.5 rounded-full ml-1.5">OC Obuma {g.ocObumaFolio}</span>}
+                  {g.ocObumaFolio && <span className="text-[9.5px] font-semibold text-teal-700 bg-teal-50 border border-teal-200 px-1.5 py-0.5 rounded-full ml-1.5">OC Obuma {g.ocObumaFolio}</span>}
                 </p>
                 <p className="text-[10.5px] text-zinc-400">
                   {g.fechaGasto || g.createdAt.slice(0, 10)}{g.registradoPorNombre && ` · ${g.registradoPorNombre}`}
@@ -240,7 +240,7 @@ export function GastosCard({ negocioId, puedeOperar }: { negocioId: number; pued
                 </p>
               </div>
               <div className="flex-shrink-0 flex items-center gap-2">
-                <span className="text-[12.5px] font-bold text-zinc-800">{g.moneda !== 'CLP' ? `${g.moneda} ${g.monto.toLocaleString('es-CL')}` : fmtCLP(g.monto)}</span>
+                <span className="text-[12.5px] font-semibold text-zinc-800">{g.moneda !== 'CLP' ? `${g.moneda} ${g.monto.toLocaleString('es-CL')}` : fmtCLP(g.monto)}</span>
                 {puedeOperar && (
                   <button onClick={() => eliminar(g.id)} disabled={eliminando === g.id} className="text-zinc-300 hover:text-rose-500 disabled:opacity-50">
                     {eliminando === g.id ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}

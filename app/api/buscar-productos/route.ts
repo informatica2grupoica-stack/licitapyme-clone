@@ -3,18 +3,19 @@
 // cotización por lote (para el costeo / re-precio). Usa el motor portado desde la intranet
 // (app/lib/buscador-precios.ts) con caché MySQL.
 import { NextRequest, NextResponse } from 'next/server';
+import { tienePermiso } from '@/app/lib/api-auth';
 import { buscarPrecioProducto, cotizarItems, type ItemACotizar } from '@/app/lib/buscador-precios';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
-function esAdmin(req: NextRequest): boolean {
-  return req.headers.get('x-user-rol') === 'admin';
+async function esAdmin(req: NextRequest): Promise<boolean> {
+  return tienePermiso(req, 'buscador_precios');
 }
 
 // GET ?producto=...&region=...&contexto=...&minimo=5  → busca UN producto.
 export async function GET(req: NextRequest) {
-  if (!esAdmin(req)) return NextResponse.json({ error: 'Solo el admin puede usar el buscador de precios' }, { status: 403 });
+  if (!(await esAdmin(req))) return NextResponse.json({ error: 'Solo el admin puede usar el buscador de precios' }, { status: 403 });
 
   const sp = req.nextUrl.searchParams;
   const producto = (sp.get('producto') || '').trim();
@@ -32,7 +33,7 @@ export async function GET(req: NextRequest) {
 // POST { items: [{clave, producto, conversion?}], region?, contexto?, concurrencia? }
 //   → cotización por lote (mejor match + alternativas por ítem).
 export async function POST(req: NextRequest) {
-  if (!esAdmin(req)) return NextResponse.json({ error: 'Solo el admin puede usar el buscador de precios' }, { status: 403 });
+  if (!(await esAdmin(req))) return NextResponse.json({ error: 'Solo el admin puede usar el buscador de precios' }, { status: 403 });
 
   let body: any;
   try { body = await req.json(); } catch { return NextResponse.json({ error: 'JSON inválido' }, { status: 400 }); }

@@ -30,7 +30,7 @@ interface Usuario { id: number; nombre: string | null; email: string; }
 const ACCION_META: Record<string, { label: string; icon: React.ReactNode; color: string; bg: string }> = {
   comentario_licitacion: { label: 'Comentario en licitación', icon: <MessageSquare size={14} />, color: '#2563eb', bg: '#eff6ff' },
   comentario_negocio:    { label: 'Comentario en negocio',    icon: <MessageSquare size={14} />, color: '#2563eb', bg: '#eff6ff' },
-  cambio_etiqueta:       { label: 'Cambió línea de negocio',  icon: <Tag size={14} />,           color: '#7c3aed', bg: '#f5f3ff' },
+  cambio_etiqueta:       { label: 'Cambió línea de negocio',  icon: <Tag size={14} />,           color: '#0891b2', bg: '#ecfeff' },
   cambio_pipeline:       { label: 'Cambió estado',            icon: <GitBranch size={14} />,     color: '#0891b2', bg: '#ecfeff' },
   asignacion:            { label: 'Asignó licitación',        icon: <UserPlus size={14} />,      color: '#059669', bg: '#ecfdf5' },
   radar_nuevas:          { label: 'Nuevas en el radar',       icon: <RadarIcon size={14} />,     color: '#d97706', bg: '#fffbeb' },
@@ -38,9 +38,9 @@ const ACCION_META: Record<string, { label: string; icon: React.ReactNode; color:
   login:                 { label: 'Inició sesión',            icon: <LogIn size={14} />,         color: '#64748b', bg: '#f8fafc' },
   favorito:              { label: 'Favorito',                 icon: <Star size={14} />,          color: '#ca8a04', bg: '#fefce8' },
   descarte_radar:        { label: 'Descarte del radar',       icon: <X size={14} />,             color: '#dc2626', bg: '#fef2f2' },
-  feedback_viabilidad:   { label: 'Corrección de viabilidad', icon: <MessageSquare size={14} />, color: '#9333ea', bg: '#faf5ff' },
+  feedback_viabilidad:   { label: 'Corrección de viabilidad', icon: <MessageSquare size={14} />, color: '#475569', bg: '#faf5ff' },
   chat_ia:               { label: 'Consulta a ankIA',         icon: <MessageSquare size={14} />, color: '#0d9488', bg: '#f0fdfa' },
-  informe:               { label: 'Informe técnico PDF',      icon: <Activity size={14} />,      color: '#4f46e5', bg: '#eef2ff' },
+  informe:               { label: 'Informe técnico PDF',      icon: <Activity size={14} />,      color: '#0d9488', bg: '#f0fdfa' },
   busqueda_equipamiento: { label: 'Búsqueda de equipamiento', icon: <Eye size={14} />,           color: '#0369a1', bg: '#f0f9ff' },
   producto_referencia:   { label: 'Producto de referencia',   icon: <Eye size={14} />,           color: '#0369a1', bg: '#f0f9ff' },
   radar_manual:          { label: 'Actualizó el radar',       icon: <RadarIcon size={14} />,     color: '#d97706', bg: '#fffbeb' },
@@ -62,7 +62,7 @@ function tiempoRelativo(fecha: string): string {
 }
 function HistorialContent() {
   const { usuario } = useSession();
-  const isAdmin = usuario?.rol === 'admin';
+  const isAdmin = !!usuario?.permisos?.ver_historial;
 
   const [actividad, setActividad]   = useState<Actividad[]>([]);
   const [usuarios, setUsuarios]     = useState<Usuario[]>([]);
@@ -152,7 +152,7 @@ function HistorialContent() {
           <div className="w-16 h-16 bg-slate-100 rounded-2xl flex items-center justify-center mb-4">
             <Bell size={26} className="text-slate-400" />
           </div>
-          <h3 className="text-[15px] font-bold text-slate-800 mb-1.5">Acceso restringido</h3>
+          <h3 className="text-[15px] font-semibold text-slate-800 mb-1.5">Acceso restringido</h3>
           <p className="text-[13px] text-slate-400 max-w-xs">El historial de actividad es solo para administradores.</p>
         </div>
       </AppLayout>
@@ -165,11 +165,11 @@ function HistorialContent() {
         {/* Header */}
         <div className="flex items-center justify-between gap-3 mb-5">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-600 to-violet-600 flex items-center justify-center shadow-lg shadow-indigo-600/25">
+            <div className="w-10 h-10 rounded-xl bg-teal-600 flex items-center justify-center shadow-lg shadow-teal-600/25">
               <Activity size={18} className="text-white" />
             </div>
             <div>
-              <h1 className="text-xl font-bold text-slate-900">Historial de actividad</h1>
+              <h1 className="text-xl font-semibold text-slate-900">Historial de actividad</h1>
               <p className="text-[12px] text-slate-500">Todo lo que hacen los usuarios en la plataforma</p>
             </div>
           </div>
@@ -188,7 +188,7 @@ function HistorialContent() {
         {/* Alertas recientes */}
         {recientes.length > 0 && (
           <div className="mb-5">
-            <h2 className="text-[12px] font-bold text-slate-400 uppercase tracking-wide mb-2 flex items-center gap-1.5">
+            <h2 className="text-[12px] font-semibold text-slate-400 mb-2 flex items-center gap-1.5">
               <Bell size={13} /> Alertas recientes
             </h2>
             <div className="grid gap-2 sm:grid-cols-2">
@@ -217,7 +217,7 @@ function HistorialContent() {
               type="text" value={busqueda} onChange={e => setBusqueda(e.target.value)}
               placeholder="Buscar por nombre o código de licitación…"
               title="Busca en el texto de cada evento (incluye el nombre de la licitación) y en su código (ej: 1499887-11-LE26)"
-              className="pl-8 pr-7 py-2 w-[230px] border border-slate-200 rounded-lg text-[12px] bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 outline-none transition-all"
+              className="pl-8 pr-7 py-2 w-[230px] border border-slate-200 rounded-lg text-[12px] bg-white focus:ring-2 focus:ring-teal-500/20 focus:border-teal-400 outline-none transition-all"
             />
             {busqueda && (
               <button onClick={() => setBusqueda('')} title="Limpiar búsqueda"
@@ -301,7 +301,7 @@ function HistorialContent() {
                     <p className="text-[13px] text-slate-800">{a.descripcion || m.label}</p>
                     <p className="text-[11px] text-slate-400 mt-0.5 flex items-center gap-1.5 flex-wrap">
                       <span className="inline-flex items-center gap-1">
-                        <span className="w-4 h-4 rounded-full text-white text-[8px] font-bold flex items-center justify-center" style={{ background: col }}>
+                        <span className="w-4 h-4 rounded-full text-white text-[8px] font-semibold flex items-center justify-center" style={{ background: col }}>
                           {inicialesUsuario(a.usuario_nombre, a.usuario_email)}
                         </span>
                         <span className="font-semibold" style={{ color: col }}>{a.usuario_nombre || a.usuario_email || 'Sistema'}</span>
@@ -328,12 +328,12 @@ function HistorialContent() {
               </p>
               <div className="flex items-center gap-1.5">
                 <button onClick={() => setPagina(p => Math.max(1, p - 1))} disabled={paginaSegura <= 1}
-                  className="px-3 py-1.5 text-[12px] font-semibold rounded-lg border border-slate-200 text-slate-600 hover:border-indigo-300 hover:text-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition-all">
+                  className="px-3 py-1.5 text-[12px] font-semibold rounded-lg border border-slate-200 text-slate-600 hover:border-teal-300 hover:text-teal-700 disabled:opacity-40 disabled:cursor-not-allowed transition-all">
                   Anterior
                 </button>
                 <span className="px-3 py-1.5 text-[12px] font-semibold text-slate-700 tabular-nums">{paginaSegura} / {totalPaginas}</span>
                 <button onClick={() => setPagina(p => Math.min(totalPaginas, p + 1))} disabled={paginaSegura >= totalPaginas}
-                  className="px-3 py-1.5 text-[12px] font-semibold rounded-lg border border-slate-200 text-slate-600 hover:border-indigo-300 hover:text-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition-all">
+                  className="px-3 py-1.5 text-[12px] font-semibold rounded-lg border border-slate-200 text-slate-600 hover:border-teal-300 hover:text-teal-700 disabled:opacity-40 disabled:cursor-not-allowed transition-all">
                   Siguiente
                 </button>
               </div>

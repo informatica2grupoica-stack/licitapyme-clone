@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { AppLayout } from '@/app/components/AppLayout';
-import { IconUsers as Users, IconPlus as Plus, IconShieldCheck as ShieldCheck, IconUser as User, IconCircleCheck as CheckCircle, IconCircleX as XCircle, IconLoader2 as Loader2, IconTrash as Trash2, IconEdit as Edit3, IconX as X, IconAlertCircle as AlertCircle, IconMail as Mail, IconLock as Lock, IconBriefcase as Briefcase, IconEye as Eye, IconEyeOff as EyeOff, IconCalendar as Calendar, IconSparkles as Sparkles, IconSchool as GraduationCap, IconPhone as Phone, IconId as IdCard, IconBadge as Badge, IconBrandWhatsapp as Whatsapp } from '@tabler/icons-react';
+import { IconUsers as Users, IconPlus as Plus, IconShieldCheck as ShieldCheck, IconSettings as Settings, IconUser as User, IconCircleCheck as CheckCircle, IconCircleX as XCircle, IconLoader2 as Loader2, IconTrash as Trash2, IconEdit as Edit3, IconX as X, IconAlertCircle as AlertCircle, IconMail as Mail, IconLock as Lock, IconBriefcase as Briefcase, IconEye as Eye, IconEyeOff as EyeOff, IconCalendar as Calendar, IconWand as Sparkles, IconSchool as GraduationCap, IconPhone as Phone, IconId as IdCard, IconBadge as Badge, IconBrandWhatsapp as Whatsapp } from '@tabler/icons-react';
 import { formatearRut, formatearTelefono } from '@/app/lib/perfil-datos';
 import { TIPOS_AVISO, type TipoAviso } from '@/app/lib/whatsapp-avisos-core';
 import { alertaAplicaAPerfil } from '@/app/lib/avisos-reglas';
@@ -44,6 +44,27 @@ interface Permisos {
   reglas_ia?: boolean;
   chat_licitacion?: boolean;
   chat_global?: boolean;
+  admin_usuarios?: boolean;
+  admin_etiquetas?: boolean;
+  admin_palabras_clave?: boolean;
+  ver_descartadas?: boolean;
+  analisis_licitacion?: boolean;
+  dashboard_admin?: boolean;
+  memoria_experiencia?: boolean;
+  buscador_precios?: boolean;
+  enriquecer_radar?: boolean;
+  reasignar_negocios?: boolean;
+  aprobar_linea_tecnica?: boolean;
+  anexos_feedback?: boolean;
+  config_empresa?: boolean;
+  soporte_tecnico?: boolean;
+  avisos_admin?: boolean;
+  leer_portal_mp?: boolean;
+  editar_otros_negocios?: boolean;
+  retroceder_pipeline?: boolean;
+  buscador_licitaciones?: boolean;
+  ver_analizadas?: boolean;
+  ver_historial?: boolean;
 }
 
 interface UsuarioAdmin {
@@ -64,7 +85,7 @@ interface UsuarioAdmin {
   created_at: string;
 }
 
-type CategoriaPermiso = 'auditor' | 'acceso' | 'viabilidad' | 'gestion' | 'compras';
+type CategoriaPermiso = 'auditor' | 'acceso' | 'viabilidad' | 'gestion' | 'compras' | 'sistema';
 
 // Grupos del modal (05-oct-2026, pedido explícito: "más específico para ir dándole los permisos").
 // "Auditor y Anexos" va primero y a lo ancho: es lo que más se otorga a los asistentes.
@@ -74,6 +95,7 @@ const CATEGORIAS_PERMISOS: { key: CategoriaPermiso; label: string; resumen: stri
   { key: 'viabilidad', label: 'Viabilidad y alertas',   resumen: 'Análisis de viabilidad y avisos que recibe.', icon: Sparkles },
   { key: 'gestion',    label: 'Aprobaciones y reparto', resumen: 'Jefatura: aprobar negocios, repartir trabajo y entregas.', icon: Briefcase },
   { key: 'compras',    label: 'Compras',                resumen: 'Módulo de Compras de los negocios ganados.', icon: Briefcase },
+  { key: 'sistema',    label: 'Administración y sistema', resumen: 'Lo que antes hacía solo un administrador: usuarios, empresa, líneas de negocio, pantallas de análisis y soporte técnico.', icon: Settings },
 ];
 
 const CATALOGO_PERMISOS: { key: keyof Permisos; label: string; desc: string; categoria: CategoriaPermiso }[] = [
@@ -114,6 +136,28 @@ const CATALOGO_PERMISOS: { key: keyof Permisos; label: string; desc: string; cat
   { key: 'compras_ver',         label: 'Compras solo lectura',           desc: 'Ve Compras, Proyectos, Órdenes de compra, Proveedores y Fleteros sin poder modificar.', categoria: 'compras' },
   { key: 'compras_auditor',     label: 'Auditor de Compras (perfil)',    desc: 'Opera Compras desde que se aprueba la compra (directa o cuadro): crea SKU, emite OC, logística, entrega y cierre. No ve Tareas ni Costeo y auditoría; el costeo digital («Ver costeo») lo ve solo lectura. Ve Proveedores, Proyectos y OC.', categoria: 'compras' },
   // Restricción, no privilegio: no se activa con "Activar todo".
+  // ── Administración y sistema (23-nov-2026) ──
+  { key: 'admin_usuarios', label: 'Administrar usuarios y permisos', desc: 'Menú «Administrar usuarios»: crear, editar, activar/desactivar y borrar usuarios, darles o quitarles permisos y elegir qué avisos de WhatsApp recibe cada uno. Ojo: con esto puede darse cualquier permiso a sí mismo; entrégalo solo a quien administra al equipo.', categoria: 'sistema' },
+  { key: 'config_empresa', label: 'Configurar Mi empresa', desc: 'Mi empresa: perfil y datos de la empresa, firmas y representantes, cuentas de correo y conexiones (Mercado Público, Obuma, WhatsApp) y las etapas propias del negocio.', categoria: 'sistema' },
+  { key: 'admin_etiquetas', label: 'Líneas de negocio', desc: 'Menú «Líneas de negocio»: crear, renombrar y borrar las líneas, y ponérselas a los negocios.', categoria: 'sistema' },
+  { key: 'admin_palabras_clave', label: 'Palabras clave del Radar', desc: 'Radar: crear, editar y borrar las palabras clave con que el sistema busca licitaciones nuevas. Cambiarlas cambia lo que le llega a todo el equipo.', categoria: 'sistema' },
+  { key: 'reasignar_negocios', label: 'Reasignar negocios y encargados', desc: 'Cambiar el responsable de un negocio ya asignado, y cambiar el encargado de Compras de un negocio que ya tiene uno. (Asignar el primer encargado lo hace el Jefe de ventas.)', categoria: 'sistema' },
+  { key: 'aprobar_linea_tecnica', label: 'Aprobar líneas con causales abiertas', desc: 'Aprobar una línea técnica aunque el comparador de fichas deje causales de inadmisibilidad abiertas o pendientes. Sin esto, esa línea no se puede aprobar hasta cerrarlas.', categoria: 'sistema' },
+  { key: 'editar_otros_negocios', label: 'Modificar negocios de otros perfiles', desc: 'Cambiar datos, estado y etapa de negocios asignados a otra persona. Sin esto, solo modifica los suyos.', categoria: 'sistema' },
+  { key: 'retroceder_pipeline', label: 'Retroceder etapas del pipeline', desc: 'Mover un negocio hacia atrás, quitarle la etapa o sacarlo de «Descartada». Sin esto, solo puede avanzarlo o descartarlo.', categoria: 'sistema' },
+  { key: 'buscador_licitaciones', label: 'Buscador de licitaciones', desc: 'Pantalla «Buscador» (inicio) y la búsqueda rápida ⌘K: buscar licitaciones en todo Mercado Público.', categoria: 'sistema' },
+  { key: 'ver_analizadas', label: 'Ver Analizadas', desc: 'Pantalla «Analizadas»: el análisis de viabilidad de todos los negocios del equipo.', categoria: 'sistema' },
+  { key: 'ver_historial', label: 'Historial de actividad', desc: 'Pantalla «Historial»: quién hizo qué en el sistema, de todo el equipo.', categoria: 'sistema' },
+  { key: 'ver_descartadas', label: 'Ver Descartadas', desc: 'Pantalla «Descartadas»: todas las licitaciones que el equipo descartó, quién las descartó, el motivo y la fecha.', categoria: 'sistema' },
+  { key: 'analisis_licitacion', label: 'Análisis de licitación', desc: 'Pantalla «Análisis de licitación»: estadísticas por perfil (KPIs, gráficos, tasa de adjudicación) y la lista de sus licitaciones.', categoria: 'sistema' },
+  { key: 'dashboard_admin', label: 'Dashboard de administrador', desc: 'Dashboard con el panorama de TODO el equipo en vez de la vista personal.', categoria: 'sistema' },
+  { key: 'leer_portal_mp', label: 'Leer el portal de Mercado Público', desc: 'Forzar ahora la lectura del portal: ofertas de la competencia, apertura y documentos del acta de adjudicación. Es una operación cara contra Mercado Público.', categoria: 'sistema' },
+  { key: 'enriquecer_radar', label: 'Enriquecer el Radar', desc: 'Lanzar el enriquecimiento masivo de todas las licitaciones activas (ítems, categoría, descripción). Gasta llamadas a Mercado Público.', categoria: 'sistema' },
+  { key: 'buscador_precios', label: 'Buscador de precios', desc: 'Buscador de precios de mercado: un producto o una cotización por lote, para costeo y re-precio.', categoria: 'sistema' },
+  { key: 'memoria_experiencia', label: 'Casos de experiencia', desc: 'Memoria de experiencia (OC ↔ factura): cargar, actualizar y borrar casos.', categoria: 'sistema' },
+  { key: 'anexos_feedback', label: 'Enseñar al motor de anexos', desc: 'Corregir una casilla que el motor de anexos llenó mal: la corrección se convierte en regla para los análisis futuros de todo el equipo.', categoria: 'sistema' },
+  { key: 'soporte_tecnico', label: 'Soporte técnico', desc: 'Gasto de IA por perfil, bandeja de reportes de error de todos, prueba de correo (SMTP) y la conexión de WhatsApp (QR y cola de avisos).', categoria: 'sistema' },
+  { key: 'avisos_admin', label: 'Recibir avisos de administrador', desc: 'Recibe los avisos y resúmenes dirigidos al grupo «administrador» (por ejemplo el resumen global de la empresa).', categoria: 'sistema' },
   { key: 'solo_compras',        label: 'Encerrar en Compras (restricción)', desc: 'Su menú queda limitado a los módulos de Compras. Úsalo junto con los permisos de arriba.', categoria: 'compras' },
 ];
 
@@ -179,15 +223,15 @@ function ModalPermisos({ usuario, onGuardado, onCerrar }: {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm overlay-in">
-      <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl w-full max-w-6xl max-h-[92vh] flex flex-col modal-in">
+      <div className="bg-white dark:bg-zinc-900 rounded-xl shadow-flotante w-full max-w-6xl max-h-[92vh] flex flex-col modal-in">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 dark:border-white/10 flex-shrink-0">
           <div className="flex items-center gap-3 min-w-0">
-            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
+            <div className="w-9 h-9 rounded-full bg-blue-500 flex items-center justify-center text-white text-xs font-semibold flex-shrink-0">
               {iniciales}
             </div>
             <div className="min-w-0">
-              <h3 className="font-bold text-gray-900 dark:text-zinc-100 text-base leading-tight">Permisos</h3>
+              <h3 className="font-semibold text-gray-900 dark:text-zinc-100 text-base leading-tight">Permisos</h3>
               <p className="text-xs text-gray-400 dark:text-zinc-500 truncate">{usuario.nombre || usuario.email}</p>
             </div>
           </div>
@@ -208,7 +252,7 @@ function ModalPermisos({ usuario, onGuardado, onCerrar }: {
             <>
               <p className="text-xs text-gray-500 dark:text-zinc-400">El resto de los permisos granulares no aplica: un admin ya los tiene todos implícitos. Las excepciones son Compras (ver arriba en el catálogo por qué) y «Recibe licitaciones» (quién aparece en el Puente).</p>
               <div className="rounded-xl border border-gray-100 dark:border-white/10 bg-gray-50/70 dark:bg-white/[0.03] p-3">
-                <div className="flex items-center gap-1.5 mb-1 text-[10.5px] font-bold uppercase tracking-wide text-gray-400 dark:text-zinc-500">
+                <div className="flex items-center gap-1.5 mb-1 text-[10.5px] font-semibold text-gray-400 dark:text-zinc-500">
                   <Briefcase size={12} /> Flujo comercial
                 </div>
                 <div className="divide-y divide-gray-100 dark:divide-white/[0.06]">
@@ -239,7 +283,7 @@ function ModalPermisos({ usuario, onGuardado, onCerrar }: {
                       : 'border-gray-200 dark:border-white/10 bg-gray-50/70 dark:bg-white/[0.03]'}`}>
                       <div className="flex items-start justify-between gap-3 mb-1">
                         <div className="min-w-0">
-                          <div className="flex items-center gap-2 text-[15px] font-bold text-gray-900 dark:text-zinc-100">
+                          <div className="flex items-center gap-2 text-[15px] font-semibold text-gray-900 dark:text-zinc-100">
                             <cat.icon size={17} className={destacado ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400 dark:text-zinc-500'} />
                             {cat.label}
                             <span className="text-xs font-medium text-gray-400 dark:text-zinc-500">{activos} de {claves.length}</span>
@@ -282,7 +326,7 @@ function ModalPermisos({ usuario, onGuardado, onCerrar }: {
 
           {aviso && !aviso.falla && avisos && (
             <div className="rounded-xl border border-emerald-200 dark:border-emerald-500/30 bg-emerald-50/40 dark:bg-emerald-500/[0.05] p-3">
-              <div className="flex items-center gap-1.5 mb-1 text-[10.5px] font-bold uppercase tracking-wide text-emerald-700 dark:text-emerald-400">
+              <div className="flex items-center gap-1.5 mb-1 text-[10.5px] font-semibold text-emerald-700 dark:text-emerald-400">
                 <Whatsapp size={12} /> Avisos por WhatsApp
               </div>
               <p className="text-[11.5px] text-gray-500 dark:text-zinc-400 leading-snug mb-1">
@@ -294,7 +338,7 @@ function ModalPermisos({ usuario, onGuardado, onCerrar }: {
               {!aviso.telefono && <p className="text-[11.5px] font-semibold text-amber-600 mb-1">Este perfil no tiene un celular válido: sin él no recibirá avisos. Se agrega en Mi perfil.</p>}
               {!aviso.activo && <p className="text-[11.5px] font-semibold text-amber-600 mb-1">La cuenta está desactivada: no recibirá avisos.</p>}
               <div className="divide-y divide-gray-100 dark:divide-white/[0.06]">
-                {TIPOS_AVISO.filter(t => alertaAplicaAPerfil(t.tipo, { rol: usuario.rol, area: usuario.area })).map(t => (
+                {TIPOS_AVISO.filter(t => alertaAplicaAPerfil(t.tipo, { rol: usuario.rol, area: usuario.area, avisosAdmin: !!parsePermisos(usuario.permisos).avisos_admin })).map(t => (
                   <div key={t.tipo} className="flex items-start justify-between gap-3 py-2">
                     <span className="min-w-0">
                       <span className="block text-[12.5px] font-medium text-gray-800 dark:text-zinc-200">{t.label}</span>
@@ -308,7 +352,7 @@ function ModalPermisos({ usuario, onGuardado, onCerrar }: {
           )}
 
           <div className="rounded-xl border border-gray-100 dark:border-white/10 bg-gray-50/70 dark:bg-white/[0.03] p-3">
-            <div className="flex items-center gap-1.5 mb-1 text-[10.5px] font-bold uppercase tracking-wide text-gray-400 dark:text-zinc-500">
+            <div className="flex items-center gap-1.5 mb-1 text-[10.5px] font-semibold text-gray-400 dark:text-zinc-500">
               <GraduationCap size={12} /> Onboarding
             </div>
             <div className="flex items-start justify-between gap-3 py-1.5">
@@ -380,9 +424,9 @@ function ModalNuevoUsuario({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm overlay-in">
-      <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl w-full max-w-2xl modal-in">
+      <div className="bg-white dark:bg-zinc-900 rounded-xl shadow-flotante w-full max-w-2xl modal-in">
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 dark:border-white/10">
-          <h3 className="font-bold text-gray-900 dark:text-zinc-100 text-lg">Nuevo usuario</h3>
+          <h3 className="font-semibold text-gray-900 dark:text-zinc-100 text-lg">Nuevo usuario</h3>
           <button onClick={onCerrar} className="p-1.5 hover:bg-gray-100 dark:hover:bg-white/10 rounded-lg transition-colors">
             <X size={18} className="text-gray-500 dark:text-zinc-400" />
           </button>
@@ -522,9 +566,9 @@ function ModalEditarUsuario({ usuario, onGuardado, onCerrar }: {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm overlay-in">
-      <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl w-full max-w-2xl modal-in">
+      <div className="bg-white dark:bg-zinc-900 rounded-xl shadow-flotante w-full max-w-2xl modal-in">
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 dark:border-white/10">
-          <h3 className="font-bold text-gray-900 dark:text-zinc-100 text-lg">Editar usuario</h3>
+          <h3 className="font-semibold text-gray-900 dark:text-zinc-100 text-lg">Editar usuario</h3>
           <button onClick={onCerrar} className="p-1.5 hover:bg-gray-100 dark:hover:bg-white/10 rounded-lg transition-colors">
             <X size={18} className="text-gray-500 dark:text-zinc-400" />
           </button>
@@ -682,7 +726,7 @@ export default function AdminUsuariosPage() {
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900 dark:text-zinc-100 flex items-center gap-2">
+            <h1 className="text-2xl font-semibold text-gray-900 dark:text-zinc-100 flex items-center gap-2">
               <Users size={24} className="text-blue-600 dark:text-blue-400" />
               Administración de Usuarios
             </h1>
@@ -732,7 +776,7 @@ export default function AdminUsuariosPage() {
                           {u.tiene_foto ? (
                             <img src={`/api/perfil/foto?id=${u.id}`} alt="" className="w-8 h-8 rounded-full object-cover flex-shrink-0" />
                           ) : (
-                            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
+                            <div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center text-white text-xs font-semibold flex-shrink-0">
                               {(u.nombre || u.email)[0].toUpperCase()}
                             </div>
                           )}

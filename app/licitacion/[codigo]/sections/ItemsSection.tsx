@@ -16,7 +16,7 @@ export function ItemsSection({ items, keywords = [] }: { items?: ItemProducto[];
         title="Ítems y Cantidades"
         subtitle="Productos y servicios requeridos en el proceso"
         badge={hayItems && (
-          <span className="px-2 py-0.5 bg-indigo-100 text-indigo-700 text-xs rounded-full font-semibold">{items!.length}</span>
+          <span className="px-2 py-0.5 bg-teal-100 text-teal-700 text-xs rounded-full font-semibold">{items!.length}</span>
         )}
       />
 
@@ -32,11 +32,11 @@ export function ItemsSection({ items, keywords = [] }: { items?: ItemProducto[];
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-slate-50 text-left border-b border-slate-100">
-                  <th className="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider w-10">#</th>
-                  <th className="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Producto / Servicio</th>
-                  <th className="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider hidden sm:table-cell">Categoría</th>
-                  <th className="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider text-right">Cant.</th>
-                  <th className="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider text-right hidden sm:table-cell">Monto unit.</th>
+                  <th className="px-4 py-3 text-[10px] font-semibold text-slate-400 w-10">#</th>
+                  <th className="px-4 py-3 text-[10px] font-semibold text-slate-400">Producto / Servicio</th>
+                  <th className="px-4 py-3 text-[10px] font-semibold text-slate-400 hidden sm:table-cell">Categoría</th>
+                  <th className="px-4 py-3 text-[10px] font-semibold text-slate-400 text-right">Cant.</th>
+                  <th className="px-4 py-3 text-[10px] font-semibold text-slate-400 text-right hidden sm:table-cell">Monto unit.</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">

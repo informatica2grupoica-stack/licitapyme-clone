@@ -97,7 +97,7 @@
   }
 
   *:focus-visible {
-    @apply outline-2 outline-offset-2 outline-indigo-500;
+    @apply outline-2 outline-offset-2 outline-teal-500;
   }
 
   /* Scrollbar fino */
@@ -291,11 +291,11 @@
   }
   .docscan-lente {
     position: absolute; top: 0; left: 0; width: 24px; height: 24px;
-    border: 3px solid #7c3aed; border-radius: 50%;
+    border: 3px solid #0891b2; border-radius: 50%;
     background: rgba(196, 181, 253, 0.22);
   }
   .docscan-mango {
-    position: absolute; width: 12px; height: 4px; background: #7c3aed;
+    position: absolute; width: 12px; height: 4px; background: #0891b2;
     border-radius: 2px; bottom: 6px; right: 0; transform: rotate(45deg);
   }
 
@@ -313,7 +313,7 @@
   .docsplit-right { animation: docsplitRight 3.2s ease-in-out infinite; border-color: #ddd6fe; }
   .docsplit-snip {
     position: absolute; top: 50%; left: 50%; width: 26px; height: 26px;
-    color: #7c3aed; z-index: 3; animation: docsplitSnip 3.2s ease-in-out infinite;
+    color: #0891b2; z-index: 3; animation: docsplitSnip 3.2s ease-in-out infinite;
   }
 
   /* PuenteLoader — ver PuenteLoader.tsx. El puente se dibuja en SVG (estático) y las
@@ -323,7 +323,7 @@
   .puente-svg { position: absolute; inset: 0; width: 100%; height: 100%; }
   .puente-carta {
     position: absolute; top: 37px; left: 0; width: 11px; height: 14px;
-    border-radius: 3px; background: #fff; border: 1.5px solid #c7d2fe;
+    border-radius: 3px; background: #fff; border: 1.5px solid #99f6e4;
     box-shadow: 0 3px 8px rgba(79, 70, 229, 0.18);
     animation: puenteCruza 2.6s ease-in-out infinite;
   }
@@ -362,7 +362,7 @@
     @apply w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm
            bg-white text-slate-900 placeholder:text-slate-400
            dark:bg-zinc-900 dark:text-slate-100 dark:border-zinc-700 dark:placeholder:text-zinc-500
-           focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-500
+           focus:outline-none focus:ring-2 focus:ring-teal-500/40 focus:border-teal-500
            transition-all duration-150;
   }
 
@@ -376,7 +376,7 @@
     @apply bg-blue-50 text-blue-700 border border-blue-200;
   }
   .doc-badge-bases-tecnicas {
-    @apply bg-purple-50 text-purple-700 border border-purple-200;
+    @apply bg-slate-50 text-slate-700 border border-slate-200;
   }
   .doc-badge-criterios {
     @apply bg-amber-50 text-amber-700 border border-amber-200;

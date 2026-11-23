@@ -135,7 +135,7 @@ export function SelectorLineasOferta({ negocioId, onGuardado }: {
     <div className="mt-2 rounded-lg border border-teal-200 bg-teal-50/60 p-4 dark:border-teal-500/30 dark:bg-teal-500/10">
       <div className="mb-1 flex items-center gap-2">
         <ListChecks size={15} className="text-teal-600" />
-        <h3 className="text-[13px] font-bold text-teal-900 dark:text-teal-200">
+        <h3 className="text-[13px] font-semibold text-teal-900 dark:text-teal-200">
           Esta licitación es por línea ({lineas.length}). ¿A cuáles vamos?
         </h3>
       </div>
@@ -207,7 +207,7 @@ export function SelectorLineasOferta({ negocioId, onGuardado }: {
                 </span>
                 <span className="text-[12px] text-zinc-600 dark:text-zinc-300"> — {l.nombre}</span>
                 {l.soloEn && (
-                  <span className="ml-1.5 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-700">
+                  <span className="ml-1.5 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700">
                     {l.soloEn === 'comercial' ? 'sin ficha técnica' : 'sin línea en el económico'}
                   </span>
                 )}
@@ -224,7 +224,7 @@ export function SelectorLineasOferta({ negocioId, onGuardado }: {
         <button
           onClick={guardar}
           disabled={guardando}
-          className="flex items-center gap-1.5 rounded bg-teal-600 px-3 py-1.5 text-[12px] font-bold text-white hover:bg-teal-700 disabled:opacity-50"
+          className="flex items-center gap-1.5 rounded bg-teal-600 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-teal-700 disabled:opacity-50"
         >
           {guardando ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
           Guardar líneas

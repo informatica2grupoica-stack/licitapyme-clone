@@ -145,8 +145,8 @@ export function construirComparacionLineaHtml(d: ComparacionLineaPdfInput): stri
 <style>
   * { box-sizing: border-box; }
   body { font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: #1e293b; font-size: 10.5px; line-height: 1.5; margin: 0; }
-  header { border-bottom: 3px solid #7c3aed; padding-bottom: 10px; margin-bottom: 14px; }
-  .eyebrow { font-size: 9px; letter-spacing: .12em; text-transform: uppercase; color: #7c3aed; font-weight: 700; }
+  header { border-bottom: 3px solid #0891b2; padding-bottom: 10px; margin-bottom: 14px; }
+  .eyebrow { font-size: 9px; letter-spacing: .12em; text-transform: uppercase; color: #0891b2; font-weight: 700; }
   h1 { font-size: 16px; margin: 4px 0 2px; }
   .codigo { font-family: ui-monospace, "Courier New", monospace; font-size: 9.5px; color: #64748b; }
   h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: #475569;

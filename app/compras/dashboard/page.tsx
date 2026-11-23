@@ -165,7 +165,7 @@ export default function CompraDashboardPage() {
                     </div>
                     {dashboard.resultados.peoresDesvios.length > 0 && (
                       <div className="mt-3 space-y-1.5">
-                        <p className="text-[11px] font-bold text-zinc-500">Donde más se pasó el costo</p>
+                        <p className="text-[11px] font-semibold text-zinc-500">Donde más se pasó el costo</p>
                         {dashboard.resultados.peoresDesvios.map(d => (
                           <Link key={d.negocioId} href={`/compras/${d.negocioId}`} className="flex items-center justify-between gap-2 text-[12px] rounded-lg border border-rose-100 bg-rose-50/50 px-3 py-1.5 hover:bg-rose-50">
                             <span className="font-semibold text-zinc-700 truncate">{d.licitacionCodigo || `Negocio ${d.negocioId}`}</span>
@@ -195,7 +195,7 @@ export default function CompraDashboardPage() {
                 <div className="flex items-end gap-2 h-28 pt-2">
                   {dashboard.ganadosPorMes.map(g => (
                     <div key={g.mes} className="flex-1 flex flex-col items-center justify-end gap-1 h-full" title={`${g.n} negocio(s)`}>
-                      <span className="text-[10px] font-bold text-zinc-500 tabular-nums">{g.n}</span>
+                      <span className="text-[10px] font-semibold text-zinc-500 tabular-nums">{g.n}</span>
                       <div className="w-full bg-teal-500 rounded-t-md" style={{ height: `${Math.max(4, (g.n / maxGanados) * 100)}%` }} />
                       <span className="text-[9.5px] text-zinc-400 capitalize">{fmtMes(g.mes)}</span>
                     </div>

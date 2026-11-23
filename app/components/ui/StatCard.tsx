@@ -14,7 +14,7 @@ import { MetricInfo, type EspecificacionMetrica } from '@/app/components/ui/Metr
 
 // Paleta con nombre (compat con los dashboards que usaban color="indigo" etc.).
 const PALETA: Record<string, string> = {
-  indigo: '#4f46e5', violet: '#7c3aed', teal: '#0d9488', emerald: '#059669',
+  indigo: '#0d9488', violet: '#0891b2', teal: '#0d9488', emerald: '#059669',
   orange: '#ea580c', amber: '#d97706', rose: '#e11d48', red: '#dc2626',
   sky: '#0284c7', blue: '#2563eb', slate: '#475569', cyan: '#0891b2',
 };
@@ -58,11 +58,11 @@ export function StatCard({ icon, label, value, sub, color, href, hint, spec, for
         ${href ? 'hover:shadow-md hover:-translate-y-0.5 cursor-pointer' : 'hover:shadow-md'}`}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-[11px] text-slate-500 font-semibold uppercase tracking-wide mb-1 truncate flex items-center gap-1">
+          <p className="text-[11px] text-slate-500 font-semibold mb-1 truncate flex items-center gap-1">
             {label}
             {spec && <span onClick={(e) => e.preventDefault()}><MetricInfo spec={spec} /></span>}
           </p>
-          <p className={`${clsValor} font-black leading-none tabular-nums text-slate-900 break-words`}>
+          <p className={`${clsValor} font-semibold leading-none tabular-nums text-slate-900 break-words`}>
             <Valor value={value} formato={formato} />
           </p>
           {sub && <p className="text-xs text-slate-400 mt-1 truncate">{sub}</p>}

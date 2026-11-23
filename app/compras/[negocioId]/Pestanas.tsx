@@ -56,7 +56,7 @@ export function Pestanas({ id, pestanas, inicial }: { id: string; pestanas: Pest
             <button key={p.clave} type="button" role="tab" aria-selected={on} onClick={() => elegir(p.clave)} data-testid={`pestana-${p.clave}`}
               className={`flex-shrink-0 flex items-center gap-1.5 px-3.5 py-2 text-[13px] font-semibold border-b-2 -mb-px transition-colors whitespace-nowrap ${on ? 'border-teal-600 text-teal-800' : 'border-transparent text-zinc-500 hover:text-zinc-800 hover:border-zinc-300'}`}>
               {p.titulo}
-              {p.badge != null && p.badge !== '' && <span className={`text-[10.5px] font-bold px-1.5 py-0.5 rounded-full ${chip(p.tono)}`}>{p.badge}</span>}
+              {p.badge != null && p.badge !== '' && <span className={`text-[10.5px] font-semibold px-1.5 py-0.5 rounded-full ${chip(p.tono)}`}>{p.badge}</span>}
             </button>
           );
         })}

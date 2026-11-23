@@ -27,8 +27,8 @@ export function MercadoPublicoMark({ size = 34, tone = 'dark' }: { size?: number
         <path d="M50 12.5l1.6 3.5 3.8.4-2.8 2.6.8 3.7L50 20.9l-3.4 1.8.8-3.7-2.8-2.6 3.8-.4z" fill="#fde047" />
       </svg>
       <span className="leading-none">
-        <span className="block font-bold tracking-tight" style={{ fontSize: size * 0.42, color: fg }}>Mercado Público</span>
-        <span className="block font-medium tracking-wide uppercase" style={{ fontSize: size * 0.235, color: sub, letterSpacing: '0.08em' }}>ChileCompra</span>
+        <span className="block font-semibold tracking-tight" style={{ fontSize: size * 0.42, color: fg }}>Mercado Público</span>
+        <span className="block font-medium" style={{ fontSize: size * 0.235, color: sub, letterSpacing: '0.08em' }}>ChileCompra</span>
       </span>
     </span>
   );

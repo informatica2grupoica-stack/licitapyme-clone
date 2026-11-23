@@ -130,7 +130,7 @@ export function Select({
       <button type="button" onClick={() => !disabled && setOpen(o => !o)} disabled={disabled}
         aria-haspopup="listbox" aria-expanded={open}
         className={`flex items-center gap-1.5 px-3 py-2 border rounded-lg text-[13px] outline-none transition-colors w-full
-          focus-visible:ring-2 focus-visible:ring-indigo-500/25
+          focus-visible:ring-2 focus-visible:ring-teal-500/25
           ${disabled ? 'opacity-50 cursor-not-allowed border-slate-200 text-slate-400 dark:border-zinc-800 dark:text-zinc-600'
             : 'border-slate-200 text-slate-700 hover:border-slate-400 bg-white dark:border-zinc-700 dark:text-zinc-200 dark:hover:border-zinc-500 dark:bg-zinc-900'} ${buttonClassName}`}>
         {icon && <span className="text-slate-400 dark:text-zinc-500 flex-shrink-0">{icon}</span>}
@@ -160,7 +160,7 @@ export function Select({
                     {o.description && <span className="block text-[11px] font-normal text-slate-400 dark:text-zinc-500 truncate">{o.description}</span>}
                   </span>
                   {o.count != null && <span className="text-[11px] font-semibold text-slate-400 dark:text-zinc-500 tabular-nums">{o.count}</span>}
-                  {on && <Check size={13} className="text-indigo-600 dark:text-indigo-400 flex-shrink-0" />}
+                  {on && <Check size={13} className="text-teal-600 dark:text-teal-400 flex-shrink-0" />}
                 </button>
               );
             })}

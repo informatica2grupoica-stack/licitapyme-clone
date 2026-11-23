@@ -174,10 +174,10 @@ export function ViabilidadSection({
         return (
           <div className="bg-white rounded-2xl border border-slate-200 p-5">
             <div className="flex items-center justify-between gap-2 mb-3">
-              <h3 className="text-[13.5px] font-bold text-slate-800 flex items-center gap-2">
-                <FileCheck2 size={15} className="text-indigo-500" /> Documentos analizados
+              <h3 className="text-[13.5px] font-semibold text-slate-800 flex items-center gap-2">
+                <FileCheck2 size={15} className="text-teal-500" /> Documentos analizados
               </h3>
-              <span className="text-[12px] font-bold tabular-nums text-slate-500">
+              <span className="text-[12px] font-semibold tabular-nums text-slate-500">
                 {analizados.length}<span className="text-slate-300"> / {detalle.length}</span>
               </span>
             </div>
@@ -243,7 +243,7 @@ export function ViabilidadSection({
           </p>
           {hayDocumentos && !ocultarBoton && (
             <button onClick={onRecalcular}
-              className="inline-flex items-center gap-2 px-4 py-2.5 bg-indigo-600 text-white rounded-xl text-[13px] font-semibold hover:bg-indigo-500">
+              className="inline-flex items-center gap-2 px-4 py-2.5 bg-teal-600 text-white rounded-xl text-[13px] font-semibold hover:bg-teal-500">
               <Gauge size={14} /> Calcular viabilidad
             </button>
           )}
@@ -259,7 +259,7 @@ export function ViabilidadSection({
               <div className="flex items-center gap-4">
                 <div className="text-5xl leading-none">{cfg.emoji}</div>
                 <div>
-                  <p className={`text-[15px] font-bold ${cfg.text}`}>{cfg.label}</p>
+                  <p className={`text-[15px] font-semibold ${cfg.text}`}>{cfg.label}</p>
                   <p className="text-[12px] text-slate-500 mt-0.5">
                     {viabilidad.area_negocio && <>Área: <strong>{viabilidad.area_negocio}</strong> · </>}
                     {viabilidad.confianza_analisis != null && <>Confianza: {Math.round(viabilidad.confianza_analisis * 100)}%</>}
@@ -267,7 +267,7 @@ export function ViabilidadSection({
                 </div>
               </div>
               <div className="text-right">
-                <div className={`text-4xl font-black tabular-nums ${cfg.text}`}>{sv.total}<span className="text-lg text-slate-400">/100</span></div>
+                <div className={`text-4xl font-semibold tabular-nums ${cfg.text}`}>{sv.total}<span className="text-lg text-slate-400">/100</span></div>
                 <p className="text-[11px] text-slate-400">Score de viabilidad</p>
               </div>
             </div>
@@ -283,8 +283,8 @@ export function ViabilidadSection({
           {/* Desglose de criterios */}
           {desglose && (
             <div className="bg-white rounded-2xl border border-slate-200 p-5">
-              <h3 className="text-[13.5px] font-bold text-slate-800 mb-4 flex items-center gap-2">
-                <TrendingUp size={15} className="text-indigo-500" /> Desglose por criterio
+              <h3 className="text-[13.5px] font-semibold text-slate-800 mb-4 flex items-center gap-2">
+                <TrendingUp size={15} className="text-teal-500" /> Desglose por criterio
               </h3>
               <div className="space-y-3.5">
                 {CRITERIOS_META.map(c => {
@@ -298,7 +298,7 @@ export function ViabilidadSection({
                         <span className="flex items-center gap-1.5 text-[12.5px] font-semibold text-slate-700">
                           <span className="text-slate-400">{c.icon}</span> {c.label}
                         </span>
-                        <span className="text-[12px] font-bold tabular-nums text-slate-600">{pts}<span className="text-slate-300">/{c.max}</span></span>
+                        <span className="text-[12px] font-semibold tabular-nums text-slate-600">{pts}<span className="text-slate-300">/{c.max}</span></span>
                       </div>
                       <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
                         <div className={`h-full rounded-full ${cfg.bar}`} style={{ width: `${pct}%` }} />
@@ -312,12 +312,12 @@ export function ViabilidadSection({
               {/* Penalizaciones */}
               {sv.penalizaciones && sv.penalizaciones.length > 0 && (
                 <div className="mt-4 pt-4 border-t border-slate-100">
-                  <p className="text-[12px] font-bold text-red-600 mb-2 flex items-center gap-1.5"><AlertTriangle size={13} /> Penalizaciones</p>
+                  <p className="text-[12px] font-semibold text-red-600 mb-2 flex items-center gap-1.5"><AlertTriangle size={13} /> Penalizaciones</p>
                   <ul className="space-y-1">
                     {sv.penalizaciones.map((p, i) => (
                       <li key={i} className="flex items-center justify-between text-[12.5px] text-slate-600">
                         <span>{p.motivo}</span>
-                        <span className="font-bold text-red-500 tabular-nums">−{p.puntos_restados}</span>
+                        <span className="font-semibold text-red-500 tabular-nums">−{p.puntos_restados}</span>
                       </li>
                     ))}
                   </ul>
@@ -342,13 +342,13 @@ export function ViabilidadSection({
               : 'No especificada';
             return (
               <div className="bg-white rounded-2xl border border-slate-200 p-5">
-                <h3 className="text-[13.5px] font-bold text-slate-800 mb-4 flex items-center gap-2">
-                  <Package size={15} className="text-indigo-500" /> Productos y modalidad
+                <h3 className="text-[13.5px] font-semibold text-slate-800 mb-4 flex items-center gap-2">
+                  <Package size={15} className="text-teal-500" /> Productos y modalidad
                 </h3>
 
                 {/* Resumen: cantidad de ítems + modalidad */}
                 <div className="flex flex-wrap gap-2.5 mb-4">
-                  <span className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold px-3 py-1.5 rounded-xl bg-indigo-50 text-indigo-700 border border-indigo-100">
+                  <span className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold px-3 py-1.5 rounded-xl bg-teal-50 text-teal-700 border border-teal-100">
                     <ListOrdered size={13} /> {ln?.cantidad ?? prods.length ?? 0} ítem{(ln?.cantidad ?? prods.length) === 1 ? '' : 's'}
                   </span>
                   <span className={`inline-flex items-center gap-1.5 text-[12.5px] font-semibold px-3 py-1.5 rounded-xl border ${
@@ -425,19 +425,19 @@ export function ViabilidadSection({
             const gar = ac.garantias_y_seguros; const log = ac.logistica_y_plazos;
             return (
               <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-4">
-                <h3 className="text-[13.5px] font-bold text-slate-800 flex items-center gap-2">
-                  <Scale size={15} className="text-indigo-500" /> Análisis de riesgo comercial
+                <h3 className="text-[13.5px] font-semibold text-slate-800 flex items-center gap-2">
+                  <Scale size={15} className="text-teal-500" /> Análisis de riesgo comercial
                 </h3>
 
                 {/* Decisión + score comercial */}
                 <div className={`rounded-xl border ${decCfg.border} ${decCfg.bg} px-4 py-3 flex items-center justify-between gap-3 flex-wrap`}>
                   <div>
-                    <p className={`text-[14px] font-black ${decCfg.text}`}>{decCfg.label}</p>
+                    <p className={`text-[14px] font-semibold ${decCfg.text}`}>{decCfg.label}</p>
                     {rc.motivo_principal_decision && <p className="text-[12px] text-slate-600 mt-0.5">{rc.motivo_principal_decision}</p>}
                   </div>
                   {rc.score_viabilidad != null && (
                     <div className="text-right">
-                      <div className={`text-2xl font-black tabular-nums ${decCfg.text}`}>{Math.round(rc.score_viabilidad * 100)}<span className="text-sm text-slate-400">/100</span></div>
+                      <div className={`text-2xl font-semibold tabular-nums ${decCfg.text}`}>{Math.round(rc.score_viabilidad * 100)}<span className="text-sm text-slate-400">/100</span></div>
                       <p className="text-[10px] text-slate-400">Score comercial</p>
                     </div>
                   )}
@@ -448,8 +448,8 @@ export function ViabilidadSection({
                   {mod && (
                     <div className="rounded-xl border border-slate-100 p-3">
                       <div className="flex items-center justify-between mb-1">
-                        <p className="text-[12px] font-bold text-slate-700 flex items-center gap-1.5"><Scale size={13} className="text-slate-400" /> Modalidad: {mod.tipo}</p>
-                        {mod.nivel_riesgo && <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${riesgoColor(mod.nivel_riesgo)}`}>Riesgo {mod.nivel_riesgo}</span>}
+                        <p className="text-[12px] font-semibold text-slate-700 flex items-center gap-1.5"><Scale size={13} className="text-slate-400" /> Modalidad: {mod.tipo}</p>
+                        {mod.nivel_riesgo && <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${riesgoColor(mod.nivel_riesgo)}`}>Riesgo {mod.nivel_riesgo}</span>}
                       </div>
                       {mod.justificacion_texto && <p className="text-[11.5px] text-slate-500 leading-snug">{mod.justificacion_texto}</p>}
                     </div>
@@ -458,7 +458,7 @@ export function ViabilidadSection({
                   {/* Experiencia */}
                   {exp && (
                     <div className="rounded-xl border border-slate-100 p-3">
-                      <p className="text-[12px] font-bold text-slate-700 flex items-center gap-1.5 mb-1"><ClipboardCheck size={13} className="text-slate-400" /> Experiencia exigida</p>
+                      <p className="text-[12px] font-semibold text-slate-700 flex items-center gap-1.5 mb-1"><ClipboardCheck size={13} className="text-slate-400" /> Experiencia exigida</p>
                       <p className="text-[11.5px] text-slate-600">{exp.exige_experiencia_publica ? (exp.monto_minimo_exigido || 'Sí exige experiencia con el Estado') : 'No exige experiencia pública específica'}</p>
                       {exp.alerta_bloqueo && (
                         <p className="text-[11.5px] text-red-600 font-semibold mt-1 flex items-start gap-1"><AlertTriangle size={12} className="flex-shrink-0 mt-0.5" /> {exp.alerta_bloqueo}</p>
@@ -469,7 +469,7 @@ export function ViabilidadSection({
                   {/* Garantías y seguros */}
                   {gar && (
                     <div className="rounded-xl border border-slate-100 p-3">
-                      <p className="text-[12px] font-bold text-slate-700 flex items-center gap-1.5 mb-1.5"><ShieldCheck size={13} className="text-slate-400" /> Garantías y seguros</p>
+                      <p className="text-[12px] font-semibold text-slate-700 flex items-center gap-1.5 mb-1.5"><ShieldCheck size={13} className="text-slate-400" /> Garantías y seguros</p>
                       <Campo label="Seriedad oferta" value={gar.seriedad_oferta} />
                       <Campo label="Fiel cumplimiento" value={gar.fiel_cumplimiento} />
                       <Campo label="Seguro daños 3os" value={gar.seguro_daños_terceros} />
@@ -480,8 +480,8 @@ export function ViabilidadSection({
                   {log && (
                     <div className="rounded-xl border border-slate-100 p-3">
                       <div className="flex items-center justify-between mb-1">
-                        <p className="text-[12px] font-bold text-slate-700 flex items-center gap-1.5"><FileText size={13} className="text-slate-400" /> Logística y plazos</p>
-                        {log.impacto_flete_y_operaciones && <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${riesgoColor(log.impacto_flete_y_operaciones)}`}>Flete {log.impacto_flete_y_operaciones}</span>}
+                        <p className="text-[12px] font-semibold text-slate-700 flex items-center gap-1.5"><FileText size={13} className="text-slate-400" /> Logística y plazos</p>
+                        {log.impacto_flete_y_operaciones && <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${riesgoColor(log.impacto_flete_y_operaciones)}`}>Flete {log.impacto_flete_y_operaciones}</span>}
                       </div>
                       <Campo label="Plazo ejecución" value={log.plazo_ejecucion_dias != null ? `${log.plazo_ejecucion_dias} días` : null} />
                       <Campo label="Zona" value={log.zona_geografica} />
@@ -496,8 +496,8 @@ export function ViabilidadSection({
           {/* Informe ejecutivo */}
           {informe && (
             <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-4">
-              <h3 className="text-[13.5px] font-bold text-slate-800 flex items-center gap-2">
-                <ShieldCheck size={15} className="text-indigo-500" /> Informe ejecutivo
+              <h3 className="text-[13.5px] font-semibold text-slate-800 flex items-center gap-2">
+                <ShieldCheck size={15} className="text-teal-500" /> Informe ejecutivo
               </h3>
 
               {informe.resumen && <p className="text-[13px] text-slate-700 leading-relaxed">{informe.resumen}</p>}
@@ -513,31 +513,31 @@ export function ViabilidadSection({
 
               {informe.ventaja_competitiva && (
                 <div className="rounded-xl bg-emerald-50 border border-emerald-100 px-3.5 py-2.5">
-                  <p className="text-[11px] font-bold text-emerald-700 mb-0.5 flex items-center gap-1"><CheckCircle2 size={12} /> Ventaja competitiva</p>
+                  <p className="text-[11px] font-semibold text-emerald-700 mb-0.5 flex items-center gap-1"><CheckCircle2 size={12} /> Ventaja competitiva</p>
                   <p className="text-[12.5px] text-emerald-900">{informe.ventaja_competitiva}</p>
                 </div>
               )}
 
               <div className="grid sm:grid-cols-2 gap-5">
                 {informe.riesgos && informe.riesgos.length > 0 && (
-                  <div><p className="text-[12px] font-bold text-slate-700 mb-2">Riesgos</p><Lista items={informe.riesgos} tipo="riesgo" /></div>
+                  <div><p className="text-[12px] font-semibold text-slate-700 mb-2">Riesgos</p><Lista items={informe.riesgos} tipo="riesgo" /></div>
                 )}
                 {informe.alertas && informe.alertas.length > 0 && (
-                  <div><p className="text-[12px] font-bold text-slate-700 mb-2">Alertas</p><Lista items={informe.alertas} tipo="alerta" /></div>
+                  <div><p className="text-[12px] font-semibold text-slate-700 mb-2">Alertas</p><Lista items={informe.alertas} tipo="alerta" /></div>
                 )}
               </div>
 
               {informe.campos_faltantes && informe.campos_faltantes.length > 0 && (
                 <div>
-                  <p className="text-[12px] font-bold text-slate-700 mb-2">Información faltante</p>
+                  <p className="text-[12px] font-semibold text-slate-700 mb-2">Información faltante</p>
                   <Lista items={informe.campos_faltantes} tipo="falta" />
                 </div>
               )}
 
               {informe.recomendacion && (
-                <div className="rounded-xl bg-indigo-50 border border-indigo-100 px-3.5 py-3">
-                  <p className="text-[11px] font-bold text-indigo-700 mb-0.5">Recomendación</p>
-                  <p className="text-[13px] text-indigo-900 leading-relaxed">{informe.recomendacion}</p>
+                <div className="rounded-xl bg-teal-50 border border-teal-100 px-3.5 py-3">
+                  <p className="text-[11px] font-semibold text-teal-700 mb-0.5">Recomendación</p>
+                  <p className="text-[13px] text-teal-900 leading-relaxed">{informe.recomendacion}</p>
                 </div>
               )}
             </div>
@@ -554,7 +554,7 @@ export function ViabilidadSection({
       {/* ═══ DETALLE DEL ANÁLISIS (datos extraídos de las bases) ═══ */}
       {analisis && (items.length > 0 || criterios.length > 0 || rbt || rba || hayExperto || hayReq || docsPres.length > 0 || garantias.length > 0 || multas.length > 0) && (
         <div className="space-y-4 pt-1">
-          <h3 className="text-[13px] font-bold text-slate-500 uppercase tracking-wide flex items-center gap-2">
+          <h3 className="text-[13px] font-semibold text-slate-500 flex items-center gap-2">
             <FileText size={14} /> Detalle de la licitación
           </h3>
 
@@ -643,10 +643,10 @@ export function ViabilidadSection({
                   <li key={i}>
                     <div className="flex items-center justify-between mb-0.5">
                       <span className="text-[12.5px] font-medium text-slate-700">{c.nombre}{c.descripcion ? <span className="text-slate-400 font-normal"> — {c.descripcion}</span> : null}</span>
-                      <span className="text-[12px] font-bold text-indigo-600 tabular-nums">{c.ponderacion}%</span>
+                      <span className="text-[12px] font-semibold text-teal-600 tabular-nums">{c.ponderacion}%</span>
                     </div>
                     <div className="h-1.5 rounded-full bg-slate-100 overflow-hidden">
-                      <div className="h-full rounded-full bg-indigo-500" style={{ width: `${Math.min(100, c.ponderacion)}%` }} />
+                      <div className="h-full rounded-full bg-teal-500" style={{ width: `${Math.min(100, c.ponderacion)}%` }} />
                     </div>
                   </li>
                 ))}
@@ -663,11 +663,11 @@ export function ViabilidadSection({
                   if (!arr || arr.length === 0) return null;
                   return (
                     <div key={k}>
-                      <p className={`text-[11.5px] font-bold mb-1 ${k === 'prohibiciones' ? 'text-red-600' : 'text-slate-500'}`}>{REQ_LABELS[k]}</p>
+                      <p className={`text-[11.5px] font-semibold mb-1 ${k === 'prohibiciones' ? 'text-red-600' : 'text-slate-500'}`}>{REQ_LABELS[k]}</p>
                       <ul className="space-y-1">
                         {arr.map((r, i) => (
                           <li key={i} className="flex items-start gap-2 text-[12.5px] text-slate-700">
-                            <span className={`flex-shrink-0 mt-1 w-1.5 h-1.5 rounded-full ${k === 'prohibiciones' ? 'bg-red-400' : 'bg-indigo-400'}`} />
+                            <span className={`flex-shrink-0 mt-1 w-1.5 h-1.5 rounded-full ${k === 'prohibiciones' ? 'bg-red-400' : 'bg-teal-400'}`} />
                             <span>{r}</span>
                           </li>
                         ))}
@@ -700,7 +700,7 @@ export function ViabilidadSection({
                       <p className="text-[12.5px] font-semibold text-slate-800">{g.tipo}</p>
                       {g.momento && <p className="text-[11px] text-slate-400">{g.momento}{g.devolucion ? ` · ${g.devolucion}` : ''}</p>}
                     </div>
-                    <span className="text-[12px] font-bold text-slate-600 whitespace-nowrap">
+                    <span className="text-[12px] font-semibold text-slate-600 whitespace-nowrap">
                       {g.porcentaje != null ? `${g.porcentaje}%` : g.montoFijo != null ? new Intl.NumberFormat('es-CL').format(g.montoFijo) : '—'}
                     </span>
                   </div>
@@ -737,7 +737,7 @@ export function ViabilidadSection({
                     </span>
                   )}
                   {exp!.atractivo && (
-                    <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full border bg-indigo-50 text-indigo-700 border-indigo-200">
+                    <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full border bg-teal-50 text-teal-700 border-teal-200">
                       Atractivo: {exp!.atractivo}
                     </span>
                   )}
@@ -745,29 +745,29 @@ export function ViabilidadSection({
 
                 {exp!.resumenEjecutivo && (
                   <div>
-                    <p className="text-[11.5px] font-bold text-slate-500 mb-1">Resumen ejecutivo</p>
+                    <p className="text-[11.5px] font-semibold text-slate-500 mb-1">Resumen ejecutivo</p>
                     <p className="text-[13px] text-slate-700 leading-relaxed">{exp!.resumenEjecutivo}</p>
                   </div>
                 )}
 
                 <div className="grid sm:grid-cols-2 gap-4">
                   {(exp!.recomendaciones?.length ?? 0) > 0 && (
-                    <div><p className="text-[11.5px] font-bold text-emerald-700 mb-1.5 flex items-center gap-1"><Lightbulb size={12} /> Recomendaciones</p><Lista items={exp!.recomendaciones} tipo="alerta" /></div>
+                    <div><p className="text-[11.5px] font-semibold text-emerald-700 mb-1.5 flex items-center gap-1"><Lightbulb size={12} /> Recomendaciones</p><Lista items={exp!.recomendaciones} tipo="alerta" /></div>
                   )}
                   {(exp!.ventajasCompetitivas?.length ?? 0) > 0 && (
-                    <div><p className="text-[11.5px] font-bold text-emerald-700 mb-1.5 flex items-center gap-1"><CheckCircle2 size={12} /> Ventajas competitivas</p><Lista items={exp!.ventajasCompetitivas} tipo="alerta" /></div>
+                    <div><p className="text-[11.5px] font-semibold text-emerald-700 mb-1.5 flex items-center gap-1"><CheckCircle2 size={12} /> Ventajas competitivas</p><Lista items={exp!.ventajasCompetitivas} tipo="alerta" /></div>
                   )}
                   {(exp!.puntosCriticos?.length ?? 0) > 0 && (
-                    <div><p className="text-[11.5px] font-bold text-slate-700 mb-1.5">Puntos críticos</p><Lista items={exp!.puntosCriticos} tipo="riesgo" /></div>
+                    <div><p className="text-[11.5px] font-semibold text-slate-700 mb-1.5">Puntos críticos</p><Lista items={exp!.puntosCriticos} tipo="riesgo" /></div>
                   )}
                   {(exp!.riesgosDetectados?.length ?? 0) > 0 && (
-                    <div><p className="text-[11.5px] font-bold text-red-700 mb-1.5">Riesgos detectados</p><Lista items={exp!.riesgosDetectados} tipo="riesgo" /></div>
+                    <div><p className="text-[11.5px] font-semibold text-red-700 mb-1.5">Riesgos detectados</p><Lista items={exp!.riesgosDetectados} tipo="riesgo" /></div>
                   )}
                   {(exp!.oportunidades?.length ?? 0) > 0 && (
-                    <div><p className="text-[11.5px] font-bold text-indigo-700 mb-1.5">Oportunidades</p><Lista items={exp!.oportunidades} tipo="alerta" /></div>
+                    <div><p className="text-[11.5px] font-semibold text-teal-700 mb-1.5">Oportunidades</p><Lista items={exp!.oportunidades} tipo="alerta" /></div>
                   )}
                   {(exp!.aspectosNegociables?.length ?? 0) > 0 && (
-                    <div><p className="text-[11.5px] font-bold text-slate-700 mb-1.5">Aspectos negociables</p><Lista items={exp!.aspectosNegociables} tipo="alerta" /></div>
+                    <div><p className="text-[11.5px] font-semibold text-slate-700 mb-1.5">Aspectos negociables</p><Lista items={exp!.aspectosNegociables} tipo="alerta" /></div>
                   )}
                 </div>
               </div>

@@ -48,7 +48,7 @@ export default function CosteoStandalonePage() {
       <div className="min-h-screen flex flex-col items-center justify-center gap-3 text-center px-6">
         <AlertCircle size={22} className="text-rose-500" />
         <p className="text-[13px] font-semibold text-zinc-700">{error}</p>
-        <Link href={`/negocios/${id}`} className="flex items-center gap-1.5 text-[12px] font-semibold text-indigo-700 hover:underline">
+        <Link href={`/negocios/${id}`} className="flex items-center gap-1.5 text-[12px] font-semibold text-teal-700 hover:underline">
           <ArrowLeft size={13} /> Volver al negocio
         </Link>
       </div>

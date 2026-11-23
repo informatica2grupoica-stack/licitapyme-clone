@@ -139,8 +139,8 @@ export default function OfertasCompetencia({ codigo, isAdmin }: { codigo: string
     <div>
       <div className="flex items-start justify-between gap-3 mb-3">
         <div>
-          <h2 className="text-[15px] font-bold text-zinc-800 inline-flex items-center gap-2">
-            <Users size={16} className="text-indigo-600" /> Competencia
+          <h2 className="text-[15px] font-semibold text-zinc-800 inline-flex items-center gap-2">
+            <Users size={16} className="text-teal-600" /> Competencia
           </h2>
           <p className="text-[12px] text-zinc-500 mt-0.5">
             Ofertas presentadas en la apertura de Mercado Público, con los anexos de cada oferente.
@@ -149,7 +149,7 @@ export default function OfertasCompetencia({ codigo, isAdmin }: { codigo: string
         {isAdmin && (
           <button onClick={releer} disabled={releyendo}
             title="Volver a leer la apertura en Mercado Público ahora"
-            className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-indigo-600 border border-indigo-200 hover:bg-indigo-50 disabled:text-zinc-300 disabled:border-zinc-200 px-3 py-1.5 rounded-lg transition-colors flex-shrink-0">
+            className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-teal-600 border border-teal-200 hover:bg-teal-50 disabled:text-zinc-300 disabled:border-zinc-200 px-3 py-1.5 rounded-lg transition-colors flex-shrink-0">
             {releyendo ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
             {releyendo ? 'Leyendo…' : 'Releer apertura'}
           </button>
@@ -210,15 +210,15 @@ export default function OfertasCompetencia({ codigo, isAdmin }: { codigo: string
             const exp = abierto === o.proveedorRut;
             return (
               <div key={o.proveedorRut}
-                className={`rounded-xl border overflow-hidden ${o.esNuestra ? 'border-indigo-300 bg-indigo-50/40' : 'border-zinc-200 bg-white'}`}>
+                className={`rounded-xl border overflow-hidden ${o.esNuestra ? 'border-teal-300 bg-teal-50/40' : 'border-zinc-200 bg-white'}`}>
                 <button onClick={() => setAbierto(exp ? null : o.proveedorRut)}
                   className="w-full flex items-center gap-3 px-3.5 py-3 text-left hover:bg-zinc-50/60 transition-colors">
                   {exp ? <ChevronDown size={15} className="text-zinc-400 flex-shrink-0" />
                        : <ChevronRight size={15} className="text-zinc-400 flex-shrink-0" />}
                   <div className="min-w-0 flex-1">
-                    <p className={`text-[13px] font-semibold truncate ${o.esNuestra ? 'text-indigo-900' : 'text-zinc-800'}`}>
+                    <p className={`text-[13px] font-semibold truncate ${o.esNuestra ? 'text-teal-900' : 'text-zinc-800'}`}>
                       {o.proveedorNombre}
-                      {o.esNuestra && <span className="ml-1.5 text-[10.5px] font-bold text-indigo-500">NOSOTROS</span>}
+                      {o.esNuestra && <span className="ml-1.5 text-[10.5px] font-semibold text-teal-500">NOSOTROS</span>}
                     </p>
                     <p className="text-[11px] text-zinc-400 inline-flex items-center gap-1.5">
                       <Building2 size={10} /> <span className="font-mono">{o.proveedorRut}</span>
@@ -232,7 +232,7 @@ export default function OfertasCompetencia({ codigo, isAdmin }: { codigo: string
                         ? `${o.documentosDescargados}/${o.totalDocumentos} docs`
                         : 'sin anexos'}
                     </span>
-                    <span className={`text-[13.5px] font-bold tabular-nums w-[110px] text-right ${o.montoAnomalo ? 'text-amber-600' : 'text-zinc-800'}`}
+                    <span className={`text-[13.5px] font-semibold tabular-nums w-[110px] text-right ${o.montoAnomalo ? 'text-amber-600' : 'text-zinc-800'}`}
                       title={o.montoAnomalo ? 'Total fuera de escala respecto del resto. Es lo que publica Mercado Público: no se corrige ni se descarta, pero no compite realmente.' : undefined}>
                       {fmt(o.monto, o.moneda)}{o.montoAnomalo && <span className="ml-1 text-[10px]">⚠</span>}
                     </span>
@@ -243,7 +243,7 @@ export default function OfertasCompetencia({ codigo, isAdmin }: { codigo: string
                   <div className="px-3.5 pb-3 border-t border-zinc-100 pt-2.5">
                     {o.lineas.length > 0 && (
                       <div className="mb-2.5">
-                        <p className="text-[10.5px] uppercase tracking-wide text-zinc-400 mb-1">Por línea</p>
+                        <p className="text-[10.5px] text-zinc-400 mb-1">Por línea</p>
                         {o.lineas.map(l => (
                           <p key={l.lineaNumero} className="text-[12px] text-zinc-600">
                             Línea {l.lineaNumero}: <b className="tabular-nums">{fmt(l.monto, o.moneda)}</b>
@@ -256,7 +256,7 @@ export default function OfertasCompetencia({ codigo, isAdmin }: { codigo: string
                         para poder ABRIR un documento, que es justo lo que se viene a hacer. */}
                     {isAdmin && o.totalDocumentos > o.documentosDescargados && (
                       <button onClick={() => bajarAnexos(o.proveedorRut)} disabled={bajando === o.proveedorRut}
-                        className="mb-2.5 inline-flex items-center gap-1.5 text-[11.5px] font-semibold text-indigo-600 border border-indigo-200 hover:bg-indigo-50 disabled:text-zinc-300 disabled:border-zinc-200 px-2.5 py-1 rounded-lg transition-colors">
+                        className="mb-2.5 inline-flex items-center gap-1.5 text-[11.5px] font-semibold text-teal-600 border border-teal-200 hover:bg-teal-50 disabled:text-zinc-300 disabled:border-zinc-200 px-2.5 py-1 rounded-lg transition-colors">
                         {bajando === o.proveedorRut
                           ? <><Loader2 size={11} className="animate-spin" /> Descargando desde Mercado Público…</>
                           : <><Download size={11} /> Descargar {o.totalDocumentos - o.documentosDescargados} anexo(s) pendiente(s)</>}
@@ -288,11 +288,11 @@ export default function OfertasCompetencia({ codigo, isAdmin }: { codigo: string
                                     <>
                                       <button onClick={() => setVisor({ nombre: d.nombre, url: d.url! })}
                                         title="Ver sin descargar"
-                                        className="text-zinc-400 hover:text-indigo-600 p-1 rounded hover:bg-indigo-50 transition-colors flex-shrink-0">
+                                        className="text-zinc-400 hover:text-teal-600 p-1 rounded hover:bg-teal-50 transition-colors flex-shrink-0">
                                         <Eye size={13} />
                                       </button>
                                       <a href={d.url} target="_blank" rel="noopener noreferrer" title="Descargar"
-                                        className="text-zinc-400 hover:text-indigo-600 p-1 rounded hover:bg-indigo-50 transition-colors flex-shrink-0">
+                                        className="text-zinc-400 hover:text-teal-600 p-1 rounded hover:bg-teal-50 transition-colors flex-shrink-0">
                                         <Download size={13} />
                                       </a>
                                     </>

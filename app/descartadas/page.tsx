@@ -102,7 +102,7 @@ export default function DescartadasPage() {
     setBusqueda(''); setFechaDesde(''); setFechaHasta('');
   };
 
-  const esAdmin = usuario?.rol === 'admin';
+  const esAdmin = !!usuario?.permisos?.ver_descartadas;   // casilla «Ver Descartadas» (admin la tiene siempre)
 
   // Agregados del KPI: por usuario (cantidad) y matriz usuario × motivo. Se calcula sobre
   // TODAS las descartadas (no sobre la lista filtrada), para que los totales no bailen.
@@ -228,7 +228,7 @@ export default function DescartadasPage() {
               <Ban size={18} />
             </div>
             <div>
-              <h1 className="text-[16px] font-bold text-slate-900">Licitaciones descartadas</h1>
+              <h1 className="text-[16px] font-semibold text-slate-900">Licitaciones descartadas</h1>
               <p className="text-xs text-slate-500">Los descartes de Negocios (con responsable) y los del Radar, con quién, cuándo y por qué</p>
             </div>
           </div>
@@ -250,7 +250,7 @@ export default function DescartadasPage() {
                 type="text" value={busqueda} onChange={e => setBusqueda(e.target.value)}
                 placeholder="Buscar por nombre, código u organismo…"
                 title="Busca en el nombre de la licitación, su código (ej: 1499887-11-LE26) y el organismo. Aplica a ambas secciones."
-                className="w-full pl-8 pr-7 py-2 border border-slate-200 rounded-lg text-[12px] bg-slate-50 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 outline-none transition-all"
+                className="w-full pl-8 pr-7 py-2 border border-slate-200 rounded-lg text-[12px] bg-slate-50 focus:ring-2 focus:ring-teal-500/20 focus:border-teal-400 outline-none transition-all"
               />
               {busqueda && (
                 <button onClick={() => setBusqueda('')} title="Limpiar búsqueda"
@@ -314,7 +314,7 @@ export default function DescartadasPage() {
           <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
             <div className="flex items-center gap-2 mb-3">
               <BarChart3 size={15} className="text-slate-500" />
-              <h2 className="text-[13px] font-bold text-slate-800">Descartadas por usuario</h2>
+              <h2 className="text-[13px] font-semibold text-slate-800">Descartadas por usuario</h2>
               {hayFiltro && (
                 <button onClick={limpiarFiltros}
                   className="ml-auto inline-flex items-center gap-1 text-[11px] font-semibold text-slate-500 hover:text-slate-700 bg-slate-100 hover:bg-slate-200 px-2 py-1 rounded-lg transition-colors">
@@ -332,11 +332,11 @@ export default function DescartadasPage() {
                     onClick={() => setFiltroUsuario(activo ? filtroUsuario.filter(x => x !== String(u.id)) : [...filtroUsuario, String(u.id)])}
                     className={`text-left rounded-lg px-2 py-1.5 transition-colors ${activo ? 'bg-slate-100 ring-1 ring-slate-300' : 'hover:bg-slate-50'}`}>
                     <div className="flex items-center gap-2">
-                      <span className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-white flex-shrink-0" style={{ background: col }}>
+                      <span className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-semibold text-white flex-shrink-0" style={{ background: col }}>
                         {inicialesUsuario(u.nombre, u.email)}
                       </span>
                       <span className="text-[12.5px] font-semibold text-slate-700 truncate flex-1">{u.nombre}</span>
-                      <span className="text-[13px] font-bold text-slate-900 tabular-nums">{u.total}</span>
+                      <span className="text-[13px] font-semibold text-slate-900 tabular-nums">{u.total}</span>
                     </div>
                     <div className="mt-1 h-1.5 rounded-full bg-slate-100 overflow-hidden">
                       <div className="h-full rounded-full" style={{ width: `${(u.total / kpi.max) * 100}%`, background: col }} />
@@ -348,7 +348,7 @@ export default function DescartadasPage() {
 
             {/* Motivos (chips filtrables): cantidad por motivo base sobre todas las descartadas */}
             <div className="mt-3 pt-3 border-t border-slate-100">
-              <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide mb-2">Motivos</p>
+              <p className="text-[11px] font-semibold text-slate-400 mb-2">Motivos</p>
               <div className="flex flex-wrap gap-1.5">
                 {kpi.motivos.map(m => {
                   const activo = filtroMotivo.includes(m.motivo);
@@ -357,7 +357,7 @@ export default function DescartadasPage() {
                       onClick={() => setFiltroMotivo(activo ? filtroMotivo.filter(x => x !== m.motivo) : [...filtroMotivo, m.motivo])}
                       className={`inline-flex items-center gap-1.5 text-[11.5px] font-medium px-2.5 py-1 rounded-full border transition-colors ${activo ? 'bg-red-600 border-red-600 text-white' : 'bg-white border-slate-200 text-slate-600 hover:border-red-300 hover:bg-red-50'}`}>
                       {m.motivo}
-                      <span className={`text-[10.5px] font-bold tabular-nums ${activo ? 'text-white' : 'text-red-600'}`}>{m.total}</span>
+                      <span className={`text-[10.5px] font-semibold tabular-nums ${activo ? 'text-white' : 'text-red-600'}`}>{m.total}</span>
                     </button>
                   );
                 })}
@@ -400,7 +400,7 @@ export default function DescartadasPage() {
                     )}
                   </div>
                   <Link href={`/licitacion/${encodeURIComponent(d.licitacion_codigo)}`}
-                    className="flex-shrink-0 inline-flex items-center gap-1 text-[12px] font-semibold text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 px-2.5 py-1.5 rounded-lg transition-colors">
+                    className="flex-shrink-0 inline-flex items-center gap-1 text-[12px] font-semibold text-teal-600 hover:text-teal-800 bg-teal-50 hover:bg-teal-100 px-2.5 py-1.5 rounded-lg transition-colors">
                     <ExternalLink size={13} /> Ver detalle
                   </Link>
                 </div>
@@ -456,8 +456,8 @@ export default function DescartadasPage() {
         {!cargando && radarFiltrados.length > 0 && (
           <div className="pt-2">
             <div className="flex items-center gap-2 mb-2.5">
-              <h2 className="text-[13px] font-bold text-slate-800">Descartadas desde el Radar</h2>
-              <span className="text-[11px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full tabular-nums">
+              <h2 className="text-[13px] font-semibold text-slate-800">Descartadas desde el Radar</h2>
+              <span className="text-[11px] font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full tabular-nums">
                 {radarFiltrados.length}{hayFiltro && radarFiltrados.length !== radarItems.length ? ` de ${radarItems.length}` : ''}
               </span>
               <span className="text-[11px] text-slate-400">— sacadas del radar antes de asignarse a un perfil; se pueden restaurar</span>
@@ -484,7 +484,7 @@ export default function DescartadasPage() {
                     </div>
                     <div className="flex-shrink-0 flex items-center gap-1.5">
                       <Link href={`/licitacion/${encodeURIComponent(r.licitacion_codigo)}`}
-                        className="inline-flex items-center gap-1 text-[12px] font-semibold text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 px-2.5 py-1.5 rounded-lg transition-colors">
+                        className="inline-flex items-center gap-1 text-[12px] font-semibold text-teal-600 hover:text-teal-800 bg-teal-50 hover:bg-teal-100 px-2.5 py-1.5 rounded-lg transition-colors">
                         <ExternalLink size={13} /> Ver
                       </Link>
                       <button onClick={() => restaurarRadar(r.licitacion_codigo)} disabled={restaurando === r.licitacion_codigo}

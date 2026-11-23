@@ -12,7 +12,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { IconArrowsShuffle as Shuffle, IconLoader2 as Loader2, IconUsers as Users, IconTrash as Trash2, IconRefresh as RefreshCw, IconBuilding as Building2, IconCalendar as Calendar, IconExternalLink as ExternalLink, IconCheck as Check, IconX as X, IconScale as Scale, IconTag as Tag, IconCurrencyDollar as DollarSign, IconMapPin as MapPin, IconGauge as Gauge, IconHandStop as Hand, IconAlertTriangle as AlertTriangle, IconStack2 as Layers, IconArrowRight as ArrowRight, IconPlus as Plus, IconRadar as RadarIcon, IconGripVertical as GripVertical, IconSparkles as Sparkles } from '@tabler/icons-react';
+import { IconArrowsShuffle as Shuffle, IconLoader2 as Loader2, IconUsers as Users, IconTrash as Trash2, IconRefresh as RefreshCw, IconBuilding as Building2, IconCalendar as Calendar, IconExternalLink as ExternalLink, IconCheck as Check, IconX as X, IconScale as Scale, IconTag as Tag, IconCurrencyDollar as DollarSign, IconMapPin as MapPin, IconGauge as Gauge, IconHandStop as Hand, IconAlertTriangle as AlertTriangle, IconStack2 as Layers, IconArrowRight as ArrowRight, IconPlus as Plus, IconRadar as RadarIcon, IconGripVertical as GripVertical, IconWand as Sparkles } from '@tabler/icons-react';
 import { AppLayout } from '@/app/components/AppLayout';
 import { useSession } from '@/app/lib/session-context';
 import { useToast } from '@/app/components/ui/toast';
@@ -302,7 +302,7 @@ export default function PuentePage() {
       <AppLayout breadcrumb={[{ label: 'Puente' }]}>
         <div className="p-8 max-w-2xl mx-auto">
           <div className="bg-amber-50 border border-amber-200 rounded-xl p-5 text-[13px] text-amber-900">
-            <div className="flex items-center gap-2 font-bold mb-1"><AlertTriangle size={16} /> Falta aplicar la migración</div>
+            <div className="flex items-center gap-2 font-semibold mb-1"><AlertTriangle size={16} /> Falta aplicar la migración</div>
             El puente necesita sus tablas. Corre <code className="bg-white px-1.5 py-0.5 rounded border border-amber-200">node scripts/aplicar-migration-73.mjs</code> y recarga.
           </div>
         </div>
@@ -317,11 +317,11 @@ export default function PuentePage() {
         {/* Encabezado */}
         <div className="flex items-start justify-between gap-3 flex-wrap">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-indigo-50 flex items-center justify-center text-indigo-600">
+            <div className="w-10 h-10 rounded-xl bg-teal-50 flex items-center justify-center text-teal-600">
               <Shuffle size={18} />
             </div>
             <div>
-              <h1 className="text-[19px] font-bold text-slate-800 leading-tight">Puente del radar</h1>
+              <h1 className="text-[19px] font-semibold text-slate-800 leading-tight">Puente del radar</h1>
               <p className="text-[12.5px] text-slate-500">
                 {licitaciones.length === 0
                   ? 'Vacío. Empuja licitaciones desde el radar para repartirlas al equipo.'
@@ -331,7 +331,7 @@ export default function PuentePage() {
           </div>
           <div className="flex items-center gap-2">
             <Link href="/radar"
-              className="inline-flex items-center gap-1.5 px-3 py-2 text-[12.5px] font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-lg">
+              className="inline-flex items-center gap-1.5 px-3 py-2 text-[12.5px] font-semibold text-teal-700 bg-teal-50 hover:bg-teal-100 rounded-lg">
               <RadarIcon size={14} /> Ir al radar
             </Link>
             <button onClick={cargar} title="Recargar el puente"
@@ -357,7 +357,7 @@ export default function PuentePage() {
               En el radar, selecciona licitaciones y usa el botón <strong>Al puente</strong>. Cuando tengas la tanda
               completa, vuelve acá y repártela entre los perfiles.
             </p>
-            <Link href="/radar" className="inline-flex items-center gap-1.5 text-[12.5px] font-bold text-indigo-600 hover:underline">
+            <Link href="/radar" className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-teal-600 hover:underline">
               Abrir el radar <ArrowRight size={13} />
             </Link>
           </div>
@@ -366,25 +366,25 @@ export default function PuentePage() {
 
             {/* ── Columna izquierda: contenido del puente ─────────────────────── */}
             <div className="lg:col-span-2 space-y-3">
-              <div className="flex items-center gap-2 text-[12px] font-bold text-slate-400 uppercase tracking-wide">
+              <div className="flex items-center gap-2 text-[12px] font-semibold text-slate-400">
                 <Layers size={13} /> En el puente ({licitaciones.length})
               </div>
               <div className="space-y-2 max-h-[70vh] overflow-y-auto pr-1">
                 {licitaciones.map(l => {
                   const tipo = getTipoLicitacion(extractTipoFromCodigo(l.licitacion_codigo));
                   return (
-                    <div key={l.id} className="bg-white border border-slate-200 rounded-xl px-3.5 py-2.5 hover:border-indigo-200 transition-colors">
+                    <div key={l.id} className="bg-white border border-slate-200 rounded-xl px-3.5 py-2.5 hover:border-teal-200 transition-colors">
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
                             {tipo && (
-                              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${TIPO_COLOR_CLASS[tipo.codigo] || 'bg-slate-50 text-slate-600 border-slate-200'}`}>
+                              <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border ${TIPO_COLOR_CLASS[tipo.codigo] || 'bg-slate-50 text-slate-600 border-slate-200'}`}>
                                 {tipo.codigo}
                               </span>
                             )}
                             <span className="font-mono text-[11px] text-slate-400">{l.licitacion_codigo}</span>
                             {l.categoria_nombre && (
-                              <span className="inline-flex items-center gap-1 text-[10.5px] font-bold px-1.5 py-0.5 rounded-full bg-violet-50 text-violet-700 border border-violet-200">
+                              <span className="inline-flex items-center gap-1 text-[10.5px] font-semibold px-1.5 py-0.5 rounded-full bg-cyan-50 text-cyan-700 border border-cyan-200">
                                 <Tag size={9} /> {l.categoria_nombre}
                               </span>
                             )}
@@ -404,7 +404,7 @@ export default function PuentePage() {
                         <div className="flex items-center gap-1 shrink-0">
                           <Link href={`/licitacion/${encodeURIComponent(l.licitacion_codigo)}`} target="_blank"
                             title="Abrir la licitación en otra pestaña"
-                            className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg">
+                            className="p-1.5 text-slate-400 hover:text-teal-600 hover:bg-teal-50 rounded-lg">
                             <ExternalLink size={14} />
                           </Link>
                           <button onClick={() => quitarDelPuente([l.licitacion_codigo])}
@@ -422,7 +422,7 @@ export default function PuentePage() {
 
             {/* ── Columna derecha: panel de reparto ───────────────────────────── */}
             <div className="bg-white border border-slate-200 rounded-xl p-4 space-y-4 lg:sticky lg:top-4">
-              <div className="flex items-center gap-2 text-[12px] font-bold text-slate-400 uppercase tracking-wide">
+              <div className="flex items-center gap-2 text-[12px] font-semibold text-slate-400">
                 <Users size={13} /> Repartir a
               </div>
 
@@ -434,13 +434,13 @@ export default function PuentePage() {
                     <button key={p.id} onClick={() => togglePerfil(p.id)}
                       title={`${nombrePerfil(p)} — ${p.cargaActual} licitación(es) vigentes hoy`}
                       className={`inline-flex items-center gap-1.5 pl-1 pr-2.5 py-1 rounded-full border text-[12px] font-semibold transition-colors
-                        ${on ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-slate-600 border-slate-200 hover:border-indigo-300'}`}>
-                      <span className="w-5 h-5 rounded-full text-[9.5px] font-bold text-white flex items-center justify-center"
+                        ${on ? 'bg-teal-600 text-white border-teal-600' : 'bg-white text-slate-600 border-slate-200 hover:border-teal-300'}`}>
+                      <span className="w-5 h-5 rounded-full text-[9.5px] font-semibold text-white flex items-center justify-center"
                         style={{ background: colorUsuario(p.id) }}>
                         {inicialesUsuario(p.nombre, p.email)}
                       </span>
                       <span className="truncate max-w-[120px]">{nombrePerfil(p)}</span>
-                      <span className={`text-[10.5px] font-bold px-1.5 rounded-full ${on ? 'bg-white/20' : 'bg-slate-100 text-slate-500'}`}>
+                      <span className={`text-[10.5px] font-semibold px-1.5 rounded-full ${on ? 'bg-white/20' : 'bg-slate-100 text-slate-500'}`}>
                         {p.cargaActual}
                       </span>
                     </button>
@@ -456,7 +456,7 @@ export default function PuentePage() {
 
               {/* Estrategia */}
               <div className="space-y-1.5">
-                <label className="text-[12px] font-bold text-slate-500">Cómo repartir</label>
+                <label className="text-[12px] font-semibold text-slate-500">Cómo repartir</label>
                 <Select
                   value={estrategia}
                   onChange={v => { setEstrategia(v as Estrategia); setReglas({}); invalidarPrevia(); }}
@@ -472,7 +472,7 @@ export default function PuentePage() {
               {/* Reglas por valor (categoría / región / viabilidad) */}
               {valoresDeLaEstrategia.length > 0 && (
                 <div className="space-y-1.5">
-                  <label className="text-[12px] font-bold text-slate-500">Reglas</label>
+                  <label className="text-[12px] font-semibold text-slate-500">Reglas</label>
                   <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
                     {valoresDeLaEstrategia.map(v => (
                       <div key={v.valor} className="flex items-center gap-2">
@@ -496,15 +496,15 @@ export default function PuentePage() {
               {/* Tramos de monto */}
               {estrategia === 'monto' && (
                 <div className="space-y-1.5">
-                  <label className="text-[12px] font-bold text-slate-500">Tramos de presupuesto (CLP)</label>
+                  <label className="text-[12px] font-semibold text-slate-500">Tramos de presupuesto (CLP)</label>
                   {tramos.map((t, i) => (
                     <div key={i} className="flex items-center gap-1.5">
                       <input type="number" value={t.desde ?? ''} placeholder="desde"
                         onChange={e => { const v = e.target.value === '' ? null : Number(e.target.value); setTramos(prev => prev.map((x, j) => j === i ? { ...x, desde: v } : x)); invalidarPrevia(); }}
-                        className="w-24 px-2 py-1.5 text-[12px] border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-400" />
+                        className="w-24 px-2 py-1.5 text-[12px] border border-slate-200 rounded-lg focus:outline-none focus:border-teal-400" />
                       <input type="number" value={t.hasta ?? ''} placeholder="hasta"
                         onChange={e => { const v = e.target.value === '' ? null : Number(e.target.value); setTramos(prev => prev.map((x, j) => j === i ? { ...x, hasta: v } : x)); invalidarPrevia(); }}
-                        className="w-24 px-2 py-1.5 text-[12px] border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-400" />
+                        className="w-24 px-2 py-1.5 text-[12px] border border-slate-200 rounded-lg focus:outline-none focus:border-teal-400" />
                       <Select
                         value={t.usuarioId != null ? String(t.usuarioId) : ''}
                         onChange={val => { setTramos(prev => prev.map((x, j) => j === i ? { ...x, usuarioId: val ? Number(val) : null } : x)); invalidarPrevia(); }}
@@ -517,7 +517,7 @@ export default function PuentePage() {
                     </div>
                   ))}
                   <button onClick={() => setTramos(prev => [...prev, { desde: null, hasta: null, usuarioId: null }])}
-                    className="inline-flex items-center gap-1 text-[11.5px] font-semibold text-indigo-600 hover:underline">
+                    className="inline-flex items-center gap-1 text-[11.5px] font-semibold text-teal-600 hover:underline">
                     <Plus size={12} /> Agregar tramo
                   </button>
                   <p className="text-[11px] text-slate-400">«desde» incluye el valor; «hasta» lo excluye. Vacío = sin tope.</p>
@@ -527,7 +527,7 @@ export default function PuentePage() {
               {/* Qué hacer con lo que ninguna regla alcanza */}
               {(estrategia === 'categoria' || estrategia === 'region' || estrategia === 'viabilidad' || estrategia === 'monto') && (
                 <div className="space-y-1.5">
-                  <label className="text-[12px] font-bold text-slate-500">Lo que no calce con ninguna regla</label>
+                  <label className="text-[12px] font-semibold text-slate-500">Lo que no calce con ninguna regla</label>
                   <Select
                     value={fallback}
                     onChange={v => { setFallback(v as typeof fallback); invalidarPrevia(); }}
@@ -542,7 +542,7 @@ export default function PuentePage() {
               )}
 
               <button onClick={simular} disabled={simulando || elegidos.length === 0}
-                className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-indigo-600 text-white text-[13px] font-bold rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed">
+                className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-teal-600 text-white text-[13px] font-semibold rounded-lg hover:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed">
                 {simulando ? <Loader2 size={15} className="animate-spin" /> : <Shuffle size={15} />}
                 Simular reparto
               </button>
@@ -558,10 +558,10 @@ export default function PuentePage() {
           <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-3">
             <div className="flex items-center justify-between gap-3 flex-wrap">
               <div>
-                <h2 className="text-[15px] font-bold text-slate-800 flex items-center gap-2">
-                  <Hand size={15} className="text-indigo-600" /> Vista previa
+                <h2 className="text-[15px] font-semibold text-slate-800 flex items-center gap-2">
+                  <Hand size={15} className="text-teal-600" /> Vista previa
                   {ajustadaAMano && (
-                    <span className="text-[10.5px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200">
+                    <span className="text-[10.5px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200">
                       ajustada a mano
                     </span>
                   )}
@@ -576,7 +576,7 @@ export default function PuentePage() {
                   <X size={14} /> Descartar
                 </button>
                 <button onClick={confirmarReparto} disabled={ejecutando}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-600 text-white text-[12.5px] font-bold rounded-lg hover:bg-emerald-700 disabled:opacity-50">
+                  className="inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-600 text-white text-[12.5px] font-semibold rounded-lg hover:bg-emerald-700 disabled:opacity-50">
                   {ejecutando ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
                   Confirmar reparto
                 </button>
@@ -596,18 +596,18 @@ export default function PuentePage() {
                     <div className="flex items-center gap-2 mb-2 px-0.5">
                       {col.perfil ? (
                         <>
-                          <span className="w-6 h-6 rounded-full text-[10px] font-bold text-white flex items-center justify-center"
+                          <span className="w-6 h-6 rounded-full text-[10px] font-semibold text-white flex items-center justify-center"
                             style={{ background: colorUsuario(col.perfil.id) }}>
                             {inicialesUsuario(col.perfil.nombre, col.perfil.email)}
                           </span>
-                          <span className="text-[12.5px] font-bold text-slate-700 truncate flex-1">{nombrePerfil(col.perfil)}</span>
+                          <span className="text-[12.5px] font-semibold text-slate-700 truncate flex-1">{nombrePerfil(col.perfil)}</span>
                         </>
                       ) : (
-                        <span className="text-[12.5px] font-bold text-amber-800 flex-1 flex items-center gap-1.5">
+                        <span className="text-[12.5px] font-semibold text-amber-800 flex-1 flex items-center gap-1.5">
                           <AlertTriangle size={13} /> Se quedan en el puente
                         </span>
                       )}
-                      <span className="text-[11px] font-bold px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-600">
+                      <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-600">
                         {col.items.length}
                       </span>
                     </div>
@@ -625,7 +625,7 @@ export default function PuentePage() {
                             onDragStart={() => setArrastrando(a.codigo)}
                             onDragEnd={() => setArrastrando(null)}
                             className={`group bg-white border border-slate-200 rounded-lg px-2 py-1.5 cursor-grab active:cursor-grabbing
-                              ${arrastrando === a.codigo ? 'opacity-40' : 'hover:border-indigo-300'}`}>
+                              ${arrastrando === a.codigo ? 'opacity-40' : 'hover:border-teal-300'}`}>
                             <div className="flex items-start gap-1.5">
                               <GripVertical size={12} className="text-slate-300 mt-0.5 shrink-0" />
                               <div className="min-w-0 flex-1">
@@ -664,7 +664,7 @@ export default function PuentePage() {
             terminar (finally de confirmarReparto). */}
         {ejecutando && (
           <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm overlay-in">
-            <div className="bg-white rounded-2xl shadow-2xl px-9 py-8 modal-in">
+            <div className="bg-white rounded-xl shadow-flotante px-9 py-8 modal-in">
               <PuenteLoader
                 total={previa ? previa.filter(a => a.usuarioId != null).length : undefined}
                 titulo="Repartiendo al equipo…"

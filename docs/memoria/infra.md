@@ -1,5 +1,26 @@
 # Infraestructura, stack, seguridad y multi-cliente
 
+
+
+
+## 2026-11-23 (3) — Menú de privilegios completo: lo que hacía solo el admin ahora tiene casilla (tsc ok, 5 pruebas ok; SIN probar en vivo; SIN desplegar)
+**Pedido del dueño:** que Carolina Gonzalez y Asesor (hoy rol admin) puedan ser perfiles normales con todos los privilegios, dándose y quitándose casilla por casilla, y que el menú de Admin → Usuarios tenga TODO lo de LICITANK.
+**Hecho:** 21 permisos nuevos en `api-auth.ts` (tipo `Permiso`, `PERMISOS_ADMIN` = true), `session-context.tsx` y el catálogo de `admin/usuarios/page.tsx` (categoría nueva «Administración y sistema», cada una con descripción): admin_usuarios, config_empresa, admin_etiquetas, admin_palabras_clave, reasignar_negocios, aprobar_linea_tecnica, editar_otros_negocios, retroceder_pipeline, ver_descartadas, analisis_licitacion, ver_analizadas, ver_historial, buscador_licitaciones, dashboard_admin, leer_portal_mp, enriquecer_radar, buscador_precios, memoria_experiencia, anexos_feedback, soporte_tecnico, avisos_admin. Un admin los tiene todos (nada cambia para el dueño).
+**Conectado a su puerta (servidor con `tienePermiso`, pantalla con `usuario.permisos`):** palabras clave, etiquetas, buscador de precios, enriquecer radar, memoria, ofertas/acta del portal, feedback de anexos, negocios/[id] (reasignar, etiquetas, editar ajenos, retroceder), asignar encargado de Compras, línea técnica, `/api/admin/*` (usuarios, gasto IA, reportes, test email, WhatsApp), proxy (`PERMISO_DE_RUTA_ADMIN`), descartadas, analizadas, historial, análisis de licitación, buscador `/` y ⌘K, dashboard, empresas y firmas, menú lateral y menú de usuario, avisos del grupo admin.
+**Sigue SOLO admin (no tiene casilla):** el bypass de congelamiento (`yaCongelado(negocioId, rol)`, ~20 llamadas: editar Información Comercial de un negocio postulado), borrar documentos COSTEO_ADMIN, ver todos los comentarios de una licitación, `/admin/clientes` (solo dueño, a propósito), Mi empresa/Mi equipo de las empresas-cliente (su admin).
+**Ojo:** `admin_usuarios` permite darse cualquier permiso (y hacerse admin). Para clientes (cliente ≠ 1) estos permisos no se pueden dar (no están en `PERMISOS_DEL_MODULO`): ellos siguen con su rol admin.
+**Pendiente:** pasar a Carolina Gonzalez (12) y Asesor (7) a rol «Usuario» con todas las casillas; probar en vivo con un perfil Usuario cada puerta. Prueba: `app/lib/__tests__/permisos-menu.test.mts` (el menú y el código no pueden desincronizarse).
+
+## 2026-11-23 (2) — Local = Docker (3308) con copia FRESCA de producción: `sincronizar-bd-local.bat`
+**Regla del dueño:** el local debe mostrar datos reales y poder modificarse sin tocar producción → usa el Docker (`.env.development.local` → 3308), nunca escribir en prod desde el PC. Para actualizarlo: doble clic a `sincronizar-bd-local.bat` (o `node scripts/sincronizar-bd-local.mjs [--todo | --tablas a,b]`). Requiere Docker arriba y el túnel SSH 3307.
+**Cómo:** `scripts/sincronizar-bd-local.mjs` lee prod en transacción de SOLO LECTURA con foto consistente y se niega a escribir si el destino no es 127.0.0.1:3308/licitank_dev. Vacía cada tabla local e inserta solo las columnas comunes (conserva columnas/tablas que solo existen en local). Por defecto omite `documentos_cache` y `*_captura` (las pesadas: ~0,9 GB); `--todo` las incluye. Primera corrida: 163/164 tablas, 304.007 filas, 2,8 min.
+**Ojo:** el Docker tenía la migration-196 sin aplicar (prod sí): se aplicó solo en el Docker. Si una tabla falla por "Duplicate entry", es una migración de prod que falta en el Docker. Los scripts `aplicar-migration-*.mjs` leen `.env.local` = PRODUCCIÓN: para el Docker aplicar el SQL con `docker exec licitank-dev-db mysql …`.
+
+## 2026-11-23 — Proyecto movido del disco D: (HDD 5400 rpm) al SSD: ahora vive en C:licitapyme-clone
+**Por qué:** el `next dev` en D: tardaba minutos (Next avisaba «Slow filesystem», /login ~50 s, caché de 3,8 GB). En C: arranca en 3,6 s y /login responde en ~8 s.
+**Qué:** copia con robocopy (95.661 archivos, 1,13 GB sin `.next`; node_modules 1,2 GB). `D:licitapyme-clone` queda como respaldo hasta borrarlo. Abrir VS Code en C:licitapyme-clone. No usar enlaces (junction) para `.next`: Turbopack resuelve la ruta real y no encuentra node_modules (falló postcss-preset-mantine).
+**Pendiente:** 7 scripts de scripts/ tienen la ruta D:licitapyme-clone escrita (regresion/run.ts, seed.ts, _env.ts, etc.); Defender: excluir C:licitapyme-clone; la memoria de Claude está atada a la ruta vieja.
+
 ## 2026-11-20 — n8n: guía con nombres de proveedores desde Obuma (RUT, contacto, correo, teléfono)
 - La guía del asistente ya no muestra «proveedor id N»: n8n lee `carpetas/_datos/proveedores-obuma.json`, una copia del catálogo de Obuma (`proveedores.list.json`, 2.851 proveedores, 2.015 con correo), y completa lo que LICITANK no tiene. Se bajó en 29 llamadas de solo lectura; no se usa `proveedores.findById` porque tiene cuota diaria compartida con LICITANK.
 - La guía v2 explica cada ítem (qué comprar, qué piden, último precio, más barato, mediana, rango) y avisa cuando los precios de compras parecidas son muy dispares. Probada con 1035-27-LE26 y publicada.

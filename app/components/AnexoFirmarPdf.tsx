@@ -176,7 +176,7 @@ function EstampaColocadaUI({
     >
       <img
         src={url} alt={estampa.tipo} draggable={false}
-        className={`w-full h-auto object-contain pointer-events-none drop-shadow ${redimensionando ? 'outline outline-1 outline-indigo-500' : ''}`}
+        className={`w-full h-auto object-contain pointer-events-none drop-shadow ${redimensionando ? 'outline outline-1 outline-teal-500' : ''}`}
       />
       {/* Manijones en las CUATRO esquinas — SIEMPRE visibles, a diferencia de los botones (que
           aparecen al pasar el mouse por encima). Es el gesto que espera cualquiera que haya usado
@@ -192,7 +192,7 @@ function EstampaColocadaUI({
           key={esquina}
           onPointerDown={e => { if (cajaRef.current) onIniciarRedimension(e, esquina, cajaRef.current.getBoundingClientRect()); }}
           title="Arrastra para agrandar o achicar"
-          className={`absolute ${POSICION_ESQUINA[esquina]} ${CURSOR_ESQUINA[esquina]} w-3.5 h-3.5 rounded-[3px] bg-white border-2 border-indigo-600 shadow touch-none`}
+          className={`absolute ${POSICION_ESQUINA[esquina]} ${CURSOR_ESQUINA[esquina]} w-3.5 h-3.5 rounded-[3px] bg-white border-2 border-teal-600 shadow touch-none`}
         />
       ))}
       {/* Los tres botones van JUNTOS arriba y a la IZQUIERDA, separados de las esquinas.
@@ -599,7 +599,7 @@ export function AnexoFirmarPdf({
       <div ref={contenedorRef} className="flex-1 overflow-y-auto bg-slate-200 px-4 py-6 flex flex-col items-center gap-6">
         {cargando && (
           <div className="flex items-center justify-center gap-2 py-16 text-sm text-slate-500">
-            <Loader2 size={16} className="animate-spin text-indigo-500" /> Preparando el PDF…
+            <Loader2 size={16} className="animate-spin text-teal-500" /> Preparando el PDF…
           </div>
         )}
         {!cargando && error && (
@@ -609,7 +609,7 @@ export function AnexoFirmarPdf({
           <div
             key={i}
             ref={el => { paginaRefs.current[i] = el; }}
-            className={`relative flex-shrink-0 bg-white shadow-md transition-shadow ${arrastre && paginaSobre === i ? 'ring-2 ring-indigo-500' : ''}`}
+            className={`relative flex-shrink-0 bg-white shadow-md transition-shadow ${arrastre && paginaSobre === i ? 'ring-2 ring-teal-500' : ''}`}
             style={{ width: dim.ancho, height: dim.alto }}
           >
             <canvas ref={el => { canvasRefs.current[i] = el; }} className="absolute inset-0 pointer-events-none" />
@@ -666,7 +666,7 @@ export function AnexoFirmarPdf({
           onClick={() => onConfirmar(estampas.map(({ id, ...resto }) => resto))}
           disabled={generando || cargando || !!error || bloqueadoPorFirma}
           title={bloqueadoPorFirma ? 'Falta colocar la firma que este anexo requiere' : undefined}
-          className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 px-4 py-2 rounded-lg transition-colors"
+          className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-white bg-teal-600 hover:bg-teal-700 disabled:bg-teal-300 px-4 py-2 rounded-lg transition-colors"
         >
           {generando
             ? <><Loader2 size={13} className="animate-spin" /> Generando…</>

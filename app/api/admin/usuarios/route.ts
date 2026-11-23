@@ -7,7 +7,7 @@ import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
 import pool from '@/app/lib/db';
-import { esAdmin, getAuthedUser } from '@/app/lib/api-auth';
+import { tienePermiso, getAuthedUser } from '@/app/lib/api-auth';
 import { validarContacto } from '@/app/lib/perfil-datos';
 
 const NO_AUTORIZADO = () => NextResponse.json({ error: 'Sin permisos de administrador' }, { status: 403 });
@@ -23,7 +23,7 @@ const PROTEGIDO = (msg: string) => NextResponse.json({ error: msg }, { status: 4
 
 // GET — listar todos los usuarios
 export async function GET(request: NextRequest) {
-  if (!(await esAdmin(request))) return NO_AUTORIZADO();
+  if (!(await tienePermiso(request, 'admin_usuarios'))) return NO_AUTORIZADO();
   try {
     // Intentar con las columnas permisos (migración 28) y modo_principiante (migración 56);
     // si alguna no existe todavía, se degrada sin ella (mismo patrón tolerante de siempre).
@@ -59,7 +59,7 @@ export async function GET(request: NextRequest) {
 
 // POST — crear usuario (admin lo crea directamente, sin auto-registro)
 export async function POST(request: NextRequest) {
-  if (!(await esAdmin(request))) return NO_AUTORIZADO();
+  if (!(await tienePermiso(request, 'admin_usuarios'))) return NO_AUTORIZADO();
   try {
     const body = await request.json();
     const { email, password, nombre, empresa, rol } = body;
@@ -117,7 +117,7 @@ export async function POST(request: NextRequest) {
 // PATCH — actualizar usuario (activar/desactivar, cambiar rol, editar datos,
 // resetear contraseña). El admin puede fijar una clave nueva directamente (password).
 export async function PATCH(request: NextRequest) {
-  if (!(await esAdmin(request))) return NO_AUTORIZADO();
+  if (!(await tienePermiso(request, 'admin_usuarios'))) return NO_AUTORIZADO();
   try {
     const body = await request.json();
     const { id, activo, rol, nombre, empresa, permisos, modoPrincipiante, email, password } = body;
@@ -209,7 +209,7 @@ export async function PATCH(request: NextRequest) {
 
 // DELETE — eliminar usuario
 export async function DELETE(request: NextRequest) {
-  if (!(await esAdmin(request))) return NO_AUTORIZADO();
+  if (!(await tienePermiso(request, 'admin_usuarios'))) return NO_AUTORIZADO();
   try {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');

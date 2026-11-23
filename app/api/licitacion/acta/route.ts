@@ -10,7 +10,7 @@
 // dispararlo cualquiera en bucle.
 
 import { NextRequest, NextResponse } from 'next/server';
-import { puedeVerLicitacion, esAdmin } from '@/app/lib/api-auth';
+import { puedeVerLicitacion, tienePermiso } from '@/app/lib/api-auth';
 import { obtenerActaVista, leerYGuardarActa, descargarActaDocumentos } from '@/app/lib/acta-adjudicacion';
 
 export const runtime = 'nodejs';
@@ -31,7 +31,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  if (!(await esAdmin(req))) {
+  if (!(await tienePermiso(req, 'leer_portal_mp'))) {
     return NextResponse.json({ error: 'Solo un administrador puede traer los documentos del acta' }, { status: 403 });
   }
   const body = await req.json().catch(() => ({} as any));

@@ -27,7 +27,7 @@ export function SearchBar({ onSearch, loading = false, placeholder, initialValue
 
   return (
     <form onSubmit={handleSubmit} className="w-full max-w-2xl mx-auto">
-      <div className="relative flex items-center bg-white rounded-xl shadow-xl overflow-hidden">
+      <div className="relative flex items-center bg-white rounded-xl shadow-flotante overflow-hidden">
         <Search size={18} className="absolute left-4 text-gray-400 pointer-events-none flex-shrink-0" />
         <input
           ref={inputRef}

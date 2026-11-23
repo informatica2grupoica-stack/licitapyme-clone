@@ -4,10 +4,10 @@
 import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
-import { esAdmin } from '@/app/lib/api-auth';
+import { tienePermiso } from '@/app/lib/api-auth';
 
 export async function GET(req: NextRequest) {
-  if (!(await esAdmin(req))) return NextResponse.json({ error: 'Sin permisos de administrador' }, { status: 403 });
+  if (!(await tienePermiso(req, 'soporte_tecnico'))) return NextResponse.json({ error: 'Sin permisos de administrador' }, { status: 403 });
   try {
     // ?resumen=1 → solo el contador para el badge del sidebar.
     if (req.nextUrl.searchParams.get('resumen')) {

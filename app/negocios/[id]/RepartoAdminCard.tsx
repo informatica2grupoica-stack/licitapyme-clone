@@ -531,7 +531,7 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
                     <dl className="flex-1 grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-1.5 min-w-[320px]">
                       <div>
                         <dt className="text-[11px] text-slate-500">Orden de compra</dt>
-                        <dd className="mt-0.5">{ocs.length ? ocs.map(o => <div key={o.folio} className="text-[15px] font-bold tabular-nums text-slate-900 leading-tight">OC {o.folio}</div>) : <span className="text-xs font-medium text-amber-700">Sin emitir</span>}</dd>
+                        <dd className="mt-0.5">{ocs.length ? ocs.map(o => <div key={o.folio} className="text-[15px] font-semibold tabular-nums text-slate-900 leading-tight">OC {o.folio}</div>) : <span className="text-xs font-medium text-amber-700">Sin emitir</span>}</dd>
                       </div>
                       {ocs.length > 0 && (<>
                         <div>
@@ -644,7 +644,7 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
                                   {editable && (
                                     <td className="px-3 py-2"><input type="checkbox" checked={marcado} disabled={rech || !puedeOperar} onChange={() => alternarItem(p, it.productoId)} className="accent-teal-600" aria-label={`Incluir ${it.descripcion.split(' - ')[0]} en la orden`} /></td>
                                   )}
-                                  <td className="px-2 py-2 whitespace-nowrap">{(it.foliosOc ? it.foliosOc.join(' · ') : folios) ? <span className="font-bold tabular-nums text-slate-900">{it.foliosOc ? it.foliosOc.join(' · ') : folios}</span> : <span className="text-amber-700 font-medium">Sin emitir</span>}</td>
+                                  <td className="px-2 py-2 whitespace-nowrap">{(it.foliosOc ? it.foliosOc.join(' · ') : folios) ? <span className="font-semibold tabular-nums text-slate-900">{it.foliosOc ? it.foliosOc.join(' · ') : folios}</span> : <span className="text-amber-700 font-medium">Sin emitir</span>}</td>
                                   <td className="px-2 py-2 font-medium text-slate-800">{it.descripcion.split(' - ')[0]}</td>
                                   <td className="px-2 py-2 whitespace-nowrap tabular-nums">{it.obumaCodigoComercial ? <span className="text-slate-700">{it.obumaCodigoComercial}</span> : <span className="text-amber-700">sin SKU todavía</span>}</td>
                                   <td className="px-2 py-2 text-right tabular-nums">{it.cantidad}</td>
@@ -657,7 +657,7 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
                             })}
                           </tbody>
                           <tfoot>
-                            <tr className="bg-slate-50 font-bold text-slate-800 border-t border-slate-200">
+                            <tr className="bg-slate-50 font-semibold text-slate-800 border-t border-slate-200">
                               <td className="px-3 py-2" colSpan={editable ? 6 : 5}>{editable ? `Total de la orden (${idsSel(p).length} de ${p.items.length} productos marcados)` : 'Total'}</td>
                               <td className="px-2 py-2 text-right tabular-nums">{fmtCLP(editable ? subtotalSel(p) : p.subtotal)}</td>
                               <td className="px-2 py-2 text-[11px] font-normal text-zinc-500" colSpan={editable ? 2 : 1}>neto, sin IVA</td>
@@ -683,7 +683,7 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
                             <dl className="grid grid-cols-2 sm:grid-cols-[6rem_minmax(0,1fr)_minmax(0,1fr)_9rem] gap-x-4 gap-y-2">
                               <div>
                                 <dt className="text-[11px] text-slate-500">Orden</dt>
-                                <dd className="mt-0.5 text-xs font-bold tabular-nums text-slate-900">OC {folio}</dd>
+                                <dd className="mt-0.5 text-xs font-semibold tabular-nums text-slate-900">OC {folio}</dd>
                                 <dd className="text-[11px] text-slate-500">{p.yaCreada && folio === (p.yaCreada.folio ?? p.yaCreada.obumaCompraOcId) ? 'Emitida desde Licitank' : 'Hecha en Obuma'}</dd>
                                 {oc && <dd><button type="button" onClick={() => setOcDocAbierta(folio)} data-testid={`oc-ver-${folio}`} className="text-[11.5px] font-medium text-teal-700 hover:text-teal-900">Ver OC</button></dd>}
                               </div>
@@ -833,7 +833,7 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
                         <div className="bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-2 flex items-center justify-between gap-2">
                           <p className="text-[11px] text-amber-700">Este proveedor todavía no está registrado en Obuma.</p>
                           <button onClick={() => abrirModalProveedor(p)}
-                            className="flex-shrink-0 text-[11px] font-semibold text-indigo-600 hover:text-indigo-700">Crear proveedor en Obuma</button>
+                            className="flex-shrink-0 text-[11px] font-semibold text-teal-600 hover:text-teal-700">Crear proveedor en Obuma</button>
                         </div>
                       )}
                       {estadoProveedorObuma === 'existe' && (
@@ -882,7 +882,7 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
                                     if (usd) { setMonedaOcId(usd.id); if (!tipoCambioOc && tiposCambioHoy.USD) setTipoCambioOc(String(tiposCambioHoy.USD)); }
                                   }
                                 }}
-                                className={`text-[11.5px] px-3 py-1 rounded-md transition-colors ${activo ? 'bg-white text-indigo-700 font-semibold shadow-sm' : 'text-zinc-500 hover:text-zinc-700'}`}>
+                                className={`text-[11.5px] px-3 py-1 rounded-md transition-colors ${activo ? 'bg-white text-teal-700 font-semibold shadow-sm' : 'text-zinc-500 hover:text-zinc-700'}`}>
                                 {txt}
                               </button>
                             );
@@ -897,14 +897,14 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
                                   const cod = monedasObuma.find(m => m.id === e.target.value)?.codigo;
                                   setTipoCambioOc(cod && p.monedaCotizacion === cod && p.tipoCambioCotizacion ? String(p.tipoCambioCotizacion) : cod && tiposCambioHoy[cod] ? String(tiposCambioHoy[cod]) : '');
                                 }}
-                                className="mt-0.5 w-full text-[11.5px] text-zinc-800 border border-zinc-200 rounded-lg px-2 py-1 outline-none focus:ring-1 focus:ring-indigo-500 bg-white">
+                                className="mt-0.5 w-full text-[11.5px] text-zinc-800 border border-zinc-200 rounded-lg px-2 py-1 outline-none focus:ring-1 focus:ring-teal-500 bg-white">
                                 <option value="">{monedasObuma.length ? 'Elegir…' : 'Sin monedas leídas de Obuma'}</option>
                                 {monedasObuma.map(m => <option key={m.id} value={m.id}>{m.codigo} — {m.nombre}</option>)}
                               </select>
                             </label>
                             <label className="flex-1 text-[10.5px] text-zinc-500">Tipo de cambio (CLP por 1)
                               <input value={tipoCambioOc} onChange={e => setTipoCambioOc(e.target.value)} inputMode="decimal" placeholder="Ej. 943,52" data-testid="oc-tipo-cambio"
-                                className="mt-0.5 w-full text-[11.5px] text-zinc-800 border border-zinc-200 rounded-lg px-2 py-1 outline-none focus:ring-1 focus:ring-indigo-500" />
+                                className="mt-0.5 w-full text-[11.5px] text-zinc-800 border border-zinc-200 rounded-lg px-2 py-1 outline-none focus:ring-1 focus:ring-teal-500" />
                             </label>
                           </div>
                         )}
@@ -919,7 +919,7 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
                       </div>
 
                       <select value={formaPagoId} onChange={e => setFormaPagoId(e.target.value)}
-                        className="w-full text-[11.5px] border border-zinc-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-indigo-500">
+                        className="w-full text-[11.5px] border border-zinc-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-teal-500">
                         <option value="">{cargandoFormasPago ? 'Cargando formas de pago…' : 'Elegir forma de pago…'}</option>
                         {formasPago.map(f => <option key={f.id} value={f.id}>{f.nombre}</option>)}
                       </select>
@@ -927,11 +927,11 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
                       <div className="flex gap-1.5">
                         <label className="flex-1 text-[10.5px] text-zinc-500">Fecha de entrega
                           <input type="date" value={fechaEntrega} onChange={e => setFechaEntrega(e.target.value)} data-testid="oc-fecha-entrega"
-                            className="mt-0.5 w-full text-[11.5px] text-zinc-800 border border-zinc-200 rounded-lg px-2 py-1 outline-none focus:ring-1 focus:ring-indigo-500" />
+                            className="mt-0.5 w-full text-[11.5px] text-zinc-800 border border-zinc-200 rounded-lg px-2 py-1 outline-none focus:ring-1 focus:ring-teal-500" />
                         </label>
                         <label className="flex-1 text-[10.5px] text-zinc-500">Método de despacho
                           <select value={metodoDespacho} onChange={e => setMetodoDespacho(e.target.value)} data-testid="oc-metodo-despacho"
-                            className="mt-0.5 w-full text-[11.5px] text-zinc-800 border border-zinc-200 rounded-lg px-2 py-1 outline-none focus:ring-1 focus:ring-indigo-500 bg-white">
+                            className="mt-0.5 w-full text-[11.5px] text-zinc-800 border border-zinc-200 rounded-lg px-2 py-1 outline-none focus:ring-1 focus:ring-teal-500 bg-white">
                             <option value="">Elegir…</option>
                             {METODOS_DESPACHO_OBUMA.map(m => <option key={m} value={m}>{m}</option>)}
                           </select>
@@ -939,23 +939,23 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
                       </div>
 
                       <label className="flex items-center gap-2 text-[11px] text-zinc-700">
-                        <input type="checkbox" checked={incluirFlete} onChange={e => setIncluirFlete(e.target.checked)} className="accent-indigo-600" />
+                        <input type="checkbox" checked={incluirFlete} onChange={e => setIncluirFlete(e.target.checked)} className="accent-teal-600" />
                         <span className="flex items-center gap-1"><Truck size={11} /> Incluir flete/despacho en esta orden</span>
                       </label>
                       {incluirFlete && (
                         <input value={fleteMonto} onChange={e => setFleteMonto(e.target.value)} placeholder={ocInternacional ? 'Monto del flete en pesos (se convierte)' : 'Monto del flete'}
-                          className="w-full text-[11.5px] border border-zinc-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-indigo-500" />
+                          className="w-full text-[11.5px] border border-zinc-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-teal-500" />
                       )}
 
-                      <div className="bg-white border border-indigo-100 rounded-lg px-2.5 py-2 space-y-1">
-                        <p className="text-[10px] font-bold text-indigo-600 uppercase">Esto es lo que se va a mandar a Obuma</p>
+                      <div className="bg-white border border-teal-100 rounded-lg px-2.5 py-2 space-y-1">
+                        <p className="text-[10px] font-semibold text-teal-600 uppercase">Esto es lo que se va a mandar a Obuma</p>
                         <p className="text-[11px] text-zinc-700"><span className="text-zinc-400">Proveedor: </span><b>{p.proveedorNombre}</b>{p.proveedorRut && ` (${p.proveedorRut})`}</p>
                         <p className="text-[11px] text-zinc-700"><span className="text-zinc-400">Tipo: </span>{ocInternacional ? `Internacional (${monedasObuma.find(m => m.id === monedaOcId)?.codigo ?? 'falta moneda'})` : 'Nacional'} · Inventario</p>
                         <p className="text-[11px] text-zinc-700"><span className="text-zinc-400">Entrega: </span>{fechaEntrega ? fechaEntrega.split('-').reverse().join('-') : <span className="text-rose-500">falta fecha</span>} · {metodoDespacho || <span className="text-rose-500">falta método de despacho</span>}</p>
                         <p className="text-[11px] text-zinc-700">
                           <span className="text-zinc-400">Centro de costo: </span>
                           <select value={centroElegido} onChange={e => setCentroElegido(e.target.value)} data-testid="oc-centro-costo"
-                            className="mt-0.5 w-full max-w-[520px] text-[11.5px] border border-zinc-200 rounded-lg px-2 py-1 outline-none focus:ring-1 focus:ring-indigo-500 bg-white">
+                            className="mt-0.5 w-full max-w-[520px] text-[11.5px] border border-zinc-200 rounded-lg px-2 py-1 outline-none focus:ring-1 focus:ring-teal-500 bg-white">
                             <option value="">{centrosCosto.length === 0 ? 'Sin centros de costo leídos de Obuma' : 'Sin centro de costo'}</option>
                             {centrosCosto.map(c => <option key={c.id} value={c.id}>{c.nombre}{centroCosto?.id === c.id ? ' (el de esta licitación)' : ''}</option>)}
                           </select>
@@ -976,8 +976,8 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
                         })() : (
                           <p className="text-[11px] text-zinc-700"><span className="text-zinc-400">Neto total: </span><b>{fmtCLP(total)}</b> <span className="text-zinc-400">+ IVA</span></p>
                         )}
-                        <label className="flex items-center gap-1.5 text-[10.5px] text-indigo-700 pt-0.5">
-                          <input type="checkbox" checked={confirmadoOC} onChange={e => setConfirmadoOC(e.target.checked)} className="accent-indigo-600" />
+                        <label className="flex items-center gap-1.5 text-[10.5px] text-teal-700 pt-0.5">
+                          <input type="checkbox" checked={confirmadoOC} onChange={e => setConfirmadoOC(e.target.checked)} className="accent-teal-600" />
                           Confirmo estos datos — se va a crear de verdad en Obuma
                         </label>
                       </div>
@@ -1105,9 +1105,9 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
 
       {verOcAbierto && (
         <div className="fixed inset-0 z-50 bg-black/30 flex items-center justify-center p-4 print:static print:bg-white print:p-0" onClick={() => setVerOcAbierto(false)}>
-          <div className="bg-white rounded-xl border border-zinc-200 shadow-xl w-full max-w-5xl max-h-[90vh] overflow-y-auto print:max-h-none print:max-w-none print:shadow-none print:border-0" onClick={e => e.stopPropagation()}>
+          <div className="bg-white rounded-xl border border-zinc-200 shadow-flotante w-full max-w-5xl max-h-[90vh] overflow-y-auto print:max-h-none print:max-w-none print:shadow-none print:border-0" onClick={e => e.stopPropagation()}>
             <div className="px-4 py-3 border-b border-zinc-100 flex items-center justify-between print:hidden">
-              <p className="text-[12px] font-bold text-zinc-800 flex items-center gap-1.5"><FileText size={13} className="text-teal-600" /> Orden(es) de compra</p>
+              <p className="text-[12px] font-semibold text-zinc-800 flex items-center gap-1.5"><FileText size={13} className="text-teal-600" /> Orden(es) de compra</p>
               <div className="flex items-center gap-3">
                 {ordenesVista.length > 0 && <button onClick={() => window.print()} className="text-[11px] font-semibold text-teal-600 hover:text-teal-700">Imprimir</button>}
                 <button onClick={() => setVerOcAbierto(false)} className="text-zinc-400 hover:text-zinc-600"><X size={14} /></button>
@@ -1126,7 +1126,7 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
               {ordenesVista.map((oc, i) => (
                 <div key={i} className="border border-zinc-200 rounded-lg overflow-hidden break-inside-avoid">
                   <div className="px-3 py-2 bg-zinc-50 border-b border-zinc-100 flex items-center justify-between flex-wrap gap-1">
-                    <p className="text-[12px] font-bold text-zinc-800">
+                    <p className="text-[12px] font-semibold text-zinc-800">
                       Orden de compra N° {oc.folio || oc.obumaCompraOcId || '—'}
                       {oc.origen === 'OBUMA_MANUAL' && <span className="ml-1.5 text-[9.5px] font-semibold text-zinc-400 bg-zinc-200 px-1.5 py-0.5 rounded-full align-middle">registrada directo en Obuma</span>}
                     </p>
@@ -1176,7 +1176,7 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
                               <div className="flex justify-between"><span className="text-zinc-400">Descuento</span><span className="tabular-nums">{fmtCLP(0)}</span></div>
                               <div className="flex justify-between border-t border-zinc-200 pt-0.5"><span className="text-zinc-500">Neto</span><span className="tabular-nums">{fmtCLP(neto)}</span></div>
                               <div className="flex justify-between"><span className="text-zinc-400">IVA 19%</span><span className="tabular-nums">{fmtCLP(iva)}</span></div>
-                              <div className="flex justify-between font-bold text-zinc-800 border-t border-zinc-200 pt-0.5"><span>Total con IVA</span><span className="tabular-nums">{fmtCLP(neto + iva)}</span></div>
+                              <div className="flex justify-between font-semibold text-zinc-800 border-t border-zinc-200 pt-0.5"><span>Total con IVA</span><span className="tabular-nums">{fmtCLP(neto + iva)}</span></div>
                             </div>
                           </div>
                         );

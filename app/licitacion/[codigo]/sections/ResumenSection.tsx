@@ -135,7 +135,7 @@ export function ResumenSection({ licitacion, tipoLabel, diasRestantes, analisisI
             <div className="flex gap-3 py-2.5">
               <span className="text-[11.5px] text-slate-400 w-40 flex-shrink-0 pt-0.5 font-medium">e-mail responsable de pago</span>
               <a href={`mailto:${licitacion.caracteristicas.responsable_pago_email}`}
-                className="text-[13px] text-indigo-600 hover:text-indigo-800 hover:underline flex items-center gap-1">
+                className="text-[13px] text-teal-600 hover:text-teal-800 hover:underline flex items-center gap-1">
                 <Mail size={12} /> {licitacion.caracteristicas.responsable_pago_email}
               </a>
             </div>
@@ -176,7 +176,7 @@ export function ResumenSection({ licitacion, tipoLabel, diasRestantes, analisisI
               <div className="flex gap-3 py-2.5 border-b border-slate-50 last:border-0">
                 <span className="text-[11.5px] text-slate-400 w-40 flex-shrink-0 pt-0.5 font-medium">Email</span>
                 <a href={`mailto:${licitacion.contacto.email}`}
-                  className="text-[13px] text-indigo-600 hover:text-indigo-800 hover:underline flex items-center gap-1">
+                  className="text-[13px] text-teal-600 hover:text-teal-800 hover:underline flex items-center gap-1">
                   <Mail size={12} /> {licitacion.contacto.email}
                 </a>
               </div>
@@ -185,7 +185,7 @@ export function ResumenSection({ licitacion, tipoLabel, diasRestantes, analisisI
               <div className="flex gap-3 py-2.5">
                 <span className="text-[11.5px] text-slate-400 w-40 flex-shrink-0 pt-0.5 font-medium">Teléfono</span>
                 <a href={`tel:${licitacion.contacto.telefono}`}
-                  className="text-[13px] text-indigo-600 hover:text-indigo-800 hover:underline flex items-center gap-1">
+                  className="text-[13px] text-teal-600 hover:text-teal-800 hover:underline flex items-center gap-1">
                   <Phone size={12} /> {licitacion.contacto.telefono}
                 </a>
               </div>
@@ -266,11 +266,11 @@ export function ResumenSection({ licitacion, tipoLabel, diasRestantes, analisisI
             {!!experto.recomendaciones?.length && (
               <div>
                 <p className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 mb-2">
-                  <ListChecks size={12} className="text-indigo-500" /> Recomendaciones
+                  <ListChecks size={12} className="text-teal-500" /> Recomendaciones
                 </p>
                 <ul className="space-y-1.5">
                   {experto.recomendaciones.map((p, i) => (
-                    <li key={i} className="text-[13px] text-slate-700 pl-4 relative before:content-[&#39;•&#39;] before:absolute before:left-0 before:text-indigo-400">{p}</li>
+                    <li key={i} className="text-[13px] text-slate-700 pl-4 relative before:content-[&#39;•&#39;] before:absolute before:left-0 before:text-teal-400">{p}</li>
                   ))}
                 </ul>
               </div>
@@ -289,7 +289,7 @@ export function ResumenSection({ licitacion, tipoLabel, diasRestantes, analisisI
             )}
             {licitacion.url_acta && (
               <a href={licitacion.url_acta} target="_blank" rel="noopener noreferrer"
-                className="flex items-center gap-2 text-sm text-indigo-600 hover:text-indigo-800 hover:underline">
+                className="flex items-center gap-2 text-sm text-teal-600 hover:text-teal-800 hover:underline">
                 <ExternalLink size={13} /> Ver acta de adjudicación
               </a>
             )}

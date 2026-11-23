@@ -68,7 +68,7 @@ export function CombinacionesCompra({ datos, elegidaClave, elegidoTipo, elegidoC
     <div className="space-y-2.5">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="px-0.5">
-          <p className="text-[14px] font-bold text-zinc-900">¿Cómo comprar? Combinaciones posibles ({datos.totalPosibles})</p>
+          <p className="text-[14px] font-semibold text-zinc-900">¿Cómo comprar? Combinaciones posibles ({datos.totalPosibles})</p>
           <p className="text-[12.5px] text-zinc-500 mt-0.5">Cada tarjeta es una forma de repartir la compra entre proveedores, con su costo total, plazo y viajes. Abre una y elígela para pedir la aprobación.</p>
         </div>
         <div className="flex items-center gap-3">
@@ -96,14 +96,14 @@ export function CombinacionesCompra({ datos, elegidaClave, elegidoTipo, elegidoC
             <button key={c.clave} onClick={() => setAbierta(c.clave)}
               className={`text-left bg-white rounded-xl border p-3 hover:shadow-sm transition ${elegida ? 'border-emerald-300 ring-1 ring-emerald-100' : c.etiquetas.includes('MAS_RAPIDO') ? 'border-teal-300 ring-1 ring-teal-100' : 'border-zinc-200'}`}>
               <div className="flex items-start justify-between gap-2">
-                <p className="text-[12px] font-bold text-zinc-800 leading-snug"><span className="text-zinc-400 mr-1">#{i + 1}</span>{c.proveedores.join(' + ')}</p>
-                {elegida && <span className="shrink-0 flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-full"><CheckCircle2 size={10} /> Elegida</span>}
+                <p className="text-[12px] font-semibold text-zinc-800 leading-snug"><span className="text-zinc-400 mr-1">#{i + 1}</span>{c.proveedores.join(' + ')}</p>
+                {elegida && <span className="shrink-0 flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-full"><CheckCircle2 size={10} /> Elegida</span>}
               </div>
               <div className="flex flex-wrap gap-1 mt-1">
-                {c.etiquetas.map(e => <span key={e} className="text-[11px] font-bold text-teal-700 bg-teal-50 border border-teal-200 px-1.5 py-0.5 rounded-full">{ETIQUETA[e] || e}</span>)}
-                <span className={`text-[11px] font-bold border px-1.5 py-0.5 rounded-full ${cumpleDe(c.peorCumple).c}`}>{cumpleDe(c.peorCumple).t}</span>
+                {c.etiquetas.map(e => <span key={e} className="text-[11px] font-semibold text-teal-700 bg-teal-50 border border-teal-200 px-1.5 py-0.5 rounded-full">{ETIQUETA[e] || e}</span>)}
+                <span className={`text-[11px] font-semibold border px-1.5 py-0.5 rounded-full ${cumpleDe(c.peorCumple).c}`}>{cumpleDe(c.peorCumple).t}</span>
               </div>
-              <p className="text-[16px] font-bold text-zinc-900 mt-1.5 tabular-nums">{clp(c.costoTotal)}</p>
+              <p className="text-[16px] font-semibold text-zinc-900 mt-1.5 tabular-nums">{clp(c.costoTotal)}</p>
               <p className="text-[12px] text-zinc-400">{c.diferenciaVsMasBarata === 0 ? 'la más barata' : `+${clp(c.diferenciaVsMasBarata)} (${c.diferenciaPctVsMasBarata}%) sobre la más barata`}</p>
               <div className="flex items-center gap-3 mt-1.5 text-[12px] text-zinc-500">
                 <span className="flex items-center gap-1"><Users size={11} />{c.nProveedores}</span>
@@ -139,14 +139,14 @@ export function ModalCombinacion({ c, elegida, puedeOperar, eligiendo, onClose, 
   const esMasRapido = c.etiquetas.includes('MAS_RAPIDO');
   return (
     <div className="fixed inset-0 z-[80] bg-black/40 flex items-start justify-center p-3 overflow-y-auto" role="dialog" aria-modal="true" onClick={onClose}>
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-6xl my-6" onClick={e => e.stopPropagation()}>
+      <div className="bg-white rounded-xl shadow-flotante w-full max-w-6xl my-6" onClick={e => e.stopPropagation()}>
         <div className="flex items-start justify-between gap-3 px-4 py-3 border-b border-zinc-100">
           <div>
-            <p className="text-[14px] font-bold text-zinc-800">{c.proveedores.join(' + ')}</p>
+            <p className="text-[14px] font-semibold text-zinc-800">{c.proveedores.join(' + ')}</p>
             <div className="flex flex-wrap gap-1 mt-1">
-              {c.etiquetas.map(e => <span key={e} className="text-[10px] font-bold text-teal-700 bg-teal-50 border border-teal-200 px-1.5 py-0.5 rounded-full">{ETIQUETA[e] || e}</span>)}
-              <span className={`text-[10px] font-bold border px-1.5 py-0.5 rounded-full ${cumpleDe(c.peorCumple).c}`}>{cumpleDe(c.peorCumple).t}</span>
-              {elegida && <span className="flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-full"><CheckCircle2 size={10} /> Elegida</span>}
+              {c.etiquetas.map(e => <span key={e} className="text-[10px] font-semibold text-teal-700 bg-teal-50 border border-teal-200 px-1.5 py-0.5 rounded-full">{ETIQUETA[e] || e}</span>)}
+              <span className={`text-[10px] font-semibold border px-1.5 py-0.5 rounded-full ${cumpleDe(c.peorCumple).c}`}>{cumpleDe(c.peorCumple).t}</span>
+              {elegida && <span className="flex items-center gap-1 text-[10px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-full"><CheckCircle2 size={10} /> Elegida</span>}
             </div>
           </div>
           <button onClick={onClose} aria-label="Cerrar" className="p-1 rounded-md hover:bg-zinc-100"><X size={16} /></button>
@@ -166,8 +166,8 @@ export function ModalCombinacion({ c, elegida, puedeOperar, eligiendo, onClose, 
           {c.items.map(x => (
             <div key={x.productoId} className="rounded-lg border border-zinc-200 px-3 py-2.5 text-[12.5px]">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="font-semibold text-zinc-800">{x.esServicio && <span className="mr-1.5 text-[10px] font-bold text-sky-800 bg-sky-50 border border-sky-200 px-1.5 py-0.5 rounded">FLETE</span>}{x.descripcion}</p>
-                <span className={`text-[10px] font-bold border px-1.5 py-0.5 rounded-full ${cumpleDe(x.cumple).c}`}>{cumpleDe(x.cumple).t}</span>
+                <p className="font-semibold text-zinc-800">{x.esServicio && <span className="mr-1.5 text-[10px] font-semibold text-sky-800 bg-sky-50 border border-sky-200 px-1.5 py-0.5 rounded">FLETE</span>}{x.descripcion}</p>
+                <span className={`text-[10px] font-semibold border px-1.5 py-0.5 rounded-full ${cumpleDe(x.cumple).c}`}>{cumpleDe(x.cumple).t}</span>
               </div>
               <p className="text-zinc-500 mt-0.5"><b className="text-zinc-700">{x.proveedor}</b> · cotización #{x.cotizacionId}</p>
               <div className="mt-1.5 grid grid-cols-2 sm:grid-cols-3 gap-x-3 gap-y-1 text-zinc-500">
@@ -209,6 +209,6 @@ export function ModalCombinacion({ c, elegida, puedeOperar, eligiendo, onClose, 
 function Caja({ t, v, extra, fuerte }: { t: string; v: string; extra?: string; fuerte?: boolean }) {
   return (
     <div className="rounded bg-zinc-50 p-2"><p className="text-zinc-400">{t}</p>
-      <p className={`font-bold tabular-nums ${fuerte ? 'text-zinc-900' : 'text-zinc-800'}`}>{v}{extra && <span className="ml-1 text-amber-600 font-semibold">{extra}</span>}</p></div>
+      <p className={`font-semibold tabular-nums ${fuerte ? 'text-zinc-900' : 'text-zinc-800'}`}>{v}{extra && <span className="ml-1 text-amber-600 font-semibold">{extra}</span>}</p></div>
   );
 }

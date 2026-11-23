@@ -12,13 +12,12 @@ function AvatarPerfil({ nombre, email, size = 'lg', fotoUrl }: { nombre?: string
   const iniciales = nombre
     ? nombre.split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase()
     : (email || '?')[0].toUpperCase();
-  const colores = ['from-indigo-500 to-violet-600', 'from-emerald-500 to-teal-600', 'from-amber-500 to-orange-600',
-    'from-rose-500 to-pink-600', 'from-cyan-500 to-blue-600'];
+  const colores = ['bg-teal-600', 'bg-emerald-600', 'bg-amber-600', 'bg-rose-600', 'bg-cyan-600'];
   const idx = text.charCodeAt(0) % colores.length;
   const sz = size === 'lg' ? 'w-16 h-16 text-xl' : 'w-10 h-10 text-sm';
   if (fotoUrl) return <img src={fotoUrl} alt={text} className={`${sz} rounded-2xl object-cover flex-shrink-0`} />;
   return (
-    <div className={`${sz} rounded-2xl bg-gradient-to-br ${colores[idx]} flex items-center justify-center text-white font-bold flex-shrink-0`}>
+    <div className={`${sz} rounded-2xl ${colores[idx]} flex items-center justify-center text-white font-semibold flex-shrink-0`}>
       {iniciales}
     </div>
   );
@@ -34,7 +33,7 @@ async function reducirFoto(archivo: File): Promise<string> {
   return canvas.toDataURL('image/jpeg', 0.85);
 }
 
-const INPUT = 'w-full pl-10 pr-4 py-2.5 border border-slate-200 rounded-xl text-[13px] focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none bg-slate-50';
+const INPUT = 'w-full pl-10 pr-4 py-2.5 border border-slate-200 rounded-xl text-[13px] focus:ring-2 focus:ring-teal-500 focus:border-transparent outline-none bg-slate-50';
 
 export default function PerfilPage() {
   const { usuario, recargarSesion } = useSession();
@@ -158,11 +157,11 @@ export default function PerfilPage() {
 
         {/* Header de página */}
         <div className="flex items-center gap-3 mb-6">
-          <div className="w-10 h-10 rounded-xl bg-indigo-50 flex items-center justify-center text-indigo-600">
+          <div className="w-10 h-10 rounded-xl bg-teal-50 flex items-center justify-center text-teal-600">
             <User size={20} />
           </div>
           <div>
-            <h1 className="text-[15px] font-bold text-slate-900">Mi perfil</h1>
+            <h1 className="text-[15px] font-semibold text-slate-900">Mi perfil</h1>
             <p className="text-xs text-slate-500">Tus datos de contacto, tu foto y tu contraseña</p>
           </div>
         </div>
@@ -170,42 +169,42 @@ export default function PerfilPage() {
         <div className="space-y-4">
           {/* Card de identidad */}
           <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-            <div className="bg-gradient-to-r from-[#1e1b4b] via-[#312e81] to-[#1e3a8a] px-6 py-6 flex items-center gap-4">
+            <div className="bg-slate-900 px-6 py-6 flex items-center gap-4">
               <div className="relative flex-shrink-0">
                 <AvatarPerfil nombre={usuario.nombre ?? undefined} email={usuario.email} size="lg" fotoUrl={fotoUrl} />
                 <button type="button" onClick={() => inputFoto.current?.click()} disabled={subiendoFoto}
                   title="Cambiar foto"
-                  className="absolute -bottom-1.5 -right-1.5 w-7 h-7 rounded-full bg-white text-indigo-600 shadow flex items-center justify-center hover:bg-indigo-50 disabled:opacity-60">
+                  className="absolute -bottom-1.5 -right-1.5 w-7 h-7 rounded-full bg-white text-teal-600 shadow flex items-center justify-center hover:bg-teal-50 disabled:opacity-60">
                   {subiendoFoto ? <Loader2 size={13} className="animate-spin" /> : <Camera size={13} />}
                 </button>
                 <input ref={inputFoto} type="file" accept="image/*" className="hidden" onChange={e => cambiarFoto(e.target.files?.[0])} />
               </div>
               <div>
-                <p className="text-white font-bold text-[17px]">{usuario.nombre || 'Sin nombre'}</p>
-                <p className="text-indigo-300 text-[12px] flex items-center gap-1.5 mt-0.5">
+                <p className="text-white font-semibold text-[17px]">{usuario.nombre || 'Sin nombre'}</p>
+                <p className="text-teal-300 text-[12px] flex items-center gap-1.5 mt-0.5">
                   <Mail size={11} /> {usuario.email}
                 </p>
                 {(form.cargo || form.area) && (
-                  <p className="text-indigo-200 text-[12px] flex items-center gap-1.5 mt-0.5">
+                  <p className="text-teal-200 text-[12px] flex items-center gap-1.5 mt-0.5">
                     <Badge size={11} /> {[form.cargo, form.area].filter(Boolean).join(' · ')}
                   </p>
                 )}
                 {usuario.empresa && (
-                  <p className="text-indigo-300 text-[12px] flex items-center gap-1.5 mt-0.5">
+                  <p className="text-teal-300 text-[12px] flex items-center gap-1.5 mt-0.5">
                     <Building2 size={11} /> {usuario.empresa}
                   </p>
                 )}
                 <div className="flex items-center gap-3 mt-2">
-                  <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                  <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold ${
                     usuario.rol === 'admin'
                       ? 'bg-amber-400/20 text-amber-300 border border-amber-400/30'
-                      : 'bg-indigo-400/20 text-indigo-300 border border-indigo-400/30'
+                      : 'bg-teal-400/20 text-teal-300 border border-teal-400/30'
                   }`}>
                     <Shield size={9} /> {usuario.rol === 'admin' ? 'Administrador' : 'Usuario'}
                   </span>
                   {fotoUrl && (
                     <button type="button" onClick={quitarFoto} disabled={subiendoFoto}
-                      className="text-[10px] text-indigo-300/80 hover:text-white flex items-center gap-1">
+                      className="text-[10px] text-teal-300/80 hover:text-white flex items-center gap-1">
                       <Trash size={10} /> Quitar foto
                     </button>
                   )}
@@ -227,7 +226,7 @@ export default function PerfilPage() {
 
               {/* Datos personales */}
               <div>
-                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-3">Datos personales</p>
+                <p className="text-[11px] font-semibold text-slate-400 mb-3">Datos personales</p>
                 <div className="space-y-3">
                   <div>
                     <label className="block text-[12px] font-semibold text-slate-600 mb-1.5">Nombre completo</label>
@@ -250,7 +249,7 @@ export default function PerfilPage() {
 
               {/* Contacto y cargo */}
               <div className="border-t border-slate-100 pt-5">
-                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-3">Contacto y cargo</p>
+                <p className="text-[11px] font-semibold text-slate-400 mb-3">Contacto y cargo</p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="block text-[12px] font-semibold text-slate-600 mb-1.5">Teléfono / celular <span className="text-red-500">*</span></label>
@@ -289,7 +288,7 @@ export default function PerfilPage() {
 
               {/* Contraseña */}
               <div className="border-t border-slate-100 pt-5">
-                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+                <p className="text-[11px] font-semibold text-slate-400 mb-3 flex items-center gap-1.5">
                   <Lock size={11} /> Cambiar contraseña
                   <span className="text-slate-300 font-normal normal-case">(opcional)</span>
                 </p>
@@ -299,7 +298,7 @@ export default function PerfilPage() {
                     <input type={mostrarPass ? 'text' : 'password'} value={form.passwordActual}
                       onChange={e => setForm(p => ({ ...p, passwordActual: e.target.value }))}
                       placeholder="Contraseña actual"
-                      className="w-full pl-10 pr-10 py-2.5 border border-slate-200 rounded-xl text-[13px] focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none bg-slate-50" />
+                      className="w-full pl-10 pr-10 py-2.5 border border-slate-200 rounded-xl text-[13px] focus:ring-2 focus:ring-teal-500 focus:border-transparent outline-none bg-slate-50" />
                     <button type="button" onClick={() => setMostrarPass(!mostrarPass)}
                       className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
                       {mostrarPass ? <EyeOff size={13} /> : <Eye size={13} />}
@@ -308,16 +307,16 @@ export default function PerfilPage() {
                   <input type={mostrarPass ? 'text' : 'password'} value={form.passwordNuevo}
                     onChange={e => setForm(p => ({ ...p, passwordNuevo: e.target.value }))}
                     placeholder="Nueva contraseña (mín. 8 caracteres)"
-                    className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-[13px] focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none bg-slate-50" />
+                    className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-[13px] focus:ring-2 focus:ring-teal-500 focus:border-transparent outline-none bg-slate-50" />
                   <input type={mostrarPass ? 'text' : 'password'} value={form.confirmar}
                     onChange={e => setForm(p => ({ ...p, confirmar: e.target.value }))}
                     placeholder="Confirmar nueva contraseña"
-                    className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-[13px] focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none bg-slate-50" />
+                    className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-[13px] focus:ring-2 focus:ring-teal-500 focus:border-transparent outline-none bg-slate-50" />
                 </div>
               </div>
 
               <button type="submit" disabled={cargando}
-                className="w-full flex items-center justify-center gap-2 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 text-white font-bold rounded-xl text-[14px] transition-colors shadow-sm">
+                className="w-full flex items-center justify-center gap-2 py-2.5 bg-teal-600 hover:bg-teal-700 disabled:bg-slate-300 text-white font-semibold rounded-xl text-[14px] transition-colors shadow-sm">
                 {cargando ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />}
                 Guardar cambios
               </button>

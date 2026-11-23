@@ -5,7 +5,7 @@
 import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
-import { getAuthedUser } from '@/app/lib/api-auth';
+import { getAuthedUser, tienePermiso } from '@/app/lib/api-auth';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -13,7 +13,7 @@ export const dynamic = 'force-dynamic';
 export async function GET(request: NextRequest) {
   const usuario = await getAuthedUser(request);
   if (!usuario) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
-  if (usuario.rol !== 'admin') return NextResponse.json({ error: 'Solo el admin puede ver las descartadas' }, { status: 403 });
+  if (!(await tienePermiso(request, 'ver_descartadas'))) return NextResponse.json({ error: 'No tienes permiso para ver las descartadas' }, { status: 403 });
   const clienteId = usuario.clienteId; // multi-cliente: solo lo de su empresa
   if (!clienteId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
 

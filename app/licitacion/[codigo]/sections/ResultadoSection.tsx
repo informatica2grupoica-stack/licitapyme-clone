@@ -82,7 +82,7 @@ export function ResultadoSection({ codigo, mpUrl }: { codigo: string; mpUrl: str
   const botonReconsultar = (
     <div className="flex items-center gap-2 flex-wrap">
       <button type="button" onClick={reconsultar} disabled={reconsultando}
-        className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-indigo-600 hover:text-indigo-700 disabled:opacity-60">
+        className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-teal-600 hover:text-teal-700 disabled:opacity-60">
         {reconsultando ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />} Volver a consultar en Mercado Público
       </button>
       {avisoReconsulta && <span className="text-[12px] text-slate-500">{avisoReconsulta}</span>}
@@ -100,7 +100,7 @@ export function ResultadoSection({ codigo, mpUrl }: { codigo: string; mpUrl: str
   if (error) {
     return (
       <div className="bg-white rounded-2xl border border-slate-200 p-6 text-sm text-slate-500">
-        {error}. <a href={mpUrl} target="_blank" rel="noopener noreferrer" className="text-indigo-600 font-semibold hover:underline">Abrir en Mercado Público</a>
+        {error}. <a href={mpUrl} target="_blank" rel="noopener noreferrer" className="text-teal-600 font-semibold hover:underline">Abrir en Mercado Público</a>
       </div>
     );
   }
@@ -118,7 +118,7 @@ export function ResultadoSection({ codigo, mpUrl }: { codigo: string; mpUrl: str
           resaltadas) y el <b>acta con el cuadro comparativo</b> de todos los oferentes.
         </p>
         <a href={mpUrl} target="_blank" rel="noopener noreferrer"
-          className="mt-4 inline-flex items-center gap-1.5 text-[13px] font-semibold text-indigo-600 hover:text-indigo-700">
+          className="mt-4 inline-flex items-center gap-1.5 text-[13px] font-semibold text-teal-600 hover:text-teal-700">
           <ExternalLink size={14} /> Ver ficha en Mercado Público
         </a>
         <div className="mt-3">{botonReconsultar}</div>
@@ -144,7 +144,7 @@ export function ResultadoSection({ codigo, mpUrl }: { codigo: string; mpUrl: str
       {/* Encabezado del resultado */}
       <div className="rounded-2xl border overflow-hidden" style={{ borderColor: acc + '40' }}>
         <div className="px-5 py-4 flex items-center gap-3 flex-wrap" style={{ background: acc + '0d' }}>
-          <span className="inline-flex items-center gap-1.5 text-[13px] font-bold px-3 py-1 rounded-full border"
+          <span className="inline-flex items-center gap-1.5 text-[13px] font-semibold px-3 py-1 rounded-full border"
             style={{ color: acc, background: acc + '18', borderColor: acc + '33' }}>
             {ganamos ? <Trophy size={14} /> : <Award size={14} />}
             {ganamos ? `Ganamos ${nuestras} línea${nuestras !== 1 ? 's' : ''}` : 'Adjudicada a terceros'}
@@ -162,7 +162,7 @@ export function ResultadoSection({ codigo, mpUrl }: { codigo: string; mpUrl: str
           {meta?.numeroResolucion && (
             <span className="text-[12px] text-slate-600">Res. N° {meta.numeroResolucion}</span>
           )}
-          <span className="ml-auto text-[12px] font-bold" style={{ color: acc }}>
+          <span className="ml-auto text-[12px] font-semibold" style={{ color: acc }}>
             {ganamos ? `Ganado: ${fmtCLP(adj.montoNuestro)}` : `Adjudicado: ${fmtCLP(adj.montoAdjudicadoTotal)}`}
           </span>
         </div>
@@ -177,7 +177,7 @@ export function ResultadoSection({ codigo, mpUrl }: { codigo: string; mpUrl: str
               <Table2 size={17} />
             </span>
             <span className="min-w-0">
-              <span className="block text-[13px] font-bold text-slate-800">Ver acta de adjudicación</span>
+              <span className="block text-[13px] font-semibold text-slate-800">Ver acta de adjudicación</span>
               <span className="block text-[11.5px] text-slate-500">Incluye el cuadro comparativo de todos los oferentes y sus precios</span>
             </span>
             <FileCheck2 size={16} className="ml-auto flex-shrink-0" style={{ color: acc }} />
@@ -199,7 +199,7 @@ export function ResultadoSection({ codigo, mpUrl }: { codigo: string; mpUrl: str
         <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
           <button onClick={() => setVerLineas(o => !o)}
             className="w-full flex items-center justify-between px-5 py-3.5 hover:bg-slate-50 transition-colors">
-            <span className="text-[13px] font-bold text-slate-700 inline-flex items-center gap-2">
+            <span className="text-[13px] font-semibold text-slate-700 inline-flex items-center gap-2">
               <Award size={15} className="text-slate-400" /> Adjudicación por línea ({lineas.length})
             </span>
             {verLineas ? <ChevronUp size={16} className="text-slate-400" /> : <ChevronDown size={16} className="text-slate-400" />}
@@ -222,8 +222,8 @@ export function ResultadoSection({ codigo, mpUrl }: { codigo: string; mpUrl: str
                     </p>
                   </div>
                   <div className="text-right whitespace-nowrap">
-                    {l.esNuestra && <span className="block text-[9px] font-black tracking-wide text-emerald-600 uppercase">Nosotros</span>}
-                    <span className="text-[12.5px] font-bold text-slate-800">{fmtCLP(l.montoUnitario)}</span>
+                    {l.esNuestra && <span className="block text-[9px] font-semibold tracking-wide text-emerald-600 uppercase">Nosotros</span>}
+                    <span className="text-[12.5px] font-semibold text-slate-800">{fmtCLP(l.montoUnitario)}</span>
                   </div>
                 </div>
               ))}

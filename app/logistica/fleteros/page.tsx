@@ -184,7 +184,7 @@ export default function FleterosPage() {
           <div className="flex items-center gap-2.5">
             <div className="w-9 h-9 rounded-lg bg-teal-50 flex items-center justify-center flex-shrink-0"><Truck size={17} className="text-teal-600" /></div>
             <div>
-              <h1 className="text-[16px] font-bold text-zinc-900 leading-tight">Fleteros</h1>
+              <h1 className="text-[16px] font-semibold text-zinc-900 leading-tight">Fleteros</h1>
               <p className="text-[12px] text-zinc-500">{fleteros.length} fletero(s) en el catálogo</p>
             </div>
           </div>
@@ -196,17 +196,17 @@ export default function FleterosPage() {
         {formAbierto && (
           <div className="bg-white rounded-xl border border-zinc-200 p-4 space-y-2.5">
             <div>
-              <p className="text-[10px] font-bold text-zinc-400 uppercase mb-1">Identidad (spec §13.3 — se busca en Obuma, no se tipea a ciegas)</p>
+              <p className="text-[10px] font-semibold text-zinc-400 uppercase mb-1">Identidad (spec §13.3 — se busca en Obuma, no se tipea a ciegas)</p>
               <div className="flex items-center gap-1.5">
                 <input value={form.rut} onChange={e => { setForm(f => ({ ...f, rut: e.target.value })); setObumaResultado(null); }} placeholder="RUT del fletero"
                   className="flex-1 text-[12.5px] border border-zinc-200 rounded-lg px-2.5 py-1.5 outline-none focus:ring-1 focus:ring-teal-500" />
                 <button type="button" onClick={buscarEnObuma} disabled={!form.rut.trim() || buscandoObuma}
-                  className="flex-shrink-0 flex items-center gap-1 text-[12px] font-semibold text-indigo-600 hover:text-indigo-700 disabled:opacity-50 px-2.5 py-1.5 border border-indigo-200 rounded-lg">
+                  className="flex-shrink-0 flex items-center gap-1 text-[12px] font-semibold text-teal-600 hover:text-teal-700 disabled:opacity-50 px-2.5 py-1.5 border border-teal-200 rounded-lg">
                   {buscandoObuma ? <Loader2 size={13} className="animate-spin" /> : <Search size={13} />} Buscar en Obuma
                 </button>
               </div>
               {obumaResultado?.estado === 'encontrado' && (
-                <p className="mt-1 text-[11px] text-indigo-600 bg-indigo-50/60 border border-indigo-100 rounded-lg px-2 py-1">
+                <p className="mt-1 text-[11px] text-teal-600 bg-teal-50/60 border border-teal-100 rounded-lg px-2 py-1">
                   <b>{obumaResultado.identidad.razonSocial}</b>
                   {obumaResultado.identidad.contacto && ` · ${obumaResultado.identidad.contacto}`}
                   {obumaResultado.identidad.direccion && ` · ${obumaResultado.identidad.direccion}${obumaResultado.identidad.comuna ? `, ${obumaResultado.identidad.comuna}` : ''}`}
@@ -259,7 +259,7 @@ export default function FleterosPage() {
 
         {/* §13.5: sugerencia automática por zona */}
         <div className="bg-white rounded-xl border border-zinc-200 p-4 space-y-2.5">
-          <p className="text-[11px] font-bold text-zinc-400 uppercase flex items-center gap-1.5"><MapPin size={13} /> Sugerencia por zona de entrega</p>
+          <p className="text-[11px] font-semibold text-zinc-400 uppercase flex items-center gap-1.5"><MapPin size={13} /> Sugerencia por zona de entrega</p>
           <div className="flex items-center gap-2 flex-wrap">
             <input value={zonaBusqueda} onChange={e => setZonaBusqueda(e.target.value)} placeholder="Ej: Coyhaique"
               onKeyDown={e => e.key === 'Enter' && buscarSugerencia()}
@@ -286,7 +286,7 @@ export default function FleterosPage() {
                         {s.plazoDespachoDias != null && ` · ${s.plazoDespachoDias} día(s) de despacho`}
                       </p>
                     </div>
-                    <span className="text-[13px] font-bold text-zinc-800 flex-shrink-0">{fmtCLP(s.costoTentativo)}</span>
+                    <span className="text-[13px] font-semibold text-zinc-800 flex-shrink-0">{fmtCLP(s.costoTentativo)}</span>
                   </div>
                 ))}
               </div>
@@ -304,9 +304,9 @@ export default function FleterosPage() {
                   <div className="min-w-0">
                     <p className="text-[12.5px] font-semibold text-zinc-800 flex items-center gap-1.5">
                       {f.nombre}
-                      <span className="text-[10px] font-bold text-zinc-400 bg-zinc-100 border border-zinc-200 px-1.5 py-0.5 rounded-full">{CATEGORIA_LABEL[f.categoria]}</span>
+                      <span className="text-[10px] font-semibold text-zinc-400 bg-zinc-100 border border-zinc-200 px-1.5 py-0.5 rounded-full">{CATEGORIA_LABEL[f.categoria]}</span>
                       {f.quedoEnPana && (
-                        <span className="text-[10px] font-bold text-rose-700 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
+                        <span className="text-[10px] font-semibold text-rose-700 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
                           <AlertTriangle size={10} /> En pana — descartado
                         </span>
                       )}

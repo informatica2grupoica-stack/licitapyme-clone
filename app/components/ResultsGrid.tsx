@@ -35,7 +35,7 @@ const ESTADO_STYLE: Record<string, { label: string; cls: string; dot: string }> 
   '5':  { label: 'Publicada',   cls: 'bg-emerald-50 text-emerald-700 border-emerald-200', dot: 'bg-emerald-500' },
   '6':  { label: 'Cerrada',     cls: 'bg-slate-100 text-gray-600 border-slate-200',         dot: 'bg-gray-400' },
   '7':  { label: 'Desierta',    cls: 'bg-orange-50 text-orange-700 border-orange-200',    dot: 'bg-orange-500' },
-  '8':  { label: 'Adjudicada',  cls: 'bg-indigo-50 text-indigo-700 border-indigo-200',          dot: 'bg-indigo-500' },
+  '8':  { label: 'Adjudicada',  cls: 'bg-teal-50 text-teal-700 border-teal-200',          dot: 'bg-teal-500' },
   '18': { label: 'Revocada',    cls: 'bg-red-50 text-red-700 border-red-200',             dot: 'bg-red-500' },
   '19': { label: 'Suspendida',  cls: 'bg-yellow-50 text-yellow-700 border-yellow-200',   dot: 'bg-yellow-500' },
 };
@@ -107,7 +107,7 @@ export function ResultsGrid({ opportunities, loading = false, onFavoriteToggle, 
         return (
           <article
             key={opp.codigo}
-            className="bg-white rounded-xl border border-slate-200 shadow-sm hover:shadow-md hover:border-indigo-200 transition-all duration-200 overflow-hidden group"
+            className="bg-white rounded-xl border border-slate-200 shadow-sm hover:shadow-md hover:border-teal-200 transition-all duration-200 overflow-hidden group"
           >
             <div className="p-5">
               {/* Row 1: código + estado + favorito */}
@@ -117,7 +117,7 @@ export function ResultsGrid({ opportunities, loading = false, onFavoriteToggle, 
                     {opp.codigo}
                   </span>
                   {tipoLabel && (
-                    <span className="flex items-center gap-1 text-xs text-purple-600 bg-purple-50 border border-purple-100 px-2 py-0.5 rounded">
+                    <span className="flex items-center gap-1 text-xs text-slate-600 bg-slate-50 border border-slate-100 px-2 py-0.5 rounded">
                       <Tag size={10} />
                       {opp.tipo_licitacion}
                     </span>
@@ -145,7 +145,7 @@ export function ResultsGrid({ opportunities, loading = false, onFavoriteToggle, 
 
               {/* Título */}
               <Link href={`/licitacion/${encodeURIComponent(opp.codigo)}`}>
-                <h3 className="text-base font-semibold text-gray-900 group-hover:text-indigo-600 transition-colors line-clamp-2 mb-1 leading-snug">
+                <h3 className="text-base font-semibold text-gray-900 group-hover:text-teal-600 transition-colors line-clamp-2 mb-1 leading-snug">
                   {opp.nombre}
                 </h3>
               </Link>
@@ -220,7 +220,7 @@ export function ResultsGrid({ opportunities, loading = false, onFavoriteToggle, 
                       className={`flex items-center gap-1 text-xs font-semibold border px-2.5 py-1 rounded-lg transition-colors ${
                         asig
                           ? 'text-amber-700 bg-amber-50 hover:bg-amber-100 border-amber-200'
-                          : 'text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border-indigo-200'
+                          : 'text-teal-700 bg-teal-50 hover:bg-teal-100 border-teal-200'
                       }`}
                       title={asig ? `Asignada a ${asig.asignado_nombre || 'un perfil'} — reasignar la mueve a otro perfil` : 'Asignar esta licitación a un usuario como negocio'}
                     >
@@ -232,7 +232,7 @@ export function ResultsGrid({ opportunities, loading = false, onFavoriteToggle, 
                       href={opp.url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                      className="p-1.5 text-gray-400 hover:text-teal-600 hover:bg-teal-50 rounded-lg transition-colors"
                       title="Ver en Mercado Público"
                       onClick={e => e.stopPropagation()}
                     >
@@ -241,7 +241,7 @@ export function ResultsGrid({ opportunities, loading = false, onFavoriteToggle, 
                   )}
                   <Link
                     href={`/licitacion/${encodeURIComponent(opp.codigo)}`}
-                    className="flex items-center gap-1 text-xs font-medium text-indigo-600 hover:text-blue-800 transition-colors"
+                    className="flex items-center gap-1 text-xs font-medium text-teal-600 hover:text-blue-800 transition-colors"
                   >
                     Ver detalle
                     <ChevronRight size={13} />

@@ -18,8 +18,8 @@ export function Seccion({ titulo, ayuda, badge, tono = 'neutral', defaultAbierta
         className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-zinc-50 transition-colors">
         <span className="flex-1 min-w-0">
           <span className="flex items-center gap-2">
-            <span className="text-[14px] font-bold text-zinc-900">{titulo}</span>
-            {badge != null && badge !== '' && <span className={`text-[11.5px] font-bold px-2 py-0.5 rounded-full ${chip}`}>{badge}</span>}
+            <span className="text-[14px] font-semibold text-zinc-900">{titulo}</span>
+            {badge != null && badge !== '' && <span className={`text-[11.5px] font-semibold px-2 py-0.5 rounded-full ${chip}`}>{badge}</span>}
           </span>
           <span className="block text-[12.5px] text-zinc-500 mt-0.5">{ayuda}</span>
         </span>

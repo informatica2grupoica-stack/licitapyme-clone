@@ -18,7 +18,7 @@ const clp = (n: number | null | undefined) => (n == null ? '—' : new Intl.Numb
 const RAZON: Record<string, { t: string; c: string }> = {
   UN_PROVEEDOR: { t: 'Todo a un proveedor', c: 'text-sky-800 bg-sky-50 border-sky-200' },
   EQUILIBRADA: { t: 'Equilibrada', c: 'text-teal-800 bg-teal-50 border-teal-200' },
-  MAS_RAPIDA: { t: 'Más rápida', c: 'text-indigo-800 bg-indigo-50 border-indigo-200' },
+  MAS_RAPIDA: { t: 'Más rápida', c: 'text-teal-800 bg-teal-50 border-teal-200' },
   MAS_BARATA: { t: 'Más barata', c: 'text-emerald-800 bg-emerald-50 border-emerald-200' },
 };
 const seleccionDe = (c: Comb): Record<number, number> => Object.fromEntries(c.items.map(i => [i.productoId, i.cotizacionId]));
@@ -70,7 +70,7 @@ export function ArmarCompra({ negocioId, recomendadas, elegida, compra, setCompr
     <div className="space-y-3">
       {cambiosCantidad.length > 0 && (
         <div className="rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-2.5" data-testid="cambios-cantidad">
-          <p className="text-[13px] font-bold text-amber-900">Cantidades distintas a las del costeo ({cambiosCantidad.length})</p>
+          <p className="text-[13px] font-semibold text-amber-900">Cantidades distintas a las del costeo ({cambiosCantidad.length})</p>
           <p className="text-[12px] text-amber-800">Estas compras ya usan la cantidad a comprar. El costeo no se cambió.</p>
           <ul className="mt-1 space-y-0.5 text-[12.5px] text-amber-900">
             {cambiosCantidad.map(c => (
@@ -82,7 +82,7 @@ export function ArmarCompra({ negocioId, recomendadas, elegida, compra, setCompr
       {recomendadas.length > 0 && (
         <div className="bg-white rounded-xl border border-zinc-200 p-3.5 space-y-2.5">
           <div>
-            <p className="text-[14px] font-bold text-zinc-900">Compras recomendadas</p>
+            <p className="text-[14px] font-semibold text-zinc-900">Compras recomendadas</p>
             <p className="text-[12.5px] text-zinc-500">Las pocas formas que vale la pena mirar. Toca una para ver su detalle (proveedores, cotizaciones, precios y avisos) y elegirla; «Marcar en la matriz» te deja cambiar cualquier producto a mano.</p>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2.5">
@@ -92,10 +92,10 @@ export function ArmarCompra({ negocioId, recomendadas, elegida, compra, setCompr
                 <div key={c.clave} role="button" tabIndex={0} onClick={() => setAbierta(c.clave)} onKeyDown={e => { if (e.key === 'Enter') setAbierta(c.clave); }}
                   className={`rounded-xl border p-3 cursor-pointer hover:shadow-sm transition ${activa ? 'border-teal-500 ring-1 ring-teal-200 bg-teal-50/30' : 'border-zinc-200 bg-white'}`}>
                   <div className="flex flex-wrap gap-1">
-                    {etiquetas.map(e => <span key={e} className={`text-[11px] font-bold px-1.5 py-0.5 rounded-full border ${RAZON[e]?.c}`}>{RAZON[e]?.t ?? e}</span>)}
+                    {etiquetas.map(e => <span key={e} className={`text-[11px] font-semibold px-1.5 py-0.5 rounded-full border ${RAZON[e]?.c}`}>{RAZON[e]?.t ?? e}</span>)}
                   </div>
                   <p className="text-[12.5px] font-semibold text-zinc-800 mt-1.5 leading-snug">{c.proveedores.join(' + ')}</p>
-                  <p className="text-[18px] font-bold text-zinc-900 tabular-nums">{clp(c.costoTotal)}</p>
+                  <p className="text-[18px] font-semibold text-zinc-900 tabular-nums">{clp(c.costoTotal)}</p>
                   <div className="flex items-center gap-3 mt-1 text-[12px] text-zinc-500">
                     <span className="flex items-center gap-1"><Users size={12} />{c.nProveedores}</span>
                     <span className="flex items-center gap-1"><Truck size={12} />{c.viajes}</span>
@@ -125,7 +125,7 @@ export function ArmarCompra({ negocioId, recomendadas, elegida, compra, setCompr
       <div className={`rounded-xl border-2 p-3.5 ${n === 0 ? 'border-dashed border-zinc-200 bg-zinc-50/50' : 'border-teal-200 bg-white'}`}>
         <div className="flex items-start justify-between gap-3 flex-wrap">
           <div>
-            <p className="text-[14px] font-bold text-zinc-900">Tu compra</p>
+            <p className="text-[14px] font-semibold text-zinc-900">Tu compra</p>
             {n === 0 && <p className="text-[12.5px] text-zinc-500 mt-0.5">Todavía no elegiste nada. Toca un precio en la matriz, usa «Comprar todo aquí» o «Usar esta» en una recomendada.</p>}
           </div>
           {n > 0 && puedeOperar && (
@@ -169,9 +169,9 @@ export function ArmarCompra({ negocioId, recomendadas, elegida, compra, setCompr
                       {lista.map(g => (
                         <details key={g.proveedor} className="group rounded-lg border border-zinc-200 bg-white [&[open]>summary]:border-b" data-testid={`tu-compra-proveedor-${g.proveedor}`}>
                           <summary className="flex cursor-pointer list-none items-baseline justify-between gap-3 px-3 py-2 bg-zinc-50 border-zinc-200 rounded-lg group-open:rounded-b-none hover:bg-zinc-100 [&::-webkit-details-marker]:hidden">
-                            <p className="text-[13px] font-bold text-zinc-900 truncate"><span className="mr-1.5 inline-block text-zinc-400 transition-transform group-open:rotate-90" aria-hidden>▸</span>{g.proveedor}
+                            <p className="text-[13px] font-semibold text-zinc-900 truncate"><span className="mr-1.5 inline-block text-zinc-400 transition-transform group-open:rotate-90" aria-hidden>▸</span>{g.proveedor}
                               <span className="ml-2 text-[11.5px] font-normal text-zinc-500">{g.items.filter(i => !i.esServicio).length} producto{g.items.filter(i => !i.esServicio).length === 1 ? '' : 's'}</span></p>
-                            <p className="text-[13px] font-bold text-zinc-900 tabular-nums whitespace-nowrap"><span className="mr-1.5 text-[11px] font-normal text-zinc-500">Total a este proveedor</span>{clp(g.total)}</p>
+                            <p className="text-[13px] font-semibold text-zinc-900 tabular-nums whitespace-nowrap"><span className="mr-1.5 text-[11px] font-normal text-zinc-500">Total a este proveedor</span>{clp(g.total)}</p>
                           </summary>
                           <ul className="px-3 py-1.5 text-[12.5px] text-zinc-700 divide-y divide-zinc-100">
                             {[...g.items].sort((a, b) => Number(!!a.esServicio) - Number(!!b.esServicio)).map(i => {
@@ -179,16 +179,16 @@ export function ArmarCompra({ negocioId, recomendadas, elegida, compra, setCompr
                               return (
                                 <li key={i.productoId} className="grid grid-cols-[1fr_auto] gap-x-4 py-1" data-testid={`tu-compra-${i.productoId}`}>
                                   <span className="min-w-0">
-                                    {i.esServicio && <span className="mr-1.5 text-[10.5px] font-bold px-1.5 py-0.5 rounded border bg-sky-50 text-sky-800 border-sky-200">🚚 FLETE</span>}
+                                    {i.esServicio && <span className="mr-1.5 text-[10.5px] font-semibold px-1.5 py-0.5 rounded border bg-sky-50 text-sky-800 border-sky-200">🚚 FLETE</span>}
                                     <span title={i.descripcion}>{i.descripcion.length > 110 ? `${i.descripcion.slice(0, 110).trim()}…` : i.descripcion}</span>
                                     {r && (
-                                      <span className={`ml-2 text-[10.5px] font-bold px-1.5 py-0.5 rounded border ${r.yaComprada ? 'bg-sky-50 text-sky-800 border-sky-200' : 'bg-amber-50 text-amber-800 border-amber-200'}`}
+                                      <span className={`ml-2 text-[10.5px] font-semibold px-1.5 py-0.5 rounded border ${r.yaComprada ? 'bg-sky-50 text-sky-800 border-sky-200' : 'bg-amber-50 text-amber-800 border-amber-200'}`}
                                         title="Compra rápida: se compró (o se compra) en una tienda, sin cotización ni ficha">
                                         ⚡ {r.yaComprada ? 'Ya comprada' : 'Por comprar'} · {r.estado === 'APROBADA' ? (r.yaComprada ? 'ratificada' : 'aprobada') : r.estado === 'RECHAZADA' ? 'rechazada' : 'por aprobar'}
                                       </span>
                                     )}
                                     {cambioDe.has(i.productoId) && (
-                                      <span className="ml-2 text-[10.5px] font-bold px-1.5 py-0.5 rounded border bg-amber-50 text-amber-800 border-amber-200" title={cambioDe.get(i.productoId)!.motivo}>
+                                      <span className="ml-2 text-[10.5px] font-semibold px-1.5 py-0.5 rounded border bg-amber-50 text-amber-800 border-amber-200" title={cambioDe.get(i.productoId)!.motivo}>
                                         {cambioDe.get(i.productoId)!.cantidad} en vez de {cambioDe.get(i.productoId)!.costeo ?? '—'}
                                       </span>
                                     )}
@@ -212,7 +212,7 @@ export function ArmarCompra({ negocioId, recomendadas, elegida, compra, setCompr
                       {Math.abs(resto) >= 1 && (
                         <p className="text-[11.5px] text-zinc-500 px-1">Otros costos de la compra (fletes por viaje u otros ajustes) que no son de un proveedor en particular: {clp(resto)}.</p>
                       )}
-                      <p className="flex items-baseline justify-between px-1 text-[13px] font-bold text-zinc-900">
+                      <p className="flex items-baseline justify-between px-1 text-[13px] font-semibold text-zinc-900">
                         <span>Total de la compra ({lista.length} proveedor{lista.length === 1 ? '' : 'es'})</span><span className="tabular-nums">{clp(comb.costoTotal)}</span>
                       </p>
                     </div>
@@ -288,7 +288,7 @@ export function CargarCompraAlCosteo({ negocioId, proveedores, costoTotal, refre
           <div className="flex items-start gap-2">
             <Scale size={16} className="text-zinc-400 mt-0.5" />
             <div>
-              <p className="text-[14px] font-bold text-zinc-900">Compra elegida{nombres.length > 0 && `: ${nombres.join(' + ')}`}{costoTotal != null && ` · ${clp(costoTotal)}`}</p>
+              <p className="text-[14px] font-semibold text-zinc-900">Compra elegida{nombres.length > 0 && `: ${nombres.join(' + ')}`}{costoTotal != null && ` · ${clp(costoTotal)}`}</p>
               <p className="text-[12.5px] font-semibold text-zinc-700">Cargarla al costeo</p>
               <p className="text-[12.5px] text-zinc-500">Pone el costo neto de cada proveedor elegido en «Costo unit. REAL» del costeo, con su cotización como respaldo. No toca nada más del costeo. El flete no se carga aquí: va como gasto extra.</p>
             </div>
@@ -333,6 +333,6 @@ export function CargarCompraAlCosteo({ negocioId, proveedores, costoTotal, refre
 function Caja({ t, v, nota, fuerte, notaOk }: { t: string; v: string; nota?: string; fuerte?: boolean; notaOk?: boolean }) {
   return (
     <div className="rounded-lg bg-zinc-50 px-2.5 py-1.5"><p className="text-zinc-400 text-[11px]">{t}</p>
-      <p className={`tabular-nums ${fuerte ? 'font-bold text-zinc-900 text-[14px]' : 'font-semibold text-zinc-800'}`}>{v}{nota && <span className={`ml-1 font-semibold text-[11px] ${notaOk ? 'text-emerald-600' : 'text-amber-600'}`}>{nota}</span>}</p></div>
+      <p className={`tabular-nums ${fuerte ? 'font-semibold text-zinc-900 text-[14px]' : 'font-semibold text-zinc-800'}`}>{v}{nota && <span className={`ml-1 font-semibold text-[11px] ${notaOk ? 'text-emerald-600' : 'text-amber-600'}`}>{nota}</span>}</p></div>
   );
 }

@@ -133,7 +133,7 @@ export function BandejaAuditorEM({ onConteo }: { onConteo?: (n: number) => void 
                         <p className="text-[13.5px] text-slate-900"><span className="font-semibold">Línea {o.linea}</span> · {o.producto} <span className="text-slate-600">· {o.proveedor}</span></p>
                         <p className="text-[13px] text-slate-600 truncate" title={o.detalle}>{o.detalle}</p>
                         <dl className="mt-2 grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-1.5">
-                          <div><dt className={rotulo}>Costo neto unitario</dt><dd className="text-[13px] font-bold tabular-nums text-slate-900">{fmtCLP(o.costoNeto)}
+                          <div><dt className={rotulo}>Costo neto unitario</dt><dd className="text-[13px] font-semibold tabular-nums text-slate-900">{fmtCLP(o.costoNeto)}
                             {dif != null && <span className={`ml-1.5 text-xs font-semibold ${dif > 0 ? 'text-red-600' : 'text-emerald-700'}`}>{dif > 0 ? '+' : ''}{dif}% vs costeo</span>}</dd></div>
                           <div><dt className={rotulo}>Técnico</dt><dd className="text-[13px] text-slate-800 tabular-nums">{o.tecnico.total ? `${o.tecnico.cumple} de ${o.tecnico.total} cumplen` : 'sin requisitos'}</dd></div>
                           <div><dt className={rotulo}>Firmada por</dt><dd className="text-[13px] text-slate-800">{o.firmadaPorNombre || '—'}{o.firmadaAt ? <span className="text-slate-500"> · {fecha(o.firmadaAt)}</span> : null}</dd></div>

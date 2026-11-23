@@ -152,7 +152,7 @@ export function ReportarErrorBoton() {
         title="Reportar un error (captura esta pantalla). Arrástralo para moverlo."
         aria-label="Reportar error"
         style={pos ? { left: pos.x, top: pos.y, touchAction: 'none' } : { touchAction: 'none' }}
-        className={`fixed z-[250] w-11 h-11 rounded-full bg-red-600 text-white shadow-xl flex items-center justify-center cursor-grab active:cursor-grabbing
+        className={`fixed z-[250] w-11 h-11 rounded-full bg-red-600 text-white shadow-flotante flex items-center justify-center cursor-grab active:cursor-grabbing
           opacity-70 hover:opacity-100 hover:bg-red-700 ${pos ? '' : `right-5 ${costeoActivo ? 'bottom-[88px]' : 'bottom-5'}`}`}
       >
         {capturando ? <Loader2 size={20} className="animate-spin" /> : <Bug size={20} />}
@@ -285,7 +285,7 @@ function EditorReporte({ captura, url, onCerrar }: { captura: HTMLCanvasElement;
             onPointerMove={mover}
             onPointerUp={soltar}
             onPointerCancel={soltar}
-            className="max-w-full max-h-full rounded-lg shadow-2xl ring-1 ring-white/20 cursor-crosshair touch-none"
+            className="max-w-full max-h-full rounded-lg shadow-flotante ring-1 ring-white/20 cursor-crosshair touch-none"
           />
         </div>
       </div>
@@ -293,7 +293,7 @@ function EditorReporte({ captura, url, onCerrar }: { captura: HTMLCanvasElement;
       {/* Observación */}
       <div className="w-full lg:w-[380px] flex-shrink-0 bg-white dark:bg-[#1c1f26] flex flex-col max-h-[55vh] lg:max-h-none">
         <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 dark:border-white/[0.07]">
-          <p className="text-[14px] font-bold text-slate-800 dark:text-slate-100">Reportar error</p>
+          <p className="text-[14px] font-semibold text-slate-800 dark:text-slate-100">Reportar error</p>
           <button onClick={onCerrar} disabled={enviando} className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-white/[0.06]" aria-label="Cerrar"><X size={16} /></button>
         </div>
         <div className="flex-1 overflow-y-auto p-4 space-y-3">

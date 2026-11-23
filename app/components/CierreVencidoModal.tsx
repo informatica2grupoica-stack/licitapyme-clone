@@ -83,7 +83,7 @@ function PendienteCard({ p, onResuelto }: { p: Pendiente; onResuelto: (id: numbe
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-[11px] font-mono text-slate-400">{p.licitacion_codigo}</p>
-          <p className="text-[13.5px] font-bold text-slate-800 leading-snug">{p.licitacion_nombre || p.licitacion_codigo}</p>
+          <p className="text-[13.5px] font-semibold text-slate-800 leading-snug">{p.licitacion_nombre || p.licitacion_codigo}</p>
           {p.licitacion_organismo && (
             <p className="text-[11.5px] text-slate-500 mt-0.5 flex items-center gap-1">
               <Building2 size={11} className="flex-shrink-0" /> {p.licitacion_organismo}
@@ -92,7 +92,7 @@ function PendienteCard({ p, onResuelto }: { p: Pendiente; onResuelto: (id: numbe
         </div>
         {pipeline && (
           <span style={{ backgroundColor: pipeline.color + '18', color: pipeline.color, borderColor: pipeline.color + '40' }}
-            className="text-[10px] font-bold px-2 py-0.5 rounded-full border flex-shrink-0">
+            className="text-[10px] font-semibold px-2 py-0.5 rounded-full border flex-shrink-0">
             {pipeline.label}
           </span>
         )}
@@ -148,7 +148,7 @@ function PendienteCard({ p, onResuelto }: { p: Pendiente; onResuelto: (id: numbe
             placeholder={resolucion === 'descarto'
               ? (motivoSel === 'Otro' ? 'Describe el motivo (obligatorio)…' : 'Comentarios adicionales (opcional)…')
               : '¿Cómo se postuló? Comentario obligatorio (n° oferta, monto, responsable)…'}
-            className="w-full border border-slate-200 rounded-lg px-3 py-2 text-[12.5px] text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
+            className="w-full border border-slate-200 rounded-lg px-3 py-2 text-[12.5px] text-slate-700 outline-none focus:ring-2 focus:ring-teal-500 resize-none"
           />
           {error && <p className="text-[11.5px] text-red-600 font-medium">{error}</p>}
           <button
@@ -189,14 +189,14 @@ export function CierreVencidoModal() {
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-      <div className="bg-slate-50 rounded-2xl shadow-2xl w-full max-w-5xl max-h-[92vh] flex flex-col overflow-hidden">
+      <div className="bg-slate-50 rounded-xl shadow-flotante w-full max-w-5xl max-h-[92vh] flex flex-col overflow-hidden">
         {/* Header — sin botón de cerrar: es obligatorio resolver */}
         <div className="px-6 py-4 bg-white border-b border-slate-200 flex items-start gap-3 flex-shrink-0">
           <div className="w-10 h-10 rounded-xl bg-amber-50 border border-amber-200 flex items-center justify-center flex-shrink-0">
             <AlertTriangle size={18} className="text-amber-600" />
           </div>
           <div>
-            <h2 className="text-[15px] font-bold text-slate-900">
+            <h2 className="text-[15px] font-semibold text-slate-900">
               {pendientes.length === 1 ? 'Hay 1 licitación vencida sin resolver' : `Hay ${pendientes.length} licitaciones vencidas sin resolver`}
             </h2>
             <p className="text-[12px] text-slate-500 mt-0.5">

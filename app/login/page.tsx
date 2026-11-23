@@ -87,7 +87,7 @@ function LoginContent() {
         <div className="mx-auto flex h-16 max-w-[1200px] items-center justify-between px-5 sm:px-8">
           <Link href="/bienvenida" className="flex items-center gap-2.5">
             <LicitankIcon size={30} />
-            <span className="text-[15px] font-bold tracking-tight text-white">LICITANK</span>
+            <span className="text-[15px] font-semibold tracking-tight text-white">LICITANK</span>
           </Link>
           <Link href="/bienvenida" className="text-[13.5px] text-slate-400 transition-colors hover:text-white">
             ← Volver a la portada

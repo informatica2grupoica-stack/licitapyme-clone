@@ -189,7 +189,7 @@ export function FletesCompra({ negocioId, puedeOperar, productos, cotizaciones, 
   return (
     <div className="border border-zinc-200 rounded-xl bg-white overflow-hidden" data-testid="fletes-compra">
       <div className="px-4 py-2.5 bg-zinc-50 border-b border-zinc-100 flex items-center gap-2 flex-wrap">
-        <p className="text-[13px] font-bold text-zinc-800 flex items-center gap-1.5"><Truck size={15} /> Fletes{fletes.length > 0 && <span className="text-zinc-400 font-semibold">({fletes.length})</span>}</p>
+        <p className="text-[13px] font-semibold text-zinc-800 flex items-center gap-1.5"><Truck size={15} /> Fletes{fletes.length > 0 && <span className="text-zinc-400 font-semibold">({fletes.length})</span>}</p>
         <p className="text-[11.5px] text-zinc-500 flex-1 min-w-[200px]">Cada flete lleva su proveedor (nombre y RUT). Se elige en «Compara y elige» y de ahí sigue a aprobación, SKU y OC como un producto.</p>
         {puedeOperar && !form && (
           <button type="button" onClick={abrirNuevo} data-testid="agregar-flete"
@@ -217,7 +217,7 @@ export function FletesCompra({ negocioId, puedeOperar, productos, cotizaciones, 
                         : <span className="text-[11.5px] font-semibold text-amber-700">Sin cotización · precio a mano</span>}
                       <span className="ml-auto flex items-center gap-1">
                         {c.archivoUrl && <button type="button" onClick={() => window.open(c.archivoUrl!, '_blank', 'noopener,noreferrer')} className="text-[11.5px] font-semibold text-zinc-500 hover:text-teal-700 px-2 py-1 rounded-md hover:bg-zinc-50">Ver cotización</button>}
-                        {puedeOperar && !c.archivoUrl && <button type="button" onClick={() => abrirEditar(f, c)} className="text-[11.5px] font-semibold text-zinc-500 hover:text-indigo-700 px-2 py-1 rounded-md hover:bg-zinc-50">Editar precio</button>}
+                        {puedeOperar && !c.archivoUrl && <button type="button" onClick={() => abrirEditar(f, c)} className="text-[11.5px] font-semibold text-zinc-500 hover:text-teal-700 px-2 py-1 rounded-md hover:bg-zinc-50">Editar precio</button>}
                       </span>
                     </div>
                   );
@@ -236,7 +236,7 @@ export function FletesCompra({ negocioId, puedeOperar, productos, cotizaciones, 
 
       {form && (
         <div className="border-t border-zinc-100 px-4 py-3 space-y-2.5 bg-teal-50/30" data-testid="form-flete">
-          <p className="text-[12.5px] font-bold text-zinc-800">{form.cotizacionId != null ? 'Editar el flete' : form.productoId != null ? 'Agregar cotización al flete' : 'Agregar flete'}</p>
+          <p className="text-[12.5px] font-semibold text-zinc-800">{form.cotizacionId != null ? 'Editar el flete' : form.productoId != null ? 'Agregar cotización al flete' : 'Agregar flete'}</p>
           <input value={form.nombre} onChange={e => set({ nombre: e.target.value })} disabled={form.productoId != null} placeholder="Qué flete es (ej. Flete Talagante – Coyhaique)" aria-label="Nombre del flete" className={`${campo} w-full max-w-xl`} />
           {form.cotizacionId == null && (
             <div className="flex items-center gap-2 flex-wrap">
@@ -277,7 +277,7 @@ export function FletesCompra({ negocioId, puedeOperar, productos, cotizaciones, 
           )}
           {form.tiene === 'no' && form.cotizacionId == null && <p className="text-[11.5px] text-zinc-500">Sin cotización el precio queda a mano; si después llega la cotización, usa «Agregar cotización» en este flete.</p>}
           <div className="flex items-center gap-3 pt-0.5">
-            <button type="button" onClick={guardar} disabled={guardando} className="inline-flex items-center gap-1.5 text-[12.5px] font-bold text-white bg-teal-700 hover:bg-teal-800 disabled:opacity-50 px-3.5 py-1.5 rounded-lg">
+            <button type="button" onClick={guardar} disabled={guardando} className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-white bg-teal-700 hover:bg-teal-800 disabled:opacity-50 px-3.5 py-1.5 rounded-lg">
               {guardando && <Loader2 size={13} className="animate-spin" />} Guardar
             </button>
             <button type="button" onClick={() => { setForm(null); setArchivo(null); }} disabled={guardando} className="text-[12.5px] text-zinc-500 hover:text-zinc-800">Cancelar</button>

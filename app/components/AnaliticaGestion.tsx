@@ -12,7 +12,7 @@
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import { IconLoader2 as Loader2, IconFilter as Filter, IconX as X, IconUsers as Users, IconBuilding as Building2, IconStack3 as Layers3, IconGauge as Gauge, IconClock as Clock, IconWallet as Wallet, IconTrophy as Trophy, IconBan as Ban, IconAlertTriangle as AlertTriangle, IconDoorExit as DoorOpen, IconSparkles as Sparkles, IconAlertTriangle as TriangleAlert, IconRefresh as RefreshCw, IconPercentage as Percent, IconListCheck as ListChecks, IconTag as Tag, IconHourglass as Timer, IconTarget as Target, IconSend as Send } from '@tabler/icons-react';
+import { IconLoader2 as Loader2, IconFilter as Filter, IconX as X, IconUsers as Users, IconBuilding as Building2, IconStack3 as Layers3, IconGauge as Gauge, IconClock as Clock, IconWallet as Wallet, IconTrophy as Trophy, IconBan as Ban, IconAlertTriangle as AlertTriangle, IconDoorExit as DoorOpen, IconWand as Sparkles, IconAlertTriangle as TriangleAlert, IconRefresh as RefreshCw, IconPercentage as Percent, IconListCheck as ListChecks, IconTag as Tag, IconHourglass as Timer, IconTarget as Target, IconSend as Send } from '@tabler/icons-react';
 import { getEstadoPipeline } from '@/app/lib/pipeline';
 import { colorUsuario, inicialesUsuario } from '@/app/lib/user-color';
 import { MultiSelect } from '@/app/components/ui/MultiSelect';
@@ -150,7 +150,7 @@ function Section({ title, icon, hint, spec, children }: { title: string; icon: R
       <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
         <div className="px-5 py-3.5 border-b border-slate-100 flex items-center gap-2">
           {icon}
-          <h3 className="text-sm font-bold text-slate-800">{title}</h3>
+          <h3 className="text-sm font-semibold text-slate-800">{title}</h3>
           {spec && <MetricInfo spec={spec} />}
           {hint && <span className="text-[11px] text-slate-400 ml-auto">{hint}</span>}
         </div>
@@ -169,7 +169,7 @@ function BarRow({ label, value, max, color, initials, onClick, active }: {
     <Comp onClick={onClick}
       className={`flex items-center gap-2.5 w-full text-left rounded-lg px-1.5 py-1 transition-colors ${onClick ? 'hover:bg-slate-50 cursor-pointer' : ''} ${active ? 'bg-slate-100 ring-1 ring-slate-300' : ''}`}>
       <span className="flex items-center gap-1.5 w-[112px] flex-shrink-0 text-[12px] font-semibold text-slate-600 truncate">
-        {initials && <span className="w-5 h-5 rounded-full text-white text-[9px] font-bold flex items-center justify-center flex-shrink-0" style={{ background: color }}>{initials}</span>}
+        {initials && <span className="w-5 h-5 rounded-full text-white text-[9px] font-semibold flex items-center justify-center flex-shrink-0" style={{ background: color }}>{initials}</span>}
         <span className="truncate">{label}</span>
       </span>
       <span className="flex-1 h-4 bg-slate-100 rounded-md overflow-hidden">
@@ -179,7 +179,7 @@ function BarRow({ label, value, max, color, initials, onClick, active }: {
           animate={{ width: `${max > 0 ? (value / max) * 100 : 0}%` }}
           transition={{ duration: 0.6, ease: EASE }} />
       </span>
-      <span className="w-8 text-right text-[12px] font-bold text-slate-800 tabular-nums flex-shrink-0">{value}</span>
+      <span className="w-8 text-right text-[12px] font-semibold text-slate-800 tabular-nums flex-shrink-0">{value}</span>
     </Comp>
   );
 }
@@ -235,8 +235,8 @@ function DonutInteractivo({ segments, total, unidad, selected, onToggle, size = 
               className={`w-full flex items-center gap-2 rounded-lg px-2 py-1 text-left transition-colors ${onToggle ? 'cursor-pointer' : ''}`}
               style={{ background: hl ? `${s.color}16` : on ? `${s.color}0d` : 'transparent' }}>
               <span className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ background: s.color, outline: on ? `2px solid ${s.color}` : 'none', outlineOffset: 1 }} />
-              <span className={`text-[12.5px] truncate transition-colors ${hl ? 'font-bold text-slate-900' : 'text-slate-600'}`}>{s.label}</span>
-              <span className="ml-auto text-[12.5px] font-bold tabular-nums" style={{ color: hl || on ? s.color : '#1e293b' }}>{s.value}</span>
+              <span className={`text-[12.5px] truncate transition-colors ${hl ? 'font-semibold text-slate-900' : 'text-slate-600'}`}>{s.label}</span>
+              <span className="ml-auto text-[12.5px] font-semibold tabular-nums" style={{ color: hl || on ? s.color : '#1e293b' }}>{s.value}</span>
             </Comp>
           );
         })}
@@ -447,7 +447,7 @@ export function AnaliticaGestion() {
         <div className="bg-white border border-slate-200 rounded-2xl p-4 space-y-3">
           <div className="flex items-center gap-2 flex-wrap">
             <Filter size={14} className="text-teal-600" />
-            <span className="text-[13px] font-bold text-slate-700">Filtros</span>
+            <span className="text-[13px] font-semibold text-slate-700">Filtros</span>
             <span className="text-[11px] text-slate-400">— la medición se recalcula con tu selección</span>
             <div className="ml-auto flex items-center gap-2">
               {hayFiltro ? (
@@ -509,7 +509,7 @@ export function AnaliticaGestion() {
             fuente: 'negocios.monto_ofertado',
             nota: 'El subtítulo dice cuántas de esas licitaciones tienen el monto cargado — si falta cargarlo en varias, el total se ve más bajo de lo real.',
           }} />
-        <Kpi label="% del pipeline" value={`${pct(pipeSel.length, vigentes.length)}%`} sub="del total vigente" icon={<Gauge size={18} />} color="#9333ea" delay={0.15}
+        <Kpi label="% del pipeline" value={`${pct(pipeSel.length, vigentes.length)}%`} sub="del total vigente" icon={<Gauge size={18} />} color="#475569" delay={0.15}
           spec={{
             mide: 'Qué porción de todo lo vigente está en la etapa (o etapas) que tienes marcada en el filtro de Estado.',
             calculo: 'Licitaciones en la selección de Estado ÷ total de vigentes × 100.',
@@ -623,11 +623,11 @@ export function AnaliticaGestion() {
               <div className="space-y-1.5">
                 {triagePorAnalista.map(a => (
                   <div key={a.nombre} className="flex items-center gap-2.5">
-                    <span className="w-5 h-5 rounded-full text-white text-[9px] font-bold flex items-center justify-center flex-shrink-0" style={{ background: colorUsuario(a.email || a.nombre) }}>
+                    <span className="w-5 h-5 rounded-full text-white text-[9px] font-semibold flex items-center justify-center flex-shrink-0" style={{ background: colorUsuario(a.email || a.nombre) }}>
                       {inicialesUsuario(a.nombre, a.email)}
                     </span>
                     <span className="text-[12.5px] font-semibold text-slate-600 truncate flex-1">{a.nombre.split(' ')[0]}</span>
-                    <span className="text-[12.5px] font-bold text-slate-800 tabular-nums">{a.mediana}d</span>
+                    <span className="text-[12.5px] font-semibold text-slate-800 tabular-nums">{a.mediana}d</span>
                     <span className="text-[11px] text-slate-400 tabular-nums w-16 text-right">{a.n} caso{a.n === 1 ? '' : 's'}</span>
                   </div>
                 ))}
@@ -730,7 +730,7 @@ export function AnaliticaGestion() {
                     <Ban size={16} />
                   </div>
                   <div className="min-w-0">
-                    <p className="text-[13px] font-bold text-slate-800">{meta.label}</p>
+                    <p className="text-[13px] font-semibold text-slate-800">{meta.label}</p>
                     <p className="text-[11px] text-slate-400">{meta.desc}</p>
                   </div>
                   <span className="ml-auto text-[22px] font-semibold tabular-nums" style={{ color: meta.color }}>{n}</span>
@@ -743,7 +743,7 @@ export function AnaliticaGestion() {
                 <AlertTriangle size={16} />
               </div>
               <div className="min-w-0">
-                <p className="text-[13px] font-bold text-slate-800">Sin gestionar</p>
+                <p className="text-[13px] font-semibold text-slate-800">Sin gestionar</p>
                 <p className="text-[11px] text-slate-400">Cerró en MP sin que postuláramos</p>
               </div>
               <span className="ml-auto text-[22px] font-semibold tabular-nums text-orange-600">{descartes.sinGestionar}</span>

@@ -10,7 +10,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { IconX as X, IconRobot as Bot, IconUser as User, IconSend as Send, IconLoader2 as Loader2, IconAlertCircle as AlertCircle, IconSparkles as Sparkles, IconDownload as Download, IconExternalLink as ExternalLink, IconFileUnknown as FileQuestion } from '@tabler/icons-react';
+import { IconX as X, IconRobot as Bot, IconUser as User, IconSend as Send, IconLoader2 as Loader2, IconAlertCircle as AlertCircle, IconWand as Sparkles, IconDownload as Download, IconExternalLink as ExternalLink, IconFileUnknown as FileQuestion } from '@tabler/icons-react';
 import { RespuestaFormateada, getFileIcon } from '@/app/licitacion/[codigo]/utils';
 import { tipoDe } from '@/app/components/DocumentViewerModal';
 import { urlDescarga } from '@/app/lib/descargas-cliente';
@@ -130,12 +130,12 @@ export function DocumentoIAModal({
       aria-label={`Consultas del documento: ${doc.nombre}`}
     >
       <div
-        className="flex flex-col w-full max-w-[95rem] mx-auto flex-1 min-h-0 bg-white rounded-2xl overflow-hidden shadow-2xl"
+        className="flex flex-col w-full max-w-[95rem] mx-auto flex-1 min-h-0 bg-white rounded-2xl overflow-hidden shadow-flotante"
         onClick={e => e.stopPropagation()}
       >
         {/* Cabecera */}
-        <div className="flex items-center gap-2 px-4 py-2.5 border-b border-slate-200 bg-gradient-to-r from-purple-50 to-indigo-50 flex-shrink-0">
-          <div className="p-1.5 bg-purple-600 rounded-lg flex-shrink-0" title="ankIA">
+        <div className="flex items-center gap-2 px-4 py-2.5 border-b border-slate-200 bg-slate-50 flex-shrink-0">
+          <div className="p-1.5 bg-slate-600 rounded-lg flex-shrink-0" title="ankIA">
             <Bot size={14} className="text-white" />
           </div>
           <p className="flex-1 min-w-0 text-[13px] font-semibold text-slate-800 truncate" title={doc.nombre}>
@@ -143,7 +143,7 @@ export function DocumentoIAModal({
           </p>
           <a
             href={doc.url} target="_blank" rel="noopener noreferrer"
-            className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+            className="p-1.5 text-slate-400 hover:text-teal-600 hover:bg-teal-50 rounded-lg transition-colors"
             title="Abrir en pestaña nueva"
           >
             <ExternalLink size={15} />
@@ -172,7 +172,7 @@ export function DocumentoIAModal({
           <div className="relative flex-none h-[38vh] lg:h-auto lg:flex-1 lg:min-h-0 bg-slate-100 lg:border-r border-b lg:border-b-0 border-slate-200">
             {(tipo === 'pdf' || tipo === 'office') && cargandoDoc && (
               <div className="absolute inset-0 flex items-center justify-center gap-2 text-sm text-slate-500 pointer-events-none">
-                <Loader2 size={16} className="animate-spin text-indigo-500" /> Cargando documento…
+                <Loader2 size={16} className="animate-spin text-teal-500" /> Cargando documento…
               </div>
             )}
 
@@ -210,7 +210,7 @@ export function DocumentoIAModal({
                 <p className="text-xs text-slate-400 mt-1 mb-4">Puedes hacer preguntas igual, o abrirlo/descargarlo.</p>
                 <div className="flex items-center gap-2">
                   <a href={doc.url} target="_blank" rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-[13px] font-semibold rounded-lg transition-colors">
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-teal-600 hover:bg-teal-700 text-white text-[13px] font-semibold rounded-lg transition-colors">
                     <ExternalLink size={14} /> Abrir
                   </a>
                   <a href={urlDescarga(doc.url)} download={doc.nombre}
@@ -231,7 +231,7 @@ export function DocumentoIAModal({
                   key={p.label}
                   onClick={() => enviar(p.pregunta)}
                   disabled={cargando}
-                  className="flex items-center gap-1 text-xs px-2.5 py-1 bg-slate-100 hover:bg-purple-100 hover:text-purple-700 text-slate-600 rounded-full transition-colors disabled:opacity-50"
+                  className="flex items-center gap-1 text-xs px-2.5 py-1 bg-slate-100 hover:bg-slate-100 hover:text-slate-700 text-slate-600 rounded-full transition-colors disabled:opacity-50"
                 >
                   <Sparkles size={10} /> {p.label}
                 </button>
@@ -242,8 +242,8 @@ export function DocumentoIAModal({
             <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-3 bg-slate-50/50">
               {mensajes.length === 0 && !cargando && (
                 <div className="flex flex-col items-center justify-center h-full py-10 text-center">
-                  <div className="w-11 h-11 bg-purple-50 rounded-full flex items-center justify-center mb-3">
-                    <Bot size={18} className="text-purple-400" />
+                  <div className="w-11 h-11 bg-slate-50 rounded-full flex items-center justify-center mb-3">
+                    <Bot size={18} className="text-slate-400" />
                   </div>
                   <p className="text-sm font-medium text-slate-600">ankIA</p>
                   <p className="text-xs text-slate-400 mt-1 max-w-[260px]">
@@ -259,7 +259,7 @@ export function DocumentoIAModal({
                       <User size={13} className="text-white" />
                     </div>
                   ) : (
-                    <div className="flex-shrink-0 w-7 h-7 bg-purple-600 rounded-full flex items-center justify-center">
+                    <div className="flex-shrink-0 w-7 h-7 bg-slate-600 rounded-full flex items-center justify-center">
                       <Bot size={13} className="text-white" />
                     </div>
                   )}
@@ -279,14 +279,14 @@ export function DocumentoIAModal({
 
               {cargando && (
                 <div className="flex gap-2">
-                  <div className="flex-shrink-0 w-7 h-7 bg-purple-600 rounded-full flex items-center justify-center">
+                  <div className="flex-shrink-0 w-7 h-7 bg-slate-600 rounded-full flex items-center justify-center">
                     <Bot size={13} className="text-white" />
                   </div>
                   <div className="bg-white border border-slate-100 px-4 py-3 rounded-xl rounded-tl-sm shadow-sm">
                     <div className="flex gap-1.5 items-center">
-                      <span className="w-1.5 h-1.5 bg-purple-400 rounded-full animate-bounce [animation-delay:0ms]" />
-                      <span className="w-1.5 h-1.5 bg-purple-400 rounded-full animate-bounce [animation-delay:150ms]" />
-                      <span className="w-1.5 h-1.5 bg-purple-400 rounded-full animate-bounce [animation-delay:300ms]" />
+                      <span className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce [animation-delay:0ms]" />
+                      <span className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce [animation-delay:150ms]" />
+                      <span className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce [animation-delay:300ms]" />
                     </div>
                   </div>
                 </div>
@@ -304,12 +304,12 @@ export function DocumentoIAModal({
                   onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); enviar(); } }}
                   placeholder="Escribe tu pregunta…"
                   disabled={cargando}
-                  className="flex-1 text-sm border border-slate-200 rounded-xl px-3 py-2 focus:ring-2 focus:ring-purple-500 focus:border-transparent disabled:bg-slate-50 disabled:text-slate-400"
+                  className="flex-1 text-sm border border-slate-200 rounded-xl px-3 py-2 focus:ring-2 focus:ring-slate-500 focus:border-transparent disabled:bg-slate-50 disabled:text-slate-400"
                 />
                 <button
                   onClick={() => enviar()}
                   disabled={cargando || !pregunta.trim()}
-                  className="flex-shrink-0 p-2.5 bg-purple-600 hover:bg-purple-700 disabled:bg-slate-300 text-white rounded-xl transition-colors"
+                  className="flex-shrink-0 p-2.5 bg-slate-600 hover:bg-slate-700 disabled:bg-slate-300 text-white rounded-xl transition-colors"
                 >
                   {cargando ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />}
                 </button>

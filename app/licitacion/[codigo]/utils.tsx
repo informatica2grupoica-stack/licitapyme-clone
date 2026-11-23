@@ -1,7 +1,7 @@
 // app/licitacion/[codigo]/utils.tsx
 // Helpers y componentes compartidos entre las secciones de la ficha de licitación.
 import { useState } from 'react';
-import { IconChevronDown as ChevronDown, IconChevronUp as ChevronUp, IconCircleCheck as CheckCircle, IconCircleX as XCircle, IconAlertCircle as AlertCircle, IconInfoCircle as Info, IconSparkles as Sparkles } from '@tabler/icons-react';
+import { IconChevronDown as ChevronDown, IconChevronUp as ChevronUp, IconCircleCheck as CheckCircle, IconCircleX as XCircle, IconAlertCircle as AlertCircle, IconInfoCircle as Info, IconWand as Sparkles } from '@tabler/icons-react';
 import { estadoEfectivoCodigo, CODIGO_ESTADO_MP } from '@/app/lib/estado-mp';
 import { diasCalendarioChile } from '@/app/lib/tz';
 
@@ -69,7 +69,7 @@ export interface AnalisisIA {
 
 export function IABadge() {
   return (
-    <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-purple-50 text-purple-600 border border-purple-200 text-xs rounded-full font-medium">
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-slate-50 text-slate-600 border border-slate-200 text-xs rounded-full font-medium">
       <Sparkles size={10} /> Extraído automáticamente
     </span>
   );
@@ -155,7 +155,7 @@ export function RespuestaFormateada({ texto }: { texto: string }) {
         if (linea.trim().startsWith('- ') || linea.trim().startsWith('• ')) {
           return (
             <div key={i} className="flex gap-2">
-              <span className="text-purple-400 mt-0.5 flex-shrink-0">•</span>
+              <span className="text-slate-400 mt-0.5 flex-shrink-0">•</span>
               <span dangerouslySetInnerHTML={{ __html: formatNegritas(linea.replace(/^[\-•]\s*/, '')) }} />
             </div>
           );
@@ -164,7 +164,7 @@ export function RespuestaFormateada({ texto }: { texto: string }) {
           const num = linea.match(/^(\d+)\./)?.[1];
           return (
             <div key={i} className="flex gap-2">
-              <span className="text-purple-600 font-semibold min-w-[1.2rem] flex-shrink-0">{num}.</span>
+              <span className="text-slate-600 font-semibold min-w-[1.2rem] flex-shrink-0">{num}.</span>
               <span dangerouslySetInnerHTML={{ __html: formatNegritas(linea.replace(/^\d+\.\s*/, '')) }} />
             </div>
           );
@@ -221,7 +221,7 @@ export function InfoCard({ title, icon, children, defaultOpen = true }: {
         className="w-full px-5 py-3.5 border-b border-slate-100 flex items-center justify-between hover:bg-slate-50 transition-colors"
       >
         <div className="flex items-center gap-2.5">
-          <span className="text-indigo-500">{icon}</span>
+          <span className="text-teal-500">{icon}</span>
           <h3 className="text-[13.5px] font-semibold text-slate-800">{title}</h3>
         </div>
         {open ? <ChevronUp size={14} className="text-slate-400" /> : <ChevronDown size={14} className="text-slate-400" />}
@@ -266,12 +266,12 @@ export function SectionHeader({ icon, title, subtitle, badge, action }: {
   return (
     <div className="flex items-start sm:items-center justify-between gap-3 flex-wrap sm:flex-nowrap fade-in">
       <div className="flex items-center gap-3 min-w-0">
-        <div className="w-10 h-10 rounded-xl bg-indigo-50 flex items-center justify-center text-indigo-600 flex-shrink-0">
+        <div className="w-10 h-10 rounded-xl bg-teal-50 flex items-center justify-center text-teal-600 flex-shrink-0">
           {icon}
         </div>
         <div className="min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <h2 className="text-[15px] font-bold text-slate-900">{title}</h2>
+            <h2 className="text-[15px] font-semibold text-slate-900">{title}</h2>
             {badge}
           </div>
           {subtitle && <p className="text-xs text-slate-500 mt-0.5">{subtitle}</p>}

@@ -249,10 +249,10 @@ function ModalAsignar({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl">
+      <div className="bg-white rounded-xl shadow-flotante w-full max-w-3xl">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 rounded-t-2xl">
-          <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+          <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
             <Plus size={20} className="text-teal-700" /> Asignar licitación
           </h2>
           <button onClick={onClose} className="p-1.5 hover:bg-slate-100 rounded-lg text-gray-400">
@@ -406,7 +406,7 @@ function NegocioCard({ neg, isAdmin, onEliminar }: {
         ) : null}
         {isAdmin && (
           <span className="inline-flex items-center gap-1 text-[10px] text-gray-500 font-medium">
-            <span style={{ background: col }} className="inline-flex items-center justify-center w-4 h-4 rounded-full text-white text-[8px] font-bold">
+            <span style={{ background: col }} className="inline-flex items-center justify-center w-4 h-4 rounded-full text-white text-[8px] font-semibold">
               {inicialesUsuario(neg.usuario_nombre, neg.usuario_email)}
             </span>
             {neg.usuario_nombre || neg.usuario_email}
@@ -466,7 +466,7 @@ function NegocioListItem({ neg, isAdmin, onEliminar }: {
         </div>
         {isAdmin && (
           <span className="inline-flex items-center gap-1 text-[10px] text-slate-400 max-w-full truncate" title={neg.usuario_nombre || neg.usuario_email}>
-            <span style={{ background: col }} className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full text-white text-[7px] font-bold flex-shrink-0">{iniciales}</span>
+            <span style={{ background: col }} className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full text-white text-[7px] font-semibold flex-shrink-0">{iniciales}</span>
             <span className="truncate">{neg.usuario_nombre || neg.usuario_email}</span>
           </span>
         )}
@@ -492,7 +492,7 @@ function NegocioListItem({ neg, isAdmin, onEliminar }: {
 
       {/* Monto + cierre (fecha + hora Chile) */}
       <div className="flex-shrink-0 w-40 text-right hidden sm:block whitespace-nowrap">
-        <p className="text-[11.5px] font-bold text-emerald-700">{formatMonto(neg.licitacion_monto)}</p>
+        <p className="text-[11.5px] font-semibold text-emerald-700">{formatMonto(neg.licitacion_monto)}</p>
         {neg.monto_ofertado > 0 && <p className="text-[9.5px] text-slate-400">Ofertó {formatMonto(neg.monto_ofertado)}</p>}
         {neg.licitacion_cierre && (
           <p className="text-[10px] text-slate-500 mt-0.5">
@@ -570,11 +570,11 @@ function VistaCalendario({ negocios, onAbrirDia }: { negocios: Negocio[]; onAbri
     <div className="bg-white border border-slate-200 rounded-xl p-4">
       <div className="flex items-center justify-between mb-4">
         <button onClick={() => setMes(m => m.subtract(1, 'month'))} aria-label="Mes anterior" className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500 transition-colors"><ChevronLeft size={18} /></button>
-        <span className="text-lg font-bold text-slate-800">{MESES[mes.month()]} {mes.year()}</span>
+        <span className="text-lg font-semibold text-slate-800">{MESES[mes.month()]} {mes.year()}</span>
         <button onClick={() => setMes(m => m.add(1, 'month'))} aria-label="Mes siguiente" className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500 transition-colors"><ChevronRight size={18} /></button>
       </div>
       <div className="grid grid-cols-7 gap-1 mb-1">
-        {SEMANA.map(d => <div key={d} className="text-center text-[11px] font-bold text-slate-400 py-1">{d}</div>)}
+        {SEMANA.map(d => <div key={d} className="text-center text-[11px] font-semibold text-slate-400 py-1">{d}</div>)}
       </div>
       <div className="grid grid-cols-7 gap-1">
         {dias.map(d => {
@@ -586,8 +586,8 @@ function VistaCalendario({ negocios, onAbrirDia }: { negocios: Negocio[]; onAbri
             <button key={k} disabled={items.length === 0} onClick={() => items.length && onAbrirDia(k)}
               className={`min-h-[70px] rounded-lg border p-1.5 text-left align-top transition-colors ${fueraMes ? 'bg-slate-50/40 border-transparent' : 'border-slate-100'} ${items.length ? 'hover:border-teal-300 hover:bg-teal-50/50 cursor-pointer' : 'cursor-default'}`}>
               <div className="flex items-center justify-between">
-                <span className={esHoy ? 'bg-teal-700 text-white rounded-full w-5 h-5 inline-flex items-center justify-center text-[11px] font-bold' : `text-[12px] ${fueraMes ? 'text-slate-300' : 'text-slate-600'}`}>{d.date()}</span>
-                {items.length > 0 && <span className="text-[10px] font-bold text-teal-700 tabular-nums">{items.length}</span>}
+                <span className={esHoy ? 'bg-teal-700 text-white rounded-full w-5 h-5 inline-flex items-center justify-center text-[11px] font-semibold' : `text-[12px] ${fueraMes ? 'text-slate-300' : 'text-slate-600'}`}>{d.date()}</span>
+                {items.length > 0 && <span className="text-[10px] font-semibold text-teal-700 tabular-nums">{items.length}</span>}
               </div>
               <div className="flex flex-wrap gap-1 mt-1.5">
                 {items.slice(0, 6).map((n, i) => {
@@ -627,7 +627,7 @@ function CargaCard({ c, nombre, email, activo, isAdmin, onClick }: {
     >
       <div className={`flex items-center justify-between gap-2 ${estados.length ? 'mb-2' : ''}`}>
         <div className="flex items-center gap-2 min-w-0">
-          <span style={{ background: col }} className="inline-flex items-center justify-center w-8 h-8 rounded-lg text-white text-[11px] font-bold flex-shrink-0">
+          <span style={{ background: col }} className="inline-flex items-center justify-center w-8 h-8 rounded-lg text-white text-[11px] font-semibold flex-shrink-0">
             {inicialesUsuario(nombre, email)}
           </span>
           <div className="min-w-0">
@@ -643,7 +643,7 @@ function CargaCard({ c, nombre, email, activo, isAdmin, onClick }: {
             </p>
           </div>
         </div>
-        <span style={{ color: col }} className="text-2xl font-black tabular-nums flex-shrink-0 leading-none">{c.total}</span>
+        <span style={{ color: col }} className="text-2xl font-semibold tabular-nums flex-shrink-0 leading-none">{c.total}</span>
       </div>
       {estados.length > 0 && (
         <>
@@ -727,7 +727,7 @@ function DestacadaCard({ d, isAdmin }: { d: Destacada; isAdmin: boolean }) {
           <EstadoMpBadge estado={neg.licitacion_estado} cierre={neg.licitacion_cierre} adjEsAdjudicada={neg.adj_es_adjudicada} adjGanamos={neg.adj_ganamos} />
         )}
         {isAdmin && (
-          <span style={{ background: col }} className="ml-auto inline-flex items-center justify-center w-4 h-4 rounded-full text-white text-[8px] font-bold flex-shrink-0" title={neg.usuario_nombre || neg.usuario_email}>
+          <span style={{ background: col }} className="ml-auto inline-flex items-center justify-center w-4 h-4 rounded-full text-white text-[8px] font-semibold flex-shrink-0" title={neg.usuario_nombre || neg.usuario_email}>
             {inicialesUsuario(neg.usuario_nombre, neg.usuario_email)}
           </span>
         )}
@@ -762,7 +762,7 @@ function DestacadasSlider({ items, isAdmin }: { items: Destacada[]; isAdmin: boo
   return (
     <div className="mb-5">
       <div className="flex items-center justify-between mb-2">
-        <span className="text-xs text-gray-400 font-semibold uppercase tracking-wide">Destacadas</span>
+        <span className="text-xs text-gray-400 font-semibold">Destacadas</span>
         <div className="hidden sm:flex items-center gap-1">
           <button onClick={() => scrollBy(-ANCHO_TARJETA)} aria-label="Desplazar a la izquierda" className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors">
             <ChevronLeft size={16} />
@@ -816,7 +816,7 @@ function MultiSelect({ label, options, selected, onChange }: {
       <button type="button" onClick={() => setOpen(o => !o)}
         className={`flex items-center gap-1.5 px-3 py-2 border rounded-lg text-sm outline-none transition-colors ${n ? 'border-teal-300 bg-teal-50 text-teal-700 font-semibold' : 'border-slate-200 text-slate-600 hover:border-slate-400'}`}>
         {label}
-        {n > 0 && <span className="text-[11px] font-bold bg-teal-700 text-white rounded-full px-1.5 leading-5">{n}</span>}
+        {n > 0 && <span className="text-[11px] font-semibold bg-teal-700 text-white rounded-full px-1.5 leading-5">{n}</span>}
         <ChevronDown size={12} className={`transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
       {open && (
@@ -889,7 +889,7 @@ function NegocioMiniCard({ neg, onClick }: { neg: Negocio; onClick: () => void }
       {/* Cierre: hora + urgencia; responsable (único color de identidad) a la derecha */}
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0 flex-shrink-0">
-          <span className="text-sm font-bold tabular-nums leading-none text-slate-900">
+          <span className="text-sm font-semibold tabular-nums leading-none text-slate-900">
             {neg.licitacion_cierre ? dayjs(neg.licitacion_cierre).format('HH:mm') : '—'}
           </span>
           {descartada ? (
@@ -902,7 +902,7 @@ function NegocioMiniCard({ neg, onClick }: { neg: Negocio; onClick: () => void }
         </div>
         <span className="flex items-center justify-end gap-1.5 min-w-0 flex-1" title={nombrePerfil}>
           <span className="text-xs font-medium text-slate-600 truncate">{nombrePerfil}</span>
-          <span style={{ background: col }} className="w-[22px] h-[22px] rounded-full flex items-center justify-center text-white text-[9.5px] font-bold flex-shrink-0">
+          <span style={{ background: col }} className="w-[22px] h-[22px] rounded-full flex items-center justify-center text-white text-[9.5px] font-semibold flex-shrink-0">
             {iniciales}
           </span>
         </span>
@@ -1009,7 +1009,7 @@ function NegocioDetalleModal({ negocio: neg, isAdmin, onClose }: { negocio: Nego
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4"
       role="dialog" aria-modal="true" aria-label={neg.licitacion_nombre || 'Detalle del negocio'}>
-      <div className="bg-white dark:bg-slate-900 border border-linea dark:border-slate-800 rounded-2xl shadow-flotante w-full max-w-xl max-h-[92vh] flex flex-col overflow-hidden" onClick={ev => ev.stopPropagation()}>
+      <div className="bg-white dark:bg-slate-900 border border-linea dark:border-slate-800 rounded-xl shadow-flotante w-full max-w-xl max-h-[92vh] flex flex-col overflow-hidden" onClick={ev => ev.stopPropagation()}>
         {/* Encabezado */}
         <div className="flex items-start gap-3 px-5 pt-5">
           <div className="min-w-0 flex-1">
@@ -1167,7 +1167,7 @@ function VistaSemana({ negocios, onAbrirNegocio }: { negocios: Negocio[]; onAbri
           <ChevronLeft size={18} />
         </button>
         <div className="text-center">
-          <p className="text-[13px] font-bold text-slate-800">
+          <p className="text-[13px] font-semibold text-slate-800">
             {dias[0].toLocaleDateString('es-CL', { day: 'numeric', month: 'long' })} — {dias[4].toLocaleDateString('es-CL', { day: 'numeric', month: 'long', year: 'numeric' })}
           </p>
           {totalSem > 0 && (
@@ -1192,7 +1192,7 @@ function VistaSemana({ negocios, onAbrirNegocio }: { negocios: Negocio[]; onAbri
               <div className={`px-3 py-2.5 border-b flex-shrink-0 ${esHoy ? 'border-teal-200 bg-teal-50/50' : 'border-slate-100'}`}>
                 <p className="text-xs text-slate-500">{DIAS_NOMBRES[i]}</p>
                 <div className="flex items-baseline justify-between">
-                  <p className={`text-lg font-bold leading-tight ${esHoy ? 'text-teal-700' : 'text-slate-800'}`}>
+                  <p className={`text-lg font-semibold leading-tight ${esHoy ? 'text-teal-700' : 'text-slate-800'}`}>
                     {dia.getDate()}
                     <span className="text-[10px] font-normal text-slate-400 ml-1">
                       {dia.toLocaleDateString('es-CL', { month: 'short' })}
@@ -1619,7 +1619,7 @@ function NegociosContent() {
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+            <h1 className="text-2xl font-semibold text-gray-900 flex items-center gap-2">
               <Briefcase size={24} className="text-teal-700" /> Negocios
             </h1>
             <p className="text-sm text-gray-500 mt-0.5">
@@ -1667,7 +1667,7 @@ function NegociosContent() {
         {carga.length > 0 && (
           <div className="mb-5">
             <div className="flex items-center justify-between mb-2">
-              <span className="text-xs text-gray-400 font-semibold uppercase tracking-wide">
+              <span className="text-xs text-gray-400 font-semibold">
                 {isAdmin ? 'Carga de trabajo por perfil' : 'Tu carga de trabajo'}
               </span>
               {isAdmin && filtroUsuarios.length > 0 && (
@@ -1870,9 +1870,9 @@ function NegociosContent() {
       {/* Modal del día del calendario */}
       {!!diaSel && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[92vh] flex flex-col overflow-hidden">
+          <div className="bg-white rounded-xl shadow-flotante w-full max-w-3xl max-h-[92vh] flex flex-col overflow-hidden">
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 flex-shrink-0">
-              <p className="font-bold text-slate-800">
+              <p className="font-semibold text-slate-800">
                 Cierres del {dayjs(diaSel).format('DD/MM/YYYY')}
                 <span className="text-sm font-normal text-slate-400 ml-2">· {itemsDia.length} licitación{itemsDia.length !== 1 ? 'es' : ''}</span>
               </p>
@@ -1897,10 +1897,10 @@ function NegociosContent() {
                         <p className="text-sm font-semibold text-slate-800 line-clamp-2">{neg.licitacion_nombre || 'Sin nombre'}</p>
                         {neg.licitacion_organismo && <p className="text-xs text-slate-400 truncate mt-0.5">{neg.licitacion_organismo}</p>}
                         <div className="flex items-center gap-3 mt-1.5">
-                          <span className="text-xs font-bold text-teal-700">{formatMonto(neg.licitacion_monto)}</span>
+                          <span className="text-xs font-semibold text-teal-700">{formatMonto(neg.licitacion_monto)}</span>
                           {isAdmin && (
                             <span className="flex items-center gap-1 text-xs text-slate-400">
-                              <span style={{ background: col }} className="inline-flex items-center justify-center w-4 h-4 rounded-full text-white text-[8px] font-bold">
+                              <span style={{ background: col }} className="inline-flex items-center justify-center w-4 h-4 rounded-full text-white text-[8px] font-semibold">
                                 {inicialesUsuario(neg.usuario_nombre, neg.usuario_email)}
                               </span>
                               {neg.usuario_nombre || neg.usuario_email}

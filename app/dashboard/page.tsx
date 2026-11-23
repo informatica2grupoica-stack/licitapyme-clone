@@ -177,7 +177,7 @@ export default function DashboardPage() {
   const hora = Number(new Date().toLocaleString('es-CL', { hour: 'numeric', hour12: false, timeZone: TZ }));
   const saludo = hora < 12 ? 'Buenos días' : hora < 20 ? 'Buenas tardes' : 'Buenas noches';
   const nombre = usuario?.nombre?.split(' ')[0] || usuario?.email?.split('@')[0] || '';
-  const esAdmin = data?.rol === 'admin' && !!data.admin;
+  const esAdmin = !!data?.admin;   // el servidor solo entrega el panorama a quien tiene «Dashboard de administrador»
   const fecha = mayus1(new Date().toLocaleDateString('es-CL', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: TZ }));
 
   return (

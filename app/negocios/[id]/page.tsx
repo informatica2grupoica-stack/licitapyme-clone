@@ -18,7 +18,7 @@ const ESTADO_MP_STYLE: Record<number, { bg: string; color: string; border: strin
   5:  { bg: '#dcfce7', color: '#15803d', border: '#bbf7d0' }, // Publicada
   6:  { bg: '#f1f5f9', color: '#475569', border: '#e2e8f0' }, // Cerrada
   7:  { bg: '#ffedd5', color: '#c2410c', border: '#fed7aa' }, // Desierta
-  8:  { bg: '#e0e7ff', color: '#4338ca', border: '#c7d2fe' }, // Adjudicada
+  8:  { bg: '#ccfbf1', color: '#0f766e', border: '#99f6e4' }, // Adjudicada
   18: { bg: '#fee2e2', color: '#b91c1c', border: '#fecaca' }, // Revocada
   19: { bg: '#fef9c3', color: '#a16207', border: '#fde68a' }, // Suspendida
 };
@@ -206,7 +206,7 @@ function formatFileSize(bytes?: number) {
 }
 
 const TIPO_COLORS: Record<string, string> = {
-  LE: '#EF4444', LP: '#3B82F6', LQ: '#A855F7',
+  LE: '#EF4444', LP: '#3B82F6', LQ: '#64748b',
   CO: '#10B981', L1: '#F97316', SU: '#14B8A6',
 };
 
@@ -222,7 +222,7 @@ function PipelineBadge({ estadoId }: { estadoId: string | null }) {
   if (!estado) return null;
   return (
     <span
-      className="inline-flex items-center text-[11px] font-bold px-2.5 py-1 rounded-full border"
+      className="inline-flex items-center text-[11px] font-semibold px-2.5 py-1 rounded-full border"
       style={{
         backgroundColor: estado.color + '18',
         color:           estado.color,
@@ -251,7 +251,7 @@ function SeccionItems({ licitacion, analisisIA }: { licitacion: LicitacionRaw | 
       {/* ── Ítems de Mercado Público (fuente oficial) ── */}
       <div className="bg-white border border-zinc-200/60 rounded-xl overflow-hidden">
         <div className="px-5 py-3.5 border-b border-zinc-100 flex items-center justify-between">
-          <h3 className="text-[12px] font-bold text-zinc-400 uppercase tracking-wider">
+          <h3 className="text-[12px] font-semibold text-zinc-400">
             Líneas y cantidades ({itemsMP.length})
           </h3>
           {hayMP && <span className="text-[10px] text-zinc-400 bg-zinc-50 border border-zinc-200 px-2 py-0.5 rounded-full">Fuente: Mercado Público</span>}
@@ -273,7 +273,7 @@ function SeccionItems({ licitacion, analisisIA }: { licitacion: LicitacionRaw | 
                     {item.CodigoProducto && <p className="text-[11px] text-zinc-400 mt-1 font-mono">Cód: {item.CodigoProducto}</p>}
                   </div>
                   <div className="flex-shrink-0 text-right">
-                    <p className="text-[14px] font-bold text-zinc-800">{item.Cantidad}</p>
+                    <p className="text-[14px] font-semibold text-zinc-800">{item.Cantidad}</p>
                     <p className="text-[11px] text-zinc-400">{item.Unidad || 'Unidad'}</p>
                   </div>
                 </div>
@@ -285,12 +285,12 @@ function SeccionItems({ licitacion, analisisIA }: { licitacion: LicitacionRaw | 
 
       {/* ── Ítems extraídos por IA (de documentos/bases) ── */}
       {hayIA && (
-        <div className="bg-white border border-violet-200/60 rounded-xl overflow-hidden">
-          <div className="px-5 py-3.5 border-b border-violet-100 flex items-center justify-between">
-            <h3 className="text-[12px] font-bold text-violet-500 uppercase tracking-wider">
+        <div className="bg-white border border-cyan-200/60 rounded-xl overflow-hidden">
+          <div className="px-5 py-3.5 border-b border-cyan-100 flex items-center justify-between">
+            <h3 className="text-[12px] font-semibold text-cyan-500">
               Ítems extraídos de las bases ({itemsIA.length})
             </h3>
-            <span className="text-[10px] text-violet-500 bg-violet-50 border border-violet-200 px-2 py-0.5 rounded-full">Fuente: Análisis de documentos</span>
+            <span className="text-[10px] text-cyan-500 bg-cyan-50 border border-cyan-200 px-2 py-0.5 rounded-full">Fuente: Análisis de documentos</span>
           </div>
           <TablaItems items={itemsIA} />
         </div>
@@ -334,13 +334,13 @@ function TablaItems({ items }: { items: ItemEspec[] }) {
   return (
     <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
       {/* Header */}
-      <div className="px-4 py-3 bg-gradient-to-r from-teal-50 to-cyan-50 border-b border-slate-100">
+      <div className="px-4 py-3 bg-teal-50 border-b border-slate-100">
         <div className="flex items-center gap-2 mb-2">
           <Package size={13} className="text-teal-600" />
-          <h3 className="text-[12px] font-bold text-slate-700 uppercase tracking-wider">
+          <h3 className="text-[12px] font-semibold text-slate-700">
             Ítems / Especificaciones Técnicas
           </h3>
-          <span className="ml-auto text-[11px] bg-teal-100 text-teal-700 px-2 py-0.5 rounded-full font-bold">
+          <span className="ml-auto text-[11px] bg-teal-100 text-teal-700 px-2 py-0.5 rounded-full font-semibold">
             {items.length} ítems
           </span>
         </div>
@@ -387,10 +387,10 @@ function TablaItems({ items }: { items: ItemEspec[] }) {
         <>
           {/* Cabecera de columnas */}
           <div className="grid grid-cols-[2rem_1fr_5rem] sm:grid-cols-[2rem_1fr_6rem_5rem] gap-0 px-4 py-1.5 bg-slate-50 border-b border-slate-100">
-            <span className="text-[10px] font-bold text-slate-400 uppercase">#</span>
-            <span className="text-[10px] font-bold text-slate-400 uppercase">Ítem / Descripción</span>
-            <span className="hidden sm:block text-[10px] font-bold text-slate-400 uppercase text-right">Unidad</span>
-            <span className="text-[10px] font-bold text-slate-400 uppercase text-right">Cant.</span>
+            <span className="text-[10px] font-semibold text-slate-400 uppercase">#</span>
+            <span className="text-[10px] font-semibold text-slate-400 uppercase">Ítem / Descripción</span>
+            <span className="hidden sm:block text-[10px] font-semibold text-slate-400 uppercase text-right">Unidad</span>
+            <span className="text-[10px] font-semibold text-slate-400 uppercase text-right">Cant.</span>
           </div>
 
           <div className="divide-y divide-slate-50 max-h-[500px] overflow-y-auto">
@@ -428,7 +428,7 @@ function TablaItems({ items }: { items: ItemEspec[] }) {
                       )}
                       {abierto && it.requisitosMinimos && (
                         <div className="mt-1.5 p-2 bg-amber-50 rounded-lg border border-amber-100">
-                          <p className="text-[10px] font-bold text-amber-600 uppercase mb-0.5">Requisitos mínimos</p>
+                          <p className="text-[10px] font-semibold text-amber-600 uppercase mb-0.5">Requisitos mínimos</p>
                           <p className="text-[11px] text-amber-800 leading-relaxed">{it.requisitosMinimos}</p>
                         </div>
                       )}
@@ -442,7 +442,7 @@ function TablaItems({ items }: { items: ItemEspec[] }) {
                     {/* Cantidad */}
                     <div className="text-right pt-0.5">
                       {it.cantidad != null ? (
-                        <span className="inline-block text-[13px] font-bold text-teal-700 bg-teal-50 border border-teal-100 px-1.5 py-0 rounded">
+                        <span className="inline-block text-[13px] font-semibold text-teal-700 bg-teal-50 border border-teal-100 px-1.5 py-0 rounded">
                           {it.cantidad.toLocaleString('es-CL')}
                         </span>
                       ) : (
@@ -830,7 +830,7 @@ function DetalleContent() {
           <div className="flex items-center gap-2 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-[13px]">
             <AlertCircle size={14} /> {error || 'No encontrado'}
           </div>
-          <Link href="/negocios" className="mt-4 inline-flex items-center gap-1.5 text-[13px] font-semibold text-indigo-600 hover:underline">
+          <Link href="/negocios" className="mt-4 inline-flex items-center gap-1.5 text-[13px] font-semibold text-teal-600 hover:underline">
             <ArrowLeft size={14} /> Volver a Negocios
           </Link>
         </div>

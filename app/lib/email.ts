@@ -956,7 +956,7 @@ export async function enviarAvisoAprobacionCompras(p: AvisoAprobacionComprasEmai
     : p.resultado === 'CORREGIDA'
       ? [`🔁 Corregido ${p.que}`, '🔁 Corregido: vuelve a revisar', '#d97706', 'El encargado dice que ya corrigió lo que pediste. Revisa el producto y apruébalo o recházalo de nuevo.']
     : p.resultado === 'APROBADA_CON_CAMBIOS'
-      ? [`✏️ Aprobada con cambios ${p.que}`, '✏️ Aprobada con cambios', '#7c3aed', 'Se aprobó y se sigue, pero hay que ajustar lo indicado abajo.']
+      ? [`✏️ Aprobada con cambios ${p.que}`, '✏️ Aprobada con cambios', '#0891b2', 'Se aprobó y se sigue, pero hay que ajustar lo indicado abajo.']
       : [`⛔ Rechazada ${p.que}`, '⛔ Rechazada', '#e11d48', 'No se crean SKU ni órdenes de compra hasta corregir y volver a enviar a aprobación.'];
   const cuerpo = `
     <p style="margin:0 0 14px;color:#374151;font-size:14px;line-height:1.55;">Hola ${esc(p.nombre || '')}:</p>

@@ -88,7 +88,7 @@ function OtrosDocumentos({ escaneos, puedeOperar, subiendo, onSubir, onQuitar, o
   if (!puedeOperar && otros.length === 0) return null;
   return (
     <div className="flex items-center gap-2 flex-wrap text-[12px]">
-      <span className="text-[10.5px] font-bold text-zinc-400 uppercase">Otros documentos</span>
+      <span className="text-[10.5px] font-semibold text-zinc-400 uppercase">Otros documentos</span>
       {otros.map(e => (
         <span key={e.id} className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 bg-white pl-2 pr-1.5 py-1 max-w-[260px]">
           <FileText size={12} className="text-zinc-400 flex-shrink-0" />
@@ -243,13 +243,13 @@ export function EntregaCard({ negocioId, puedeOperar, puedeVerificar = false }: 
   return (
     <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
       <div className="flex items-center justify-between gap-3 px-4 py-2.5 bg-zinc-50 border-b border-zinc-100 flex-wrap">
-        <p className="text-[12.5px] font-bold text-zinc-700 flex items-center gap-1.5">
+        <p className="text-[12.5px] font-semibold text-zinc-700 flex items-center gap-1.5">
           <PackageCheck size={14} /> Entrega del proyecto
-          {entrega.cerradaAt && <span className="text-[10.5px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-full">Cerrada {fmtFecha(entrega.cerradaAt.slice(0, 10))}</span>}
+          {entrega.cerradaAt && <span className="text-[10.5px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-full">Cerrada {fmtFecha(entrega.cerradaAt.slice(0, 10))}</span>}
         </p>
         <div className="flex items-center gap-3 flex-wrap">
           {entrega.verificacionConforme != null ? (
-            <span className={`text-[10.5px] font-bold px-1.5 py-0.5 rounded-full border ${entrega.verificacionConforme ? 'text-emerald-700 bg-emerald-50 border-emerald-200' : 'text-rose-700 bg-rose-50 border-rose-200'}`}>
+            <span className={`text-[10.5px] font-semibold px-1.5 py-0.5 rounded-full border ${entrega.verificacionConforme ? 'text-emerald-700 bg-emerald-50 border-emerald-200' : 'text-rose-700 bg-rose-50 border-rose-200'}`}>
               Bodega: {entrega.verificacionConforme ? 'conforme' : 'no conforme'} — {entrega.verificacionPorNombre}
             </span>
           ) : (puedeOperar || puedeVerificar) ? (
@@ -311,7 +311,7 @@ export function EntregaCard({ negocioId, puedeOperar, puedeVerificar = false }: 
         {/* Puntos de entrega: solo si hay o se agregan (caso menor, §16.2) */}
         {(entrega.puntos.length > 0 || formPunto || puedeOperar) && (
           <div className="flex items-start gap-2 flex-wrap text-[11.5px]">
-            <span className="text-[10.5px] font-bold text-zinc-400 uppercase pt-0.5">Puntos de entrega</span>
+            <span className="text-[10.5px] font-semibold text-zinc-400 uppercase pt-0.5">Puntos de entrega</span>
             {entrega.puntos.map(p => (
               <span key={p.id} className="inline-flex items-center gap-1 bg-zinc-50 rounded-lg px-2 py-0.5 text-zinc-600">
                 {p.direccion}{p.comuna && `, ${p.comuna}`}

@@ -93,10 +93,10 @@ export function ConfigurarEmpresa({ alGuardar }: { alGuardar?: () => void }) {
           <>
             {res.resumen && <p className="mt-1 text-sm text-slate-700">{res.resumen}</p>}
             <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 border-t border-slate-100 pt-3 sm:grid-cols-4">
-              <div><dt className="text-[11px] text-slate-500">Órdenes de compra</dt><dd className="text-sm font-bold tabular-nums text-slate-800">{res.ordenes}</dd></div>
-              <div><dt className="text-[11px] text-slate-500">Actas con líneas ganadas</dt><dd className="text-sm font-bold tabular-nums text-slate-800">{res.actasConLineasGanadas}</dd></div>
-              <div><dt className="text-[11px] text-slate-500">Productos vendidos</dt><dd className="text-sm font-bold tabular-nums text-slate-800">{res.lineas}</dd></div>
-              <div><dt className="text-[11px] text-slate-500">Monto típico por orden</dt><dd className="text-sm font-bold tabular-nums text-slate-800">{clp(res.montoTipico.p10)} a {clp(res.montoTipico.p90)}</dd></div>
+              <div><dt className="text-[11px] text-slate-500">Órdenes de compra</dt><dd className="text-sm font-semibold tabular-nums text-slate-800">{res.ordenes}</dd></div>
+              <div><dt className="text-[11px] text-slate-500">Actas con líneas ganadas</dt><dd className="text-sm font-semibold tabular-nums text-slate-800">{res.actasConLineasGanadas}</dd></div>
+              <div><dt className="text-[11px] text-slate-500">Productos vendidos</dt><dd className="text-sm font-semibold tabular-nums text-slate-800">{res.lineas}</dd></div>
+              <div><dt className="text-[11px] text-slate-500">Monto típico por orden</dt><dd className="text-sm font-semibold tabular-nums text-slate-800">{clp(res.montoTipico.p10)} a {clp(res.montoTipico.p90)}</dd></div>
             </dl>
             {res.compradores.length > 0 && <p className="mt-2 text-xs text-slate-600"><span className="text-slate-500">Te compran más: </span>{res.compradores.slice(0, 5).join(' · ')}</p>}
             <p className="mt-1 text-[11px] text-slate-500">Revisamos los últimos {res.diasRevisados} días.</p>

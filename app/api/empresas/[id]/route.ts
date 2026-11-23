@@ -1,6 +1,7 @@
 // app/api/empresas/[id]/route.ts
 // Detalle de una empresa: GET, PATCH (editar) y DELETE (desactivar). Mutaciones solo admin.
 import { mensajeSeguro } from '@/app/lib/errores-api';
+import { tienePermiso } from '@/app/lib/api-auth';
 import { NextRequest, NextResponse } from 'next/server';
 import { registroEsDeMiEmpresa } from '@/app/lib/tenant';
 import pool from '@/app/lib/db';
@@ -38,7 +39,7 @@ export async function GET(request: NextRequest, { params }: Params) {
 
 export async function PATCH(request: NextRequest, { params }: Params) {
   const { id: userId, rol } = getUser(request);
-  if (!userId || rol !== 'admin')
+  if (!userId || !(await tienePermiso(request, 'config_empresa')))
     return NextResponse.json({ error: 'Solo el admin puede editar empresas' }, { status: 403 });
   const { id } = await params;
   if (!(await registroEsDeMiEmpresa(request, 'empresas', id))) return NextResponse.json({ error: 'No encontrada' }, { status: 404 });
@@ -75,7 +76,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
 
 export async function DELETE(request: NextRequest, { params }: Params) {
   const { id: userId, rol } = getUser(request);
-  if (!userId || rol !== 'admin')
+  if (!userId || !(await tienePermiso(request, 'config_empresa')))
     return NextResponse.json({ error: 'Solo el admin puede eliminar empresas' }, { status: 403 });
   const { id } = await params;
   if (!(await registroEsDeMiEmpresa(request, 'empresas', id))) return NextResponse.json({ error: 'No encontrada' }, { status: 404 });

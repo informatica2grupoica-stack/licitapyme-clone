@@ -77,30 +77,30 @@ export function MetricInfo({ spec, tono = 'claro' }: { spec: EspecificacionMetri
         className={`inline-flex items-center justify-center w-4 h-4 rounded-full flex-shrink-0 transition-colors ${
           tono === 'oscuro'
             ? `${open ? 'text-white bg-white/20' : 'text-white/40 hover:text-white hover:bg-white/15'}`
-            : `${open ? 'text-indigo-600 bg-indigo-50' : 'text-slate-300 hover:text-indigo-500 hover:bg-indigo-50'}`
+            : `${open ? 'text-teal-600 bg-teal-50' : 'text-slate-300 hover:text-teal-500 hover:bg-teal-50'}`
         }`}
         aria-label="Cómo se mide esto">
         <Info size={12.5} />
       </button>
       {montado && open && coords && createPortal(
         <div ref={popRef}
-          className="fixed z-[300] bg-slate-900 text-white rounded-xl shadow-2xl ring-1 ring-white/10 p-3.5"
+          className="fixed z-[300] bg-slate-900 text-white rounded-xl shadow-flotante ring-1 ring-white/10 p-3.5"
           style={{ left: coords.left, top: coords.top, width: ANCHO }}>
-          <p className="font-bold text-white text-[12px] mb-2 flex items-center gap-1.5 uppercase tracking-wide">
-            <Info size={12} className="text-indigo-300" /> Cómo se mide
+          <p className="font-semibold text-white text-[12px] mb-2 flex items-center gap-1.5">
+            <Info size={12} className="text-teal-300" /> Cómo se mide
           </p>
           <dl className="space-y-2 text-[12.5px] leading-relaxed">
             <div>
-              <dt className="text-[10px] font-bold uppercase tracking-wide text-indigo-300 mb-0.5">Mide</dt>
+              <dt className="text-[10px] font-semibold text-teal-300 mb-0.5">Mide</dt>
               <dd className="text-slate-200">{spec.mide}</dd>
             </div>
             <div>
-              <dt className="text-[10px] font-bold uppercase tracking-wide text-indigo-300 mb-0.5">Cálculo exacto</dt>
+              <dt className="text-[10px] font-semibold text-teal-300 mb-0.5">Cálculo exacto</dt>
               <dd className="text-slate-200">{spec.calculo}</dd>
             </div>
             {spec.fuente && (
               <div>
-                <dt className="text-[10px] font-bold uppercase tracking-wide text-indigo-300 mb-0.5">Fuente</dt>
+                <dt className="text-[10px] font-semibold text-teal-300 mb-0.5">Fuente</dt>
                 <dd className="text-slate-400 font-mono text-[11px] break-words">{spec.fuente}</dd>
               </div>
             )}

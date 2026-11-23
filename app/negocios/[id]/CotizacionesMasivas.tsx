@@ -148,8 +148,8 @@ export function CotizacionesMasivas({ negocioId, productos, onTerminado }: {
         onDragOver={e => e.preventDefault()}
         onDrop={e => { e.preventDefault(); if (e.dataTransfer.files?.length) agregarArchivos(e.dataTransfer.files); }}
         onClick={() => inputRef.current?.click()}
-        className="cursor-pointer border-2 border-dashed border-indigo-200 hover:border-indigo-400 bg-white rounded-xl px-4 py-5 text-center transition-colors">
-        <Upload size={18} className="mx-auto text-indigo-400 mb-1" />
+        className="cursor-pointer border-2 border-dashed border-teal-200 hover:border-teal-400 bg-white rounded-xl px-4 py-5 text-center transition-colors">
+        <Upload size={18} className="mx-auto text-teal-400 mb-1" />
         <p className="text-[12px] font-semibold text-zinc-600">Arrastra los archivos aquí o haz clic para elegirlos</p>
         <p className="text-[10.5px] text-zinc-400">PDF o imagen · hasta {MAX_ARCHIVOS} archivos · {MAX_MB} MB cada uno</p>
         <input ref={inputRef} type="file" multiple accept=".pdf,image/*" className="hidden"
@@ -160,7 +160,7 @@ export function CotizacionesMasivas({ negocioId, productos, onTerminado }: {
         <div className="space-y-1.5">
           <p className="text-[11px] text-zinc-500">
             {procesando ? <span className="inline-flex items-center gap-1"><Loader2 size={11} className="animate-spin" /> Leyendo y registrando… {registradas} de {filas.length}</span>
-              : <>{registradas} de {filas.length} registrada(s){esperandoIA && <span className="inline-flex items-center gap-1 text-indigo-600"> · <Loader2 size={11} className="animate-spin" /> la IA está asignando productos…</span>}</>}
+              : <>{registradas} de {filas.length} registrada(s){esperandoIA && <span className="inline-flex items-center gap-1 text-teal-600"> · <Loader2 size={11} className="animate-spin" /> la IA está asignando productos…</span>}</>}
           </p>
           {filas.map(f => {
             const cot = f.cotizacionId != null ? cotizaciones.get(f.cotizacionId) : undefined;
@@ -170,7 +170,7 @@ export function CotizacionesMasivas({ negocioId, productos, onTerminado }: {
                   <span className="font-semibold text-zinc-700 truncate">{f.file.name}</span>
                   <span className="flex-shrink-0">
                     {f.estado === 'espera' && <span className="inline-flex items-center gap-1 text-zinc-400"><Clock size={11} /> En espera</span>}
-                    {f.estado === 'leyendo' && <span className="inline-flex items-center gap-1 text-indigo-600"><Loader2 size={11} className="animate-spin" /> Leyendo…</span>}
+                    {f.estado === 'leyendo' && <span className="inline-flex items-center gap-1 text-teal-600"><Loader2 size={11} className="animate-spin" /> Leyendo…</span>}
                     {f.estado === 'registrada' && <span className="inline-flex items-center gap-1 text-emerald-700"><CheckCircle2 size={11} /> Registrada</span>}
                     {(f.estado === 'sin_proveedor' || f.estado === 'error') && <span className="inline-flex items-center gap-1 text-amber-700"><AlertTriangle size={11} /> Revisar</span>}
                   </span>
@@ -188,10 +188,10 @@ export function CotizacionesMasivas({ negocioId, productos, onTerminado }: {
                       </ul>
                     ) : cot.homologadaAt ? (
                       <p className="text-amber-700">La IA no identificó a qué producto corresponde: asígnala a mano con &quot;Asignar productos&quot;.</p>
-                    ) : <p className="text-indigo-600">Asignando producto…</p>}
+                    ) : <p className="text-teal-600">Asignando producto…</p>}
                     {cot.homologadaAt && String(cot.notas || '').includes('IVA sin confirmar:') && !String(cot.notas || '').includes('÷ 1,19') && (
                       <div className="mt-1.5 rounded-md border border-amber-300 bg-amber-50 px-2 py-1.5" data-testid={`masiva-iva-${cot.id}`}>
-                        <p className="text-[11.5px] font-bold text-amber-900">Este documento no dice si sus precios son netos o con IVA. ¿Cómo vienen?</p>
+                        <p className="text-[11.5px] font-semibold text-amber-900">Este documento no dice si sus precios son netos o con IVA. ¿Cómo vienen?</p>
                         <div className="mt-1 flex flex-wrap items-center gap-1.5">
                           <button type="button" disabled={respondiendoIva === cot.id} onClick={() => responderIva(cot.id, 'neto')}
                             className="text-[11px] font-semibold text-teal-700 border border-teal-200 bg-white hover:bg-teal-50 disabled:opacity-50 rounded-md px-2 py-0.5">Son netos (más IVA aparte)</button>

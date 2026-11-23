@@ -100,15 +100,15 @@ export function InteligenciaSection({ codigo, documentosAnalizables, nombreLicit
 
       <div className="bg-white rounded-xl border border-zinc-200 shadow-sm overflow-hidden flex flex-col">
         {/* Header */}
-        <div className="px-4 py-3 border-b border-zinc-100 bg-gradient-to-r from-purple-50 to-indigo-50">
+        <div className="px-4 py-3 border-b border-zinc-100 bg-slate-50">
           <div className="flex items-center gap-2">
-            <div className="p-1.5 bg-purple-600 rounded-lg">
+            <div className="p-1.5 bg-slate-600 rounded-lg">
               <Bot size={13} className="text-white" />
             </div>
             <span className="text-sm font-semibold text-zinc-800">ankIA · Licitación</span>
             <span className="text-xs text-zinc-400 truncate hidden sm:inline">{nombreLicitacion}</span>
             {hayDocs && (
-              <span className="ml-auto text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full font-medium flex-shrink-0">
+              <span className="ml-auto text-xs bg-slate-100 text-slate-700 px-2 py-0.5 rounded-full font-medium flex-shrink-0">
                 {documentosAnalizables.length} doc{documentosAnalizables.length > 1 ? 's' : ''}
               </span>
             )}
@@ -119,8 +119,8 @@ export function InteligenciaSection({ codigo, documentosAnalizables, nombreLicit
         <div className="flex-1 overflow-y-auto p-4 space-y-3 min-h-[400px] max-h-[640px]">
           {!hayDocs ? (
             <div className="flex flex-col items-center justify-center h-full py-16 text-center">
-              <div className="w-12 h-12 bg-purple-50 rounded-full flex items-center justify-center mb-3">
-                <Upload size={18} className="text-purple-400" />
+              <div className="w-12 h-12 bg-slate-50 rounded-full flex items-center justify-center mb-3">
+                <Upload size={18} className="text-slate-400" />
               </div>
               <p className="text-sm font-medium text-zinc-600">Sin documentos aún</p>
               <p className="text-xs text-zinc-400 mt-1 max-w-[260px]">
@@ -140,8 +140,8 @@ export function InteligenciaSection({ codigo, documentosAnalizables, nombreLicit
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
                 {PREGUNTAS_RAPIDAS.map(p => (
                   <button key={p.label} onClick={() => enviar(p.pregunta)}
-                    className="flex items-center gap-2 text-left px-3 py-2 text-xs text-zinc-700 bg-zinc-50 hover:bg-purple-50 hover:text-purple-700 border border-zinc-100 hover:border-purple-200 rounded-lg transition-colors">
-                    <span className="text-purple-500 flex-shrink-0">{p.icon}</span>
+                    className="flex items-center gap-2 text-left px-3 py-2 text-xs text-zinc-700 bg-zinc-50 hover:bg-slate-50 hover:text-slate-700 border border-zinc-100 hover:border-slate-200 rounded-lg transition-colors">
+                    <span className="text-slate-500 flex-shrink-0">{p.icon}</span>
                     <span className="flex-1">{p.label}</span>
                   </button>
                 ))}
@@ -156,7 +156,7 @@ export function InteligenciaSection({ codigo, documentosAnalizables, nombreLicit
                       <User size={13} className="text-white" />
                     </div>
                   ) : (
-                    <div className="flex-shrink-0 w-7 h-7 bg-purple-600 rounded-full flex items-center justify-center">
+                    <div className="flex-shrink-0 w-7 h-7 bg-slate-600 rounded-full flex items-center justify-center">
                       <Bot size={13} className="text-white" />
                     </div>
                   )}
@@ -175,14 +175,14 @@ export function InteligenciaSection({ codigo, documentosAnalizables, nombreLicit
               ))}
               {cargando && (
                 <div className="flex gap-2">
-                  <div className="flex-shrink-0 w-7 h-7 bg-purple-600 rounded-full flex items-center justify-center">
+                  <div className="flex-shrink-0 w-7 h-7 bg-slate-600 rounded-full flex items-center justify-center">
                     <Bot size={13} className="text-white" />
                   </div>
                   <div className="bg-zinc-50 border border-zinc-100 px-4 py-3 rounded-xl rounded-tl-sm">
                     <div className="flex gap-1.5 items-center">
-                      <span className="w-1.5 h-1.5 bg-purple-400 rounded-full animate-bounce [animation-delay:0ms]" />
-                      <span className="w-1.5 h-1.5 bg-purple-400 rounded-full animate-bounce [animation-delay:150ms]" />
-                      <span className="w-1.5 h-1.5 bg-purple-400 rounded-full animate-bounce [animation-delay:300ms]" />
+                      <span className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce [animation-delay:0ms]" />
+                      <span className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce [animation-delay:150ms]" />
+                      <span className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce [animation-delay:300ms]" />
                       <span className="text-xs text-zinc-500 ml-1">Pensando…</span>
                     </div>
                   </div>
@@ -201,7 +201,7 @@ export function InteligenciaSection({ codigo, documentosAnalizables, nombreLicit
                 <div className="flex gap-1 mb-2 flex-wrap">
                   {PREGUNTAS_RAPIDAS.slice(0, 4).map(p => (
                     <button key={p.label} onClick={() => enviar(p.pregunta)} disabled={cargando}
-                      className="text-xs px-2.5 py-1 bg-zinc-100 hover:bg-purple-100 hover:text-purple-700 text-zinc-600 rounded-full transition-colors disabled:opacity-50 flex items-center gap-1">
+                      className="text-xs px-2.5 py-1 bg-zinc-100 hover:bg-slate-100 hover:text-slate-700 text-zinc-600 rounded-full transition-colors disabled:opacity-50 flex items-center gap-1">
                       {p.icon}<span className="hidden sm:inline">{p.label}</span>
                     </button>
                   ))}
@@ -212,10 +212,10 @@ export function InteligenciaSection({ codigo, documentosAnalizables, nombreLicit
                   ref={inputRef} value={pregunta} onChange={e => setPregunta(e.target.value)}
                   onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); enviar(); } }}
                   placeholder="Escribe tu pregunta..." rows={2} disabled={cargando}
-                  className="flex-1 text-sm border border-zinc-200 rounded-xl px-3 py-2 focus:ring-2 focus:ring-purple-500 focus:border-transparent resize-none disabled:bg-zinc-50 disabled:text-zinc-400"
+                  className="flex-1 text-sm border border-zinc-200 rounded-xl px-3 py-2 focus:ring-2 focus:ring-slate-500 focus:border-transparent resize-none disabled:bg-zinc-50 disabled:text-zinc-400"
                 />
                 <button onClick={() => enviar()} disabled={cargando || !pregunta.trim()}
-                  className="flex-shrink-0 p-2.5 bg-purple-600 hover:bg-purple-700 disabled:bg-zinc-300 text-white rounded-xl transition-colors">
+                  className="flex-shrink-0 p-2.5 bg-slate-600 hover:bg-slate-700 disabled:bg-zinc-300 text-white rounded-xl transition-colors">
                   {cargando ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />}
                 </button>
               </div>

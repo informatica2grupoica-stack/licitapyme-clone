@@ -268,7 +268,7 @@ export default function ProveedoresPage() {
           <div className="flex items-center gap-2.5">
             <div className="w-9 h-9 rounded-lg bg-teal-50 flex items-center justify-center flex-shrink-0"><Building2 size={17} className="text-teal-600" /></div>
             <div>
-              <h1 className="text-[16px] font-bold text-zinc-900 leading-tight">Proveedores</h1>
+              <h1 className="text-[16px] font-semibold text-zinc-900 leading-tight">Proveedores</h1>
               <p className="text-[12px] text-zinc-500">{proveedores.length} proveedor(es) en el catálogo</p>
             </div>
           </div>
@@ -278,10 +278,10 @@ export default function ProveedoresPage() {
               <input value={q} onChange={e => setQ(e.target.value)} placeholder="Buscar nombre o RUT…"
                 className="pl-8 pr-3 py-2 text-[12.5px] border border-zinc-200 rounded-lg outline-none focus:ring-1 focus:ring-teal-500 w-56" />
             </div>
-            {!soloLectura && <button onClick={sincronizarObuma} disabled={sincronizando || sincronizandoItems} className="flex items-center gap-1.5 text-[12px] font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 disabled:opacity-50 px-3 py-2 rounded-lg">
+            {!soloLectura && <button onClick={sincronizarObuma} disabled={sincronizando || sincronizandoItems} className="flex items-center gap-1.5 text-[12px] font-semibold text-teal-700 bg-teal-50 hover:bg-teal-100 disabled:opacity-50 px-3 py-2 rounded-lg">
               {sincronizando ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />} Sincronizar con Obuma
             </button>}
-            {!soloLectura && <button onClick={() => setCrearObumaAbierto(true)} className="flex items-center gap-1.5 text-[12px] font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 px-3 py-2 rounded-lg">
+            {!soloLectura && <button onClick={() => setCrearObumaAbierto(true)} className="flex items-center gap-1.5 text-[12px] font-semibold text-teal-700 bg-teal-50 hover:bg-teal-100 px-3 py-2 rounded-lg">
               <Plus size={14} /> Crear en Obuma
             </button>}
             {!soloLectura && <button onClick={() => setFormAbierto(v => !v)} className="flex items-center gap-1.5 text-[12px] font-semibold text-white bg-teal-600 hover:bg-teal-700 px-3 py-2 rounded-lg">
@@ -298,7 +298,7 @@ export default function ProveedoresPage() {
             nuestra base de datos") — traer los ítems es una llamada a Obuma POR CADA orden de
             compra, así que avanza por lotes; esto se ve mientras corre y desaparece al terminar. */}
         {sincronizandoItems && (
-          <div className="bg-indigo-50 border border-indigo-200 rounded-xl px-4 py-2.5 flex items-center gap-2 text-[12px] text-indigo-700">
+          <div className="bg-teal-50 border border-teal-200 rounded-xl px-4 py-2.5 flex items-center gap-2 text-[12px] text-teal-700">
             <Loader2 size={13} className="animate-spin flex-shrink-0" />
             Guardando el historial de compras en nuestra base de datos
             {progresoItems && ` — ${progresoItems.guardados} ítem(s) guardados, ${progresoItems.pendientes} orden(es) de compra pendiente(s)`}…
@@ -310,22 +310,22 @@ export default function ProveedoresPage() {
             el mismo criterio que se muestra abajo, para no duplicar controles. */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
           <div className="bg-white rounded-xl border border-zinc-200 p-3">
-            <p className="text-[10.5px] font-bold text-zinc-400 uppercase flex items-center gap-1"><Users size={11} /> Total</p>
-            <p className="text-[19px] font-bold text-zinc-900 mt-0.5">{stats.total}</p>
+            <p className="text-[10.5px] font-semibold text-zinc-400 uppercase flex items-center gap-1"><Users size={11} /> Total</p>
+            <p className="text-[19px] font-semibold text-zinc-900 mt-0.5">{stats.total}</p>
           </div>
           <button onClick={() => setFiltroCuenta(v => !v)}
             className={`text-left rounded-xl border p-3 transition-colors ${filtroCuenta ? 'border-teal-400 bg-teal-50 ring-1 ring-teal-200' : 'border-zinc-200 bg-white hover:bg-zinc-50'}`}>
-            <p className="text-[10.5px] font-bold text-zinc-400 uppercase flex items-center gap-1"><CreditCard size={11} /> Con cuenta bancaria</p>
-            <p className="text-[19px] font-bold text-zinc-900 mt-0.5">{stats.conCuenta}</p>
+            <p className="text-[10.5px] font-semibold text-zinc-400 uppercase flex items-center gap-1"><CreditCard size={11} /> Con cuenta bancaria</p>
+            <p className="text-[19px] font-semibold text-zinc-900 mt-0.5">{stats.conCuenta}</p>
           </button>
           <button onClick={() => setFiltroCompras(v => !v)}
             className={`text-left rounded-xl border p-3 transition-colors ${filtroCompras ? 'border-teal-400 bg-teal-50 ring-1 ring-teal-200' : 'border-zinc-200 bg-white hover:bg-zinc-50'}`}>
-            <p className="text-[10.5px] font-bold text-zinc-400 uppercase flex items-center gap-1"><ShoppingCart size={11} /> Con compras registradas</p>
-            <p className="text-[19px] font-bold text-zinc-900 mt-0.5">{stats.conCompras}</p>
+            <p className="text-[10.5px] font-semibold text-zinc-400 uppercase flex items-center gap-1"><ShoppingCart size={11} /> Con compras registradas</p>
+            <p className="text-[19px] font-semibold text-zinc-900 mt-0.5">{stats.conCompras}</p>
           </button>
           <div className="bg-white rounded-xl border border-zinc-200 p-3">
-            <p className="text-[10.5px] font-bold text-zinc-400 uppercase flex items-center gap-1"><Wallet size={11} /> Comprado histórico</p>
-            <p className="text-[16px] font-bold text-zinc-900 mt-0.5">{fmtCLP(stats.montoTotal)}</p>
+            <p className="text-[10.5px] font-semibold text-zinc-400 uppercase flex items-center gap-1"><Wallet size={11} /> Comprado histórico</p>
+            <p className="text-[16px] font-semibold text-zinc-900 mt-0.5">{fmtCLP(stats.montoTotal)}</p>
           </div>
         </div>
 
@@ -342,8 +342,8 @@ export default function ProveedoresPage() {
             busca en las compras REALES de Obuma, no en el catálogo local. Solo se muestra con 3+
             caracteres, para no disparar la búsqueda en cada letra suelta. */}
         {q.trim().length >= 3 && (
-          <div className="bg-white rounded-xl border border-indigo-200 overflow-hidden">
-            <p className="px-4 py-2.5 text-[11px] font-bold text-indigo-700 uppercase bg-indigo-50 border-b border-indigo-100 flex items-center gap-1.5">
+          <div className="bg-white rounded-xl border border-teal-200 overflow-hidden">
+            <p className="px-4 py-2.5 text-[11px] font-semibold text-teal-700 uppercase bg-teal-50 border-b border-teal-100 flex items-center gap-1.5">
               <PackageSearch size={13} /> ¿A quién le hemos comprado "{q.trim()}"?
             </p>
             {busquedaProducto.estado === 'buscando' && (
@@ -360,11 +360,11 @@ export default function ProveedoresPage() {
                 {busquedaProducto.resultados.map(r => (
                   <button key={r.obumaProveedorId} onClick={() => r.proveedorId && irAProveedor(r.proveedorId)}
                     disabled={!r.proveedorId}
-                    className="w-full text-left px-4 py-2.5 hover:bg-indigo-50/60 transition-colors disabled:cursor-default disabled:hover:bg-transparent">
+                    className="w-full text-left px-4 py-2.5 hover:bg-teal-50/60 transition-colors disabled:cursor-default disabled:hover:bg-transparent">
                     <p className="text-[12px] font-semibold text-zinc-800">{r.nombreEmpresa}{r.rut && <span className="text-zinc-400 font-normal"> · {r.rut}</span>}</p>
                     <div className="mt-0.5 flex flex-wrap gap-1.5">
                       {r.productos.map((p, i) => (
-                        <span key={i} className="text-[10.5px] text-indigo-700 bg-indigo-50 border border-indigo-200 px-1.5 py-0.5 rounded-full">
+                        <span key={i} className="text-[10.5px] text-teal-700 bg-teal-50 border border-teal-200 px-1.5 py-0.5 rounded-full">
                           {p.nombre} · {p.veces}× {p.ultimaFecha && `· última ${p.ultimaFecha.slice(0, 10)}`}
                         </span>
                       ))}
@@ -379,7 +379,7 @@ export default function ProveedoresPage() {
 
         {formAbierto && (
           <div className="bg-white rounded-xl border border-zinc-200 p-4 space-y-3">
-            <p className="text-[10.5px] font-bold text-zinc-400 uppercase flex items-center gap-1"><Building2 size={11} /> Identidad</p>
+            <p className="text-[10.5px] font-semibold text-zinc-400 uppercase flex items-center gap-1"><Building2 size={11} /> Identidad</p>
             <div className="grid grid-cols-2 gap-2.5">
               <input value={form.nombreEmpresa} onChange={e => setForm(f => ({ ...f, nombreEmpresa: e.target.value }))} placeholder="Nombre de la empresa (razón social) *"
                 className="text-[12.5px] border border-zinc-200 rounded-lg px-2.5 py-1.5 outline-none focus:ring-1 focus:ring-teal-500 col-span-2" />
@@ -393,7 +393,7 @@ export default function ProveedoresPage() {
                 className="text-[12.5px] border border-zinc-200 rounded-lg px-2.5 py-1.5 outline-none focus:ring-1 focus:ring-teal-500" />
             </div>
 
-            <p className="text-[10.5px] font-bold text-zinc-400 uppercase flex items-center gap-1 pt-1"><Mail size={11} /> Contacto</p>
+            <p className="text-[10.5px] font-semibold text-zinc-400 uppercase flex items-center gap-1 pt-1"><Mail size={11} /> Contacto</p>
             <div className="grid grid-cols-2 gap-2.5">
               <input value={form.contactoNombre} onChange={e => setForm(f => ({ ...f, contactoNombre: e.target.value }))} placeholder="Nombre de contacto"
                 className="text-[12.5px] border border-zinc-200 rounded-lg px-2.5 py-1.5 outline-none focus:ring-1 focus:ring-teal-500" />
@@ -409,7 +409,7 @@ export default function ProveedoresPage() {
                 className="text-[12.5px] border border-zinc-200 rounded-lg px-2.5 py-1.5 outline-none focus:ring-1 focus:ring-teal-500" />
             </div>
 
-            <p className="text-[10.5px] font-bold text-zinc-400 uppercase flex items-center gap-1 pt-1"><Landmark size={11} /> Datos de transferencia</p>
+            <p className="text-[10.5px] font-semibold text-zinc-400 uppercase flex items-center gap-1 pt-1"><Landmark size={11} /> Datos de transferencia</p>
             <div className="grid grid-cols-2 gap-2.5">
               <input value={form.banco} onChange={e => setForm(f => ({ ...f, banco: e.target.value }))} placeholder="Banco"
                 className="text-[12.5px] border border-zinc-200 rounded-lg px-2.5 py-1.5 outline-none focus:ring-1 focus:ring-teal-500" />
@@ -472,7 +472,7 @@ export default function ProveedoresPage() {
                     <td className={`${td} text-zinc-600 whitespace-nowrap`}>{p.telefono || '—'}</td>
                     <td className={`${td} text-zinc-600 max-w-[200px] truncate`} title={p.correo || ''}>{p.correo || '—'}</td>
                     <td className={td}>{p.obumaTieneCuentaBancaria || p.banco ? <span title="Tiene cuenta bancaria" className="inline-flex items-center gap-1 text-[10.5px] font-semibold text-teal-700 bg-teal-50 border border-teal-200 px-1.5 py-0.5 rounded-full"><CreditCard size={10} /> Sí</span> : <span className="text-zinc-300">—</span>}</td>
-                    <td className={`${td} text-right`}>{p.obumaComprasCantidad > 0 ? <span title={`${p.obumaComprasCantidad} orden(es) de compra`} className="inline-flex items-center gap-1 text-[10.5px] font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200 px-1.5 py-0.5 rounded-full"><ShoppingCart size={10} /> {p.obumaComprasCantidad}</span> : <span className="text-zinc-300">—</span>}</td>
+                    <td className={`${td} text-right`}>{p.obumaComprasCantidad > 0 ? <span title={`${p.obumaComprasCantidad} orden(es) de compra`} className="inline-flex items-center gap-1 text-[10.5px] font-semibold text-teal-700 bg-teal-50 border border-teal-200 px-1.5 py-0.5 rounded-full"><ShoppingCart size={10} /> {p.obumaComprasCantidad}</span> : <span className="text-zinc-300">—</span>}</td>
                     <td className={`${td} text-right text-zinc-700 whitespace-nowrap`}>{p.obumaComprasMontoTotal > 0 ? fmtCLP(p.obumaComprasMontoTotal) : '—'}</td>
                     <td className={`${td} text-zinc-600 whitespace-nowrap`}>{p.obumaUltimaCompraFecha ? p.obumaUltimaCompraFecha.slice(0, 10) : '—'}</td>
                     <td className={td}>{activo ? <ChevronUp size={15} className="text-teal-600" /> : <ChevronDown size={15} className="text-zinc-400" />}</td>
@@ -497,7 +497,7 @@ export default function ProveedoresPage() {
                           forma de pago. */}
                       {p.obumaProveedorId && (
                         <div className="border-t border-zinc-200 pt-2.5">
-                          <p className="text-[10.5px] font-bold text-zinc-400 uppercase flex items-center gap-1 mb-1"><CreditCard size={11} /> Cuenta bancaria en Obuma</p>
+                          <p className="text-[10.5px] font-semibold text-zinc-400 uppercase flex items-center gap-1 mb-1"><CreditCard size={11} /> Cuenta bancaria en Obuma</p>
                           {p.obumaTieneCuentaBancaria ? (
                             <p className="text-[11.5px] text-zinc-600">
                               {p.obumaTipoCuenta || 'Cuenta'} N° {p.obumaNumeroCuenta || '—'}
@@ -511,7 +511,7 @@ export default function ProveedoresPage() {
 
                       {/* Historial de compras REAL (OC de Obuma) — carga perezosa, ver toggleExpandido. */}
                       <div className="border-t border-zinc-200 pt-2.5">
-                        <p className="text-[10.5px] font-bold text-zinc-400 uppercase flex items-center gap-1 mb-1"><ShoppingCart size={11} /> Compras a este proveedor</p>
+                        <p className="text-[10.5px] font-semibold text-zinc-400 uppercase flex items-center gap-1 mb-1"><ShoppingCart size={11} /> Compras a este proveedor</p>
                         {!p.obumaProveedorId ? (
                           <p className="text-[11.5px] text-zinc-400">Todavía no está enlazado a una ficha de Obuma — no se puede consultar el historial. Usa "Sincronizar con Obuma".</p>
                         ) : historiales[p.id]?.estado === 'cargando' ? (

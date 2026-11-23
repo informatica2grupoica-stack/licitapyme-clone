@@ -74,11 +74,11 @@ export function PreguntasSection({ codigoDecoded, mpUrl }: { codigoDecoded: stri
         title="Preguntas Licitación"
         subtitle="Foro de preguntas y respuestas del proceso — se mantiene al día solo (cron cada hora)"
         badge={foro && foro.preguntas.length > 0
-          ? <span className="px-2 py-0.5 bg-indigo-100 text-indigo-700 text-xs rounded-full font-semibold">{foro.preguntas.length}</span>
+          ? <span className="px-2 py-0.5 bg-teal-100 text-teal-700 text-xs rounded-full font-semibold">{foro.preguntas.length}</span>
           : undefined}
         action={estado === 'ok'
           ? <button onClick={actualizar} title="Forzar consulta en vivo (no espera al cron)"
-              className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-slate-500 hover:text-indigo-600 transition-colors">
+              className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-slate-500 hover:text-teal-600 transition-colors">
               <RefreshCw size={13} /> Actualizar
             </button>
           : undefined}
@@ -86,23 +86,23 @@ export function PreguntasSection({ codigoDecoded, mpUrl }: { codigoDecoded: stri
 
       {estado === 'idle' && (
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm px-6 py-10 text-center">
-          <Loader2 size={20} className="animate-spin text-indigo-400 mx-auto" />
+          <Loader2 size={20} className="animate-spin text-teal-400 mx-auto" />
         </div>
       )}
 
       {estado === 'vacio' && (
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
           <div className="px-6 py-10 text-center">
-            <div className="w-14 h-14 bg-indigo-50 rounded-2xl flex items-center justify-center mx-auto mb-4">
-              <Clock size={22} className="text-indigo-400" />
+            <div className="w-14 h-14 bg-teal-50 rounded-2xl flex items-center justify-center mx-auto mb-4">
+              <Clock size={22} className="text-teal-400" />
             </div>
-            <h3 className="text-[15px] font-bold text-slate-800 mb-1.5">Aún sin consultar</h3>
+            <h3 className="text-[15px] font-semibold text-slate-800 mb-1.5">Aún sin consultar</h3>
             <p className="text-[13px] text-slate-500 mb-5 max-w-sm mx-auto leading-relaxed">
               El sistema revisa esta licitación automáticamente (cada hora). Si quieres verla ahora mismo,
               se trae en vivo desde Mercado Público — toma unos segundos.
             </p>
             <button onClick={actualizar}
-              className="inline-flex items-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-[13px] font-semibold rounded-xl transition-colors shadow-sm">
+              className="inline-flex items-center gap-2 px-5 py-2.5 bg-teal-600 hover:bg-teal-700 text-white text-[13px] font-semibold rounded-xl transition-colors shadow-sm">
               <HelpCircle size={13} /> Consultar ahora
             </button>
           </div>
@@ -111,7 +111,7 @@ export function PreguntasSection({ codigoDecoded, mpUrl }: { codigoDecoded: stri
 
       {estado === 'actualizando' && (
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm px-6 py-10 text-center">
-          <Loader2 size={22} className="animate-spin text-indigo-500 mx-auto mb-3" />
+          <Loader2 size={22} className="animate-spin text-teal-500 mx-auto mb-3" />
           <p className="text-[13px] text-slate-500">Consultando Mercado Público en vivo…</p>
         </div>
       )}
@@ -120,7 +120,7 @@ export function PreguntasSection({ codigoDecoded, mpUrl }: { codigoDecoded: stri
         <AlertBanner tipo="danger" titulo="No se pudo traer el foro">
           Reintenta en unos minutos, o revísalo directo en el portal.
           <a href={mpUrl} target="_blank" rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 mt-3 text-[12.5px] font-semibold text-indigo-600 hover:text-indigo-700">
+            className="inline-flex items-center gap-1.5 mt-3 text-[12.5px] font-semibold text-teal-600 hover:text-teal-700">
             <ExternalLink size={12} /> Ver en Mercado Público
           </a>
         </AlertBanner>
@@ -131,7 +131,7 @@ export function PreguntasSection({ codigoDecoded, mpUrl }: { codigoDecoded: stri
           <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
             <div className="px-5 py-3 border-b border-slate-100 bg-slate-50 flex items-center gap-2">
               <Calendar size={14} className="text-slate-400" />
-              <p className="text-[12px] font-bold text-slate-500 uppercase tracking-wide">Plazos del foro</p>
+              <p className="text-[12px] font-semibold text-slate-500">Plazos del foro</p>
             </div>
             <div className="px-5">
               <InfoRow label="Inicio de preguntas" value={foro.fechaInicioPreguntas} />
@@ -153,9 +153,9 @@ export function PreguntasSection({ codigoDecoded, mpUrl }: { codigoDecoded: stri
                 <div className="space-y-5">
                   {foro.preguntas.map((p, i) => (
                     <div key={i} className="border border-slate-100 rounded-xl overflow-hidden slide-in-up" style={{ animationDelay: `${i * 40}ms` }}>
-                      <div className="px-4 py-3 bg-indigo-50/50 border-b border-slate-100">
+                      <div className="px-4 py-3 bg-teal-50/50 border-b border-slate-100">
                         <div className="flex items-center justify-between gap-2 mb-1">
-                          <span className="text-[11px] font-bold text-indigo-600 uppercase tracking-wide">
+                          <span className="text-[11px] font-semibold text-teal-600">
                             {p.numero ? `Pregunta ${p.numero}` : 'Pregunta'}
                           </span>
                           {p.fechaPregunta && <span className="text-[11px] text-slate-400">{p.fechaPregunta}</span>}
@@ -165,7 +165,7 @@ export function PreguntasSection({ codigoDecoded, mpUrl }: { codigoDecoded: stri
                       {p.respuesta ? (
                         <div className="px-4 py-3">
                           <div className="flex items-center justify-between gap-2 mb-1">
-                            <span className="text-[11px] font-bold text-emerald-600 uppercase tracking-wide">Respuesta</span>
+                            <span className="text-[11px] font-semibold text-emerald-600">Respuesta</span>
                             {p.fechaRespuesta && <span className="text-[11px] text-slate-400">{p.fechaRespuesta}</span>}
                           </div>
                           <p className="text-[13px] text-slate-700 leading-relaxed whitespace-pre-line">{p.respuesta}</p>
@@ -185,7 +185,7 @@ export function PreguntasSection({ codigoDecoded, mpUrl }: { codigoDecoded: stri
           <div className="flex items-center justify-between text-[11px] text-slate-400 px-1">
             <span>{foro.respondido ? 'Foro cerrado (respuestas ya publicadas)' : 'Aún puede haber respuestas nuevas'}{foro.consultadoEn ? ` · consultado ${foro.consultadoEn}` : ''}</span>
             <a href={mpUrl} target="_blank" rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 hover:text-indigo-600 transition-colors">
+              className="inline-flex items-center gap-1.5 hover:text-teal-600 transition-colors">
               <ExternalLink size={11} /> Ver en Mercado Público
             </a>
           </div>

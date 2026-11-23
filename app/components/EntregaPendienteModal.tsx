@@ -91,14 +91,14 @@ export function EntregaPendienteModal() {
 
   return (
     <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl overflow-hidden">
+      <div className="bg-white rounded-xl shadow-flotante w-full max-w-3xl overflow-hidden">
         {/* Cabecera celebratoria: ganar es una buena noticia, no una alerta de error. */}
-        <div className="px-6 py-5 bg-gradient-to-br from-amber-50 to-orange-50 border-b border-amber-100 flex items-start gap-3">
+        <div className="px-6 py-5 bg-amber-50 border-b border-amber-100 flex items-start gap-3">
           <div className="w-11 h-11 rounded-xl bg-white border border-amber-200 flex items-center justify-center flex-shrink-0 shadow-sm">
             <Trophy size={20} className="text-amber-500" />
           </div>
           <div className="flex-1 min-w-0">
-            <h2 className="text-[16px] font-bold text-zinc-900">¡Ganamos un proyecto!</h2>
+            <h2 className="text-[16px] font-semibold text-zinc-900">¡Ganamos un proyecto!</h2>
             <p className="text-[12px] text-zinc-600 mt-0.5">
               Mercado Público publicó el acta. Necesitamos que confirmes que lo recibiste.
             </p>
@@ -106,7 +106,7 @@ export function EntregaPendienteModal() {
         </div>
 
         <div className="px-6 py-5">
-          <p className="text-[11px] font-semibold text-zinc-400 uppercase tracking-wide">Licitación adjudicada</p>
+          <p className="text-[11px] font-semibold text-zinc-400">Licitación adjudicada</p>
           <p className="text-[15px] font-semibold text-zinc-900 mt-1 leading-snug">
             {actual.licitacionNombre || actual.licitacionCodigo}
           </p>

@@ -34,7 +34,7 @@ export function fmtFecha(s: string | null | undefined): string {
 }
 
 function avatarGrad(id: number): string {
-  const grads = ['from-blue-500 to-indigo-600', 'from-emerald-500 to-teal-600', 'from-purple-500 to-pink-600', 'from-orange-500 to-amber-600', 'from-cyan-500 to-sky-600'];
+  const grads = ['bg-slate-500', 'bg-teal-600', 'bg-cyan-600', 'bg-orange-500', 'bg-emerald-600'];
   return grads[id % grads.length];
 }
 
@@ -100,13 +100,13 @@ export interface EventoLic {
 const EVENTO_META: Record<string, { label: string; color: string }> = {
   asignacion:            { label: 'Asignación',        color: '#059669' },
   cambio_pipeline:       { label: 'Cambio de estado',  color: '#0891b2' },
-  cambio_etiqueta:       { label: 'Líneas de negocio', color: '#7c3aed' },
+  cambio_etiqueta:       { label: 'Líneas de negocio', color: '#0891b2' },
   comentario_negocio:    { label: 'Comentario',        color: '#2563eb' },
   comentario_licitacion: { label: 'Comentario',        color: '#2563eb' },
   ver_licitacion:        { label: 'Vio la licitación', color: '#64748b' },
   ver_seccion:           { label: 'Revisó',            color: '#64748b' },
   ver_documento:         { label: 'Vio documento',     color: '#64748b' },
-  ver_cita:              { label: 'Verificó fuente',   color: '#7c3aed' },
+  ver_cita:              { label: 'Verificó fuente',   color: '#0891b2' },
   favorito:              { label: 'Favorito',          color: '#ca8a04' },
   viabilidad:            { label: 'Viabilidad IA',     color: '#d97706' },
   costeo:                { label: 'Costeo',             color: '#0d9488' },
@@ -177,7 +177,7 @@ function Timeline({ orden }: { orden: EventoAgrupado[] }) {
               </div>
               <p className="text-xs text-slate-700 dark:text-slate-300 mt-0.5 leading-snug">{e.mensaje || m.label}</p>
               <span className="inline-flex items-center gap-1 mt-1 text-xs font-semibold" style={{ color: col }}>
-                <span className="w-3.5 h-3.5 rounded-full text-white text-[7px] font-bold flex items-center justify-center" style={{ background: col }}>
+                <span className="w-3.5 h-3.5 rounded-full text-white text-[7px] font-semibold flex items-center justify-center" style={{ background: col }}>
                   {inicialesUsuario(quien, null)}
                 </span>
                 {quien}
@@ -231,12 +231,12 @@ function PipelineSelector({ current, onChange, isAdmin }: { current: string | nu
     <div ref={ref} className="relative">
       <button onClick={() => setOpen(!open)}
         className="w-full flex items-center justify-between gap-2 px-3 py-2.5 border border-zinc-200 rounded-xl bg-white hover:border-zinc-300 transition-colors">
-        {estado ? <span className="text-[13px] font-bold" style={{ color: estado.color }}>{estado.label}</span>
+        {estado ? <span className="text-[13px] font-semibold" style={{ color: estado.color }}>{estado.label}</span>
           : <span className="text-[13px] text-zinc-400">Sin etapa</span>}
         <ChevronDown size={13} className={`text-zinc-400 transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
       {open && (
-        <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-zinc-200 rounded-xl shadow-xl z-50 overflow-hidden scale-in max-h-72 overflow-y-auto">
+        <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-zinc-200 rounded-xl shadow-flotante z-50 overflow-hidden scale-in max-h-72 overflow-y-auto">
           {estadosParaSelector().map(est => {
             const chequeo = puedeCambiarEstadoPipeline(current, est.id, isAdmin);
             return (
@@ -622,14 +622,14 @@ export function GestionAside({
       <aside className="hidden xl:flex flex-col w-56 border-l border-zinc-200/80 bg-white flex-shrink-0 overflow-y-auto p-4 gap-5">
 
         <div>
-          <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-1.5">Estado</p>
+          <p className="text-[10px] font-semibold text-zinc-400 mb-1.5">Estado</p>
           <PipelineSelector current={claveVisibleDeNegocio(negocio)} onChange={cambiarEstado} isAdmin={isAdmin} />
           <div className="flex gap-1.5 mt-2">
             {negocio.estado_pipeline !== 'EN_PROCESO' && (
               <button onClick={() => cambiarEstado('EN_PROCESO')}
                 title={!viabIA ? 'Bloqueado: primero realiza el análisis de viabilidad IA' : undefined}
                 className={`flex-1 flex items-center justify-center gap-1 text-[11px] font-semibold border rounded-lg py-1.5 transition-colors ${
-                  viabIA ? 'text-violet-700 bg-violet-50 hover:bg-violet-100 border-violet-200' : 'text-zinc-400 bg-zinc-50 border-zinc-200 cursor-not-allowed'
+                  viabIA ? 'text-cyan-700 bg-cyan-50 hover:bg-cyan-100 border-cyan-200' : 'text-zinc-400 bg-zinc-50 border-zinc-200 cursor-not-allowed'
                 }`}>
                 <PlayCircle size={12} /> En proceso
               </button>
@@ -646,7 +646,7 @@ export function GestionAside({
             {normalizarEstado(negocio.estado_pipeline) === 'POSIBLE_ADJ' && puedeVerCompras && (
               <Link href={`/compras/${negocio.id}`}
                 title="Posible adjudicación: abre la pre-compra para ir cotizando y costeando (aún no se puede comprar)"
-                className="flex items-center justify-center gap-1.5 w-full mb-2 text-[11px] font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-lg py-1.5 transition-colors">
+                className="flex items-center justify-center gap-1.5 w-full mb-2 text-[11px] font-semibold text-teal-700 bg-teal-50 hover:bg-teal-100 border border-teal-200 rounded-lg py-1.5 transition-colors">
                 <ShoppingCart size={12} /> Ir a pre-compra
               </Link>
             )}
@@ -664,21 +664,21 @@ export function GestionAside({
         </div>
 
         <div>
-          <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-1.5">Asignación</p>
+          <p className="text-[10px] font-semibold text-zinc-400 mb-1.5">Asignación</p>
           <p className="text-[12px] text-zinc-600 font-medium">{fmtFecha(negocio.created_at)}</p>
           {sem && (
-            <span className={`mt-1.5 inline-flex items-center gap-1.5 text-[11px] font-bold px-2 py-1 rounded-lg ${sem.bg} ${sem.text}`}
+            <span className={`mt-1.5 inline-flex items-center gap-1.5 text-[11px] font-semibold px-2 py-1 rounded-lg ${sem.bg} ${sem.text}`}
               title={`${sem.dias} día${sem.dias === 1 ? '' : 's'} sin cambio de estado`}>
-              <span style={{ background: sem.color }} className="w-2 h-2 rounded-full animate-pulse" />
+              <span style={{ background: sem.color }} className="w-2 h-2 rounded-full" />
               {sem.etiqueta} sin cambios
             </span>
           )}
         </div>
 
         <div>
-          <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-1.5">Responsable</p>
+          <p className="text-[10px] font-semibold text-zinc-400 mb-1.5">Responsable</p>
           <div className="flex items-center gap-2">
-            <div className={`w-7 h-7 rounded-full bg-gradient-to-br ${avatarGrad(negocio.asignado_a)} flex items-center justify-center text-white text-[10px] font-bold flex-shrink-0`}>
+            <div className={`w-7 h-7 rounded-full ${avatarGrad(negocio.asignado_a)} flex items-center justify-center text-white text-[10px] font-semibold flex-shrink-0`}>
               {iniciales(negocio.usuario_nombre, negocio.usuario_email)}
             </div>
             <div className="min-w-0">
@@ -690,7 +690,7 @@ export function GestionAside({
             <div className="mt-2">
               {!mostrarReasignar ? (
                 <button onClick={() => setMostrarReasignar(true)}
-                  className="w-full inline-flex items-center justify-center gap-1.5 text-[12px] font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-lg py-1.5 transition-colors">
+                  className="w-full inline-flex items-center justify-center gap-1.5 text-[12px] font-semibold text-teal-700 bg-teal-50 hover:bg-teal-100 border border-teal-200 rounded-lg py-1.5 transition-colors">
                   <UserPlus size={13} /> Reasignar responsable
                 </button>
               ) : (
@@ -712,11 +712,11 @@ export function GestionAside({
 
         {negocio.etiquetas.length > 0 && (
           <div>
-            <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-1.5">Líneas de negocio</p>
+            <p className="text-[10px] font-semibold text-zinc-400 mb-1.5">Líneas de negocio</p>
             <div className="flex flex-col gap-1">
               {negocio.etiquetas.map(et => (
                 <span key={et.id} style={{ backgroundColor: et.color + '18', color: et.color, borderColor: et.color + '50' }}
-                  className="text-[11.5px] font-bold px-2.5 py-1 rounded-lg border w-fit">
+                  className="text-[11.5px] font-semibold px-2.5 py-1 rounded-lg border w-fit">
                   {et.nombre}
                 </span>
               ))}
@@ -725,18 +725,18 @@ export function GestionAside({
         )}
 
         <div>
-          <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-1.5">Publicación</p>
+          <p className="text-[10px] font-semibold text-zinc-400 mb-1.5">Publicación</p>
           <p className="text-[12px] text-zinc-600 font-medium">{fmtFecha(fechaPublicacion || negocio.created_at)}</p>
         </div>
 
         <div>
-          <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-1.5">Cierre</p>
+          <p className="text-[10px] font-semibold text-zinc-400 mb-1.5">Cierre</p>
           <p className="text-[12px] text-zinc-600 font-medium">{fmtFecha(negocio.licitacion_cierre)}</p>
         </div>
 
         {documentosCount > 0 && (
           <div>
-            <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-1.5">Documentos</p>
+            <p className="text-[10px] font-semibold text-zinc-400 mb-1.5">Documentos</p>
             <span className="flex items-center gap-2 text-[12px] text-zinc-600 font-semibold">
               <FolderOpen size={12} /> {documentosCount} archivo{documentosCount > 1 ? 's' : ''}
             </span>
@@ -744,7 +744,7 @@ export function GestionAside({
         )}
 
         <div>
-          <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-2 flex items-center gap-1.5">
+          <p className="text-[10px] font-semibold text-zinc-400 mb-2 flex items-center gap-1.5">
             <History size={11} /> Historial
           </p>
           <HistorialLicitacion eventos={historial} />
@@ -768,10 +768,10 @@ export function GestionAside({
       {/* Modal: descartar con motivo obligatorio */}
       <EnPortal>{descarteOpen && (
         <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/50 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl" onClick={e => e.stopPropagation()}>
+          <div className="bg-white rounded-xl shadow-flotante w-full max-w-2xl" onClick={e => e.stopPropagation()}>
             <div className="flex items-center gap-2 px-5 py-3.5 border-b border-slate-100 bg-red-50 rounded-t-2xl">
               <Ban size={16} className="text-red-600" />
-              <p className="text-[14px] font-bold text-red-800">Descartar licitación</p>
+              <p className="text-[14px] font-semibold text-red-800">Descartar licitación</p>
             </div>
             <div className="p-5 space-y-3">
               <p className="text-[13px] text-slate-600">
@@ -817,15 +817,15 @@ export function GestionAside({
       {/* Modal POSTULAR — pide el monto ofertado mostrando el presupuesto real */}
       <EnPortal>{postularOpen && (
         <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/50 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl" onClick={e => e.stopPropagation()}>
+          <div className="bg-white rounded-xl shadow-flotante w-full max-w-2xl" onClick={e => e.stopPropagation()}>
             <div className="flex items-center gap-2 px-5 py-3.5 border-b border-slate-100 bg-amber-50 rounded-t-2xl">
               <Send size={16} className="text-amber-600" />
-              <p className="text-[14px] font-bold text-amber-800">Marcar como Postulada</p>
+              <p className="text-[14px] font-semibold text-amber-800">Marcar como Postulada</p>
             </div>
             <div className="p-5 space-y-3">
               <div className="flex items-center justify-between rounded-lg bg-slate-50 border border-slate-200 px-3 py-2.5">
                 <span className="text-[12px] text-slate-500">Presupuesto real de la licitación</span>
-                <span className="text-[14px] font-bold text-slate-800">{fmt(negocio.licitacion_monto)}</span>
+                <span className="text-[14px] font-semibold text-slate-800">{fmt(negocio.licitacion_monto)}</span>
               </div>
               <div>
                 <label className="block text-[12.5px] font-semibold text-slate-700 mb-1">¿Con cuánto postulaste? (monto ofertado)</label>

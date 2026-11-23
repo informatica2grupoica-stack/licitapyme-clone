@@ -15,8 +15,8 @@ interface Etiqueta {
 }
 
 const COLORES_PRESET = [
-  '#3B82F6', '#8B5CF6', '#10B981', '#F59E0B',
-  '#EF4444', '#06B6D4', '#EC4899', '#6366F1',
+  '#3B82F6', '#06b6d4', '#10B981', '#F59E0B',
+  '#EF4444', '#06B6D4', '#EC4899', '#14b8a6',
   '#84CC16', '#F97316',
 ];
 
@@ -104,7 +104,7 @@ export default function EtiquetasAdminPage() {
     ]}>
       <div className="p-4 sm:p-6 lg:p-8 max-w-3xl">
         <div className="mb-6">
-          <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+          <h1 className="text-2xl font-semibold text-gray-900 flex items-center gap-2">
             <Tag size={24} className="text-blue-600" />
             Etiquetas / Líneas de negocio
           </h1>
@@ -227,7 +227,7 @@ export default function EtiquetasAdminPage() {
                     <>
                       <span
                         style={{ backgroundColor: et.color + '20', color: et.color, borderColor: et.color + '50' }}
-                        className="text-xs px-3 py-1 rounded-full font-bold border min-w-[80px] text-center"
+                        className="text-xs px-3 py-1 rounded-full font-semibold border min-w-[80px] text-center"
                       >
                         {et.nombre}
                       </span>

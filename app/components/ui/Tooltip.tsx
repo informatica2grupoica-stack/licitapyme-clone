@@ -58,7 +58,7 @@ export function Tooltip({ label, children, disabled = false }: {
               transition={{ type: 'spring', stiffness: 520, damping: 32, mass: 0.6 }}
               style={{ position: 'fixed', left: coords.x, top: coords.y, translateY: '-50%', zIndex: 80 }}
               className="pointer-events-none select-none whitespace-nowrap rounded-lg bg-slate-900 px-2.5 py-1.5
-                         text-[12.5px] font-semibold text-white shadow-xl ring-1 ring-white/10"
+                         text-[12.5px] font-semibold text-white shadow-flotante ring-1 ring-white/10"
             >
               {/* Punta: un cuadrado rotado pegado al borde izquierdo. */}
               <span className="absolute left-[-3px] top-1/2 -translate-y-1/2 h-2 w-2 rotate-45 rounded-[2px] bg-slate-900" />

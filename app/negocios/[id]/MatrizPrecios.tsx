@@ -9,7 +9,7 @@
 // Con muchas cotizaciones se ven las 6 que mejor cubren y las demás quedan en «Ver todas».
 import { useMemo, useState } from 'react';
 import type React from 'react';
-import { IconStar as Star, IconDotsVertical as Dots, IconCheck as Check, IconPaperclip as Clip, IconListCheck as ListChecks, IconSparkles as Sparkles, IconPencil as Pencil, IconTrash as Trash, IconInfoCircle as Info } from '@tabler/icons-react';
+import { IconStar as Star, IconDotsVertical as Dots, IconCheck as Check, IconPaperclip as Clip, IconListCheck as ListChecks, IconWand as Sparkles, IconPencil as Pencil, IconTrash as Trash, IconInfoCircle as Info } from '@tabler/icons-react';
 import { LinksProducto, type LinksCosteo } from './LinksProducto';
 import type { useLinksLeidos } from './LinksLeidos';
 import { compararPrecioConCosteo, vaIncluidoEnOtro, type VeredictoPrecio } from '@/app/lib/compras-precio-vs-costeo';
@@ -124,7 +124,7 @@ export function MatrizPrecios({ productos, cotizaciones, costeado, linksCosteo =
   const menor = totales.length >= 2 ? Math.min(...totales) : null;
   const fila = (titulo: string, celda: (r: typeof resumen[number]) => React.ReactNode) => (
     <tr className="border-t border-zinc-100 bg-zinc-50/60 align-top">
-      <td className="sticky left-0 z-10 bg-zinc-50 px-4 py-2 text-[11.5px] font-bold text-zinc-500 uppercase tracking-wide">{titulo}</td>
+      <td className="sticky left-0 z-10 bg-zinc-50 px-4 py-2 text-[11.5px] font-semibold text-zinc-500">{titulo}</td>
       <td className="px-3 py-2" />
       {lecLink?.disponible && <td className="px-3 py-2" />}
       {visibles.map(r => <td key={r.c.id} className="px-3 py-2 text-[12.5px]">{celda(r)}</td>)}
@@ -135,7 +135,7 @@ export function MatrizPrecios({ productos, cotizaciones, costeado, linksCosteo =
     <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
       <div className="px-4 py-3 bg-zinc-50 border-b border-zinc-100 flex items-start justify-between gap-3 flex-wrap">
         <div>
-          <p className="text-[14px] font-bold text-zinc-900">Compara y elige a quién comprar</p>
+          <p className="text-[14px] font-semibold text-zinc-900">Compara y elige a quién comprar</p>
           <p className="text-[12.5px] text-zinc-500 mt-0.5">Neto por unidad contra lo costeado. <b className="font-semibold text-zinc-700">Toca el precio</b> del proveedor al que le quieres comprar cada producto, o usa <b className="font-semibold text-zinc-700">«Comprar todo aquí»</b>.</p>
         </div>
         {resumen.length > MAX_COLUMNAS && (
@@ -148,15 +148,15 @@ export function MatrizPrecios({ productos, cotizaciones, costeado, linksCosteo =
         <table className="min-w-full text-left border-collapse">
           <thead>
             <tr className="border-b border-zinc-200">
-              <th className="sticky left-0 z-10 bg-white px-4 py-2.5 text-[11.5px] font-bold text-zinc-500 uppercase tracking-wide min-w-[220px]">Producto</th>
-              <th className="px-3 py-2.5 text-[11.5px] font-bold text-zinc-500 uppercase tracking-wide min-w-[110px]">Lo costeado</th>
+              <th className="sticky left-0 z-10 bg-white px-4 py-2.5 text-[11.5px] font-semibold text-zinc-500 min-w-[220px]">Producto</th>
+              <th className="px-3 py-2.5 text-[11.5px] font-semibold text-zinc-500 min-w-[110px]">Lo costeado</th>
               {lecLink?.disponible && (
                 <th className="px-3 py-2.5 min-w-[190px] align-top">
-                  <span className="block text-[13px] font-bold text-zinc-900 leading-tight">1 · Cotización por link</span>
+                  <span className="block text-[13px] font-semibold text-zinc-900 leading-tight">1 · Cotización por link</span>
                   <span className="block text-[11px] font-normal text-zinc-400">Precio leído de la página, neto</span>
                   {lecLink.totalPendientes > 0 && (
                     <button type="button" onClick={() => lecLink.leer()} disabled={!!lecLink.leyendo}
-                      className="mt-1.5 text-[11.5px] font-semibold text-indigo-700 border border-indigo-200 hover:bg-indigo-50 disabled:opacity-60 rounded-md px-2 py-0.5">
+                      className="mt-1.5 text-[11.5px] font-semibold text-teal-700 border border-teal-200 hover:bg-teal-50 disabled:opacity-60 rounded-md px-2 py-0.5">
                       {lecLink.leyendo ? `Leyendo link ${lecLink.leyendo.actual} de ${lecLink.leyendo.total}…` : `Leer ${lecLink.totalPendientes} link${lecLink.totalPendientes === 1 ? '' : 's'} del costeo`}
                     </button>
                   )}
@@ -166,7 +166,7 @@ export function MatrizPrecios({ productos, cotizaciones, costeado, linksCosteo =
                 <th key={c.id} className="px-3 py-2.5 min-w-[165px] align-top">
                   <div className="flex items-start gap-1">
                     <div className="min-w-0 flex-1">
-                      <span className="block text-[13px] font-bold text-zinc-900 leading-tight line-clamp-2" title={c.proveedorNombre}>{c.proveedorNombre}</span>
+                      <span className="block text-[13px] font-semibold text-zinc-900 leading-tight line-clamp-2" title={c.proveedorNombre}>{c.proveedorNombre}</span>
                       <span className="block text-[11px] font-normal text-zinc-400">Cotización #{c.id}</span>
                     </div>
                     {acciones && (
@@ -224,7 +224,7 @@ export function MatrizPrecios({ productos, cotizaciones, costeado, linksCosteo =
                     const leyendoEste = lecLink.leyendoProducto === p.id;
                     return (
                       <td className="px-2 py-2 min-w-[190px]" data-testid={`link-leido-${p.id}`}>
-                        <div className="rounded-lg border border-indigo-100 bg-indigo-50/30 px-2.5 py-1.5 space-y-1.5">
+                        <div className="rounded-lg border border-teal-100 bg-teal-50/30 px-2.5 py-1.5 space-y-1.5">
                           {lec.map(l => {
                             const cmp = compararPrecioConCosteo(l.neto, base);
                             const est = ESTILO_VEREDICTO[cmp.veredicto];
@@ -235,20 +235,20 @@ export function MatrizPrecios({ productos, cotizaciones, costeado, linksCosteo =
                             const comprable = l.neto != null && !vieja && !l.agotado;
                             return (
                               <div key={l.opcionId}>
-                                <span className="text-[14px] font-bold text-zinc-900">{l.neto != null ? clp(l.neto) : 'sin precio'}</span>
+                                <span className="text-[14px] font-semibold text-zinc-900">{l.neto != null ? clp(l.neto) : 'sin precio'}</span>
                                 {l.neto != null && !l.agotado && <span className={`ml-1.5 inline-block text-[11.5px] font-semibold px-1.5 py-0.5 rounded border ${est.chip}`}>{est.texto(cmp.diffPct)}</span>}
                                 <span className="block text-[11px] text-zinc-500">
                                   {l.url ? <a href={l.url} target="_blank" rel="noopener noreferrer" className="text-teal-700 underline underline-offset-2">{l.host}</a> : l.host}
                                   {l.capturaAt && <> · captura {vieja ? `de hace ${dias} día${dias === 1 ? '' : 's'} (${l.capturaAt.slice(0, 10)})` : 'de hoy'}</>}
                                 </span>
-                                {l.agotado && <span className="block text-[11px] font-bold text-rose-700">⛔ La página dice PRODUCTO AGOTADO: no se puede comprar por este link.</span>}
-                                {vieja && <span className="block text-[11px] font-bold text-amber-700">⚠ Precio de una captura vieja: la tienda pudo cambiarlo. Vuelve a leer antes de comprar.</span>}
+                                {l.agotado && <span className="block text-[11px] font-semibold text-rose-700">⛔ La página dice PRODUCTO AGOTADO: no se puede comprar por este link.</span>}
+                                {vieja && <span className="block text-[11px] font-semibold text-amber-700">⚠ Precio de una captura vieja: la tienda pudo cambiarlo. Vuelve a leer antes de comprar.</span>}
                                 {l.neto != null && l.ivaSupuesto && <span className="block text-[11px] text-zinc-400">la página dice {l.precioPagina != null ? clp(l.precioPagina) : '—'} y no aclara el IVA: se asumió con IVA y se rebajó</span>}
                                 {l.neto != null && !l.ivaSupuesto && l.precioPagina != null && l.precioPagina !== l.neto && <span className="block text-[11px] text-zinc-400">la página dice {clp(l.precioPagina)}{l.ivaDeclarado === 'incluido' ? ' con IVA' : ''}</span>}
                                 {l.neto == null && <span className="block text-[11px] text-amber-700">{l.precioPagina != null ? `la página dice ${clp(l.precioPagina)} pero el IVA no está claro` : 'no se pudo leer el precio'}</span>}
                                 {lecLink && (!l.neto || vieja || l.agotado) && l.url && (
                                   <button type="button" onClick={() => lecLink.releer(l.opcionId)} disabled={lecLink.releyendo != null}
-                                    className="mt-0.5 mr-1 text-[11.5px] font-semibold text-indigo-700 border border-indigo-200 bg-white hover:bg-indigo-50 disabled:opacity-60 rounded-md px-2 py-0.5">{lecLink.releyendo === l.opcionId ? 'Leyendo link…' : 'Volver a leer'}</button>
+                                    className="mt-0.5 mr-1 text-[11.5px] font-semibold text-teal-700 border border-teal-200 bg-white hover:bg-teal-50 disabled:opacity-60 rounded-md px-2 py-0.5">{lecLink.releyendo === l.opcionId ? 'Leyendo link…' : 'Volver a leer'}</button>
                                 )}
                                 {comprable && onCompraPorLink && l.url && (
                                   <button type="button" onClick={() => onCompraPorLink(p.id, { link: l.url!, precio: l.neto!, proveedor: l.proveedor || l.host })} title="Comprar este producto a este link: abre la compra directa con el precio y el link ya puestos"
@@ -259,7 +259,7 @@ export function MatrizPrecios({ productos, cotizaciones, costeado, linksCosteo =
                           })}
                           {pend.length > 0 && (
                             <button type="button" onClick={() => lecLink.leer(p.id)} disabled={!!lecLink.leyendo}
-                              className="text-[12px] font-semibold text-indigo-700 border border-indigo-200 bg-white hover:bg-indigo-50 disabled:opacity-60 rounded-md px-2 py-1">
+                              className="text-[12px] font-semibold text-teal-700 border border-teal-200 bg-white hover:bg-teal-50 disabled:opacity-60 rounded-md px-2 py-1">
                               {leyendoEste ? 'Leyendo link…' : `Leer link${pend.length > 1 ? `s (${pend.length})` : ''}`}
                             </button>
                           )}
@@ -289,7 +289,7 @@ export function MatrizPrecios({ productos, cotizaciones, costeado, linksCosteo =
                     const bloqueada = reemplazadaPor != null && !elegida;   // si ya estaba elegida se deja quitarla, no volver a elegirla
                     return (
                       <td key={c.id} className="px-2 py-2">
-                        <div className={`relative rounded-lg border transition-colors ${reemplazadaPor != null ? 'opacity-50 bg-zinc-50 ' : ''}${elegida ? 'border-teal-500 bg-teal-50/60 ring-1 ring-teal-200' : detalleActivo ? 'border-indigo-300 bg-indigo-50/30' : 'border-transparent hover:border-zinc-300 hover:bg-zinc-50'}`}>
+                        <div className={`relative rounded-lg border transition-colors ${reemplazadaPor != null ? 'opacity-50 bg-zinc-50 ' : ''}${elegida ? 'border-teal-500 bg-teal-50/60 ring-1 ring-teal-200' : detalleActivo ? 'border-teal-300 bg-teal-50/30' : 'border-transparent hover:border-zinc-300 hover:bg-zinc-50'}`}>
                           {/* Clic en la celda = ver el detalle (desglose, adicionales, avisos). Agregar a la compra = solo el círculo. */}
                           {onElegirCelda && (
                             <button type="button" onClick={() => onElegirCelda(p.id, c.id)} aria-pressed={elegida} aria-label={elegida ? 'Quitar de mi compra' : 'Agregar a mi compra'} disabled={bloqueada}
@@ -301,8 +301,8 @@ export function MatrizPrecios({ productos, cotizaciones, costeado, linksCosteo =
                           <button type="button" onClick={() => onSeleccionar({ cotizacionId: c.id, productoId: p.id })}
                             title="Ver el detalle de este precio (desglose, adicionales, avisos)" className={`w-full text-left py-1.5 pr-7 ${onElegirCelda ? 'pl-8' : 'px-2.5'}`}>
                             <span className="flex items-center gap-1.5">
-                              <span className="text-[14px] font-bold text-zinc-900 whitespace-nowrap">{item.precioUnitario != null ? clp(item.precioUnitario) : 'sin precio'}</span>
-                              {esMejor && <span title="Mejor precio de este producto" className="inline-flex items-center gap-0.5 text-[10.5px] font-bold text-amber-600"><Star size={12} className="fill-amber-400" /> Mejor</span>}
+                              <span className="text-[14px] font-semibold text-zinc-900 whitespace-nowrap">{item.precioUnitario != null ? clp(item.precioUnitario) : 'sin precio'}</span>
+                              {esMejor && <span title="Mejor precio de este producto" className="inline-flex items-center gap-0.5 text-[10.5px] font-semibold text-amber-600"><Star size={12} className="fill-amber-400" /> Mejor</span>}
                             </span>
                             {incluido
                               ? <span className="block text-[11px] font-semibold text-sky-700 mt-0.5">Incluido en otro producto{item.adicionales.length > 0 ? ' · se suman sus componentes' : ''}</span>
@@ -314,11 +314,11 @@ export function MatrizPrecios({ productos, cotizaciones, costeado, linksCosteo =
                               return <span title={`Ficha de ${t.modelo || 'este modelo'} contra las bases`} data-testid={`tecnico-${c.id}-${p.id}`} className={`inline-block mt-1 text-[11.5px] font-semibold px-1.5 py-0.5 rounded border ${e.chip}`}>Ficha: {e.texto}{t.total > 0 ? ` ${t.cumple}/${t.total}` : ''}</span>;
                             })()}
                             {reemplazadaPor != null && <span className="block text-[11px] font-semibold text-zinc-500 mt-0.5">Reemplazada por la #{reemplazadaPor}</span>}
-                            {al.map(t => <span key={t} className="block text-[11px] font-bold text-rose-600 mt-0.5">⚠ {t}</span>)}
+                            {al.map(t => <span key={t} className="block text-[11px] font-semibold text-rose-600 mt-0.5">⚠ {t}</span>)}
                             {item.adicionales.length > 0 && <span className="block text-[11px] text-zinc-400 mt-0.5">incluye {item.adicionales.length} adicional{item.adicionales.length === 1 ? '' : 'es'}</span>}
                           </button>
                           <button type="button" onClick={() => onSeleccionar({ cotizacionId: c.id, productoId: p.id })} aria-label="Ver el detalle de este precio" title="Ver el detalle (desglose, adicionales, avisos)"
-                            className="absolute top-1 right-1 p-1 rounded-md text-zinc-300 hover:text-indigo-600 hover:bg-white"><Info size={14} /></button>
+                            className="absolute top-1 right-1 p-1 rounded-md text-zinc-300 hover:text-teal-600 hover:bg-white"><Info size={14} /></button>
                         </div>
                       </td>
                     );
@@ -332,7 +332,7 @@ export function MatrizPrecios({ productos, cotizaciones, costeado, linksCosteo =
               ? <span className="font-semibold text-emerald-700">Todos ({r.cubiertos} de {productos.length})</span>
               : <span className="font-semibold text-amber-700">{r.cubiertos} de {productos.length} · faltan {r.faltan}</span>)}
             {fila('Total si compras aquí', r => r.total > 0
-              ? <span className="font-bold text-zinc-900">{clp(r.total)}{menor != null && r.faltan === 0 && r.nAvisos === 0 && r.total === menor ? <span className="ml-1 text-[10.5px] font-bold text-amber-600">★ menor</span> : null}{r.flete > 0 && <span className="block text-[11px] font-normal text-zinc-500">Productos {clp(r.subtotal)} + flete {clp(r.flete)}</span>}</span>
+              ? <span className="font-semibold text-zinc-900">{clp(r.total)}{menor != null && r.faltan === 0 && r.nAvisos === 0 && r.total === menor ? <span className="ml-1 text-[10.5px] font-semibold text-amber-600">★ menor</span> : null}{r.flete > 0 && <span className="block text-[11px] font-normal text-zinc-500">Productos {clp(r.subtotal)} + flete {clp(r.flete)}</span>}</span>
               : <span className="text-zinc-300">—</span>)}
             {tecnico && fila('Ficha técnica', r => {
               const celdas = r.c.items.map(i => tecnico[`${r.c.id}:${i.productoId}`]).filter(Boolean);
@@ -341,7 +341,7 @@ export function MatrizPrecios({ productos, cotizaciones, costeado, linksCosteo =
               return <span className={malas > 0 ? 'font-semibold text-rose-600' : 'text-zinc-700'}>{celdas.filter(t => t.estado === 'CUMPLE').length} de {celdas.length} cumplen{malas > 0 ? ` · ${malas} no` : ''}</span>;
             })}
             {fila('Plazo', r => <span className="text-zinc-700">{r.c.plazoEntregaTexto || <span className="text-zinc-300">no dice</span>}</span>)}
-            {fila('Avisos', r => r.nAvisos > 0 ? <span className="font-bold text-rose-600">⚠ {r.nAvisos}</span> : <span className="text-emerald-600">sin avisos</span>)}
+            {fila('Avisos', r => r.nAvisos > 0 ? <span className="font-semibold text-rose-600">⚠ {r.nAvisos}</span> : <span className="text-emerald-600">sin avisos</span>)}
           </tfoot>
         </table>
       </div>

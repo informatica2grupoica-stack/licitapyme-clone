@@ -4,13 +4,13 @@
 // Solo admin, y solo perfiles de su propia empresa.
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
-import { getAuthedUser } from '@/app/lib/api-auth';
+import { getAuthedUser, tienePermiso } from '@/app/lib/api-auth';
 import { avisosEfectivos, guardarAvisos } from '@/app/lib/whatsapp-avisos';
 import { normalizarTelefono } from '@/app/lib/perfil-datos';
 
 async function perfilDeMiEmpresa(req: NextRequest, id: number) {
   const u = await getAuthedUser(req);
-  if (!u || u.rol !== 'admin') return { error: NextResponse.json({ error: 'Sin permisos de administrador' }, { status: 403 }) };
+  if (!u || !(await tienePermiso(req, 'admin_usuarios'))) return { error: NextResponse.json({ error: 'Sin permisos de administrador' }, { status: 403 }) };
   const [rows] = await pool.query('SELECT id, rol, activo, telefono FROM usuarios WHERE id = ? AND cliente_id = ? LIMIT 1', [id, u.clienteId]) as any[];
   const p = (rows as any[])[0];
   if (!p) return { error: NextResponse.json({ error: 'Usuario no encontrado' }, { status: 404 }) };

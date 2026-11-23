@@ -4,7 +4,7 @@
 import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
-import { permisosCrudosDeUsuario } from '@/app/lib/api-auth';
+import { permisosCrudosDeUsuario, tienePermiso } from '@/app/lib/api-auth';
 import { asignarEncargado, obtenerAsignacion, fijarCoencargados } from '@/app/lib/compras';
 
 export const runtime = 'nodejs';
@@ -46,7 +46,7 @@ async function __POST(request: NextRequest, { params }: Params) {
 
     // Varios encargados (migration-142): sumar o quitar co-encargados lo hace un admin o el jefe de ventas; el principal no se toca.
     if (soloCoencargados) {
-      if (rol !== 'admin' && !(await esJefeDeVentas(userId))) return NextResponse.json({ error: 'Solo un admin o el jefe de ventas puede sumar encargados.' }, { status: 403 });
+      if (!(await tienePermiso(request, 'reasignar_negocios')) && !(await esJefeDeVentas(userId))) return NextResponse.json({ error: 'Solo quien puede reasignar o el jefe de ventas puede sumar encargados.' }, { status: 403 });
       if (existe.asignadoA == null) return NextResponse.json({ error: 'Primero elige al encargado principal.' }, { status: 400 });
       await fijarCoencargados(id, body.coencargadoIds, userId);
       return NextResponse.json({ success: true, asignacion: await obtenerAsignacion(id) });
@@ -56,8 +56,8 @@ async function __POST(request: NextRequest, { params }: Params) {
     // es cosa de admin — solo la asignación INICIAL (negocio recién entrando a Compras, sin nadie
     // encima) sigue habilitada para el jefe de ventas.
     if (existe.asignadoA != null) {
-      if (rol !== 'admin') {
-        return NextResponse.json({ error: 'Solo un admin puede cambiar al encargado de Compras.' }, { status: 403 });
+      if (!(await tienePermiso(request, 'reasignar_negocios'))) {
+        return NextResponse.json({ error: 'Solo quien puede reasignar negocios puede cambiar al encargado de Compras.' }, { status: 403 });
       }
     } else if (!(await esJefeDeVentas(userId))) {
       return NextResponse.json({ error: 'Solo el jefe de ventas puede asignar Compras.' }, { status: 403 });

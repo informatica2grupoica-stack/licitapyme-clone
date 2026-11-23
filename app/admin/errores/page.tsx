@@ -87,7 +87,7 @@ export default function ErroresReportadosPage() {
     <AppLayout breadcrumb={[{ label: 'Admin', href: '/admin/usuarios' }, { label: 'Errores reportados' }]}>
       <div className="p-4 sm:p-6 lg:p-8">
         <div className="mb-5">
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+          <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
             <Bug size={24} className="text-red-600" /> Errores reportados
           </h1>
           <p className="text-sm text-slate-500 mt-0.5">
@@ -117,9 +117,9 @@ export default function ErroresReportadosPage() {
             <div className="bg-white dark:bg-white/[0.03] rounded-xl border border-slate-200 dark:border-white/[0.07] divide-y divide-slate-100 dark:divide-white/[0.06] overflow-hidden">
               {visibles.map(r => (
                 <button key={r.id} onClick={() => setSelId(r.id)}
-                  className={`w-full text-left px-4 py-3 transition-colors ${sel?.id === r.id ? 'bg-indigo-50 dark:bg-indigo-500/10' : 'hover:bg-slate-50 dark:hover:bg-white/[0.04]'}`}>
+                  className={`w-full text-left px-4 py-3 transition-colors ${sel?.id === r.id ? 'bg-teal-50 dark:bg-teal-500/10' : 'hover:bg-slate-50 dark:hover:bg-white/[0.04]'}`}>
                   <div className="flex items-center gap-1.5 mb-1">
-                    <span className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded ${GRAVEDAD_CLS[r.gravedad]}`}>{r.gravedad}</span>
+                    <span className={`text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded ${GRAVEDAD_CLS[r.gravedad]}`}>{r.gravedad}</span>
                     <span className={`text-[10.5px] font-semibold px-1.5 py-0.5 rounded ${estadoInfo(r.estado).cls}`}>{estadoInfo(r.estado).label}</span>
                     <span className="ml-auto text-[10.5px] text-slate-400">#{r.id} · {fecha(r.created_at)}</span>
                   </div>
@@ -181,20 +181,20 @@ function DetalleReporte({ r, onGuardado, toast }: { r: Reporte; onGuardado: () =
   };
 
   const bloque = 'bg-white dark:bg-white/[0.03] rounded-xl border border-slate-200 dark:border-white/[0.07] p-4';
-  const titulo = 'text-[11px] font-bold uppercase tracking-wide text-slate-400 mb-1';
+  const titulo = 'text-[11px] font-semibold text-slate-400 mb-1';
   const texto = 'text-[13px] text-slate-700 dark:text-slate-200 whitespace-pre-wrap';
 
   return (
     <div className="space-y-4 min-w-0">
       <div className={bloque}>
         <div className="flex items-start gap-2 mb-2">
-          <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100 flex-1">{r.titulo}</h2>
-          <span className={`text-[10.5px] font-bold uppercase px-2 py-1 rounded ${GRAVEDAD_CLS[r.gravedad]}`}>{r.gravedad}</span>
+          <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100 flex-1">{r.titulo}</h2>
+          <span className={`text-[10.5px] font-semibold uppercase px-2 py-1 rounded ${GRAVEDAD_CLS[r.gravedad]}`}>{r.gravedad}</span>
         </div>
         <p className="text-[12px] text-slate-500">
           Reportado por <b className="text-slate-700 dark:text-slate-300">{r.usuario_nombre || r.usuario_email}</b> ({r.usuario_email}) · {fecha(r.created_at)}
         </p>
-        <a href={r.url} target="_blank" rel="noreferrer" className="text-[12px] text-indigo-600 dark:text-indigo-400 hover:underline inline-flex items-center gap-1 break-all mt-1">
+        <a href={r.url} target="_blank" rel="noreferrer" className="text-[12px] text-teal-600 dark:text-teal-400 hover:underline inline-flex items-center gap-1 break-all mt-1">
           {r.url} <ExternalLink size={12} className="flex-shrink-0" />
         </a>
       </div>
@@ -226,7 +226,7 @@ function DetalleReporte({ r, onGuardado, toast }: { r: Reporte; onGuardado: () =
       </details>
 
       <div className={bloque}>
-        <p className="text-[13px] font-bold text-slate-800 dark:text-slate-100 mb-3">Gestión</p>
+        <p className="text-[13px] font-semibold text-slate-800 dark:text-slate-100 mb-3">Gestión</p>
         {!editando && cerradoEnBD ? (
           <div className={`rounded-lg p-3 ${r.estado === 'resuelto'
             ? 'bg-emerald-50 border border-emerald-200 dark:bg-emerald-500/10 dark:border-emerald-500/30'
@@ -235,7 +235,7 @@ function DetalleReporte({ r, onGuardado, toast }: { r: Reporte; onGuardado: () =
               <CheckCircle size={16} className={r.estado === 'resuelto' ? 'text-emerald-600' : 'text-slate-400'} />
               {estadoInfo(r.estado).label} por {r.resuelto_por_nombre} el {fecha(r.resuelto_at)}
             </p>
-            <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400 mt-3 mb-1">
+            <p className="text-[11px] font-semibold text-slate-400 mt-3 mb-1">
               {r.estado === 'resuelto' ? 'Cómo se solucionó' : 'Por qué se descartó'}
             </p>
             <p className="text-[13px] text-slate-700 dark:text-slate-200 whitespace-pre-wrap">{r.solucion}</p>
@@ -246,7 +246,7 @@ function DetalleReporte({ r, onGuardado, toast }: { r: Reporte; onGuardado: () =
                 : `🔒 Solo administradores: ${r.usuario_nombre || 'quien lo reportó'} ve el estado, pero no este texto.`}
             </p>
             <button onClick={() => setEditando(true)}
-              className="mt-3 text-[12.5px] font-semibold text-indigo-600 dark:text-indigo-400 hover:underline">
+              className="mt-3 text-[12.5px] font-semibold text-teal-600 dark:text-teal-400 hover:underline">
               Editar / reabrir
             </button>
           </div>
@@ -274,7 +274,7 @@ function DetalleReporte({ r, onGuardado, toast }: { r: Reporte; onGuardado: () =
             if (fs.length) { e.preventDefault(); agregarArchivos(fs); }
           }}
           placeholder="Ej: El guardado fallaba porque el precio venía con puntos de miles; se corrigió el parser y se re-guardaron los 3 costeos afectados."
-          className="w-full rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-white/[0.04] px-3 py-2 text-[13px] text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/40" />
+          className="w-full rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-white/[0.04] px-3 py-2 text-[13px] text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-teal-500/40" />
         {faltaSolucion && <p className="text-[11.5px] text-amber-600 mt-1">Escribe al menos 10 caracteres para cerrarlo.</p>}
         <div className="mt-3 space-y-2">
           <AdjuntosReporte adjuntos={guardados} onQuitar={a => setQuitados(q => [...q, a.id])} />
@@ -306,7 +306,7 @@ function DetalleReporte({ r, onGuardado, toast }: { r: Reporte; onGuardado: () =
           </span>
         </div>
         <button onClick={guardar} disabled={guardando || faltaSolucion || (estado === r.estado && solucion.trim() === (r.solucion || '') && visible === (r.solucion_visible !== 0 && r.solucion_visible !== false) && nuevos.length === 0 && quitados.length === 0)}
-          className="mt-3 inline-flex items-center gap-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-[13px] font-semibold px-4 py-2">
+          className="mt-3 inline-flex items-center gap-2 rounded-lg bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white text-[13px] font-semibold px-4 py-2">
           {guardando ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />} Guardar
         </button>
         </>)}

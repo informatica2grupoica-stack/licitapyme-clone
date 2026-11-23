@@ -93,11 +93,11 @@ function PasosCotizacion({ vista, onElegir, cotizaciones, paraNegociar, elegida 
         return (
           <button key={p.k} type="button" onClick={() => onElegir(p.k)} aria-current={on ? 'step' : undefined}
             className={`text-left rounded-xl border-2 px-3.5 py-2.5 flex items-center gap-3 transition-colors ${on ? 'border-teal-500 bg-teal-50/60' : 'border-zinc-200 bg-white hover:border-zinc-300'}`}>
-            <span className={`w-8 h-8 rounded-full flex items-center justify-center text-[14px] font-bold flex-shrink-0 ${on ? 'bg-teal-600 text-white' : p.ok ? 'bg-emerald-100 text-emerald-700' : 'bg-zinc-100 text-zinc-500'}`}>{p.ok && !on ? '✓' : p.n}</span>
+            <span className={`w-8 h-8 rounded-full flex items-center justify-center text-[14px] font-semibold flex-shrink-0 ${on ? 'bg-teal-600 text-white' : p.ok ? 'bg-emerald-100 text-emerald-700' : 'bg-zinc-100 text-zinc-500'}`}>{p.ok && !on ? '✓' : p.n}</span>
             <span className="min-w-0 flex-1">
               <span className="flex items-center gap-2 flex-wrap">
-                <span className={`text-[13.5px] font-bold ${on ? 'text-teal-900' : 'text-zinc-800'}`}>{p.titulo}</span>
-                <span className={`text-[10.5px] font-bold px-1.5 py-0.5 rounded-full ${p.ok ? 'bg-emerald-100 text-emerald-700' : 'bg-zinc-100 text-zinc-600'}`}>{p.chip}</span>
+                <span className={`text-[13.5px] font-semibold ${on ? 'text-teal-900' : 'text-zinc-800'}`}>{p.titulo}</span>
+                <span className={`text-[10.5px] font-semibold px-1.5 py-0.5 rounded-full ${p.ok ? 'bg-emerald-100 text-emerald-700' : 'bg-zinc-100 text-zinc-600'}`}>{p.chip}</span>
               </span>
               <span className="block text-[12px] text-zinc-500 leading-snug">{p.pregunta}</span>
             </span>
@@ -112,7 +112,7 @@ function PasosCotizacion({ vista, onElegir, cotizaciones, paraNegociar, elegida 
 function GuiaPaso({ titulo, pasos, estado }: { titulo: string; pasos: string[]; estado: { ok: boolean; texto: string } }) {
   return (
     <div className="rounded-xl border border-teal-200 bg-teal-50/50 px-4 py-3" data-testid="guia-paso">
-      <p className="text-[13.5px] font-bold text-teal-900">{titulo}</p>
+      <p className="text-[13.5px] font-semibold text-teal-900">{titulo}</p>
       <ol className="mt-1.5 space-y-1 text-[13px] text-zinc-700 list-decimal pl-5">{pasos.map(t => <li key={t}>{t}</li>)}</ol>
       <p className={`mt-2 text-[12.5px] font-semibold rounded-lg px-2.5 py-1.5 inline-block ${estado.ok ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-amber-50 text-amber-800 border border-amber-200'}`}>{estado.ok ? '✔ ' : '⚠ '}{estado.texto}</p>
     </div>
@@ -122,7 +122,7 @@ function GuiaPaso({ titulo, pasos, estado }: { titulo: string; pasos: string[]; 
 function SiguientePasoBtn({ texto, onClick }: { texto: string; onClick: () => void }) {
   return (
     <div className="flex justify-end">
-      <button type="button" onClick={onClick} className="text-[13px] font-bold text-white bg-teal-600 hover:bg-teal-700 px-4 py-2 rounded-lg transition-colors">{texto}</button>
+      <button type="button" onClick={onClick} className="text-[13px] font-semibold text-white bg-teal-600 hover:bg-teal-700 px-4 py-2 rounded-lg transition-colors">{texto}</button>
     </div>
   );
 }
@@ -898,10 +898,10 @@ export function AuditorComprasCard({ negocioId, puedeOperar, soloLectura = false
 
       <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
         <div className="flex items-center justify-between gap-3 px-4 py-3 bg-zinc-50 border-b border-zinc-100">
-          <p className="text-[13.5px] font-bold text-zinc-700 flex items-center gap-1.5"><Gavel size={15} /> Cotizaciones recibidas{cotizaciones.length > 0 && <span className="text-zinc-400 font-semibold">({cotizaciones.length})</span>}</p>
+          <p className="text-[13.5px] font-semibold text-zinc-700 flex items-center gap-1.5"><Gavel size={15} /> Cotizaciones recibidas{cotizaciones.length > 0 && <span className="text-zinc-400 font-semibold">({cotizaciones.length})</span>}</p>
           {puedeOperar && (
             <div className="flex items-center gap-2 flex-wrap justify-end">
-              <button onClick={() => setMasivaAbierta(v => !v)} title="Sube de una vez todas las cotizaciones (PDF, foto, Word o Excel): el sistema lee cada una y detecta proveedor, productos y precios." className="flex items-center gap-2 text-[13.5px] font-bold text-white bg-teal-600 hover:bg-teal-700 shadow-sm px-5 py-2.5 rounded-xl focus-visible:ring-2 focus-visible:ring-teal-400 outline-none">
+              <button onClick={() => setMasivaAbierta(v => !v)} title="Sube de una vez todas las cotizaciones (PDF, foto, Word o Excel): el sistema lee cada una y detecta proveedor, productos y precios." className="flex items-center gap-2 text-[13.5px] font-semibold text-white bg-teal-600 hover:bg-teal-700 shadow-sm px-5 py-2.5 rounded-xl focus-visible:ring-2 focus-visible:ring-teal-400 outline-none">
                 <Paperclip size={17} /> Cargar varias cotizaciones
               </button>
               <button onClick={() => setDirectaAbierta(d => (d ? null : {}))} title="Para ítems que no se cotizan (ferretería, retail): anota a quién se compra y a qué precio, sin documento." className="flex items-center gap-1 text-[12px] font-semibold text-zinc-600 hover:text-zinc-900 border border-zinc-200 bg-white hover:bg-zinc-50 px-2.5 py-1 rounded-lg">
@@ -1263,7 +1263,7 @@ export function AuditorComprasCard({ negocioId, puedeOperar, soloLectura = false
               </p>
               {(
                   <div className="mt-2 border border-teal-200 rounded-lg p-3 space-y-2 bg-teal-50/40">
-                    <p className="text-[12.5px] font-bold text-zinc-800">¿Qué productos cubre esta cotización?</p>
+                    <p className="text-[12.5px] font-semibold text-zinc-800">¿Qué productos cubre esta cotización?</p>
                     {/* Lo que dice el documento, para decidir sin salir de aquí */}
                     {(() => {
                       const lineas = lineasDesdeTabla(String(c.descripcionLibre || ''));

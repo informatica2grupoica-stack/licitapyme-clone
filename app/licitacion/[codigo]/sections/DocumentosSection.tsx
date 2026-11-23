@@ -719,7 +719,7 @@ function DocumentosGrid({
           handleSepararAnexo. */}
       {separando && createPortal(
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm overlay-in">
-          <div className="bg-white rounded-2xl shadow-2xl px-8 py-7 modal-in">
+          <div className="bg-white rounded-xl shadow-flotante px-8 py-7 modal-in">
             <DocSplitLoader
               titulo={separando.fase === 'revisando' ? 'Buscando anexos…' : 'Guardando anexos…'}
               subtitulo={`${separando.fase === 'revisando' ? 'Revisando' : 'Separando'} "${separando.nombre}"`}
