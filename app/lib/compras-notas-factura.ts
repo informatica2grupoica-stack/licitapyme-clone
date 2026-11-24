@@ -6,9 +6,11 @@
 // el mismo monto (una nota puede venir a nombre de otra razón social: Roco Import / «Lockers Store»). Solo OC con factura enlazada.
 import type { DocumentoDelProyecto } from '@/app/lib/compras-proyectos-obuma';
 
-export interface NotaDeOc { tipo: '61' | '56'; folio: string; fecha: string | null; /** Neto con signo: la nota de crédito viene negativa. */ neto: number }
+export interface NotaDeOc { tipo: '61' | '56'; folio: string; fecha: string | null; /** Neto con signo: la nota de crédito viene negativa. */ neto: number; /** Total CON IVA, también con signo. */ total: number; proveedor: string | null }
 
 const nombreSimple = (s: string | null | undefined) => (s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+/** Obuma entrega los documentos como DD-MM-AAAA; las pantallas esperan AAAA-MM-DD. */
+const fechaIso = (f: string | null): string | null => { const m = f ? /^(\d{2})-(\d{2})-(\d{4})/.exec(f) : null; return m ? `${m[3]}-${m[2]}-${m[1]}` : f; };
 export const netoDeDocumento = (d: DocumentoDelProyecto) => Math.round(d.neto ?? d.total / 1.19);
 
 /** @param ocs OC del negocio con sus facturas ya enlazadas (neto de cada una). Devuelve, por folio de OC, las notas que le tocan. */
@@ -32,7 +34,7 @@ export function asociarNotasAOc(
       if (!((mismoProv && (unica || igualAFactura)) || igualAFactura)) continue;
       usada.add(`${d.tipo}|${d.folio}|${d.proveedorNombre}`);
       const lista = salida.get(o.folio) ?? [];
-      lista.push({ tipo: d.tipo as '61' | '56', folio: d.folio, fecha: d.fecha, neto: netoDeDocumento(d) });
+      lista.push({ tipo: d.tipo as '61' | '56', folio: d.folio, fecha: fechaIso(d.fecha), neto: netoDeDocumento(d), total: Math.round(d.total), proveedor: d.proveedorNombre });
       salida.set(o.folio, lista);
     }
   }

@@ -34,7 +34,21 @@ export async function GET(request: NextRequest, { params }: Params) {
     if (!(await puedeOperarCompras(userId, rol, asignacion.asignadoA, asignacion.coencargados)))
       return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
 
-    const resumen = await resumenGastosCompra(id, asignacion.resumen?.montoCosteado ?? null);
+    const resumen: any = await resumenGastosCompra(id, asignacion.resumen?.montoCosteado ?? null);
+    // Notas de crédito (restan) y de débito (suman) del proyecto de Obuma, asociadas a la OC de su proveedor: misma regla que el Comparativo y la Auditoría.
+    try {
+      const { listarProyectosObuma } = await import('@/app/lib/compras-proyectos-obuma');
+      const { asociarNotasAOc } = await import('@/app/lib/compras-notas-factura');
+      const { proyectos } = await listarProyectosObuma();
+      const documentos = proyectos.find(p => p.negociosCoincidentes.some(n => n.negocioId === id))?.documentos ?? [];
+      const porOc = asociarNotasAOc(documentos, resumen.ocsObuma.map((o: any) => ({
+        folio: o.folio, proveedor: o.proveedor,
+        facturasNeto: resumen.facturas.detalle.filter((f: any) => f.ocFolio === o.folio).map((f: any) => Math.round((f.total || 0) / 1.19)),
+      })));
+      const notas = [...porOc.entries()].flatMap(([ocFolio, ns]) => ns.map(n => ({ ocFolio, ...n })));
+      resumen.facturas.notas = notas;
+      resumen.facturas.totalConNotas = resumen.facturas.total + notas.reduce((s, n) => s + n.total, 0);
+    } catch { /* sin snapshot de Obuma: se muestran las facturas sin notas */ }
     // Cobertura de la compra: productos vigentes, cuántos ya tienen precio de un proveedor (cotizado o compra directa).
     let cobertura = { total: 0, cubiertos: 0, directos: 0, sinCubrir: [] as string[] };
     try {

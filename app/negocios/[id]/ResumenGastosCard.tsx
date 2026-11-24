@@ -24,6 +24,9 @@ interface ResumenGastos {
     cantidad: number; total: number;
     detalle?: { dteId?: string; folio: string; proveedor: string | null; total: number | null; fecha: string | null; xmlUrl: string | null; ocFolio?: string | null }[];
     descartadas?: { dteId?: string; folio: string; proveedor: string | null; total: number | null; fecha: string | null; xmlUrl: string | null; motivo: string }[];
+    /** Notas de crédito (restan) y de débito (suman) del proyecto de Obuma, por OC, y el total CON IVA ya neto de ellas. */
+    notas?: { ocFolio: string; tipo: '61' | '56'; folio: string; fecha: string | null; neto: number; total: number; proveedor: string | null }[];
+    totalConNotas?: number;
   };
   montoCosteado: number | null;
   variacionPct: number | null;
@@ -140,6 +143,8 @@ export function ResumenGastosCard({ negocioId }: { negocioId: number }) {
   const variacion = costeado && costeado > 0 && gastado != null ? Math.round(((gastado - costeado) / costeado) * 1000) / 10 : null;
   const nOc = filasOc.length;
   const nFac = resumen.facturas.cantidad;
+  const notasFac = resumen.facturas.notas ?? [];
+  const totalFac = resumen.facturas.totalConNotas ?? resumen.facturas.total;   // con IVA, neto de notas de crédito/débito
   const facturasPorOc = new Map<string, string[]>();
   for (const f of resumen.facturas.detalle ?? []) if (f.ocFolio) facturasPorOc.set(String(f.ocFolio), [...(facturasPorOc.get(String(f.ocFolio)) ?? []), f.folio]);
   const totalNetoOc = filasOc.reduce((s, f) => s + (f.neto ?? 0), 0);
@@ -165,7 +170,7 @@ export function ResumenGastosCard({ negocioId }: { negocioId: number }) {
           tono={nOc > 0 ? 'ok' : 'pendiente'} accion={nOc === 0 ? { texto: 'Ir a Órdenes y facturas', onClick: irAOrdenes } : undefined} />
         <TarjetaAvance n={3} titulo="Facturas recibidas"
           valor={String(nFac)}
-          detalle={nFac > 0 ? `${plural(nFac, 'factura registrada', 'facturas registradas')} en Obuma · ${fmtCLP(resumen.facturas.total)} con IVA.` : nOc > 0 ? 'Aún no llega ninguna. Cuando el proveedor la entregue y se registre en Obuma, aparece aquí sola.' : 'Se esperan cuando haya órdenes emitidas.'}
+          detalle={nFac > 0 ? `${plural(nFac, 'factura registrada', 'facturas registradas')} en Obuma · ${fmtCLP(totalFac)} con IVA${notasFac.length ? ' (ya restadas las notas de crédito)' : ''}.` : nOc > 0 ? 'Aún no llega ninguna. Cuando el proveedor la entregue y se registre en Obuma, aparece aquí sola.' : 'Se esperan cuando haya órdenes emitidas.'}
           tono={nFac > 0 ? 'ok' : nOc > 0 ? 'pendiente' : 'neutro'} />
         <TarjetaAvance n={4} titulo="Gasto vs costeado"
           valor={gastado != null ? fmtCLP(gastado) : '—'}
@@ -228,6 +233,18 @@ export function ResumenGastosCard({ negocioId }: { negocioId: number }) {
                     <FilaOrden key={f.folio} f={f} abierta={abierta} anulada={anulada} facturas={facturas} onAlternar={() => alternar(f.folio)} negocioId={negocioId} onGuardado={cargar} />
                   );
                 })}
+                {notasFac.map((n, i) => (
+                  <tr key={`nota-${n.tipo}-${n.folio}-${i}`} className="bg-zinc-50/50">
+                    <td className="px-4 py-2 font-semibold text-zinc-800">{n.proveedor || 'Proveedor'}</td>
+                    <td className="px-2 py-2 tabular-nums text-zinc-600">{n.tipo === '61' ? 'Nota de crédito' : 'Nota de débito'} {n.folio}</td>
+                    <td className="px-2 py-2 whitespace-nowrap text-zinc-600">{fmtFecha(n.fecha)}</td>
+                    <td className="px-2 py-2 tabular-nums text-zinc-600">OC {n.ocFolio}</td>
+                    <td className="px-2 py-2 text-right tabular-nums text-zinc-700">{fmtCLP(n.neto)}</td>
+                    <td className="px-2 py-2 text-right tabular-nums text-zinc-700">{fmtCLP(n.total - n.neto)}</td>
+                    <td className="px-2 py-2 text-right tabular-nums font-semibold text-zinc-800">{fmtCLP(n.total)}</td>
+                    <td />
+                  </tr>
+                ))}
               </tbody>
               <tfoot>
                 <tr className="bg-zinc-50 border-t border-zinc-200 font-semibold text-zinc-800">
@@ -299,10 +316,10 @@ export function ResumenGastosCard({ negocioId }: { negocioId: number }) {
               </tbody>
               <tfoot>
                 <tr className="bg-zinc-50 border-t border-zinc-200 font-semibold text-zinc-800">
-                  <td className="px-4 py-2" colSpan={4}>{plural(nFac, 'factura', 'facturas')}</td>
-                  <td className="px-2 py-2 text-right tabular-nums">{fmtCLP(Math.round(resumen.facturas.total / 1.19))}</td>
-                  <td className="px-2 py-2 text-right tabular-nums">{fmtCLP(resumen.facturas.total - Math.round(resumen.facturas.total / 1.19))}</td>
-                  <td className="px-2 py-2 text-right tabular-nums">{fmtCLP(resumen.facturas.total)}</td>
+                  <td className="px-4 py-2" colSpan={4}>{plural(nFac, 'factura', 'facturas')}{notasFac.length ? ` y ${plural(notasFac.length, 'nota', 'notas')}` : ''}</td>
+                  <td className="px-2 py-2 text-right tabular-nums">{fmtCLP(Math.round(totalFac / 1.19))}</td>
+                  <td className="px-2 py-2 text-right tabular-nums">{fmtCLP(totalFac - Math.round(totalFac / 1.19))}</td>
+                  <td className="px-2 py-2 text-right tabular-nums">{fmtCLP(totalFac)}</td>
                   <td />
                 </tr>
               </tfoot>
