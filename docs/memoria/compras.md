@@ -3,6 +3,9 @@
 Pantalla principal: `/compras/[negocioId]` (`ComprasChrome.tsx`). Traspasado desde la memoria
 personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-11-24 (tarde) — Entregadas corregidas por orden del dueño (BD REAL; firmado Alexis Tobar; SIN desplegar)
+**Regla del dueño (pisa la de Comercial MP «sin factura en Obuma → Entregada»):** lo que él confirma a mano manda. **Canceladas:** 1114-12-LE26, 5586-59-LE26, 2446-134-LE26 (motivo genérico «lo indicó el dueño 24-nov»; si quiere otro texto, editarlo). **Cerradas (facturadas de MP, facturas fuera de este Obuma, sin cargar en Licitank):** 1271359-92, 3477-80, 1801-10, 1471-8, 1274907-15. **Vuelven a En proceso:** Quintero 1202333-67-LE26 y Mañihuales 1095439-8-LP26 (se quitó el Entregada que había puesto yo por las guías de Obuma). **Siguen Entregadas:** Paillaco 3789-30-LE26, Hualpén 4152-22-LE26, Coquimbo 2446-240-LE26. Ya estaban Cerradas: 387-55, 2705-38, 539119-61, 5394-9. **Estados ahora:** Abierta 4, En proceso 20, Entregada 8, Cerrada 15, Pagada 18, Cancelada 15 (80). **Pendiente:** el dueño citó «2446-137-LE26» como cerrada: ese código NO existe en Licitank (¿era otro?).
+
 ## 2026-11-24 — Pestañas por estado revisadas contra la BD y Obuma (solo lectura; 0 descuadres)
 **Qué:** las pestañas Abiertas 4 / En proceso 18 / Entregadas 18 / Cerradas 10 / Pagadas 18 / Canceladas 12 / Todas 80 coinciden con `estadoCompraEfectivo` de la BD real (la pestaña Pagadas ya existía en `page.tsx`). Cruce con facturas cargadas, facturas y guías de Obuma (guías solo de Inversiones Claro): Pagada = factura con fecha de pago; Cerrada = con factura; Entregada Claro = con guía; En proceso/Abierta = sin guía ni factura. **Límite:** las Entregadas de Comercial MP no se pueden comprobar (guías y facturas fuera de este Obuma; el dueño revisa las subidas a mano). Sin cambios de código.
 

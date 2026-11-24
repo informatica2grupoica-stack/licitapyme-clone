@@ -83,7 +83,30 @@ export async function marcarFacturasConNotaCredito(soloCodigo?: string | string[
   return [...cambiados];
 }
 
+// CHECKPOINT (ahorro de consultas a Obuma, tope 1.500/día por método): el cron solo vuelve a pedir ítems y facturas de una OC
+// cuando su fila del listado cambió respecto de lo guardado; las OC sin movimiento no gastan llamadas. El botón por negocio
+// (soloCodigo) NO usa checkpoint: refresca todo lo de esa licitación.
+const CAMPOS_CHECKPOINT = ['compra_oc_estado', 'compra_oc_neto', 'compra_oc_subtotal', 'compra_oc_iva', 'compra_oc_total',
+  'compra_oc_facturada_tipo_dcto', 'compra_oc_referencia', 'compra_oc_observacion', 'compra_oc_centro_costo', 'rel_proveedor_id'] as const;
+
+function firmaOc(o: Record<string, unknown>): string {
+  return CAMPOS_CHECKPOINT.map(k => String(o?.[k] ?? '').trim()).join('|');
+}
+
+/** ¿La OC no tiene movimiento desde la última sincronización? (misma firma, con ítems, RUT y facturas ya resueltos). */
+function ocSinMovimiento(c: ObumaCompraOc, prev: any): boolean {
+  if (!prev || !prev.items_json || !prev.proveedor_rut) return false;
+  if (String(c.compra_oc_facturada_tipo_dcto || '').trim() && !prev.facturas_json) return false;
+  try { return firmaOc(JSON.parse(String(prev.raw_json))) === firmaOc(c as any); } catch { return false; }
+}
+
+// Revisar notas de crédito obliga a bajar compras.list entero (~17 llamadas): en el cron se hace como máximo cada 6 h.
+const NC_CADA_MS = 6 * 3600_000;
+let ultimaRevisionNc = 0;
+
 export interface ResumenSyncObuma {
+  /** OC sin movimiento que el checkpoint no volvió a leer (0 ítems/facturas pedidos). */
+  sinMovimiento?: number;
   paginasBarridas: number;
   vistas: number;
   candidatas: number;
@@ -134,6 +157,10 @@ export async function sincronizarComprasObuma(
   // Facturas anuladas con nota de crédito: se revisan siempre (la NC llega después de la factura, aunque la OC ya no esté entre las últimas páginas).
   // Sin soloCodigo solo las de las licitaciones que siguen abiertas (así se evita bajar todo compras.list por nada).
   const revisarNotasDeCredito = async () => {
+    if (!soloCodigo) {
+      if (Date.now() - ultimaRevisionNc < NC_CADA_MS) return;
+      ultimaRevisionNc = Date.now();
+    }
     try { for (const c of await marcarFacturasConNotaCredito(soloCodigo ?? codigos)) if (!resumen.codigos.includes(c)) resumen.codigos.push(c); }
     catch (err) { console.warn('[obuma-compras] no se pudieron revisar las notas de crédito:', String(err).slice(0, 150)); }
   };
@@ -242,6 +269,10 @@ export async function sincronizarComprasObuma(
   };
 
   for (const c of candidatas) {
+    if (!soloCodigo) {
+      const [chk] = await pool.query(`SELECT items_json, facturas_json, proveedor_rut, raw_json FROM obuma_compras WHERE compra_oc_id = ? LIMIT 1`, [c.compra_oc_id]) as any;
+      if (ocSinMovimiento(c, (chk as any[])[0])) { resumen.sinMovimiento = (resumen.sinMovimiento ?? 0) + 1; continue; }
+    }
     const referencia = c.compra_oc_referencia || '';
     const licitacionCodigo = codigoDe(c);
     const negocio = licitacionCodigo ? nuestras.get(licitacionCodigo) : undefined;

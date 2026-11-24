@@ -2,6 +2,10 @@
 
 **Antes de tocar cualquier llamada a Obuma, lee `docs/obuma/GUIA-API.md`** (spec oficial completa en `docs/obuma/openapi-v1.0.yaml`, índice en `docs/obuma/indice-endpoints.txt`). Todo se entrega por `app/lib/obuma.ts` (capa HTTP) y `app/lib/obuma-compras.ts` (cron).
 
+## 2026-11-24 (noche) — Checkpoint en el cron de Obuma (sin desplegar)
+**Qué cambia (`app/lib/obuma-compras.ts`):** el cron ya no pide ítems ni facturas de cada OC en cada corrida. Compara la fila del listado con lo guardado (estado, neto/total/IVA, enlace de factura, referencia, observación, centro de costo, proveedor); si no cambió y ya tiene ítems, RUT y facturas, la salta (0 llamadas). La revisión de notas de crédito (baja `compras.list` entero, ~17 llamadas) corre como máximo cada 6 h en el cron (temporizador en memoria: un reinicio la vuelve a permitir). El botón «Sincronizar con Obuma ahora» (`soloCodigo`) NO usa checkpoint y refresca todo. El resumen trae `sinMovimiento`.
+**Pendiente:** desplegar y mirar `sinMovimiento` y el contador por método tras un día; si hace falta ahorrar más, usar `id_dcto_desde` para el barrido del listado.
+
 ## 2026-11-24 — Documentación revisada completa y guardada (solo lectura; nada cambiado en código)
 **Qué se hizo:** se bajó la especificación OpenAPI (207 operaciones, 57 grupos), se revisó entera, se probó en vivo con la cuenta real y se escribió la guía.
 **Hallazgos que importan:**
