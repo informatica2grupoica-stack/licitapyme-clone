@@ -120,6 +120,8 @@ export interface ResumenEjecutivoCompras extends ResumenEjecutivo {
   existeCosteo: boolean;
   montoCosteado: number | null;
   margenPrevisto: number | null;             // % — (precio de venta neto − costo neto) / precio de venta neto
+  /** El costeo cubre solo una parte de la venta: el margen se calculó sobre la venta de lo costeado, no sobre el total adjudicado. */
+  margenSobreCosteo?: { ventaCosteada: number; ventaTotal: number };
   /** El negocio no tiene costeo con monto: montoCosteado es el costo de la compra aprobada. */
   costoDesdeCompraAprobada?: boolean;
   /** Licitación por línea con adjudicación parcial: el monto costeado es solo el de las líneas ganadas. */
@@ -438,9 +440,7 @@ export async function construirResumenEjecutivoCompras(
       montoCosteado = g.costo;
     }
   }
-  const margenPrevisto = (base.montoNuestro && montoCosteado != null && base.montoNuestro > 0)
-    ? Math.round(((base.montoNuestro - montoCosteado) / base.montoNuestro) * 1000) / 10
-    : null;
+  const { margen: margenPrevisto, sobreCosteo: margenSobreCosteo } = calcularMargenPrevisto(base.montoNuestro, montoCosteado, costeo?.totalPrecioNeto ?? null, !!costeoGanado);
   if (!existeCosteo) faltantes.push('El negocio no tiene costeo registrado: no se puede calcular el margen previsto.');
 
   // Los faltantes que trae la base se recalculan: el respaldo de arriba puede haberlos resuelto, y
@@ -455,8 +455,19 @@ export async function construirResumenEjecutivoCompras(
     presupuestoProyecto, fechaCierreLicitacion,
     plazoEntregaOfertado, plazoEntregaDias, hitoInicioPlazo,
     requiereBoletaFielCumplimiento, requiereFirmaContrato, plazoAceptacionOC,
-    existeCosteo, montoCosteado, margenPrevisto, costeoGanado,
+    existeCosteo, montoCosteado, margenPrevisto, margenSobreCosteo, costeoGanado,
   };
+}
+
+/** Margen previsto = (venta − costo) / venta. QA 24-nov: en 727202-72-LP26 se restaba el costo de 13 líneas ($11,8 M) a la venta de las 141 ($188,6 M) y daba 93,7 %
+ *  (el comparativo, sobre lo costeado, daba 21,3 %). Si el costeo trae su propia venta y es menos del 75 % de la adjudicada, el margen se calcula sobre esa venta y se avisa.
+ *  Con adjudicación parcial por línea (`hayGanadoParcial`) el costo ya viene filtrado a las líneas ganadas: no se toca. */
+function calcularMargenPrevisto(montoNuestro: number | null | undefined, costo: number | null, precioCosteo: number | null | undefined, hayGanadoParcial: boolean)
+  : { margen: number | null; sobreCosteo?: { ventaCosteada: number; ventaTotal: number } } {
+  if (!montoNuestro || montoNuestro <= 0 || costo == null) return { margen: null };
+  let venta = montoNuestro; let sobreCosteo: { ventaCosteada: number; ventaTotal: number } | undefined;
+  if (!hayGanadoParcial && precioCosteo && precioCosteo > 0 && precioCosteo < montoNuestro * 0.75) { venta = precioCosteo; sobreCosteo = { ventaCosteada: precioCosteo, ventaTotal: montoNuestro }; }
+  return { margen: Math.round(((venta - costo) / venta) * 1000) / 10, sobreCosteo };
 }
 
 // Cadena de Urgencia (§3.7/§15.2): plazo comprometido menor a 3 días. Simplificación de Fase 1: no
@@ -813,7 +824,8 @@ export async function marcarCierreLegado(
   await registrarEvento({
     tipo: 'COMPRAS_CIERRE_LEGADO',
     licitacionCodigo, actorId: userId, actorNombre: userNombre,
-    mensaje: `Se marcó ${licitacionCodigo} como ${estado === 'ENTREGADA' ? 'entregada' : 'no realizada'} (backlog histórico)${nota ? `: "${nota}"` : ''}.`,
+    // QA 24-nov: al cancelar desde la ficha decía «no realizada (backlog histórico)»; ahora dice lo que es: cerrada o cancelada.
+    mensaje: `Se ${estado === 'ENTREGADA' ? 'cerró' : 'canceló'} ${licitacionCodigo}${nota ? `: "${nota}"` : ''}.`,
     metadata: { negocio_id: negocioId, estado, nota },
   });
 }
@@ -1100,9 +1112,9 @@ export async function obtenerAsignacion(negocioId: number): Promise<AsignacionCo
           }
         }
         const costoMostrado = resumen.montoCosteado;
-        resumen.margenPrevisto = (resumen.montoNuestro && costoMostrado != null && resumen.montoNuestro > 0)
-          ? Math.round(((resumen.montoNuestro - costoMostrado) / resumen.montoNuestro) * 1000) / 10
-          : null;
+        const m = calcularMargenPrevisto(resumen.montoNuestro, costoMostrado, resumen.costeo?.totalPrecioNeto ?? null, !!resumen.costeoGanado);
+        resumen.margenPrevisto = m.margen;
+        resumen.margenSobreCosteo = m.sobreCosteo;
       }
     } catch (e) {
       console.error('[compras] costeo vigente no legible (asignación):', String(e).slice(0, 150));

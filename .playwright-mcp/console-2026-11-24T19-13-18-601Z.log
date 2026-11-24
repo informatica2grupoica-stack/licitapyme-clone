@@ -23,3 +23,92 @@
 [ 1377022ms] [ERROR] Failed to load resource: the server responded with a status of 403 (Forbidden) @ http://localhost:3200/api/compras:1
 [ 1436969ms] [ERROR] Failed to load resource: the server responded with a status of 403 (Forbidden) @ http://localhost:3200/api/compras:1
 [ 1496963ms] [ERROR] Failed to load resource: the server responded with a status of 403 (Forbidden) @ http://localhost:3200/api/compras:1
+[ 1556955ms] [ERROR] Failed to load resource: the server responded with a status of 403 (Forbidden) @ http://localhost:3200/api/compras:1
+[ 1618100ms] [ERROR] Failed to load resource: the server responded with a status of 403 (Forbidden) @ http://localhost:3200/api/compras:1
+[ 1676951ms] [ERROR] Failed to load resource: the server responded with a status of 403 (Forbidden) @ http://localhost:3200/api/compras:1
+[ 1737101ms] [ERROR] Failed to load resource: the server responded with a status of 403 (Forbidden) @ http://localhost:3200/api/compras:1
+[ 1756743ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_19srt9611cgni._.js:761
+[ 1756755ms] [LOG] [Fast Refresh] done in 120ms @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_19srt9611cgni._.js:761
+[ 1756949ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_19srt9611cgni._.js:761
+[ 1757818ms] [LOG] [Fast Refresh] done in 978ms @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_19srt9611cgni._.js:761
+[ 1762749ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_19srt9611cgni._.js:761
+[ 1765908ms] [LOG] [Fast Refresh] done in 3268ms @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_19srt9611cgni._.js:761
+[ 1768039ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_19srt9611cgni._.js:761
+[ 1770698ms] [LOG] [Fast Refresh] done in 2776ms @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_19srt9611cgni._.js:761
+[ 1770908ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_19srt9611cgni._.js:761
+[ 1777991ms] [LOG] [Fast Refresh] done in 7185ms @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_19srt9611cgni._.js:761
+[ 1784696ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_19srt9611cgni._.js:761
+[ 1786055ms] [LOG] [Fast Refresh] done in 1466ms @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_19srt9611cgni._.js:761
+[ 1787930ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_19srt9611cgni._.js:761
+[ 1790975ms] [LOG] [Fast Refresh] done in 3174ms @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_19srt9611cgni._.js:761
+[ 1797293ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_19srt9611cgni._.js:761
+[ 1798444ms] [LOG] [Fast Refresh] done in 1258ms @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_19srt9611cgni._.js:761
+[ 1798754ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_19srt9611cgni._.js:761
+[ 1799496ms] [LOG] [Fast Refresh] done in 849ms @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_19srt9611cgni._.js:761
+[ 1800230ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_19srt9611cgni._.js:761
+[ 1800479ms] [LOG] [Fast Refresh] done in 355ms @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_19srt9611cgni._.js:761
+[ 1800765ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_19srt9611cgni._.js:761
+[ 1808240ms] [LOG] [Fast Refresh] done in 7639ms @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_19srt9611cgni._.js:761
+[ 1817204ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_19srt9611cgni._.js:761
+[ 1820615ms] [LOG] [Fast Refresh] done in 3520ms @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_19srt9611cgni._.js:761
+[ 1853573ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_19srt9611cgni._.js:761
+[ 1854351ms] [LOG] [Fast Refresh] done in 887ms @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_19srt9611cgni._.js:761
+[ 1856668ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_19srt9611cgni._.js:761
+[ 1856805ms] [LOG] [Fast Refresh] done in 246ms @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_19srt9611cgni._.js:761
+[ 1857028ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_19srt9611cgni._.js:761
+[ 1857033ms] [LOG] [Fast Refresh] done in 113ms @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_19srt9611cgni._.js:761
+[ 1857241ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_19srt9611cgni._.js:761
+[ 1857805ms] [LOG] [Fast Refresh] done in 668ms @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_19srt9611cgni._.js:761
+[ 1858020ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_19srt9611cgni._.js:761
+[ 1858099ms] [LOG] [Fast Refresh] done in 185ms @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_19srt9611cgni._.js:761
+[ 2439759ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_19srt9611cgni._.js:761
+[ 2443188ms] [LOG] [Fast Refresh] done in 3539ms @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_19srt9611cgni._.js:761
+[ 2443480ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_19srt9611cgni._.js:761
+[ 2482232ms] [LOG] [Fast Refresh] done in 38857ms @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_19srt9611cgni._.js:761
+[ 2506807ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_19srt9611cgni._.js:761
+[ 2506849ms] [LOG] [Fast Refresh] done in 150ms @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_19srt9611cgni._.js:761
+[ 2507072ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_19srt9611cgni._.js:761
+[ 2513116ms] [LOG] [Fast Refresh] done in 6154ms @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_19srt9611cgni._.js:761
+[ 2515485ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_19srt9611cgni._.js:761
+[ 2520747ms] [LOG] [Fast Refresh] done in 5371ms @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_19srt9611cgni._.js:761
+[ 2520876ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_19srt9611cgni._.js:761
+[ 2524164ms] [LOG] [Fast Refresh] done in 3391ms @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_19srt9611cgni._.js:761
+[ 2536725ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_19srt9611cgni._.js:761
+[ 2538189ms] [LOG] [Fast Refresh] done in 1574ms @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_19srt9611cgni._.js:761
+[ 2538408ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_19srt9611cgni._.js:761
+[ 2538562ms] [LOG] [Fast Refresh] done in 263ms @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_19srt9611cgni._.js:761
+[ 2543372ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_19srt9611cgni._.js:761
+[ 2545447ms] [LOG] [Fast Refresh] done in 2180ms @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_19srt9611cgni._.js:761
+[ 2548458ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_19srt9611cgni._.js:761
+[ 2551171ms] [LOG] [Fast Refresh] done in 2822ms @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_19srt9611cgni._.js:761
+[ 2551607ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_19srt9611cgni._.js:761
+[ 2551656ms] [LOG] [Fast Refresh] done in 158ms @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_19srt9611cgni._.js:761
+[ 2551874ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_19srt9611cgni._.js:761
+[ 2552435ms] [LOG] [Fast Refresh] done in 668ms @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_19srt9611cgni._.js:761
+[ 2555912ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_19srt9611cgni._.js:761
+[ 2559365ms] [LOG] [Fast Refresh] done in 3562ms @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_19srt9611cgni._.js:761
+[ 2573274ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_19srt9611cgni._.js:761
+[ 2573470ms] [LOG] [Fast Refresh] done in 306ms @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_19srt9611cgni._.js:761
+[ 2573691ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_19srt9611cgni._.js:761
+[ 2573907ms] [LOG] [Fast Refresh] done in 322ms @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_19srt9611cgni._.js:761
+[ 2882646ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_RESET @ http://localhost:3200/api/historial/stream:1
+[ 2883639ms] [ERROR] WebSocket connection to 'ws://localhost:3200/_next/hmr?id=fdRcn5uVaprwOC-M4gH33' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_client_1ounh1s8_ussu._.js:16257
+[ 2884655ms] [ERROR] WebSocket connection to 'ws://localhost:3200/_next/hmr?id=fdRcn5uVaprwOC-M4gH33' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_client_1ounh1s8_ussu._.js:16257
+[ 2885667ms] [ERROR] WebSocket connection to 'ws://localhost:3200/_next/hmr?id=fdRcn5uVaprwOC-M4gH33' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_client_1ounh1s8_ussu._.js:16257
+[ 2886677ms] [ERROR] WebSocket connection to 'ws://localhost:3200/_next/hmr?id=fdRcn5uVaprwOC-M4gH33' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_client_1ounh1s8_ussu._.js:16257
+[ 2887660ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:3200/api/historial/stream:1
+[ 2887707ms] [ERROR] WebSocket connection to 'ws://localhost:3200/_next/hmr?id=fdRcn5uVaprwOC-M4gH33' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_client_1ounh1s8_ussu._.js:16257
+[ 2892667ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:3200/api/historial/stream:1
+[ 2892728ms] [ERROR] WebSocket connection to 'ws://localhost:3200/_next/hmr?id=fdRcn5uVaprwOC-M4gH33' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_client_1ounh1s8_ussu._.js:16257
+[ 2897686ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:3200/api/historial/stream:1
+[ 2897760ms] [ERROR] WebSocket connection to 'ws://localhost:3200/_next/hmr?id=fdRcn5uVaprwOC-M4gH33' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_client_1ounh1s8_ussu._.js:16257
+[ 2902692ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:3200/api/historial/stream:1
+[ 2902786ms] [ERROR] WebSocket connection to 'ws://localhost:3200/_next/hmr?id=fdRcn5uVaprwOC-M4gH33' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_client_1ounh1s8_ussu._.js:16257
+[ 2907703ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:3200/api/historial/stream:1
+[ 2907831ms] [ERROR] WebSocket connection to 'ws://localhost:3200/_next/hmr?id=fdRcn5uVaprwOC-M4gH33' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_client_1ounh1s8_ussu._.js:16257
+[ 2912715ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:3200/api/historial/stream:1
+[ 2912864ms] [ERROR] WebSocket connection to 'ws://localhost:3200/_next/hmr?id=fdRcn5uVaprwOC-M4gH33' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_client_1ounh1s8_ussu._.js:16257
+[ 2917729ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:3200/api/historial/stream:1
+[ 2917900ms] [ERROR] WebSocket connection to 'ws://localhost:3200/_next/hmr?id=fdRcn5uVaprwOC-M4gH33' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_client_1ounh1s8_ussu._.js:16257
+[ 2922740ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:3200/api/historial/stream:1
+[ 2923000ms] [ERROR] WebSocket connection to 'ws://localhost:3200/_next/hmr?id=fdRcn5uVaprwOC-M4gH33' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_client_1ounh1s8_ussu._.js:16257

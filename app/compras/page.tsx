@@ -1747,7 +1747,7 @@ export default function ComprasPage() {
           <div>
             <h1 className="text-[22px] font-semibold tracking-tight leading-tight text-tinta dark:text-slate-50">Compras</h1>
             <p className="mt-1 text-sm text-tinta-2 dark:text-slate-400">
-              {negocios.length === 0 ? 'Sin negocios ganados todavía'
+              {negocios.length === 0 ? (loading ? 'Cargando negocios…' : 'Sin negocios ganados todavía')
                 : hayFiltro || q || estado !== 'abiertas' ? `${filtrados.length} negocio(s)`
                 : `${nGanadas} negocio(s) abierto(s)${nPrecompras > 0 ? ` · ${nPrecompras} pre-compra(s)` : ''}`}
             </p>

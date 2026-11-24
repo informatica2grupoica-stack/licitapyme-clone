@@ -15,7 +15,7 @@ import { puedeOperarPreAprobacion, puedeVerPreAprobacion } from '@/app/api/compr
 import { subirDocumentoR2 } from '@/app/lib/r2';
 import { errorDeArchivoSubido } from '@/app/lib/subidas';
 import { extraerDatosCotizacionDeDocumento } from '@/app/lib/compras-cotizacion-ocr';
-import { parsearMontoCL } from '@/app/lib/numeros';
+import { parsearMontoCL, TOPE_MONTO_CLP } from '@/app/lib/numeros';
 import { fusionarDirectasDelNegocio } from '@/app/lib/compras-directas';
 import { fichasDesdeCotizacionEnSegundoPlano } from '@/app/lib/compras-cotizacion-specs';
 import { pareceFichaTecnicaSinCotizacion } from '@/app/lib/compras-cotizacion-specs-core';
@@ -118,6 +118,20 @@ async function __POST(request: NextRequest, { params }: Params) {
           const parsed = JSON.parse(itemsRaw);
           if (Array.isArray(parsed)) datos.itemsManual = parsed;
         } catch { /* payload de items mal formado — se ignora */ }
+      }
+
+      // QA 24-nov: «abc» o «-500» como precio daban éxito con la cotización sin precio, el plazo aceptaba -5 días y se guardaban cotizaciones vacías.
+      // Lo escrito tiene que ser un monto válido; sin documento, sin ítems y sin precio no hay nada que guardar. (El RUT NO se valida acá: se conserva a propósito para que el Auditor lo marque.)
+      for (const [campo, etiqueta, valor] of [['precioUnitario', 'precio unitario', datos.precioUnitario], ['precioTotal', 'precio total', datos.precioTotal]] as const) {
+        const crudo = String(form.get(campo) ?? '').trim();
+        if (crudo && (valor == null || !(valor > 0))) return NextResponse.json({ error: `El ${etiqueta} «${crudo}» no es un monto válido (tiene que ser mayor a 0).` }, { status: 400 });
+        if (valor != null && valor > TOPE_MONTO_CLP * 100) return NextResponse.json({ error: `El ${etiqueta} es demasiado grande: revisa que no sobren ceros.` }, { status: 400 });
+      }
+      if (datos.plazoEntregaDias != null && (!Number.isFinite(datos.plazoEntregaDias) || datos.plazoEntregaDias < 0 || datos.plazoEntregaDias > 730)) {
+        return NextResponse.json({ error: 'El plazo de entrega en días tiene que estar entre 0 y 730.' }, { status: 400 });
+      }
+      if (!file && datos.precioUnitario == null && datos.precioTotal == null && !(datos.itemsManual && datos.itemsManual.length)) {
+        return NextResponse.json({ error: 'Falta el precio de la cotización (o sube el documento con los precios).' }, { status: 400 });
       }
 
       // §8.2 — lee el documento y PROPONE lo que el usuario dejó vacío. Nunca pisa lo tipeado a

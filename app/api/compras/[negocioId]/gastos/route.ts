@@ -108,7 +108,11 @@ async function __POST(request: NextRequest, { params }: Params) {
     return NextResponse.json({ success: true, id: gastoId });
   } catch (error: any) {
     console.error('[compras/gastos][POST]', String(error));
-    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo registrar el gasto.') }, { status: 500 });
+    // QA 24-nov: moneda o categoría que no existen y un JSON roto devolvían 500 (y el texto técnico «Unexpected end of JSON input»). Una regla de negocio es 400; solo un fallo del sistema es 500.
+    if (error instanceof SyntaxError) return NextResponse.json({ error: 'Los datos del gasto llegaron incompletos o mal formados.' }, { status: 400 });
+    const defecto = 'No se pudo registrar el gasto.';
+    const mensaje = mensajeSeguro(error, defecto);
+    return NextResponse.json({ error: mensaje }, { status: mensaje === defecto ? 500 : 400 });
   }
 }
 

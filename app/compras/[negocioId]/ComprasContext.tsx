@@ -21,6 +21,8 @@ export interface ResumenCompras {
   requiereBoletaFielCumplimiento: boolean; requiereFirmaContrato: boolean; plazoAceptacionOC: string;
   existeCosteo: boolean; montoCosteado: number | null; margenPrevisto: number | null; costoDesdeCompraAprobada?: boolean;
   costeoGanado?: { ganadas: number[]; postuladas: number[]; perdidas: number[]; costoPostulado: number; filasSinLinea: boolean };
+  /** El costeo cubre solo una parte de la venta: el margen se calculó sobre la venta de lo costeado. */
+  margenSobreCosteo?: { ventaCosteada: number; ventaTotal: number };
   contactosCliente: {
     organismo: string | null; unidad: string | null; direccion: string | null; comuna: string | null;
     region?: string | null; rut?: string | null;

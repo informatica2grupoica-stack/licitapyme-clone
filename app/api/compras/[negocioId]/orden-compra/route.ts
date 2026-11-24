@@ -8,6 +8,7 @@
 import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
+import { validarMontoCLP } from '@/app/lib/numeros';
 import { obtenerAsignacion, registrarOrdenCompraCliente } from '@/app/lib/compras';
 import { puedeOperarCompras } from '@/app/api/compras/[negocioId]/route';
 
@@ -40,6 +41,19 @@ async function __POST(request: NextRequest, { params }: Params) {
     const montoCrudo = body.monto == null || body.monto === '' ? null : Number(body.monto);
     if (montoCrudo != null && !Number.isFinite(montoCrudo)) {
       return NextResponse.json({ error: 'El monto de la orden de compra no es un número.' }, { status: 400 });
+    }
+
+    // QA 24-nov: aceptaba monto negativo, fechas que no son fechas (se guardaban vacías sin avisar) y «aceptada» antes de «emitida» (y cerraba la tarea igual).
+    if (montoCrudo != null) {
+      try { validarMontoCLP(montoCrudo === 0 ? 1 : Math.abs(montoCrudo), 'El monto de la orden de compra'); } catch (e: any) { return NextResponse.json({ error: e.message }, { status: 400 }); }
+      if (montoCrudo < 0) return NextResponse.json({ error: 'El monto de la orden de compra no puede ser negativo.' }, { status: 400 });
+    }
+    const esFecha = (v: unknown) => /^\d{4}-\d{2}-\d{2}$/.test(String(v)) && !Number.isNaN(Date.parse(String(v)));
+    for (const [campo, etiqueta] of [['emitidaAt', 'emisión'], ['aceptadaAt', 'aceptación']] as const) {
+      if (body[campo] && !esFecha(body[campo])) return NextResponse.json({ error: `La fecha de ${etiqueta} no es válida (usa año-mes-día).` }, { status: 400 });
+    }
+    if (body.emitidaAt && body.aceptadaAt && String(body.aceptadaAt) < String(body.emitidaAt)) {
+      return NextResponse.json({ error: 'La fecha de aceptación no puede ser anterior a la de emisión.' }, { status: 400 });
     }
 
     const nombreActor = request.headers.get('x-user-nombre')

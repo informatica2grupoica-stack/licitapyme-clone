@@ -44,7 +44,7 @@ export interface ObumaListado<T> {
 async function llamar<T = any>(
   base: string, path: string, params: Record<string, string | number | undefined> = {}, extraHeaders: Record<string, string> = {},
 ): Promise<T> {
-  if (!TOKEN) throw new Error('OBUMA_API_TOKEN no configurado');
+  if (!TOKEN) throw new Error('Obuma no está conectado: falta la configuración de acceso. Avisa al administrador.');
   const qs = Object.entries(params)
     .filter(([, v]) => v !== undefined && v !== '')
     .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`)
@@ -363,7 +363,7 @@ const PREFIJO_SKU_MERCADO_PUBLICO = '60';
 const CORRELATIVO_INICIAL = 203; // mismo piso que ya usa grupoica-intranet para esta cuenta
 
 async function llamarPost<T = any>(base: string, path: string, payload: Record<string, unknown>): Promise<T> {
-  if (!TOKEN) throw new Error('OBUMA_API_TOKEN no configurado');
+  if (!TOKEN) throw new Error('Obuma no está conectado: falta la configuración de acceso. Avisa al administrador.');
   const res = await fetch(`${base}${path}`, {
     method: 'POST',
     headers: { 'access-token': TOKEN, 'Content-Type': 'application/json', 'Accept': 'application/json' },

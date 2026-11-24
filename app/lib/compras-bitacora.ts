@@ -5,7 +5,7 @@
 import { registrarEvento } from '@/app/lib/historial';
 import pool from '@/app/lib/db';
 import { publicarCambio } from '@/app/lib/sse-bus';
-import { debePasarAEnProceso } from '@/app/lib/compras-estado';
+import { debePasarAEnProceso, estaCancelada } from '@/app/lib/compras-estado';
 
 type Cuerpo = Record<string, any> | null;
 
@@ -117,6 +117,11 @@ async function candadoEnProceso(request: Request, ctx: any): Promise<Response | 
     if (negocioId == null || !Number.isFinite(negocioId)) return null;
     const raiz = new URL(request.url).pathname.replace(/^\/api\/compras\/\d+\/?/, '').split('/')[0];
     if (SIN_CANDADO.has(raiz)) return null;
+    if (await estaCancelada(negocioId)) {
+      return Response.json({
+        error: 'Esta licitación está cancelada: no se puede modificar. Para reabrirla, el dueño debe deshacer la cancelación.', codigo: 'LICITACION_CANCELADA',
+      }, { status: 409 });
+    }
     if (!(await debePasarAEnProceso(negocioId))) return null;
     return Response.json({
       error: 'Antes de trabajar en esta licitación, pásala a «En proceso» (botón arriba en la ficha).', codigo: 'DEBE_PASAR_EN_PROCESO',

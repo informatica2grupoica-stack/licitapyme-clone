@@ -31,6 +31,17 @@ export async function debePasarAEnProceso(negocioId: number): Promise<boolean> {
   }
 }
 
+/** ¿La licitación está cancelada? (la usa el candado de las rutas de Compras: una cancelada no recibe escrituras; QA 24-nov aceptaba gastos) */
+export async function estaCancelada(negocioId: number): Promise<boolean> {
+  try {
+    const r = await leer(negocioId);
+    return !!r && estadoCompraEfectivo(r.cierre_legado, r.estado_compra) === 'CANCELADA';
+  } catch (e: any) {
+    if (e?.code === 'ER_BAD_FIELD_ERROR') return false;
+    throw e;
+  }
+}
+
 /** Avisos (no bloquean) antes de confirmar un paso: lo que el sistema ve que aún falta. */
 export async function advertenciasDeEstado(negocioId: number, nuevo: EstadoCompra): Promise<string[]> {
   const av: string[] = [];

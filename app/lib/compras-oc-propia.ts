@@ -12,6 +12,7 @@ import { ahoraChileSQL } from '@/app/lib/tz';
 import { registrarEvento } from '@/app/lib/historial';
 import { listarProductosCompra } from '@/app/lib/compras';
 import { validarMontoCLP } from '@/app/lib/numeros';
+import { rutProveedorValido } from '@/app/lib/compras-proveedores-validar';
 import { costosEscenarioPorProducto } from '@/app/lib/compras-aprobaciones';
 import type { OcDocumento } from '@/app/lib/compras-oc-documento';
 import { parsearFacturaXml, type FacturaLeida } from '@/app/lib/factura-xml';
@@ -157,6 +158,12 @@ export async function crearOcPropia(negocioId: number, datos: DatosOcPropia, act
   const nombre = datos.proveedor?.nombre?.trim(); const rut = datos.proveedor?.rut?.trim();
   if (!nombre || !rut) throw new Error('Falta el nombre y el RUT del proveedor.');
   if (rutComparable(rut) === rutComparable(emisor.empresa.rut)) throw new Error('El proveedor no puede ser la misma empresa que emite la OC.');
+  // QA 24-nov: se emitía con RUT «abc» y con entrega en 2001. El RUT va impreso en el PDF que se manda al proveedor.
+  if (!rutProveedorValido(rut)) throw new Error(`El RUT del proveedor «${rut}» no es válido: revisa el número y el dígito verificador.`);
+  if (datos.fechaEntrega) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(datos.fechaEntrega) || Number.isNaN(Date.parse(datos.fechaEntrega))) throw new Error('La fecha de entrega no es válida (usa año-mes-día).');
+    if (datos.fechaEntrega < ahoraChileSQL().slice(0, 10)) throw new Error('La fecha de entrega no puede ser anterior a hoy.');
+  }
   const items = (datos.items || [])
     .map(i => ({ productoId: i.productoId ?? null, codigo: i.codigo?.trim() || null, descripcion: String(i.descripcion || '').trim(), cantidad: Number(i.cantidad), precio: Number(i.precio) }))
     .filter(i => i.descripcion);
@@ -167,7 +174,7 @@ export async function crearOcPropia(negocioId: number, datos: DatosOcPropia, act
     validarMontoCLP(i.precio, `El precio de «${i.descripcion}»`);
   }
   const neto = redondear(items.reduce((s, i) => s + i.cantidad * i.precio, 0));
-  validarMontoCLP(neto, 'El neto de la orden de compra');
+  validarMontoCLP(neto, 'El neto de la orden de compra');   // también frena un total en $0 (p. ej. cantidad 0,001 × $1)
   const iva = redondear(neto * IVA_OC_PROPIA);
   const ahora = ahoraChileSQL(); const hoy = ahora.slice(0, 10); const anio = Number(hoy.slice(0, 4));
   const empresaRut = rutComparable(emisor.empresa.rut);

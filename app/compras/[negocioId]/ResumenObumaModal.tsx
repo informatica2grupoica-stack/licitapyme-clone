@@ -28,6 +28,9 @@ export function ResumenObumaModal({ negocioId, onCerrar, onIrGestion, onIrSku }:
           fetch(`/api/compras/${negocioId}/productos`).then(r => r.json()),
         ]);
         if (!vivo) return;
+        // QA 24-nov: si una de las tres lecturas fallaba, el modal mostraba «Todavía no hay productos / ninguna OC» (como si estuviera vacío) en vez de avisar.
+        const falla = [rS, rO, rP].find(x => !x || x.success === false || x.error);
+        if (falla) { setError(falla?.error || 'No se pudo leer lo creado en Obuma. Intenta de nuevo en un momento.'); return; }
         const vigentes: Array<{ id: number; descripcion: string; subestado: string }> =
           (rP?.productos || []).filter((p: any) => !['RENUNCIADO', 'NO_ADJUDICADA'].includes(p.subestado));
         const skus: SkuFila[] = vigentes.map(p => {

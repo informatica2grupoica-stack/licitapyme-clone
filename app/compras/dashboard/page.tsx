@@ -124,8 +124,8 @@ export default function CompraDashboardPage() {
         {dashboard && (
           <>
             <div className="grid grid-cols-2 @xl:grid-cols-4 gap-3">
-              <StatCard icon={<ShoppingCart size={20} />} label="Negocios en Compras" value={dashboard.negociosActivos} color="teal"
-                spec={{ mide: 'Cuántos negocios ganados están hoy en el módulo de Compras.', calculo: 'Cuenta todas las filas de compras_asignacion — un negocio entra acá apenas se gana la licitación.', fuente: 'compras_asignacion (COUNT *)' }} />
+              <StatCard icon={<ShoppingCart size={20} />} label="Negocios activos" value={dashboard.negociosActivos} color="teal"
+                spec={{ mide: 'Cuántos negocios ganados siguen vivos en Compras (sin cerrar ni cancelar).', calculo: 'Cuenta las filas de compras_asignacion sin cierre: las Cerradas, Pagadas y Canceladas no entran.', fuente: 'compras_asignacion (cierre_legado IS NULL)' }} />
               <StatCard icon={<Zap size={20} />} label="Urgentes" value={dashboard.negociosUrgentes} color="rose"
                 spec={{ mide: 'Negocios con la "Cadena de Urgencia" activa (§3.7/§15.2).', calculo: 'El plazo de entrega OFERTADO es menor a 3 días — se calcula una vez al abrir Compras y queda fijo, no es una cuenta regresiva desde hoy.', fuente: 'compras_asignacion.urgente' }} />
               <StatCard icon={<Clock size={20} />} label="Relojes vencidos" value={dashboard.relojesVencidos} color="rose"

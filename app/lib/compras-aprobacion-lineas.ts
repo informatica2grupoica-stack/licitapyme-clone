@@ -46,6 +46,10 @@ export async function resolverLineas(
       await pool.query(`DELETE FROM compras_aprobacion_linea WHERE negocio_id = ? AND producto_id IN (?)`, [negocioId, productoIds]);
       return;
     }
+    // QA 24-nov: se aprobaba cualquier id (inexistente o de otro negocio). Todos los productos tienen que ser de ESTE negocio.
+    const ids = [...new Set(productoIds)];
+    const [propios] = await pool.query(`SELECT id FROM compras_producto WHERE negocio_id = ? AND id IN (?)`, [negocioId, ids]) as any;
+    if ((propios as any[]).length !== ids.length) throw new Error('Alguno de los productos no pertenece a este negocio.');
     const ahora = ahoraChileSQL();
     const estado: EstadoLinea = decision === 'APROBAR' ? 'APROBADA' : 'RECHAZADA';
     for (const productoId of productoIds) {

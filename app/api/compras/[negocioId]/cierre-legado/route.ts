@@ -7,7 +7,9 @@
 import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import { esDueno } from '@/app/lib/api-auth';
-import { marcarCierreLegado, quitarCierreLegado, obtenerAsignacion, type CierreLegado } from '@/app/lib/compras';
+import { quitarCierreLegado, obtenerAsignacion, type CierreLegado } from '@/app/lib/compras';
+import { cambiarEstadoCompra } from '@/app/lib/compras-estado';
+import { mensajeSeguro } from '@/app/lib/errores-api';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -42,12 +44,15 @@ async function __POST(request: NextRequest, { params }: Params) {
     const existe = await obtenerAsignacion(id);
     if (!existe) return NextResponse.json({ error: 'Este negocio todavía no entra a Compras.' }, { status: 404 });
 
-    await marcarCierreLegado(id, estado, body.nota || null, userId, nombre);
+    // Una sola verdad (QA 24-nov): antes esto escribía `cierre_legado` directo y dejaba la columna en «En proceso» con el cierre en «Entregada»,
+    // saltándose los pasos y el motivo. Ahora pasa por la misma máquina de estados que el botón de la ficha:
+    // «Entregada» = Cerrada (exige estar Entregada antes) y «No realizada» = Cancelada (exige motivo de 15+ caracteres en `nota`).
+    await cambiarEstadoCompra(id, estado === 'ENTREGADA' ? 'CERRADA' : 'CANCELADA', { motivo: body.nota || null, userId, nombre });
     const actualizado = await obtenerAsignacion(id);
     return NextResponse.json({ success: true, asignacion: actualizado });
   } catch (error: any) {
     console.error('[compras/[negocioId]/cierre-legado][POST]', String(error));
-    return NextResponse.json({ error: 'No se pudo marcar.' }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo marcar.') }, { status: 400 });
   }
 }
 

@@ -3,6 +3,7 @@
 // "homologar con IA": deja corregir lo que la IA decidió, o saltársela cuando el comprador ya sabe
 // con certeza a qué producto(s) corresponde una cotización.
 import { mensajeSeguro } from '@/app/lib/errores-api';
+import { TOPE_MONTO_CLP } from '@/app/lib/numeros';
 import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
@@ -43,6 +44,10 @@ async function __PUT(request: NextRequest, { params }: Params) {
       detalleDesviacion: it.detalleDesviacion || null,
       incluido: it.incluido === true,
     })).filter((it: AsignacionItemManual) => Number.isFinite(it.productoId));
+
+    // QA 24-nov: aceptaba precios negativos y de 1e12. Vacío = sin precio (se permite).
+    const malo = items.find(it => it.precioUnitario != null && (!Number.isFinite(it.precioUnitario) || it.precioUnitario < 0 || it.precioUnitario > TOPE_MONTO_CLP * 100));
+    if (malo) return NextResponse.json({ error: `El precio del producto #${malo.productoId} no es válido (no puede ser negativo ni tener tantos ceros).` }, { status: 400 });
 
     await asignarItemsCotizacion(negId, parseInt(cotizacionId), items, userId, nombre);
     const cotizaciones = await listarCotizaciones(negId);

@@ -3,7 +3,7 @@
 import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import { permisosCrudosDeUsuario } from '@/app/lib/api-auth';
-import { actualizarProveedor, listarProveedores } from '@/app/lib/compras-proveedores';
+import { actualizarProveedor, listarProveedores, problemaAlGuardarProveedor } from '@/app/lib/compras-proveedores';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -32,7 +32,10 @@ export async function PATCH(request: NextRequest, { params }: Params) {
 
   try {
     const body = await request.json();
-    await actualizarProveedor(parseInt(id), body);
+    const idNum = parseInt(id);
+    const problema = await problemaAlGuardarProveedor(body, idNum);
+    if (problema) return NextResponse.json({ error: problema }, { status: 400 });
+    await actualizarProveedor(idNum, body);
     const proveedores = await listarProveedores();
     return NextResponse.json({ success: true, proveedores });
   } catch (error: any) {

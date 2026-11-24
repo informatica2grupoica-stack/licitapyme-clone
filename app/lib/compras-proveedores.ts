@@ -10,6 +10,7 @@ import pool from '@/app/lib/db';
 import { ahoraChileSQL } from '@/app/lib/tz';
 import { registrarEvento } from '@/app/lib/historial';
 import { normRut } from '@/app/lib/adjudicacion';
+import { problemaDeProveedor, rutPlanoProveedor } from '@/app/lib/compras-proveedores-validar';
 import {
   proveedoresObumaCompleto, proveedorPorRut, proveedorPorId, mapaFormasPagoCompleto, listarComprasOcItems,
   comprasOcCompleto, type ObumaProveedor,
@@ -87,6 +88,27 @@ export async function obtenerProveedor(id: number): Promise<Proveedor | null> {
   const [rows] = await pool.query(`SELECT * FROM compras_proveedor WHERE id = ? LIMIT 1`, [id]) as any;
   const r = (rows as any[])[0];
   return r ? filaAProveedor(r) : null;
+}
+
+/** Revisa lo que una persona escribe a mano en el catálogo (RUT con dígito verificador, correo, teléfono, nombre) y que el RUT no esté ya en otro proveedor.
+ *  Devuelve el texto del problema o null. Solo para las rutas de edición manual: las altas automáticas (Obuma, cotizaciones) no pasan por aquí. */
+export async function problemaAlGuardarProveedor(datos: Record<string, unknown>, idActual?: number): Promise<string | null> {
+  const rutNuevo = rutPlanoProveedor(datos.rut);
+  let rutSinCambio = false;
+  if (idActual && rutNuevo) {
+    const [rows] = await pool.query(`SELECT rut FROM compras_proveedor WHERE id = ? LIMIT 1`, [idActual]) as any;
+    rutSinCambio = rutPlanoProveedor((rows as any[])[0]?.rut) === rutNuevo;
+  }
+  const problema = problemaDeProveedor(datos, { rutSinCambio });
+  if (problema) return problema;
+  if (rutNuevo && !rutSinCambio) {
+    const [dup] = await pool.query(
+      `SELECT id, nombre_empresa FROM compras_proveedor
+        WHERE UPPER(REPLACE(REPLACE(REPLACE(rut, '.', ''), '-', ''), ' ', '')) = ? AND id <> ? LIMIT 1`, [rutNuevo, idActual ?? 0]) as any;
+    const d = (dup as any[])[0];
+    if (d) return `Ya existe un proveedor con ese RUT: «${d.nombre_empresa}» (#${d.id}). Usa ese en vez de crear otro.`;
+  }
+  return null;
 }
 
 export async function crearProveedor(datos: DatosProveedor, actorId: number, actorNombre: string | null): Promise<number> {

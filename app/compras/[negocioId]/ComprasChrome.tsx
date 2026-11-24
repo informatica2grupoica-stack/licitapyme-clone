@@ -509,6 +509,11 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
                   <p className={`text-[21px] leading-tight font-semibold mt-1 tabular-nums ${margenBajo ? 'text-rose-700' : 'text-tinta dark:text-slate-100'}`}>
                     {r.margenPrevisto != null ? `${r.margenPrevisto}%` : <span className="text-[18px] text-tinta-2">Sin costeo</span>}
                   </p>
+                  {r.margenPrevisto != null && r.margenSobreCosteo && (
+                    <p className="text-xs text-amber-700 font-semibold mt-1" title="El costeo no cubre toda la venta adjudicada, así que el margen se calcula solo sobre las líneas costeadas.">
+                      Solo lo costeado: {fmtCLP(r.margenSobreCosteo.ventaCosteada)} de {fmtCLP(r.margenSobreCosteo.ventaTotal)} de venta
+                    </p>
+                  )}
                   {r.margenPrevisto != null && (
                     <div className="mt-2.5">
                       <div className="relative h-1.5 rounded-full bg-slate-100">

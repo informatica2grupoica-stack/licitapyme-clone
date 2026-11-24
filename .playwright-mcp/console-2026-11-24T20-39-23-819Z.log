@@ -1,0 +1,21 @@
+[   22411ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_RESET @ http://localhost:3200/api/historial/stream:1
+[   23423ms] [ERROR] WebSocket connection to 'ws://localhost:3200/_next/hmr?id=I0WqMuXDwj4aUZriJos1U' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_client_1ounh1s8_ussu._.js:16257
+[   24430ms] [ERROR] WebSocket connection to 'ws://localhost:3200/_next/hmr?id=I0WqMuXDwj4aUZriJos1U' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_client_1ounh1s8_ussu._.js:16257
+[   25437ms] [ERROR] WebSocket connection to 'ws://localhost:3200/_next/hmr?id=I0WqMuXDwj4aUZriJos1U' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_client_1ounh1s8_ussu._.js:16257
+[   26448ms] [ERROR] WebSocket connection to 'ws://localhost:3200/_next/hmr?id=I0WqMuXDwj4aUZriJos1U' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_client_1ounh1s8_ussu._.js:16257
+[   27405ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:3200/api/historial/stream:1
+[   27455ms] [ERROR] WebSocket connection to 'ws://localhost:3200/_next/hmr?id=I0WqMuXDwj4aUZriJos1U' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_client_1ounh1s8_ussu._.js:16257
+[   32409ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:3200/api/historial/stream:1
+[   32457ms] [ERROR] WebSocket connection to 'ws://localhost:3200/_next/hmr?id=I0WqMuXDwj4aUZriJos1U' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_client_1ounh1s8_ussu._.js:16257
+[   37423ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:3200/api/historial/stream:1
+[   37467ms] [ERROR] WebSocket connection to 'ws://localhost:3200/_next/hmr?id=I0WqMuXDwj4aUZriJos1U' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_client_1ounh1s8_ussu._.js:16257
+[   42428ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:3200/api/historial/stream:1
+[   42478ms] [ERROR] WebSocket connection to 'ws://localhost:3200/_next/hmr?id=I0WqMuXDwj4aUZriJos1U' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_client_1ounh1s8_ussu._.js:16257
+[   47436ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:3200/api/historial/stream:1
+[   47500ms] [ERROR] WebSocket connection to 'ws://localhost:3200/_next/hmr?id=I0WqMuXDwj4aUZriJos1U' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_client_1ounh1s8_ussu._.js:16257
+[   52448ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:3200/api/historial/stream:1
+[   52510ms] [ERROR] WebSocket connection to 'ws://localhost:3200/_next/hmr?id=I0WqMuXDwj4aUZriJos1U' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_client_1ounh1s8_ussu._.js:16257
+[   57459ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:3200/api/historial/stream:1
+[   57520ms] [ERROR] WebSocket connection to 'ws://localhost:3200/_next/hmr?id=I0WqMuXDwj4aUZriJos1U' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_client_1ounh1s8_ussu._.js:16257
+[   62468ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:3200/api/historial/stream:1
+[   62540ms] [ERROR] WebSocket connection to 'ws://localhost:3200/_next/hmr?id=I0WqMuXDwj4aUZriJos1U' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_client_1ounh1s8_ussu._.js:16257

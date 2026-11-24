@@ -48,7 +48,8 @@ async function __POST(request: NextRequest, { params }: Params) {
     if (soloCoencargados) {
       if (!(await tienePermiso(request, 'reasignar_negocios')) && !(await esJefeDeVentas(userId))) return NextResponse.json({ error: 'Solo quien puede reasignar o el jefe de ventas puede sumar encargados.' }, { status: 403 });
       if (existe.asignadoA == null) return NextResponse.json({ error: 'Primero elige al encargado principal.' }, { status: 400 });
-      await fijarCoencargados(id, body.coencargadoIds, userId);
+      try { await fijarCoencargados(id, body.coencargadoIds, userId); }
+      catch (e: any) { return NextResponse.json({ error: String(e?.message || 'No se pudo sumar a los encargados.') }, { status: 400 }); }
       return NextResponse.json({ success: true, asignacion: await obtenerAsignacion(id) });
     }
 

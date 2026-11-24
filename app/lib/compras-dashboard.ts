@@ -69,11 +69,12 @@ export async function obtenerDashboardCompras(): Promise<DashboardCompras> {
   const resultadosP = resultadosParaDashboard().then(resumirResultados)
     .catch(e => { console.error('[compras-dashboard] resultados:', String(e).slice(0, 200)); return null; });
   const [[[negRow]], relojRes, sinFijarRes, incRes, [[sinAsigRow]], clRes, [[ocRow]], [gpmRows], [asigRows], [tareaRows]]: any = await Promise.all([
-    pool.query(`SELECT COUNT(*) total, SUM(urgente) urgentes FROM compras_asignacion`),
+    // QA 24-nov: contaba también las Cerradas y Canceladas (83 en vez de 40; 5 de 15 urgentes ya estaban cerradas). Solo vivas: sin cierre ni cancelación.
+    pool.query(`SELECT COUNT(*) total, SUM(urgente) urgentes FROM compras_asignacion WHERE cierre_legado IS NULL`),
     // migration-95 pendiente en algún entorno viejo: no bloquea el resto del dashboard
     pool.query(
-      `SELECT fecha_limite, prorroga_fecha_limite FROM compras_reloj
-        WHERE fijado_por IS NOT NULL AND entrega_con_multa = 0`,
+      `SELECT r.fecha_limite, r.prorroga_fecha_limite FROM compras_reloj r JOIN compras_asignacion ca ON ca.negocio_id = r.negocio_id
+        WHERE r.fijado_por IS NOT NULL AND r.entrega_con_multa = 0 AND ca.cierre_legado IS NULL`,
     ).catch(() => null),
     // sin reloj de entrega en entornos viejos
     pool.query(
@@ -83,14 +84,14 @@ export async function obtenerDashboardCompras(): Promise<DashboardCompras> {
     ).catch(() => null),
     // migration-94 pendiente: sigue en 0
     pool.query(`SELECT COUNT(*) n FROM compras_incidencia WHERE estado = 'ABIERTA'`).catch(() => null),
-    pool.query(`SELECT COUNT(*) n FROM compras_asignacion WHERE asignado_a IS NULL`),
+    pool.query(`SELECT COUNT(*) n FROM compras_asignacion WHERE asignado_a IS NULL AND cierre_legado IS NULL`),
     // Cierre legado (migration-107, backlog histórico marcado a mano) — cuántos ya se cerraron
     // "rápido" (sin pasar por el flujo completo de Entrega/Fracaso) y con qué resultado. Columna nueva: si falla, se queda en 0.
     pool.query(
       `SELECT SUM(cierre_legado = 'ENTREGADA') entregadas, SUM(cierre_legado = 'NO_REALIZADA') no_realizadas
          FROM compras_asignacion WHERE cierre_legado IS NOT NULL`,
     ).catch(() => null),
-    pool.query(`SELECT SUM(oc_numero IS NOT NULL) con_oc, SUM(oc_numero IS NULL) sin_oc FROM compras_asignacion`),
+    pool.query(`SELECT SUM(oc_numero IS NOT NULL) con_oc, SUM(oc_numero IS NULL) sin_oc FROM compras_asignacion WHERE cierre_legado IS NULL`),
     // Ganados por mes — de dónde vienen los negocios que hoy están en Compras, mes a mes real
     // (ganado_at, no cuándo entraron al sistema). Últimos 12 meses con datos.
     pool.query(

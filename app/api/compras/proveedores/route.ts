@@ -3,7 +3,7 @@
 import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import { permisosCrudosDeUsuario } from '@/app/lib/api-auth';
-import { listarProveedores, crearProveedor, validarProveedorObuma } from '@/app/lib/compras-proveedores';
+import { listarProveedores, crearProveedor, validarProveedorObuma, problemaAlGuardarProveedor } from '@/app/lib/compras-proveedores';
 import { historicoProveedorPorRut } from '@/app/lib/compras-aprendizaje';
 
 export const runtime = 'nodejs';
@@ -74,6 +74,8 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
+    const problema = await problemaAlGuardarProveedor(body);
+    if (problema) return NextResponse.json({ error: problema }, { status: 400 });
     const id = await crearProveedor(body, userId, nombre);
     const proveedores = await listarProveedores();
     return NextResponse.json({ success: true, id, proveedores });
