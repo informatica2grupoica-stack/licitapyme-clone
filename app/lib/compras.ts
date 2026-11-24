@@ -1163,6 +1163,8 @@ export async function obtenerAsignacion(negocioId: number): Promise<AsignacionCo
 export interface ComprasFila {
   negocioId: number; licitacionCodigo: string; licitacionNombre: string | null; licitacionOrganismo: string | null;
   licitacionRegion: string | null;
+  /** Empresa que postuló (negocios.empresa_id): para ver en la lista si es de Inversiones Claro o de Comercial MP sin abrir la licitación. */
+  empresaId: number | null; empresaNombre: string | null;
   urgente: boolean; asignadoA: number | null; asignadoNombre: string | null; asignadoAt: string | null;
   vencimientoAsignacionAt: string; ganadoAt: string; montoNuestro: number | null;
   tareasTotal: number; tareasHechas: number; tareasVencidas: number;
@@ -1238,7 +1240,7 @@ export async function listarAsignacionesCompras(): Promise<ComprasFila[]> {
             n.licitacion_nombre, COALESCE(NULLIF(n.licitacion_organismo, ''), lc.organismo,
               (SELECT o.comprador_organismo FROM ordenes_compra o WHERE o.licitacion_codigo = n.licitacion_codigo AND o.comprador_organismo <> '' LIMIT 1)) AS licitacion_organismo,
             COALESCE(NULLIF(n.licitacion_region, ''), lc.region) AS licitacion_region, u.nombre AS asignado_nombre,
-            up.nombre AS postulado_por_nombre,
+            up.nombre AS postulado_por_nombre, n.empresa_id AS empresa_id, em.razon_social AS empresa_nombre,
             (SELECT COUNT(*) FROM compras_tarea t WHERE t.negocio_id = ca.negocio_id) AS tareas_total,
             (SELECT COUNT(*) FROM compras_factura_venta fv WHERE fv.negocio_id = ca.negocio_id) AS facturas_venta,
             (SELECT COUNT(*) FROM compras_tarea t WHERE t.negocio_id = ca.negocio_id AND t.estado = 'HECHA') AS tareas_hechas,
@@ -1248,6 +1250,7 @@ export async function listarAsignacionesCompras(): Promise<ComprasFila[]> {
        LEFT JOIN licitaciones_cache lc ON lc.codigo = n.licitacion_codigo
        LEFT JOIN usuarios u ON u.id = ca.asignado_a
        LEFT JOIN usuarios up ON up.id = n.asignado_a
+       LEFT JOIN empresas em ON em.id = n.empresa_id
       ORDER BY ca.urgente DESC, ca.ganado_at DESC`,
     [ahora],
   ) as any;
@@ -1341,6 +1344,7 @@ export async function listarAsignacionesCompras(): Promise<ComprasFila[]> {
       negocioId: r.negocio_id, licitacionCodigo: r.licitacion_codigo,
       licitacionNombre: r.licitacion_nombre, licitacionOrganismo: r.licitacion_organismo,
       licitacionRegion: r.licitacion_region ?? null,
+      empresaId: r.empresa_id != null ? Number(r.empresa_id) : null, empresaNombre: r.empresa_nombre ?? null,
       urgente: !!r.urgente, asignadoA: r.asignado_a, asignadoNombre: r.asignado_nombre, asignadoAt: r.asignado_at,
       // En pre-compra la fecha que ordena y ubica la fila es la adjudicación ESTIMADA de Mercado Público (aún no se ganó nada).
       vencimientoAsignacionAt: r.vencimiento_asignacion_at,

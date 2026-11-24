@@ -5,6 +5,7 @@ import { cambiarEstadoTarea } from '@/app/lib/compras';
 import { facturasConOcObuma, pdfDteObuma, pdfYEstadoDte, type ObumaFacturaEmitida } from '@/app/lib/obuma';
 import { subirDocumentoR2, borrarDocumentoR2 } from '@/app/lib/r2';
 import { parsearFacturaXml } from '@/app/lib/factura-xml';
+import { ahoraChileSQL } from '@/app/lib/tz';
 
 export interface FacturaVenta {
   id: number; archivoUrl: string; archivoNombre: string; numero: string | null;
@@ -64,6 +65,33 @@ export async function facturasObumaDeNegocio(negocioId: number): Promise<{ ocs: 
     .map(f => ({ ...f, yaCargada: cargadas.has(f.folio) }))
     .sort((a, b) => b.fecha.localeCompare(a.fecha));
   return { ocs, facturas };
+}
+
+/**
+ * Marca «pagada» las facturas de venta de Licitank que Obuma ya muestra pagadas (venta_total_pagado ≥ total en ventas.list; verificado
+ * contra la pantalla «Cobros Realizados» el 24-nov-2026). La API no trae la fecha del cobro: se guarda el día en que Licitank lo detecta.
+ * Solo toca facturas SIN fecha de pago y que Obuma ligue a una OC de esa licitación (las de Comercial MP no están en este Obuma).
+ * Sin facturas pendientes de pago no llama a Obuma. `soloLeer` calcula sin escribir.
+ */
+export async function marcarFacturasPagadasDesdeObuma(opts: { soloLeer?: boolean } = {}): Promise<{ pendientes: number; marcadas: Array<{ negocioId: number; numero: string }> }> {
+  const [rows] = await pool.query(
+    `SELECT id, negocio_id, numero FROM compras_factura_venta WHERE pagada_at IS NULL AND numero IS NOT NULL AND numero <> ''`) as any;
+  const pendientes = rows as Array<{ id: number; negocio_id: number; numero: string }>;
+  const marcadas: Array<{ negocioId: number; numero: string }> = [];
+  if (pendientes.length === 0) return { pendientes: 0, marcadas };
+  const hoy = ahoraChileSQL().slice(0, 10);
+  for (const negocioId of new Set(pendientes.map(p => p.negocio_id))) {
+    let delNegocio: FacturaObumaDeNegocio[];
+    try { delNegocio = (await facturasObumaDeNegocio(negocioId)).facturas; }
+    catch (e) { console.warn(`[factura-venta] no se pudo leer Obuma para el negocio ${negocioId}:`, String(e).slice(0, 120)); continue; }
+    for (const p of pendientes.filter(x => x.negocio_id === negocioId)) {
+      const f = delNegocio.find(x => x.folio === p.numero.trim());
+      if (!f || !f.pagado || f.anulada) continue;
+      if (!opts.soloLeer) await pool.query(`UPDATE compras_factura_venta SET pagada_at = ? WHERE id = ? AND pagada_at IS NULL`, [hoy, p.id]);
+      marcadas.push({ negocioId, numero: p.numero.trim() });
+    }
+  }
+  return { pendientes: pendientes.length, marcadas };
 }
 
 /** Carga a Licitank una factura que está en Obuma (baja el PDF y lo guarda como si se hubiera subido a mano). */

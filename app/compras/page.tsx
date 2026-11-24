@@ -23,6 +23,7 @@ import type { FaseTarea, HitosGantt as HitosPlan } from '@/app/lib/compras-plan'
 import { IconShoppingCart as ShoppingCart, IconLoader2 as Loader2, IconBuilding as Building2, IconArrowUpRight as ArrowUpRight, IconSearch as Search, IconFilter as Filter, IconX as X, IconCalendar as Calendar, IconUsers as Users, IconArrowsUpDown as ArrowUpDown, IconAlertTriangle as AlertTriangle, IconClock as Clock, IconUserPlus as UserPlus, IconCircleCheck as CheckCircle2, IconChartBar as BarChart3, IconChevronLeft as ChevronLeft, IconChevronRight as ChevronRight, IconChevronsLeft as ChevronsLeft, IconChevronsRight as ChevronsRight, IconList as List, IconPackage as PackageCheck, IconCircleX as XCircle, IconArrowBackUp as Undo2, IconPencil as Pencil, IconTimeline as GanttChart, IconChartLine as LineChart, IconZoomIn as ZoomIn, IconZoomOut as ZoomOut, IconDiamond as Diamond, IconCalendarClock as CalendarClock, IconDownload as Download, IconShieldCheck as ShieldCheck, IconReceipt as Receipt } from '@tabler/icons-react';
 import { Esqueleto, Vacio } from '@/app/components/ui/kit/Estructura';
 import { Pestanas } from '@/app/components/ui/kit/Pestanas';
+import { Estado } from '@/app/components/ui/kit/Tarjeta';
 
 type CierreLegado = 'ENTREGADA' | 'NO_REALIZADA' | 'PRECOMPRA_SIN_ADJUDICAR' | 'OC_CANCELADA';
 type EstadoTareaGantt = 'PENDIENTE' | 'EN_CURSO' | 'HECHA';
@@ -38,6 +39,7 @@ interface RelojEntregaResumen { fechaLimiteVigente: string | null; prorrogado: b
 interface ComprasFila {
   negocioId: number; licitacionCodigo: string; licitacionNombre: string | null; licitacionOrganismo: string | null;
   licitacionRegion: string | null;
+  empresaId: number | null; empresaNombre: string | null;
   urgente: boolean; asignadoA: number | null; asignadoNombre: string | null; asignadoAt: string | null;
   vencimientoAsignacionAt: string; ganadoAt: string; montoNuestro: number | null;
   tareasTotal: number; tareasHechas: number; tareasVencidas: number;
@@ -110,6 +112,21 @@ function MarcaFactura({ f }: { f: { negocioId: number; facturasVenta?: number } 
       className="inline-flex items-center gap-1 flex-shrink-0 text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 rounded-full px-2 py-0.5 whitespace-nowrap">
       <Receipt size={11} /> Factura{n > 1 ? ` ×${n}` : ''}
     </Link>
+  );
+}
+
+// Etiqueta de la empresa que postuló (pedido del dueño, 24-nov-2026): se ve en la lista si la licitación es de Inversiones Claro o de
+// Comercial MP sin abrirla (importa porque solo Claro factura por este Obuma).
+function EtiquetaEmpresa({ f }: { f: { empresaNombre: string | null } }) {
+  const n = f.empresaNombre?.trim();
+  if (!n) return null;
+  const claro = /claro/i.test(n), mp = /comercial\s*mp/i.test(n);
+  const corto = claro ? 'Claro' : mp ? 'Comercial MP' : n.split(/\s+/)[0];
+  // licitank-ui: texto con punto de color (nada de pastillas ni violeta). Claro = cian, Comercial MP = pizarra, otra = gris claro.
+  const color = claro ? '#0891b2' : mp ? '#64748b' : '#94a3b8';
+  return (
+    <span title={`Empresa: ${n}`} data-testid="etiqueta-empresa"
+      className="flex-shrink-0 text-xs font-medium text-tinta-2 dark:text-slate-400"><Estado color={color}>{corto}</Estado></span>
   );
 }
 
@@ -897,8 +914,9 @@ function FilaGantt({ f, inicioRango, pxDia, onSeleccionar, seleccionada, ultimaU
               ? <p className="flex items-center gap-1.5 text-[12px] font-semibold text-tinta dark:text-slate-100 min-w-0" title={[f.licitacionOrganismo, f.licitacionRegion].filter(Boolean).join(' · ')}>
                   <Building2 size={13} className="flex-shrink-0 text-slate-400" />
                   <span className="truncate">{lugarCorto(f)}</span>
+                  <EtiquetaEmpresa f={f} />
                 </p>
-              : <span />}
+              : <EtiquetaEmpresa f={f} />}
             {(() => {
               const e = estadoEntregaGantt(f, h);
               return (
@@ -1438,6 +1456,7 @@ export default function ComprasPage() {
   const [q, setQ] = useState('');
   const [fAsignado, setFAsignado] = useState<string[]>([]);
   const [fOrganismo, setFOrganismo] = useState<string[]>([]);
+  const [fEmpresa, setFEmpresa] = useState<string[]>([]);   // empresa que postuló (Inversiones Claro / Comercial MP), por razón social
   const [fRegion, setFRegion] = useState<string[]>([]);
   // "Postuló" = quién preparó/postuló la licitación en Negocios (negocios.asignado_a) — persona
   // distinta del "Encargado" de Compras (fAsignado), que la ejecuta recién después de ganada.
@@ -1477,6 +1496,7 @@ export default function ComprasPage() {
         if (typeof f.q === 'string') setQ(f.q);
         if (Array.isArray(f.fAsignado)) setFAsignado(f.fAsignado.map(String));
         if (Array.isArray(f.fOrganismo)) setFOrganismo(f.fOrganismo.map(String));
+        if (Array.isArray(f.fEmpresa)) setFEmpresa(f.fEmpresa.map(String));
         if (Array.isArray(f.fRegion)) setFRegion(f.fRegion.map(String));
         if (Array.isArray(f.fPostulador)) setFPostulador(f.fPostulador.map(String));
         if (f.fOC === 'con' || f.fOC === 'sin' || f.fOC === 'todos') setFOC(f.fOC);
@@ -1505,11 +1525,11 @@ export default function ComprasPage() {
     if (!hidratado) return;
     try {
       sessionStorage.setItem(SS_COMPRAS_FILTROS, JSON.stringify({
-        q, fAsignado, fOrganismo, fRegion, fPostulador, fOC, montoMin, montoMax, plazoMin, plazoMax, soloTareasVencidas,
+        q, fAsignado, fOrganismo, fEmpresa, fRegion, fPostulador, fOC, montoMin, montoMax, plazoMin, plazoMax, soloTareasVencidas,
         soloUrgentes, soloSinAsignar, soloFielCumplimiento, estado, fechaDesde, fechaHasta, orden, vista, mesesVista, ambito,
       }));
     } catch { /* cuota llena */ }
-  }, [hidratado, q, fAsignado, fOrganismo, fRegion, fPostulador, fOC, montoMin, montoMax, plazoMin, plazoMax, soloTareasVencidas,
+  }, [hidratado, q, fAsignado, fOrganismo, fEmpresa, fRegion, fPostulador, fOC, montoMin, montoMax, plazoMin, plazoMax, soloTareasVencidas,
       soloUrgentes, soloSinAsignar, soloFielCumplimiento, estado, fechaDesde, fechaHasta, orden, vista, mesesVista, ambito]);
 
   // Datos de Obuma de lo cerrado/cancelado: se piden una sola vez, cuando se abre una pestaña que no es «Abiertas».
@@ -1526,11 +1546,11 @@ export default function ComprasPage() {
   }, [negocios]);
   const nGanadas = nPorEstado.abiertas + nPorEstado.en_proceso + nPorEstado.entregadas;   // todo lo que sigue vivo (aún no pagada ni cancelada)
   const nPrecompras = useMemo(() => negocios.filter(f => f.precompra && !f.cierreLegado).length, [negocios]);
-  const hayFiltro = fAsignado.length > 0 || fOrganismo.length > 0 || fRegion.length > 0 || fPostulador.length > 0 || fOC !== 'todos'
+  const hayFiltro = fAsignado.length > 0 || fOrganismo.length > 0 || fEmpresa.length > 0 || fRegion.length > 0 || fPostulador.length > 0 || fOC !== 'todos'
     || !!montoMin || !!montoMax || !!plazoMin || !!plazoMax || soloTareasVencidas
     || soloUrgentes || soloSinAsignar || soloFielCumplimiento || !!fechaDesde || !!fechaHasta;
   const limpiar = () => {
-    setFAsignado([]); setFOrganismo([]); setFRegion([]); setFPostulador([]); setFOC('todos');
+    setFAsignado([]); setFOrganismo([]); setFEmpresa([]); setFRegion([]); setFPostulador([]); setFOC('todos');
     setMontoMin(''); setMontoMax(''); setPlazoMin(''); setPlazoMax(''); setSoloTareasVencidas(false);
     setSoloUrgentes(false); setSoloSinAsignar(false); setSoloFielCumplimiento(false); setFechaDesde(''); setFechaHasta('');
   };
@@ -1578,7 +1598,9 @@ export default function ComprasPage() {
     const org = new Map<string, number>();
     const reg = new Map<string, number>();
     const post = new Map<string, number>();
+    const emp = new Map<string, number>();
     for (const f of negocios) {
+      if (f.empresaNombre) emp.set(f.empresaNombre, (emp.get(f.empresaNombre) || 0) + 1);
       if (f.asignadoNombre) {
         const key = String(f.asignadoA || f.asignadoNombre);
         const cur = asig.get(key) || { nombre: f.asignadoNombre, n: 0 }; cur.n++; asig.set(key, cur);
@@ -1591,6 +1613,8 @@ export default function ComprasPage() {
     return {
       asignado: [...asig.entries()].sort((a, b) => b[1].n - a[1].n)
         .map(([v, o]) => ({ value: v, label: o.nombre, color: colorUsuario(v), count: o.n })),
+      empresa: [...emp.entries()].sort((a, b) => b[1] - a[1])
+        .map(([v, n]) => ({ value: v, label: v, count: n })),
       organismo: [...org.entries()].sort((a, b) => b[1] - a[1])
         .map(([v, n]) => ({ value: v, label: v, count: n })),
       region: [...reg.entries()].sort((a, b) => b[1] - a[1])
@@ -1615,6 +1639,7 @@ export default function ComprasPage() {
       }
       if (fAsignado.length > 0 && !fAsignado.includes(String(f.asignadoA || f.asignadoNombre || ''))) return false;
       if (fOrganismo.length > 0 && !fOrganismo.includes(f.licitacionOrganismo || '')) return false;
+      if (fEmpresa.length > 0 && !fEmpresa.includes(f.empresaNombre || '')) return false;
       if (fRegion.length > 0 && !fRegion.includes(lugarCorto(f) || '')) return false;
       if (fPostulador.length > 0 && !fPostulador.includes(f.postuladoPorNombre || '')) return false;
       if (fOC === 'con' && !f.ocFecha) return false;
@@ -1647,7 +1672,7 @@ export default function ComprasPage() {
     // Urgentes siempre primero, dentro del orden elegido.
     arr.sort((a, b) => Number(b.urgente) - Number(a.urgente));
     return arr;
-  }, [negocios, q, fAsignado, fOrganismo, fRegion, fPostulador, fOC, montoMin, montoMax, plazoMin, plazoMax, soloTareasVencidas,
+  }, [negocios, q, fAsignado, fOrganismo, fEmpresa, fRegion, fPostulador, fOC, montoMin, montoMax, plazoMin, plazoMax, soloTareasVencidas,
       soloUrgentes, soloSinAsignar, soloFielCumplimiento, estado, fechaDesde, fechaHasta, orden, ambito]);
   // Exporta la MISMA lista que se ve (filtros + pestaña Ganadas/Pre-compras), una fila por negocio.
   const exportarExcel = async () => {
@@ -1810,6 +1835,9 @@ export default function ComprasPage() {
         {!loading && negocios.length > 0 && (
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-[12px] text-tinta-2 font-medium flex items-center gap-1"><Filter size={13} /> Filtrar:</span>
+            {opciones.empresa.length > 1 && (
+              <MultiSelect label="Empresa" icon={<Building2 size={13} />} options={opciones.empresa} selected={fEmpresa} onChange={setFEmpresa} minWidth={240} />
+            )}
             {opciones.asignado.length > 0 && (
               <MultiSelect label="Encargado" icon={<Users size={13} />} options={opciones.asignado} selected={fAsignado} onChange={setFAsignado} minWidth={220} />
             )}

@@ -14,6 +14,7 @@
 // ERP completo (~16.700 compras en la cuenta), es la vista cruzada que pidió el usuario.
 import pool from '@/app/lib/db';
 import { CLIENTE_ICA } from '@/app/lib/tenant';
+import { estadoCompraEfectivo } from '@/app/lib/compras-estado-core';
 import { listarComprasOc, listarComprasOcItems, listarComprasDte, comprasCompleto, proveedorPorId, centrosDeCostoCompleto, proyectosExtCompleto, type ObumaCompraOc } from '@/app/lib/obuma';
 import { mencionaCodigo, licitacionesOfertadas } from '@/app/lib/ordenes-compra';
 import { ajustesDeLicitacion, claveLineaOc, type AjusteLineaOc } from '@/app/lib/compras-oc-lineas-negocio';
@@ -89,6 +90,27 @@ export interface ResumenSyncObuma {
   nuevasOActualizadas: number;
   /** Licitaciones con al menos una OC traída en esta corrida: sus negocios de Compras se vuelven a sincronizar (Comprado, tarea, margen). */
   codigos: string[];
+  /** Licitaciones que el cron se saltó por tener la compra Cerrada, Pagada o Cancelada. */
+  omitidasPorCerradas: number;
+}
+
+/** Códigos (en mayúsculas) cuya compra ya terminó (Cerrada, Pagada o Cancelada) en TODAS sus asignaciones. Si no se puede leer el estado, devuelve vacío (no se omite nada). */
+async function codigosConCompraTerminada(): Promise<Set<string>> {
+  try {
+    const [rows] = await pool.query(`SELECT licitacion_codigo, cierre_legado, estado_compra FROM compras_asignacion WHERE licitacion_codigo IS NOT NULL`) as any;
+    const abiertas = new Set<string>();
+    const terminadas = new Set<string>();
+    for (const r of rows as any[]) {
+      const cod = String(r.licitacion_codigo).toUpperCase();
+      const e = estadoCompraEfectivo(r.cierre_legado, r.estado_compra);
+      (e === 'CERRADA' || e === 'PAGADA' || e === 'CANCELADA' ? terminadas : abiertas).add(cod);
+    }
+    for (const c of abiertas) terminadas.delete(c);
+    return terminadas;
+  } catch (err) {
+    console.warn('[obuma-compras] no se pudo leer el estado de Compras; el cron no omite nada:', String(err).slice(0, 150));
+    return new Set();
+  }
 }
 
 /**
@@ -100,13 +122,19 @@ export interface ResumenSyncObuma {
 export async function sincronizarComprasObuma(
   { paginas = 5, soloCodigo }: { paginas?: number; soloCodigo?: string | string[] } = {},
 ): Promise<ResumenSyncObuma> {
-  const resumen: ResumenSyncObuma = { paginasBarridas: 0, vistas: 0, candidatas: 0, nuevasOActualizadas: 0, codigos: [] };
+  const resumen: ResumenSyncObuma = { paginasBarridas: 0, vistas: 0, candidatas: 0, nuevasOActualizadas: 0, codigos: [], omitidasPorCerradas: 0 };
   const nuestras = await licitacionesOfertadas(CLIENTE_ICA);   // Obuma es solo de Grupo ICA (Inversiones Claro)
+  // El cron (sin soloCodigo) no gasta consultas de Obuma en compras ya Cerradas, Pagadas o Canceladas (tope diario por método de la API).
+  // Esas se actualizan solo con el botón «Sincronizar con Obuma ahora» de su negocio, que sí pasa soloCodigo.
+  if (!soloCodigo) {
+    for (const c of await codigosConCompraTerminada()) if (nuestras.delete(c)) resumen.omitidasPorCerradas++;
+  }
   if (nuestras.size === 0) return resumen;
   const codigos = [...nuestras.keys()];
   // Facturas anuladas con nota de crédito: se revisan siempre (la NC llega después de la factura, aunque la OC ya no esté entre las últimas páginas).
+  // Sin soloCodigo solo las de las licitaciones que siguen abiertas (así se evita bajar todo compras.list por nada).
   const revisarNotasDeCredito = async () => {
-    try { for (const c of await marcarFacturasConNotaCredito(soloCodigo)) if (!resumen.codigos.includes(c)) resumen.codigos.push(c); }
+    try { for (const c of await marcarFacturasConNotaCredito(soloCodigo ?? codigos)) if (!resumen.codigos.includes(c)) resumen.codigos.push(c); }
     catch (err) { console.warn('[obuma-compras] no se pudieron revisar las notas de crédito:', String(err).slice(0, 150)); }
   };
 
@@ -126,7 +154,10 @@ export async function sincronizarComprasObuma(
     console.warn('[obuma-compras] cruce por centro de costo no disponible:', String(err).slice(0, 150));
   }
   const codigoDe = (c: ObumaCompraOc): string | null =>
-    codigos.find(cod => mencionaCodigo(c.compra_oc_referencia || '', cod)) || centroACodigo.get(String(c.compra_oc_centro_costo)) || null;
+    codigos.find(cod => mencionaCodigo(c.compra_oc_referencia || '', cod))
+    // Al enlazar la factura, Obuma a veces reemplaza la referencia por la del proyecto («PR-199CONSTITUCI», OC 4045): el código queda en la observación.
+    || codigos.find(cod => mencionaCodigo(c.compra_oc_observacion || '', cod))
+    || centroACodigo.get(String(c.compra_oc_centro_costo)) || null;
 
   const candidatas: ObumaCompraOc[] = [];
   for (let page = 1; page <= paginas; page++) {

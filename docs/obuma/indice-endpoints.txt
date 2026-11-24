@@ -1,0 +1,323 @@
+SEGURIDAD: {"AccessToken":{"type":"apiKey","in":"header","name":"access-token","description":"Clave de acceso de la empresa, sin prefijo Bearer. Puede limitarse por endpoint."}}
+SERVIDORES: https://api.obuma.cl/v1.0 (Servidor principal) | https://api-g1.obuma.cl/v1.0 (Servidor G1) | https://api-test1.obuma.cl/v1.0 (Servidor Test)
+
+## clientes
+GET /clientes.list.json — Listar registros | cliente_clave(query),cliente_email(query),cliente_extranjero(query),cliente_extranjero_id(query),cliente_razon_social(query),cliente_rut(query),estado(query),id(query),id_desde(query),order_by(query),order_dir(query),page(query),limit(query)
+GET /clientes.findById.json/{id} — Buscar por ID | *id(path)
+GET /clientes.findByRut.json/{id} — Buscar por RUT | *id(path)
+GET /clientes.findByExtranjeroId.json/{id} — findByExtranjeroId | *id(path)
+POST /clientes.create.json — Crear registro  BODY[cliente_celular,cliente_comuna,cliente_contacto,cliente_direccion,cliente_email,cliente_extranjero,cliente_extranjero_id,cliente_giro_comercial,cliente_observacion,cliente_pais,cliente_razon_social,cliente_region,*cliente_rut,cliente_telefono,cliente_website]
+POST /clientes.update.json — Actualizar registro  BODY[*cliente_id,cliente_codigo_interno,cliente_extranjero,cliente_extranjero_id,cliente_contacto,cliente_razon_social,cliente_nombre_fantasia,cliente_giro_comercial,cliente_direccion,cliente_comuna,cliente_region,cliente_pais,cliente_telefono,cliente_celular,cliente_email,cliente_website,cliente_observacion,cliente_es_cuenta_corriente,cliente_credito_aprobado,cliente_bloqueado_por_deuda,cliente_tipo_despacho,cliente_medio_despacho,cliente_diasdepago,cliente_plazodepago,cliente_formadepago,cliente_campoextra1,cliente_campoextra2,cliente_campoextra3,cliente_campoextra4,cliente_campoextra5,cliente_centro_costo,cliente_ruta,cliente_geo_lat,cliente_geo_lng,cliente_activo,rel_listaprecio_id,rel_tipocliente_id,rel_usuario_id]
+POST /clientes.updateClave.json — updateClave  BODY[clave_nueva,cliente_id]
+
+## clientesContactos
+GET /clientesContactos.list.json/{id} — Listar registros | *id(path),page(query),limit(query)
+GET /clientesContactos.findById.json/{id} — Buscar por ID | *id(path)
+POST /clientesContactos.create.json — Crear registro  BODY[*rel_cliente_id,cc_codigo,cc_titulo,cc_nombres,cc_apellidos,cc_email,cc_telefono_laboral,cc_telefono_movil,cc_cargo,cc_observacion,rel_usuario_id]
+POST /clientesContactos.update.json — Actualizar registro  BODY[*cc_id,cc_codigo,cc_titulo,cc_nombres,cc_apellidos,cc_email,cc_telefono_laboral,cc_telefono_movil,cc_cargo,cc_observacion,rel_usuario_id,rel_cliente_id]
+POST /clientesContactos.update.json/{id} — Actualizar registro | *id(path) BODY[cc_id,cc_codigo,cc_titulo,cc_nombres,cc_apellidos,cc_email,cc_telefono_laboral,cc_telefono_movil,cc_cargo,cc_observacion,rel_usuario_id,rel_cliente_id]
+GET /clientesContactos.listAll.json — Listar todos los registros | cargo(query),codigo(query),email(query),nombre(query),order_by(query),order_dir(query),telefono_laboral(query),telefono_movil(query),titulo(query),page(query),limit(query)
+
+## clientesDirecciones
+GET /clientesDirecciones.list.json/{id} — Listar registros | *id(path),page(query),limit(query)
+GET /clientesDirecciones.findById.json/{id} — Buscar por ID | *id(path)
+POST /clientesDirecciones.create.json — Crear registro  BODY[*rel_cliente_id,cd_codigo,cd_nombre_sucursal,cd_direccion,cd_comuna,cd_region,cd_comuna_manual,cd_region_manual,cd_telefono,cd_contacto,cd_observacion,cd_ruta,cd_geo_lat,cd_geo_lng,cd_activo,rel_listaprecio_id,rel_usuario_id]
+POST /clientesDirecciones.update.json — Actualizar registro  BODY[*cd_id,cd_codigo,cd_nombre_sucursal,cd_direccion,cd_comuna,cd_region,cd_comuna_manual,cd_region_manual,cd_telefono,cd_contacto,cd_observacion,cd_ruta,cd_geo_lat,cd_geo_lng,cd_activo,rel_listaprecio_id,rel_usuario_id,rel_cliente_id]
+POST /clientesDirecciones.update.json/{id} — Actualizar registro | *id(path) BODY[cd_id,cd_codigo,cd_nombre_sucursal,cd_direccion,cd_comuna,cd_region,cd_comuna_manual,cd_region_manual,cd_telefono,cd_contacto,cd_observacion,cd_ruta,cd_geo_lat,cd_geo_lng,cd_activo,rel_listaprecio_id,rel_usuario_id,rel_cliente_id]
+GET /clientesDirecciones.listAll.json — Listar todos los registros | page(query),limit(query)
+
+## compras
+GET /compras.list.json — Listar registros | ano_contable(query),bodega(query),fecha(query),fecha_desde(query),fecha_hasta(query),folio_dcto(query),id(query),id_dcto_desde(query),mes_contable(query),order_by(query),order_dir(query),proveedor(query),proveedor_rut(query),sucursal(query),tipo_dcto(query),total(query),total_pagado(query),total_por_pagar(query),page(query),limit(query)
+GET /compras.listItems.json — Listar detalle | ano_contable(query),bodega(query),fecha(query),fecha_desde(query),fecha_hasta(query),folio_dcto(query),id_dcto_desde(query),mes_contable(query),order_by(query),order_dir(query),producto(query),producto_sku(query),proveedor(query),sucursal(query),tipo_dcto(query),total(query),page(query),limit(query)
+GET /compras.listReferencias.json — Listar referencias | ano_contable(query),bodega(query),fecha_dcto_ref(query),folio_dcto(query),folio_dcto_ref(query),mes_contable(query),order_by(query),order_dir(query),proveedor(query),sucursal(query),tipo_dcto(query),tipo_dcto_ref(query),total(query),page(query),limit(query)
+GET /compras.findById.json/{id} — Buscar por ID | *id(path)
+POST /compras.create.json — Crear registro  BODY[*docs]
+POST /compras.update.json — Actualizar registro  BODY[*docs]
+GET /compras.delete.json — Eliminar registro 
+
+## comprasDte
+GET /comprasDte.list.json — Listar registros | ano_contable(query),folio_dcto(query),id(query),id_compra(query),id_dcto(query),id_dcto_desde(query),id_proveedor(query),mes_contable(query),order_by(query),order_dir(query),proveedor(query),rut_proveedor(query),tipo_dcto(query),total(query),page(query),limit(query)
+GET /comprasDte.findById.json/{id} — Buscar por ID | *id(path)
+
+## comprasGastos
+GET /comprasGastos.list.json — Listar registros | ano_contable(query),bodega(query),folio_dcto(query),mes_contable(query),proveedor(query),sucursal(query),tipo_dcto(query),total(query),page(query),limit(query)
+GET /comprasGastos.listItems.json — Listar detalle | ano_contable(query),bodega(query),folio_dcto(query),mes_contable(query),producto(query),producto_sku(query),proveedor(query),sucursal(query),tipo_dcto(query),total(query),page(query),limit(query)
+GET /comprasGastos.findById.json/{id} — Buscar por ID | *id(path)
+
+## comprasOc
+GET /comprasOc.list.json — Listar registros | ano(query),bodega(query),fecha(query),fecha_desde(query),fecha_hasta(query),folio_dcto(query),id(query),id_dcto_desde(query),mes(query),proveedor(query),sucursal(query),total(query),page(query),limit(query)
+GET /comprasOc.listItems.json — Listar detalle | ano(query),bodega(query),fecha(query),fecha_desde(query),fecha_hasta(query),folio_dcto(query),id_dcto(query),id_dcto_desde(query),mes(query),producto(query),producto_sku(query),proveedor(query),sucursal(query),total(query),page(query),limit(query)
+GET /comprasOc.listLast.json — Consultar últimos registros 
+GET /comprasOc.findById.json/{id} — Buscar por ID | *id(path)
+POST /comprasOc.create.json — Crear registro  BODY[*docs]
+POST /comprasOc.update.json — Actualizar registro  BODY[*docs]
+GET /comprasOc.delete.json — Eliminar registro 
+
+## comprasPagos
+GET /comprasPagos.list.json — Listar registros | ano(query),compra_id(query),fecha_ingreso_desde(query),fecha_ingreso_hasta(query),mes(query),origen(query)
+
+## contabilidad
+GET /contabilidad.listDiario.json — listDiario | centro_costo(query),cuenta(query),fecha_desde(query),fecha_hasta(query),folio_dcto(query),mostrar_detalle(query),rut_analisis(query),status(query),tipo(query),tipo_analisis(query),tipo_dcto(query),tipo_ingreso(query),page(query),limit(query)
+GET /contabilidad.listDiarioDetalle.json — listDiarioDetalle | fecha_desde(query),fecha_hasta(query),page(query),limit(query)
+GET /contabilidad.listDiarioDetalle.json/{id} — listDiarioDetalle | *id(path),fecha_desde(query),fecha_hasta(query),page(query),limit(query)
+GET /contabilidad.listDiarioByFolio.json — listDiarioByFolio | folio(query)
+GET /contabilidad.createDiario.json — createDiario 
+GET /contabilidad.listCheques.json — listCheques | ano(query),banco(query),mes(query),operacion(query),status(query),page(query),limit(query)
+GET /contabilidad.listChequesStatus.json — listChequesStatus 
+GET /contabilidad.listCartolasBanco.json — listCartolasBanco | page(query),limit(query)
+GET /contabilidad.listCartolasBancoDetalle.json/{id} — listCartolasBancoDetalle | *id(path),page(query),limit(query)
+
+## contabilidadCentrosDeCostos
+GET /contabilidadCentrosDeCostos.list.json — Listar registros 
+
+## contabilidadPlanDeCuentas
+GET /contabilidadPlanDeCuentas.list.json — Listar registros 
+
+## crm
+GET /crm.list.json — Listar registros | accion_tarea(query),campana(query),celular(query),contacto(query),cotizacion_id(query),email(query),estado(query),etapa(query),f_desde_registro(query),f_desde_ultimaaccion(query),f_hasta_registro(query),f_hasta_ultimaaccion(query),fecha_proximaaccion(query),id(query),id_desde(query),importe(query),nombre_empresa(query),order_by(query),order_dir(query),origen(query),responsable(query),telefono(query),titulo(query),page(query),limit(query)
+POST /crm.create.json — Crear registro  BODY[campana_id,celular,ciudad,cliente_id,contacto,contacto_cargo,email,empresa,estado,etapa,importe,importe_moneda,medio_contacto,mensaje,origen,origen_id_referencia,pais,probabilidad,responsable,sitioweb,telefono,titulo]
+POST /crm.update.json — Actualizar registro  BODY[*cl_id,campana_id,celular,ciudad,cliente_id,contacto,contacto_cargo,email,empresa,estado,etapa,importe,importe_moneda,medio_contacto,mensaje,origen,origen_id_referencia,pais,probabilidad,responsable,sitioweb,telefono,titulo]
+POST /crm.sendwhatsapp.json — sendwhatsapp  BODY[message,to]
+GET /crm.listCampanas.json — listCampanas 
+
+## emailSender
+POST /emailSender.send.json — Enviar correo  BODY[adjuntos,asunto_email,contenido_email,destinatarios,destinatarios_cc,files,id_empresa,id_user,remitente_email,remitente_nombre,smtp_propio,status]
+POST /emailSender.sendUploadFile.json — Adjuntar archivo al correo  BODY[*email_id,*file_contents]
+
+## empleados
+GET /empleados.list.json — Listar registros | page(query),limit(query)
+GET /empleados.listActivos.json — listActivos | page(query),limit(query)
+GET /empleados.listInactivos.json — listInactivos | page(query),limit(query)
+GET /empleados.listUsuarios.json — listUsuarios | page(query),limit(query)
+GET /empleados.findById.json/{id} — Buscar por ID | *id(path)
+GET /empleados.findByRut.json/{id} — Buscar por RUT | *id(path)
+
+## empleadosPerfil
+GET /empleadosPerfil.list.json — Listar registros 
+
+## empleadosPerfilPermisos
+GET /empleadosPerfilPermisos.findById.json/{id} — Buscar por ID | *id(path)
+
+## empresa
+GET /empresa.list.json — Listar registros 
+GET /empresa.findById.json — Buscar por ID 
+GET /empresa.findByAPIKey.json/{id} — findByAPIKey | *id(path)
+
+## empresaBodegas
+GET /empresaBodegas.list.json — Listar registros 
+
+## empresaCanalesDeVenta
+GET /empresaCanalesDeVenta.list.json — Listar registros 
+
+## empresaConfiguracion
+GET /empresaConfiguracion.list.json — Listar registros 
+GET /empresaConfiguracion.findById.json — Buscar por ID 
+
+## empresaDteCertificados
+GET /empresaDteCertificados.list.json — Listar registros 
+
+## empresaDteFolios
+GET /empresaDteFolios.list.json — Listar registros | tipo(query)
+GET /empresaDteFolios.listPorSucursal.json — listPorSucursal | id_sucursal(query)
+
+## empresaFormasDePago
+GET /empresaFormasDePago.list.json — Listar registros 
+GET /empresaFormasDePago.findById.json/{id} — Buscar por ID | *id(path)
+
+## empresaListasDePrecio
+GET /empresaListasDePrecio.list.json — Listar registros 
+
+## empresaSucursales
+GET /empresaSucursales.list.json — Listar registros 
+
+## ext-producciones
+GET /ext-producciones.list.json — Listar registros | page(query),limit(query)
+GET /ext-producciones.findById.json/{id} — Buscar por ID | *id(path)
+
+## ext-proyectos
+GET /ext-proyectos.list.json — Listar registros | page(query),limit(query)
+GET /ext-proyectos.findById.json/{id} — Buscar por ID | *id(path)
+
+## ext-sat
+GET /ext-sat.list.json — Listar registros | page(query),limit(query)
+GET /ext-sat.findById.json/{id} — Buscar por ID | *id(path)
+
+## gestor-sql
+GET /gestor-sql.list.json — Listar registros | page(query),limit(query)
+GET /gestor-sql.runQueryById.json/{id} — runQueryById | *id(path),page(query),limit(query)
+
+## pg-bancos
+GET /pg-bancos.list.json — Listar registros 
+
+## pg-comunas
+GET /pg-comunas.list.json — Listar registros 
+
+## pg-monedas
+GET /pg-monedas.list.json — Listar registros 
+
+## pg-regiones
+GET /pg-regiones.list.json — Listar registros 
+
+## pg-tiposClientes
+GET /pg-tiposClientes.list.json — Listar registros | page(query),limit(query)
+
+## pg-unidadesMedida
+GET /pg-unidadesMedida.list.json — Listar registros 
+
+## pg-ventasRutas
+GET /pg-ventasRutas.list.json — Listar registros 
+
+## productos
+GET /productos.list.json — Listar registros | activo(query),activo_web(query),categoria(query),codigo_barra(query),codigo_sku(query),fabricante(query),id(query),id_desde(query),inventariable(query),order_by(query),order_dir(query),para_compra(query),para_venta(query),proveedor(query),subcategoria(query),tipo(query),page(query),limit(query)
+GET /productos.findById.json/{id} — Buscar por ID | *id(path)
+GET /productos.findByCodigoComercial.json/{id} — findByCodigoComercial | *id(path)
+GET /productos.findByCodigoBarra.json/{id} — findByCodigoBarra | *id(path)
+GET /productos.findByCategoryId.json/{id} — findByCategoryId | *id(path)
+GET /productos.findBySubCategoryId.json/{id} — findBySubCategoryId | *id(path)
+GET /productos.findByFabricanteId.json/{id} — findByFabricanteId | *id(path)
+POST /productos.create.json — Crear registro  BODY[id_categoria,id_fabricante,id_proveedor,id_subcategoria,producto_activo,producto_campoextra1,producto_campoextra2,producto_campoextra3,producto_campoextra4,producto_campoextra5,producto_categoria,producto_codigo_barra,producto_codigo_comercial,producto_costo_clp_neto,producto_costo_clp_neto_estandar,producto_costo_clp_neto_promedio,producto_descripcion,producto_descripcion_larga,producto_exento_iva,producto_fabricante,producto_inventariable,producto_moneda,producto_mostrar,producto_nombre,producto_para_compra,producto_para_venta,producto_precio_clp_iva,producto_precio_clp_neto,producto_precio_clp_total,producto_precio_fijo,producto_proveedor,producto_stock_ideal,producto_stock_minimo,producto_subcategoria,producto_unidad_medida]
+POST /productos.update.json — Actualizar registro  BODY[id_categoria,id_fabricante,id_proveedor,id_subcategoria,producto_activo,producto_campoextra1,producto_campoextra2,producto_campoextra3,producto_campoextra4,producto_campoextra5,producto_categoria,producto_costo_clp_neto,producto_costo_clp_neto_estandar,producto_costo_clp_neto_promedio,producto_descripcion,producto_descripcion_larga,producto_exento_iva,producto_fabricante,producto_id,producto_inventariable,producto_moneda,producto_mostrar,producto_nombre,producto_para_compra,producto_para_venta,producto_precio_clp_iva,producto_precio_clp_neto,producto_precio_clp_total,producto_precio_fijo,producto_proveedor,producto_stock_ideal,producto_stock_minimo,producto_subcategoria,producto_unidad_medida]
+GET /productos.listByCodigosProveedores.json — listByCodigosProveedores 
+
+## productosBrochures
+GET /productosBrochures.list.json — Listar registros | rel_producto_id(query),page(query),limit(query)
+GET /productosBrochures.list.json/{id} — Listar registros | *id(path),rel_producto_id(query),page(query),limit(query)
+GET /productosBrochures.findById.json/{id} — Buscar por ID | *id(path)
+GET /productosBrochures.findByProductoId.json/{id} — Buscar por ID de producto | *id(path)
+GET /productosBrochures.findByProductoSku.json/{id} — Buscar por SKU de producto | *id(path)
+POST /productosBrochures.create.json — Crear registro  BODY[producto_brochure_nombre,*producto_brochure_url,*rel_producto_id]
+GET /productosBrochures.listAll.json — Listar todos los registros | page(query),limit(query)
+
+## productosCategorias
+GET /productosCategorias.list.json — Listar registros | activo(query),activo_web(query),page(query),limit(query)
+GET /productosCategorias.findById.json/{id} — Buscar por ID | *id(path)
+GET /productosCategorias.findByCodigo.json/{id} — findByCodigo | *id(path)
+POST /productosCategorias.create.json — Crear registro  BODY[producto_categoria_descripcion,producto_categoria_imagen,producto_categoria_metadescription,producto_categoria_metakeywords,producto_categoria_metatitle,producto_categoria_mostrar,producto_categoria_nombre,producto_categoria_posicion,producto_categoria_urlseo]
+POST /productosCategorias.update.json — Actualizar registro  BODY[producto_categoria_descripcion,producto_categoria_id,producto_categoria_imagen,producto_categoria_metadescription,producto_categoria_metakeywords,producto_categoria_metatitle,producto_categoria_mostrar,producto_categoria_nombre,producto_categoria_posicion,producto_categoria_urlseo]
+POST /productosCategorias.delete.json — Eliminar registro  BODY[]
+
+## productosConsultaPrecios
+GET /productosConsultaPrecios.list.json — Listar registros | categoria(query),fabricante(query),lista_precio(query),lista_precio_codigo(query),subcategoria(query),page(query),limit(query)
+GET /productosConsultaPrecios.findById.json/{id} — Buscar por ID | *id(path),page(query),limit(query)
+GET /productosConsultaPrecios.findByCodigoSku.json/{id} — findByCodigoSku | *id(path),page(query),limit(query)
+
+## productosFabricantes
+GET /productosFabricantes.list.json — Listar registros | page(query),limit(query)
+GET /productosFabricantes.findById.json/{id} — Buscar por ID | *id(path)
+GET /productosFabricantes.findByCodigo.json/{id} — findByCodigo | *id(path)
+POST /productosFabricantes.create.json — Crear registro  BODY[producto_categoria_url,producto_fabricante_imagen,producto_fabricante_nombre]
+POST /productosFabricantes.update.json — Actualizar registro  BODY[producto_categoria_url,producto_fabricante_id,producto_fabricante_imagen,producto_fabricante_nombre]
+POST /productosFabricantes.delete.json — Eliminar registro  BODY[]
+
+## productosImagenes
+GET /productosImagenes.list.json — Listar registros | categoria(query),sub_categoria(query),page(query),limit(query)
+GET /productosImagenes.findById.json/{id} — Buscar por ID | *id(path)
+GET /productosImagenes.findByProductoId.json/{id} — Buscar por ID de producto | *id(path)
+GET /productosImagenes.findByProductoSku.json/{id} — Buscar por SKU de producto | *id(path)
+
+## productosLdM
+GET /productosLdM.list.json — Listar registros 
+GET /productosLdM.findById.json/{id} — Buscar por ID | *id(path)
+GET /productosLdM.findByCodigoSku.json/{id} — findByCodigoSku | *id(path),page(query),limit(query)
+
+## productosStock
+GET /productosStock.listolddddd.json — listolddddd | bodega(query),categoria(query),codigo_bodega(query),fabricante(query),id_bodega(query),stock_mostrar(query),subcategoria(query),page(query),limit(query)
+GET /productosStock.listolddddd.json/{id} — listolddddd | *id(path),bodega(query),categoria(query),codigo_bodega(query),fabricante(query),id_bodega(query),stock_mostrar(query),subcategoria(query),page(query),limit(query)
+GET /productosStock.list.json — Listar registros | bodega(query),categoria(query),codigo_bodega(query),fabricante(query),fecha_desde(query),id_bodega(query),stock_mostrar(query),subcategoria(query),page(query),limit(query)
+GET /productosStock.list.json/{id} — Listar registros | *id(path),bodega(query),categoria(query),codigo_bodega(query),fabricante(query),fecha_desde(query),id_bodega(query),stock_mostrar(query),subcategoria(query),page(query),limit(query)
+GET /productosStock.list-DetalleBodegas.json — list-DetalleBodegas | bodega(query),codigo_bodega(query),fecha_desde(query),id_bodega(query),id_producto(query),page(query),limit(query)
+GET /productosStock.list-DetalleBodegas2.json — list-DetalleBodegas2 | bodega(query),codigo_bodega(query),formato_stock(query),id_bodega(query),info_producto(query),page(query),limit(query)
+GET /productosStock.findById.json/{id} — Buscar por ID | *id(path),bodega(query),codigo_bodega(query),id_bodega(query)
+GET /productosStock.findById-DetalleBodegas.json/{id} — findById-DetalleBodegas | *id(path),bodega(query),codigo_bodega(query),id_bodega(query)
+GET /productosStock.findByCodigoSku.json/{id} — findByCodigoSku | *id(path),bodega(query),codigo_bodega(query),id_bodega(query)
+GET /productosStock.findByCodigoBarra.json/{id} — findByCodigoBarra | *id(path),bodega(query),codigo_bodega(query),id_bodega(query)
+GET /productosStock.KITfindById.json/{id} — KITfindById | *id(path),bodega(query),codigo_bodega(query),id_bodega(query)
+GET /productosStock.KITfindByCodigoSku.json/{id} — KITfindByCodigoSku | *id(path),bodega(query),codigo_bodega(query),id_bodega(query)
+GET /productosStock.KITfindByCodigoBarra.json/{id} — KITfindByCodigoBarra | *id(path),bodega(query),codigo_bodega(query),id_bodega(query)
+POST /productosStock.KITfindByIds.json — Consultar stock de kits por IDs | bodega(query),codigo_bodega(query),id_bodega(query) BODY[*ids_productos,*id_bodega]
+POST /productosStock.create.json — Crear registro | bodega(query),codigo_bodega(query),id_bodega(query) BODY[bodega,codigo_bodega,concepto_movimiento,items,metodo_movimiento,referencia_movimiento,tipo_movimiento]
+GET /productosStock.listLibro.json — listLibro | ano(query),bodega(query),centro_costo(query),codigo_bodega(query),concepto(query),id_bodega(query),mes(query),movimiento(query),page(query),limit(query)
+GET /productosStock.listLibroDetalle.json — listLibroDetalle | ano(query),bodega(query),centro_costo(query),codigo_bodega(query),concepto(query),folio(query),id(query),id_bodega(query),mes(query),producto(query),tipo_movimiento(query),page(query),limit(query)
+
+## productosSubCategorias
+GET /productosSubCategorias.list.json — Listar registros | page(query),limit(query)
+GET /productosSubCategorias.findById.json/{id} — Buscar por ID | *id(path)
+GET /productosSubCategorias.findByCodigo.json/{id} — findByCodigo | *id(path)
+GET /productosSubCategorias.findByCategoryId.json/{id} — findByCategoryId | *id(path)
+POST /productosSubCategorias.create.json — Crear registro  BODY[producto_subcategoria_imagen,producto_subcategoria_metadescription,producto_subcategoria_metakeywords,producto_subcategoria_metatitle,producto_subcategoria_mostrar,producto_subcategoria_nombre,producto_subcategoria_posicion,producto_subcategoria_urlseo,rel_producto_categoria_id]
+POST /productosSubCategorias.update.json — Actualizar registro  BODY[producto_subcategoria_id,producto_subcategoria_imagen,producto_subcategoria_metadescription,producto_subcategoria_metakeywords,producto_subcategoria_metatitle,producto_subcategoria_mostrar,producto_subcategoria_nombre,producto_subcategoria_posicion,producto_subcategoria_urlseo,rel_producto_categoria_id]
+POST /productosSubCategorias.delete.json — Eliminar registro  BODY[]
+
+## proveedores
+GET /proveedores.list.json — Listar registros | estado(query),id(query),id_desde(query),order_by(query),order_dir(query),proveedor_email(query),proveedor_extranjero(query),proveedor_extranjero_id(query),proveedor_razon_social(query),proveedor_rut(query),page(query),limit(query)
+GET /proveedores.findById.json/{id} — Buscar por ID | *id(path)
+GET /proveedores.findByRut.json/{id} — Buscar por RUT | *id(path)
+POST /proveedores.create.json — Crear registro  BODY[cuenta_contable,proveedor_celular,proveedor_comuna,proveedor_contacto,proveedor_direccion,proveedor_email,proveedor_es_supermercado,proveedor_giro_comercial,proveedor_observacion,proveedor_pais,proveedor_razon_social,proveedor_region,proveedor_rut,proveedor_telefono,proveedor_website]
+POST /proveedores.update.json — Actualizar registro  BODY[proveedor_id,proveedor_contacto,proveedor_razon_social,proveedor_giro_comercial,proveedor_es_supermercado,proveedor_direccion,proveedor_comuna,proveedor_region,proveedor_pais,proveedor_telefono,proveedor_celular,proveedor_email,proveedor_website,proveedor_observacion,cuenta_contable]
+
+## remuneraciones
+GET /remuneraciones.list.json — Listar registros | ano(query),centro_costo(query),mes(query),order_by(query),order_dir(query),sucursal(query),page(query),limit(query)
+GET /remuneraciones.listDetalle.json — listDetalle | ano(query),mes(query),page(query),limit(query)
+GET /remuneraciones.listDetalle-HyD.json — listDetalle-HyD | ano(query),empleado_id(query),mes(query),tipo(query),page(query),limit(query)
+GET /remuneraciones.params-HyD.json — params-HyD 
+
+## tareas
+GET /tareas.listttt.json — listttt | page(query),limit(query)
+GET /tareas.list.json — Listar registros | activo_id(query),atrasadas(query),categoria(query),cliente_id(query),completada(query),compra_id(query),cotizacion_id(query),creador(query),estado(query),fecha_desde(query),fecha_hasta(query),id(query),order_by(query),order_dir(query),ot_id(query),prioridad(query),proyecto_id(query),query(query),responsable(query),search(query),vencimiento_desde(query),vencimiento_hasta(query),venta_id(query),page(query),limit(query)
+GET /tareas.findById.json/{id} — Buscar por ID | *id(path)
+POST /tareas.create.json — Crear registro  BODY[tarea_nombre]
+POST /tareas.update.json — Actualizar registro  BODY[tarea_id,tarea_nombre]
+POST /tareas.delete.json — Eliminar registro  BODY[]
+
+## tester
+GET /tester.test.json — test 
+GET /tester.ping.json — ping 
+GET /tester.hello.json — hello 
+GET /tester.list.json — Listar registros | categoria(query),fabricante(query),stock_mostrar(query),subcategoria(query)
+
+## ventas
+GET /ventas.list.json — Listar registros | ano(query),bodega(query),cliente(query),cliente_rut(query),external_id(query),fecha(query),fecha_desde(query),fecha_hasta(query),fecha_vcto_desde(query),fecha_vcto_hasta(query),folio_dcto(query),id_dcto(query),id_dcto_desde(query),mes(query),order_by(query),order_dir(query),sucursal(query),tipo_dcto(query),total(query),total_pagado(query),total_por_pagar(query),usuario(query),vendedor(query),page(query),limit(query)
+GET /ventas.listLast.json — Consultar últimos registros | tipo_dcto(query)
+GET /ventas.listItems.json — Listar detalle | all_data(query),ano(query),bodega(query),cliente(query),fecha(query),fecha_desde(query),fecha_hasta(query),fecha_vcto_desde(query),fecha_vcto_hasta(query),folio_dcto(query),id_dcto(query),id_dcto_desde(query),mes(query),order_by(query),order_dir(query),producto(query),producto_sku(query),sucursal(query),tipo_dcto(query),total(query),usuario(query),vendedor(query),page(query),limit(query)
+GET /ventas.findById.json/{id} — Buscar por ID | *id(path)
+GET /ventas.listReferencias.json — Listar referencias | ano(query),bodega(query),cliente(query),fecha_dcto_ref(query),folio_dcto(query),folio_dcto_ref(query),mes(query),order_by(query),order_dir(query),sucursal(query),tipo_dcto(query),tipo_dcto_ref(query),total(query),usuario(query),vendedor(query),page(query),limit(query)
+POST /ventas.listByCustomer.json — listByCustomer  BODY[ano,folio,idCliente,mes,tipoBusqueda]
+POST /ventas.listByCustomerRut.json — listByCustomerRut  BODY[ano,folio,mes,rutCliente,tipoBusqueda]
+GET /ventas.listOne.json/{id} — listOne | *id(path),id_venta(query)
+POST /ventas.create.json — Crear registro  BODY[xml]
+GET /ventas.update.json — Actualizar registro 
+GET /ventas.delete.json — Eliminar registro 
+GET /ventas.deleteNotaVenta.json — deleteNotaVenta | id_venta(query)
+
+## ventasCobros
+GET /ventasCobros.list.json — Listar registros | ano(query),fecha_ingreso_desde(query),fecha_ingreso_hasta(query),mes(query),origen(query),venta_id(query)
+POST /ventasCobros.create.json — Crear registro  BODY[fechaPago,folio,formaPago,formaPagoCodigo,pagado,referenciaFormaPago,tipoDte]
+
+## ventasConsultaBoleta
+POST /ventasConsultaBoleta.list.json — Listar registros  BODY[fechaEmision,folio,montoTotal,tipoDte]
+
+## ventasConsultaDte
+POST /ventasConsultaDte.listPdfXml.json — listPdfXml  BODY[folio,mostrar_pdf_url,tipoDte]
+GET /ventasConsultaDte.listPdfXml2.json — listPdfXml2 | ano(query),external_id(query),folio_dcto(query),id_dcto(query),id_dcto_desde(query),mes(query),tipo_dcto(query)
+POST /ventasConsultaDte.estadoDTEenSII.json — estadoDTEenSII  BODY[folio,tipoDte]
+
+## ventasCotizaciones
+GET /ventasCotizaciones.list.json — Listar registros | ano(query),cliente(query),cliente_rut(query),external_id(query),fecha(query),fecha_desde(query),fecha_hasta(query),fecha_vcto_desde(query),fecha_vcto_hasta(query),folio_dcto(query),id(query),id_dcto(query),id_dcto_desde(query),mes(query),order_by(query),order_dir(query),sucursal(query),total(query),usuario(query),page(query),limit(query)
+GET /ventasCotizaciones.listItems.json — Listar detalle | all_data(query),ano(query),cliente(query),cliente_rut(query),external_id(query),fecha(query),fecha_desde(query),fecha_hasta(query),fecha_vcto_desde(query),fecha_vcto_hasta(query),folio_dcto(query),id_dcto(query),id_dcto_desde(query),mes(query),order_by(query),order_dir(query),producto(query),producto_sku(query),sucursal(query),total(query),usuario(query),page(query),limit(query)
+GET /ventasCotizaciones.listLast.json — Consultar últimos registros 
+GET /ventasCotizaciones.findById.json/{id} — Buscar por ID | *id(path)
+POST /ventasCotizaciones.create.json — Crear registro  BODY[*docs]
+POST /ventasCotizaciones.update.json — Actualizar registro  BODY[*docs]
+POST /ventasCotizaciones.updateEstado.json — Actualizar estado  BODY[*docs]
+GET /ventasCotizaciones.delete.json — Eliminar registro 
+GET /ventasCotizaciones.sendEmail.json/{id} — Enviar cotización por correo | *id(path)
+GET /ventasCotizaciones.listPdfLink.json/{id} — Obtener enlace PDF | *id(path)
+
+## ventasIntegracionExternas
+POST /ventasIntegracionExternas.create.json — Crear registro  BODY[*docs]
+
+## ventasPOSLocal
+POST /ventasPOSLocal.create.json — Crear registro  BODY[*docs]
+
+## ventasPOSLocal_auditoria
+POST /ventasPOSLocal_auditoria.list.json — Listar registros  BODY[ano,dia,mes,sucursal]

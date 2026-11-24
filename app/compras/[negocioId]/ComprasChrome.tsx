@@ -29,6 +29,7 @@ import { ObumaHubCard } from '@/app/negocios/[id]/ObumaHubCard';
 import { irAFase, enfocarProducto } from './comprasNavegacion';
 import { ResumenGastosCard } from '@/app/negocios/[id]/ResumenGastosCard';
 import { ResumenComparativoCard } from '@/app/negocios/[id]/ResumenComparativoCard';
+import { AuditoriaCompraCard } from './AuditoriaCompraCard';
 import { FichasTecnicasCard } from '@/app/negocios/[id]/FichasTecnicasCard';
 import { RevisadoDelAuditorCard } from './RevisadoDelAuditorCard';
 import { CostoRealCard } from '@/app/negocios/[id]/CostoRealCard';
@@ -948,6 +949,8 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
                   contenido: <ResumenGastosCard negocioId={negocioId} /> },
                 { clave: 'comparativo', titulo: 'Seguimiento · Comparativo', ayuda: 'Por producto y por orden de compra, todo neto: lo costeado, lo planeado en Licitank y lo que de verdad se compró en Obuma, para ver si coincide.',
                   contenido: <ResumenComparativoCard negocioId={negocioId} /> },
+                { clave: 'auditoria', titulo: 'Seguimiento · Auditoría', ayuda: 'El informe completo para descargar en PDF: qué se costeó, cotizó, compró y facturó por proveedor, con la diferencia en pesos y por qué se generó.',
+                  contenido: <AuditoriaCompraCard negocioId={negocioId} /> },
               ]} />
             )}
             {faseActiva === 'entrega' && (
