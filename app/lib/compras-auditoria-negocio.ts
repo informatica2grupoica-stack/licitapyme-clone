@@ -26,7 +26,7 @@ export interface LineaAuditoria {
   /** OC (folio) donde se compró, si se compró. */
   oc: string | null;
 }
-export interface FacturaAuditoria { folio: string | null; fecha: string | null; neto: number; enlazada: boolean }
+export interface FacturaAuditoria { folio: string | null; fecha: string | null; neto: number; enlazada: boolean; /** Tipo SII: 33 factura · 34 exenta · 56 nota de débito · 61 nota de crédito. */ tipo?: string }
 export interface OcAuditoria {
   folio: string; estado: string | null; fecha: string | null; neto: number; facturadoNeto: number; facturas: FacturaAuditoria[];
   /** Lo que lleva esta OC, línea por línea. */
@@ -67,6 +67,9 @@ const nombreSimple = (s: string | null | undefined) => (s ?? '').normalize('NFD'
 const pct = (a: number, b: number) => (b ? `${a > b ? '+' : '−'}${String(Math.round(Math.abs((a - b) / b) * 10000) / 100).replace('.', ',')} %` : '');
 const fechaISO = (f: unknown): string | null => {
   if (!f) return null;
+  // Obuma entrega los documentos como DD-MM-AAAA: new Date() lo leería como MM-DD y daría otra fecha (o ninguna).
+  const dma = /^(\d{2})-(\d{2})-(\d{4})/.exec(String(f));
+  if (dma) return `${dma[3]}-${dma[2]}-${dma[1]}`;
   const d = new Date(f as string);
   return isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
 };
@@ -89,7 +92,7 @@ export async function auditoriaCompra(negocioId: number): Promise<AuditoriaCompr
   } catch { /* sin snapshot de Obuma: se audita sin las facturas sueltas */ }
   const foliosEnlazados = new Set(gastos.facturas.detalle.map(f => `${f.folio}`));
   const netoDoc = (d: DocumentoDelProyecto) => r0(d.neto ?? d.total / 1.19);
-  const sueltas = documentos.filter(d => d.tipo !== '61' && d.proveedorNombre && !foliosEnlazados.has(d.folio));
+  const sueltas = documentos.filter(d => d.proveedorNombre && !foliosEnlazados.has(d.folio));
   const notasCredito = documentos.filter(d => d.tipo === '61');
   const sueltaUsada = new Set<string>();
 
@@ -183,7 +186,7 @@ export async function auditoriaCompra(negocioId: number): Promise<AuditoriaCompr
     const dif = o.facturadoNeto - o.obumaNeto;
     if (o.obumaNeto <= 0 || o.din?.length) continue;
     if (o.facturas === 0) {
-      const cand = sueltas.find(d => !sueltaUsada.has(d.folio) && nombreSimple(d.proveedorNombre) === nombreSimple(o.proveedor));
+      const cand = sueltas.find(d => !sueltaUsada.has(d.folio) && (d.tipo === '33' || d.tipo === '34') && nombreSimple(d.proveedorNombre) === nombreSimple(o.proveedor));
       if (cand) {
         sueltaUsada.add(cand.folio);
         const n = netoDoc(cand);
@@ -234,7 +237,7 @@ export async function auditoriaCompra(negocioId: number): Promise<AuditoriaCompr
     p.monto += h.monto; porTipo.set(k, p);
   }
 
-  const lineasSueltas = sueltas.filter(d => !sueltaUsada.has(d.folio)).map(d => ({ folio: d.folio, fecha: fechaISO(d.fecha), neto: netoDoc(d), enlazada: false, proveedor: d.proveedorNombre ?? undefined }));
+  const lineasSueltas = sueltas.filter(d => !sueltaUsada.has(d.folio)).map(d => ({ folio: d.folio, fecha: fechaISO(d.fecha), neto: netoDoc(d), enlazada: false, tipo: d.tipo, proveedor: d.proveedorNombre ?? undefined }));
 
   // Producto por producto: vendido, costeado, comprado, a quién y margen (venta − comprado; si aún no hay OC, se usa la cotización elegida).
   const proveedorDe = (folio: string | null, def: string | null) => (folio && grupoDeOc.get(String(folio))?.proveedor) || def;

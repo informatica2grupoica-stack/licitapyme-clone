@@ -14,18 +14,6 @@ const dif = (n: number): string => Math.abs(n) < 1 ? '<span class="neutro">sin d
 const dato = (rotulo: string, valor: string) => `<div class="dato"><div class="rot">${rotulo}</div><div class="val">${valor}</div></div>`;
 const estado = (e: string | null) => { const t = (e ?? '—'); const c = /FACTURADA|PAGADA|ENTREGADA/i.test(t) ? '#16a34a' : /ANULAD/i.test(t) ? '#dc2626' : '#d97706'; return `<span class="est"><i style="background:${c}"></i>${esc(t.charAt(0) + t.slice(1).toLowerCase())}</span>`; };
 
-const ETAPA: Record<EtapaAuditoria, string> = {
-  'costeo-cotizado': 'Costeo → cotización',
-  'cotizado-oc': 'Cotización → OC',
-  'oc-factura': 'OC → factura',
-};
-
-function hallazgos(hs: Hallazgo[]): string {
-  if (!hs.length) return '<p class="ok"><i></i>Sin diferencias: lo costeado, cotizado, ordenado y facturado coincide.</p>';
-  return `<table class="t hall"><tbody>${hs.map(h =>
-    `<tr><td class="paso">${ETAPA[h.etapa]}</td><td class="num monto">${dif(h.monto)}</td><td>${esc(h.texto)}${h.accion ? `<div class="accion">${esc(h.accion)}</div>` : ''}</td></tr>`).join('')}</tbody></table>`;
-}
-
 /** Barra horizontal proporcional al mayor valor de la serie. */
 function barra(rotulo: string, valor: number, max: number, tono: string): string {
   const w = max > 0 ? Math.max(1.5, Math.round((valor / max) * 1000) / 10) : 0;
@@ -88,9 +76,10 @@ export function construirAuditoriaHtml(a: AuditoriaCompra, generadoPor?: string 
     </section>`;
   }).join('');
 
-  const sueltas = a.facturasSueltas as unknown as { folio: string | null; fecha: string | null; neto: number; proveedor?: string }[];
-  const bloqueSueltas = sueltas.length === 0 ? '' : `<h2>Facturas del proyecto sin enlazar a una OC</h2><p class="sutil">Están contabilizadas en el proyecto de Obuma pero no cuelgan de ninguna orden de compra de este negocio; pueden ser un duplicado o una OC mal enlazada.</p>
-    <table class="t"><thead><tr><th>Proveedor</th><th>Factura</th><th>Fecha</th><th class="num">Neto</th></tr></thead><tbody>${sueltas.map(f => `<tr><td>${esc(f.proveedor ?? '—')}</td><td>N° ${esc(f.folio ?? 's/n')}</td><td>${fecha(f.fecha)}</td><td class="num">${clp(f.neto)}</td></tr>`).join('')}</tbody></table>`;
+  const TIPO_DOC: Record<string, string> = { '33': 'Factura', '34': 'Factura exenta', '56': 'Nota de débito', '61': 'Nota de crédito' };
+  const sueltas = a.facturasSueltas as unknown as { folio: string | null; fecha: string | null; neto: number; proveedor?: string; tipo?: string }[];
+  const bloqueSueltas = sueltas.length === 0 ? '' : `<h2>Documentos del proyecto sin enlazar a una OC</h2><p class="sutil">Están contabilizados en el proyecto de Obuma, pero no cuelgan de ninguna orden de compra de este negocio. Las notas de crédito restan y las de débito suman: sirven para corregir una factura ya emitida.</p>
+    <table class="t fijo"><colgroup><col><col style="width:130px"><col style="width:70px"><col style="width:90px"><col style="width:100px"></colgroup><thead><tr><th>Proveedor</th><th>Documento</th><th>N°</th><th>Fecha</th><th class="num">Neto</th></tr></thead><tbody>${sueltas.map(f => `<tr><td>${esc(f.proveedor ?? '—')}</td><td>${esc(TIPO_DOC[f.tipo ?? ''] ?? `Tipo ${f.tipo ?? '—'}`)}</td><td>${esc(f.folio ?? 's/n')}</td><td>${fecha(f.fecha)}</td><td class="num">${clp(f.neto)}</td></tr>`).join('')}</tbody></table>`;
 
   const cuadre = a.cuadre ? `<h2>Cuadre con el proyecto en Obuma</h2><p class="sutil">Proyecto ${esc(a.cuadre.proyectoFolio ?? '—')} · ${esc(a.cuadre.proyectoNombre ?? '')}. Montos con IVA, como los muestra Obuma.</p>
     <table class="t"><thead><tr><th></th><th class="num">En Obuma</th><th class="num">En Licitank</th><th class="num">Sin explicar</th></tr></thead><tbody>
@@ -147,8 +136,10 @@ export function construirAuditoriaHtml(a: AuditoriaCompra, generadoPor?: string 
   .accion { color: #0f766e; margin-top: 2px; font-weight: 500; }
   .aviso-i { color: #b45309; font-size: 9.5px; }
   .sutil { color: #94a3b8; margin: 3px 0; } .nota { margin: 3px 0; color: #475569; font-size: 10px; }
-  .pend { margin: 4px 0; padding: 0; list-style: none; } .pend li { padding: 5px 0; border-bottom: 1px solid #eef2f6; }
-  .pend b { font-weight: 600; }
+  .libro { margin: 12px 0 18px; }
+  .libro-cab { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin: 0 0 2px; padding-bottom: 5px; border-bottom: 2px solid #0d9488; }
+  .libro-cab b { font-size: 12px; font-weight: 600; } .libro-cab span { color: #475569; }
+  .libro .t td:first-child { font-weight: 500; }
   .prov { margin: 18px 0 0; padding-top: 14px; border-top: 2px solid #0d9488; }
   .prov-cab { display: flex; justify-content: space-between; align-items: flex-end; gap: 14px; margin-bottom: 4px; }
   .prov-cab h3 { flex: 1; }
@@ -170,7 +161,8 @@ export function construirAuditoriaHtml(a: AuditoriaCompra, generadoPor?: string 
 
 ${itemsTabla ? `<h2>Producto por producto</h2>${itemsTabla}` : ''}
 
-${puente ? `<h2>De dónde salen las diferencias</h2>${puente}` : ''}
+<h2>Diferencia en pesos: dónde está y por qué</h2>
+${puente}
 
 <h2>Órdenes de compra y facturas, por proveedor</h2>
 ${bloques || '<p class="sutil">Este negocio todavía no tiene cotización elegida ni órdenes de compra.</p>'}
