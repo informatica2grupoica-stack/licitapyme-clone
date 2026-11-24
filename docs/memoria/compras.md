@@ -3,6 +3,9 @@
 Pantalla principal: `/compras/[negocioId]` (`ComprasChrome.tsx`). Traspasado desde la memoria
 personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-11-24 (noche) — «Respaldo de entrega»: fotos en Entrega y acta (tsc OK; pantalla sin ver; SIN desplegar)
+**Qué:** en Entrega y cierre → Entrega y acta hay un apartado «Respaldo de entrega» con galería de miniaturas; se suben varias fotos a la vez, se abren en el visor y se quitan. **Cómo:** nuevo tipo `foto` en `compras_entrega_archivo` (sin migración: la columna `tipo` es texto), `SIN_LECTURA` en `compras-entrega-archivos.ts` (no se leen ni cierran tareas); UI `RespaldoFotos` en `EntregaCard.tsx`. «Otros documentos» queda para correos y constancias.
+
 ## 2026-11-24 (tarde) — Entregadas corregidas por orden del dueño (BD REAL; firmado Alexis Tobar; SIN desplegar)
 **Regla del dueño (pisa la de Comercial MP «sin factura en Obuma → Entregada»):** lo que él confirma a mano manda. **Canceladas:** 1114-12-LE26, 5586-59-LE26, 2446-134-LE26 (motivo genérico «lo indicó el dueño 24-nov»; si quiere otro texto, editarlo). **Cerradas (facturadas de MP, facturas fuera de este Obuma, sin cargar en Licitank):** 1271359-92, 3477-80, 1801-10, 1471-8, 1274907-15. **Vuelven a En proceso:** Quintero 1202333-67-LE26 y Mañihuales 1095439-8-LP26 (se quitó el Entregada que había puesto yo por las guías de Obuma). **Siguen Entregadas:** Paillaco 3789-30-LE26, Hualpén 4152-22-LE26, Coquimbo 2446-240-LE26. Ya estaban Cerradas: 387-55, 2705-38, 539119-61, 5394-9. **Estados ahora:** Abierta 4, En proceso 20, Entregada 8, Cerrada 15, Pagada 18, Cancelada 15 (80). **Pendiente:** el dueño citó «2446-137-LE26» como cerrada: ese código NO existe en Licitank (¿era otro?).
 

@@ -1,0 +1,25 @@
+[  194040ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:3200/api/historial/stream:1
+[  194102ms] [ERROR] WebSocket connection to 'ws://localhost:3200/_next/hmr?id=tGZSMO9xHqfXtj1J7o8dT' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_client_1ounh1s8_ussu._.js:16257
+[  197747ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:3200/api/compras:1
+[  199050ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:3200/api/historial/stream:1
+[  199112ms] [ERROR] WebSocket connection to 'ws://localhost:3200/_next/hmr?id=tGZSMO9xHqfXtj1J7o8dT' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_client_1ounh1s8_ussu._.js:16257
+[ 1196719ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_19srt9611cgni._.js:761
+[ 1196807ms] [LOG] [HMR] connected @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_19srt9611cgni._.js:761
+[ 1197522ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_19srt9611cgni._.js:761
+[ 1197654ms] [LOG] [Fast Refresh] done in 240ms @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_19srt9611cgni._.js:761
+[ 1197829ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:3200/api/admin/reportes-error?resumen=1:1
+[ 1198100ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_19srt9611cgni._.js:761
+[ 1203259ms] [LOG] [Fast Refresh] done in 5264ms @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_19srt9611cgni._.js:761
+[ 1203366ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:3200/api/compras/oc-canceladas:1
+[ 1206148ms] [ERROR] Failed to load resource: the server responded with a status of 403 (Forbidden) @ http://localhost:3200/api/compras:1
+[ 1206210ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:3200/api/chat-seccion?seccion=compras:1
+[ 1206271ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:3200/api/compras/oc-canceladas:1
+[ 1257357ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_19srt9611cgni._.js:761
+[ 1261797ms] [LOG] [Fast Refresh] done in 4541ms @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_19srt9611cgni._.js:761
+[ 1262014ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_19srt9611cgni._.js:761
+[ 1262662ms] [ERROR] Failed to load resource: the server responded with a status of 403 (Forbidden) @ http://localhost:3200/api/compras:1
+[ 1262682ms] [LOG] [Fast Refresh] done in 778ms @ http://localhost:3200/_next/static/chunks/1k6z_next_dist_19srt9611cgni._.js:761
+[ 1316989ms] [ERROR] Failed to load resource: the server responded with a status of 403 (Forbidden) @ http://localhost:3200/api/compras:1
+[ 1377022ms] [ERROR] Failed to load resource: the server responded with a status of 403 (Forbidden) @ http://localhost:3200/api/compras:1
+[ 1436969ms] [ERROR] Failed to load resource: the server responded with a status of 403 (Forbidden) @ http://localhost:3200/api/compras:1
+[ 1496963ms] [ERROR] Failed to load resource: the server responded with a status of 403 (Forbidden) @ http://localhost:3200/api/compras:1

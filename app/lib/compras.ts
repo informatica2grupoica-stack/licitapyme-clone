@@ -1028,9 +1028,9 @@ export async function fijarCoencargados(negocioId: number, usuarioIds: number[],
   const previos = new Set((await listarCoencargados(negocioId)).map(c => c.id));
   const ahora = ahoraChileSQL();
   if (ids.length) {
-    const [us] = await pool.query(`SELECT id, nombre FROM usuarios WHERE id IN (?) AND activo = TRUE`, [ids]) as any;
+    const [us] = await pool.query(`SELECT id, nombre FROM usuarios WHERE id IN (?) AND activo = TRUE AND rol <> 'externo'`, [ids]) as any;
     const validos = new Map((us as any[]).map(u => [Number(u.id), u.nombre as string | null]));
-    if (validos.size !== ids.length) throw new Error('Alguno de los usuarios elegidos no existe o está inactivo.');
+    if (validos.size !== ids.length) throw new Error('Alguno de los usuarios elegidos no existe, está inactivo o es externo (un cliente no puede ser encargado).');
     await pool.query(`DELETE FROM compras_coencargado WHERE negocio_id = ? AND usuario_id NOT IN (?)`, [negocioId, ids]);
     for (const id of ids.filter(i => !previos.has(i))) {
       await pool.query(`INSERT INTO compras_coencargado (negocio_id, usuario_id, asignado_por, asignado_at) VALUES (?, ?, ?, ?)`, [negocioId, id, actorId, ahora]);

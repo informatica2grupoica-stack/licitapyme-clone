@@ -13,7 +13,7 @@ import { urlInline } from './MiniaturaDoc';
 import { irAFase } from '@/app/compras/[negocioId]/comprasNavegacion';
 import {
   IconPackage as PackageCheck, IconLoader2 as Loader2, IconCircleCheck as CheckCircle2, IconCircleX as XCircle, IconPlus as Plus, IconX as X, IconTrash as Trash2,
-  IconUpload as Upload, IconFileText as FileText, IconPencil as Pencil, IconWand as Leer, IconFilePlus as FilePlus,
+  IconUpload as Upload, IconFileText as FileText, IconPencil as Pencil, IconWand as Leer, IconFilePlus as FilePlus, IconCamera as Camara,
 } from '@tabler/icons-react';
 
 type Modalidad = 'TOTAL' | 'PARCIAL';
@@ -26,7 +26,7 @@ interface Entrega {
   actaConformidad: string | null; actaFirma: FirmaDatos | null; guiaFirma: FirmaDatos | null; guiaTimbre: boolean;
   cerradaAt: string | null; puntos: Punto[];
 }
-interface Escaneo { id: number; tipo: 'acta' | 'guia' | 'capacitacion' | 'otro'; archivoUrl: string; archivoNombre: string; subidoPorNombre: string | null; creadoAt: string }
+interface Escaneo { id: number; tipo: 'acta' | 'guia' | 'capacitacion' | 'otro' | 'foto'; archivoUrl: string; archivoNombre: string; subidoPorNombre: string | null; creadoAt: string }
 interface DocGenerado { id: number; titulo: string; plantillaNombre: string; createdAt: string }
 
 const esPdf = (n: string) => /\.pdf$/i.test(n);
@@ -75,6 +75,48 @@ function TarjetaDoc({ titulo, vacio, tipo, escaneos, puedeOperar, subiendo, onSu
           {puedeOperar && ultimo && <button onClick={() => onQuitar(ultimo.id)} title="Quitar" aria-label="Quitar" className="text-zinc-400 hover:text-rose-600 ml-auto"><Trash2 size={13} /></button>}
         </div>
       </div>
+    </div>
+  );
+}
+
+/** Respaldo de entrega: galería de fotos (camión, bultos, producto instalado, cliente recibiendo). Solo se guardan; no cierran nada. */
+function RespaldoFotos({ escaneos, puedeOperar, subiendo, onSubir, onQuitar, onAbrir }: {
+  escaneos: Escaneo[]; puedeOperar: boolean; subiendo: boolean; onSubir: (tipo: Escaneo['tipo'], f: File) => void; onQuitar: (id: number) => void; onAbrir: (d: VisorDoc) => void;
+}) {
+  const input = useRef<HTMLInputElement>(null);
+  const fotos = escaneos.filter(e => e.tipo === 'foto');
+  return (
+    <div className="rounded-xl border border-zinc-200 p-3">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div>
+          <p className="text-[12.5px] font-semibold text-zinc-800 flex items-center gap-1.5"><Camara size={14} /> Respaldo de entrega{fotos.length > 0 && <span className="text-[11px] font-medium text-zinc-400">{fotos.length} {fotos.length === 1 ? 'foto' : 'fotos'}</span>}</p>
+          <p className="text-[11px] text-zinc-500 mt-0.5">Fotos de la entrega: la carga, los bultos, el producto instalado o el cliente recibiendo.</p>
+        </div>
+        {puedeOperar && (
+          <>
+            <button onClick={() => input.current?.click()} disabled={subiendo} className="text-[11.5px] font-semibold text-teal-700 hover:text-teal-800 disabled:opacity-50 flex items-center gap-1">
+              {subiendo ? <><Loader2 size={12} className="animate-spin" /> Subiendo…</> : <><Upload size={12} /> Subir fotos</>}
+            </button>
+            <input ref={input} type="file" accept="image/*" multiple className="hidden"
+              onChange={async e => { const fs = Array.from(e.target.files || []); e.target.value = ''; for (const f of fs) await onSubir('foto', f); }} />
+          </>
+        )}
+      </div>
+      {fotos.length > 0 ? (
+        <div className="mt-2.5 grid grid-cols-3 sm:grid-cols-5 md:grid-cols-6 gap-2">
+          {fotos.map(e => (
+            <div key={e.id} className="relative group aspect-square rounded-lg border border-zinc-200 bg-zinc-50 overflow-hidden">
+              <button type="button" onClick={() => onAbrir({ nombre: e.archivoNombre, url: e.archivoUrl, titulo: e.archivoNombre })} title={`${e.archivoNombre} · ${fmtFecha(e.creadoAt.slice(0, 10))}`} className="absolute inset-0">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={urlInline(e.archivoUrl)} alt={e.archivoNombre} loading="lazy" className="w-full h-full object-cover" />
+              </button>
+              {puedeOperar && <button onClick={() => onQuitar(e.id)} title="Quitar foto" aria-label="Quitar foto" className="absolute top-1 right-1 rounded-md bg-white/90 p-1 text-zinc-500 hover:text-rose-600 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity"><Trash2 size={12} /></button>}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="mt-2 text-[11.5px] text-zinc-400">{puedeOperar ? 'Aún no hay fotos. Puedes subir varias a la vez.' : 'Aún no hay fotos de la entrega.'}</p>
+      )}
     </div>
   );
 }
@@ -205,7 +247,7 @@ export function EntregaCard({ negocioId, puedeOperar, puedeVerificar = false }: 
       const d = await res.json();
       if (!res.ok || !d.success) throw new Error(d.error || 'No se pudo subir');
       setEscaneos(d.archivos || []);
-      toast.success('Documento cargado', d.llenado?.length ? `Se llenó solo: ${d.llenado.join(', ')}. Revisa lo escrito a mano: la letra no siempre se lee bien.` : (tipo === 'capacitacion' ? undefined : 'No se pudieron leer datos: puedes escribirlos con «Corregir».'));
+      toast.success('Documento cargado', d.llenado?.length ? `Se llenó solo: ${d.llenado.join(', ')}. Revisa lo escrito a mano: la letra no siempre se lee bien.` : (tipo === 'capacitacion' || tipo === 'foto' || tipo === 'otro' ? undefined : 'No se pudieron leer datos: puedes escribirlos con «Corregir».'));
       await cargar(); recargarCompartido();
     } catch (e: any) { toast.error('No se pudo subir el documento', e.message); }
     finally { setSubiendoTipo(null); }
@@ -291,7 +333,9 @@ export function EntregaCard({ negocioId, puedeOperar, puedeVerificar = false }: 
           <TarjetaDoc titulo="Capacitación (listado de asistentes)" tipo="capacitacion" vacio="Si hubo capacitación, sube el listado firmado." subiendo={subiendoTipo === 'capacitacion'} {...comunes} />
         </div>
 
-        {/* Otros documentos: fotos de la entrega, correos, constancias… los que haga falta */}
+        <RespaldoFotos escaneos={escaneos} puedeOperar={puedeOperar} subiendo={subiendoTipo === 'foto'} onSubir={subirEscaneo} onQuitar={quitarEscaneo} onAbrir={setVisor} />
+
+        {/* Otros documentos: correos, constancias… los que haga falta */}
         <OtrosDocumentos escaneos={escaneos} puedeOperar={puedeOperar} subiendo={subiendoTipo === 'otro'} onSubir={subirEscaneo} onQuitar={quitarEscaneo} onAbrir={setVisor} />
 
         {/* Quién recibió + guía (se llena solo con el acta) */}

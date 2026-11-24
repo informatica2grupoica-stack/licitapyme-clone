@@ -11,6 +11,7 @@ import pool from '@/app/lib/db';
 import { ahoraChileSQL } from '@/app/lib/tz';
 import { registrarEvento } from '@/app/lib/historial';
 import { listarProductosCompra } from '@/app/lib/compras';
+import { validarMontoCLP } from '@/app/lib/numeros';
 import { costosEscenarioPorProducto } from '@/app/lib/compras-aprobaciones';
 import type { OcDocumento } from '@/app/lib/compras-oc-documento';
 import { parsearFacturaXml, type FacturaLeida } from '@/app/lib/factura-xml';
@@ -163,8 +164,10 @@ export async function crearOcPropia(negocioId: number, datos: DatosOcPropia, act
   for (const i of items) {
     if (!(i.cantidad > 0)) throw new Error(`Falta la cantidad de «${i.descripcion}».`);
     if (!(i.precio > 0)) throw new Error(`Falta el precio neto de «${i.descripcion}».`);
+    validarMontoCLP(i.precio, `El precio de «${i.descripcion}»`);
   }
   const neto = redondear(items.reduce((s, i) => s + i.cantidad * i.precio, 0));
+  validarMontoCLP(neto, 'El neto de la orden de compra');
   const iva = redondear(neto * IVA_OC_PROPIA);
   const ahora = ahoraChileSQL(); const hoy = ahora.slice(0, 10); const anio = Number(hoy.slice(0, 4));
   const empresaRut = rutComparable(emisor.empresa.rut);

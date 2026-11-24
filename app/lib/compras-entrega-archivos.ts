@@ -9,8 +9,10 @@ import { aplicarEscaneoFirmado, aplicarLecturaEntrega } from '@/app/lib/compras-
 import { leerDocumentoEntrega } from '@/app/lib/compras-entrega-lectura';
 import { borrarDocumentoR2 } from '@/app/lib/r2';
 
-export type TipoEscaneoEntrega = 'acta' | 'guia' | 'capacitacion' | 'otro';
-export const TIPOS_ESCANEO: TipoEscaneoEntrega[] = ['acta', 'guia', 'capacitacion', 'otro'];
+export type TipoEscaneoEntrega = 'acta' | 'guia' | 'capacitacion' | 'otro' | 'foto';
+export const TIPOS_ESCANEO: TipoEscaneoEntrega[] = ['acta', 'guia', 'capacitacion', 'otro', 'foto'];
+// Tipos que solo se guardan: no se leen ni cierran tareas del ciclo (foto = respaldo fotográfico de la entrega).
+const SIN_LECTURA: TipoEscaneoEntrega[] = ['capacitacion', 'otro', 'foto'];
 
 export interface EscaneoEntrega {
   id: number; tipo: TipoEscaneoEntrega; archivoUrl: string; archivoNombre: string; subidoPorNombre: string | null; creadoAt: string;
@@ -42,10 +44,10 @@ export async function registrarEscaneoEntrega(negocioId: number, tipo: TipoEscan
   await pool.query(
     `INSERT INTO compras_entrega_archivo (negocio_id, tipo, archivo_url, archivo_nombre, subido_por, subido_por_nombre, created_at) VALUES (?,?,?,?,?,?,?)`,
     [negocioId, tipo, archivo.url, archivo.nombre.slice(0, 255), actorId, actorNombre, ahoraChileSQL()]);
-  if (tipo === 'capacitacion' || tipo === 'otro') return [];
+  if (SIN_LECTURA.includes(tipo)) return [];
   const lista = await listarEscaneosEntrega(negocioId);
-  await aplicarEscaneoFirmado(negocioId, tipo, false, { acta: hayEscaneo(lista, 'acta'), guia: hayEscaneo(lista, 'guia') }, actorId, actorNombre);
-  return leerYLlenar(negocioId, tipo, archivo.url, archivo.nombre, archivo.buffer);
+  await aplicarEscaneoFirmado(negocioId, tipo as 'acta' | 'guia', false, { acta: hayEscaneo(lista, 'acta'), guia: hayEscaneo(lista, 'guia') }, actorId, actorNombre);
+  return leerYLlenar(negocioId, tipo as 'acta' | 'guia', archivo.url, archivo.nombre, archivo.buffer);
 }
 
 /** Lee el escaneo y llena lo que falta. Si la lectura falla el archivo igual queda cargado (devuelve []). */
@@ -62,7 +64,7 @@ export async function releerEscaneoEntrega(negocioId: number, id: number): Promi
   await asegurarTabla();
   const [rows] = await pool.query('SELECT tipo, archivo_url, archivo_nombre FROM compras_entrega_archivo WHERE id = ? AND negocio_id = ? LIMIT 1', [id, negocioId]) as any;
   const r = (rows as any[])[0]; if (!r) throw new Error('Ese archivo no es de este negocio.');
-  if (r.tipo === 'capacitacion' || r.tipo === 'otro') return [];
+  if (SIN_LECTURA.includes(r.tipo)) return [];
   return leerYLlenar(negocioId, r.tipo, r.archivo_url, r.archivo_nombre);
 }
 
@@ -75,7 +77,7 @@ export async function quitarEscaneoEntrega(negocioId: number, id: number, actorI
   // El mismo archivo puede estar cargado dos veces: solo se borra de R2 si ya nadie más lo usa.
   const [otros] = await pool.query(`SELECT 1 FROM compras_entrega_archivo WHERE archivo_url = ? LIMIT 1`, [r.archivo_url]) as any;
   if (!(otros as any[]).length) await borrarDocumentoR2(r.archivo_url).catch(() => {});
-  if (r.tipo === 'capacitacion' || r.tipo === 'otro') return;
+  if (SIN_LECTURA.includes(r.tipo)) return;
   const lista = await listarEscaneosEntrega(negocioId);
   await aplicarEscaneoFirmado(negocioId, r.tipo, true, { acta: hayEscaneo(lista, 'acta'), guia: hayEscaneo(lista, 'guia') }, actorId, actorNombre);
 }

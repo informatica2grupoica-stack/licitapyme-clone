@@ -42,3 +42,15 @@ export function parsearDiasDeTexto(texto: unknown): number | null {
   if (!/d[ií]as?|days?/.test(t) && /\bhoras?\b|\bhrs?\b|hours?/.test(t)) return Math.ceil(n / 24);
   return n;
 }
+
+/** Tope de un monto en pesos para gastos y órdenes de compra: 10 mil millones. Sobre eso es un error de tipeo, no un monto real.
+ *  La base guarda hasta ~999 mil millones y, al pasarse, recorta en silencio (modo no estricto): por eso se frena antes. */
+export const TOPE_MONTO_CLP = 10_000_000_000;
+
+/** Devuelve el monto como número o lanza un error legible si no es finito, es 0 o negativo, o pasa el tope. `etiqueta` dice de qué monto se habla. */
+export function validarMontoCLP(valor: unknown, etiqueta = 'El monto'): number {
+  const n = Number(valor);
+  if (!Number.isFinite(n) || n <= 0) throw new Error(`${etiqueta} tiene que ser un número mayor a 0.`);
+  if (n > TOPE_MONTO_CLP) throw new Error(`${etiqueta} no puede pasar de $${TOPE_MONTO_CLP.toLocaleString('es-CL')}. Revisa que no sobren ceros.`);
+  return n;
+}

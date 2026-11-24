@@ -63,9 +63,9 @@ async function __POST(request: NextRequest, { params }: Params) {
       return NextResponse.json({ error: 'Solo el jefe de ventas puede asignar Compras.' }, { status: 403 });
     }
 
-    const [rows] = await pool.query('SELECT nombre FROM usuarios WHERE id = ? AND activo = TRUE LIMIT 1', [encargadoId]) as any;
+    const [rows] = await pool.query('SELECT nombre FROM usuarios WHERE id = ? AND activo = TRUE AND rol <> \'externo\' LIMIT 1', [encargadoId]) as any;
     const encargadoNombre = (rows as any[])[0]?.nombre || null;
-    if (!encargadoNombre) return NextResponse.json({ error: 'Ese usuario no existe o está inactivo.' }, { status: 400 });
+    if (!encargadoNombre) return NextResponse.json({ error: 'Ese usuario no existe, está inactivo o es externo (un cliente no puede ser encargado de Compras).' }, { status: 400 });
 
     await asignarEncargado(id, encargadoId, encargadoNombre, userId);
     const actualizado = await obtenerAsignacion(id);

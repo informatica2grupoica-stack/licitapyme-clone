@@ -10,6 +10,7 @@ import { registrarGasto, listarGastos, resumenGastos, eliminarGasto, promoverCat
 import { puedeOperarCompras } from '@/app/api/compras/[negocioId]/route';
 import { subirDocumentoR2 } from '@/app/lib/r2';
 import { errorDeArchivoSubido } from '@/app/lib/subidas';
+import { validarMontoCLP } from '@/app/lib/numeros';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -96,7 +97,8 @@ async function __POST(request: NextRequest, { params }: Params) {
     }
 
     if (!datos.descripcion) return NextResponse.json({ error: 'Falta la descripción del gasto.' }, { status: 400 });
-    if (!datos.monto || datos.monto <= 0) return NextResponse.json({ error: 'El monto tiene que ser mayor a 0.' }, { status: 400 });
+    try { datos.monto = validarMontoCLP(datos.monto, 'El monto'); }
+    catch (e: any) { return NextResponse.json({ error: e.message }, { status: 400 }); }
 
     if (!datos.categoriaClave && categoriaLibre?.trim()) {
       datos.categoriaClave = await promoverCategoriaGasto(categoriaLibre).catch(() => null);

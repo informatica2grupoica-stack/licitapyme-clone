@@ -12,6 +12,7 @@ import { registrarEvento } from '@/app/lib/historial';
 import { comprasObumaDeLicitacion } from '@/app/lib/obuma-compras';
 import { ocsDisponiblesParaGasto, type OcDisponibleParaGasto } from '@/app/lib/compras-gastos-oc';
 import { obtenerTipoCambio } from '@/app/lib/tipo-cambio';
+import { validarMontoCLP } from '@/app/lib/numeros';
 
 async function licitacionDeNegocio(negocioId: number): Promise<string | null> {
   const [rows] = await pool.query(`SELECT licitacion_codigo FROM negocios WHERE id = ? LIMIT 1`, [negocioId]) as any;
@@ -87,6 +88,7 @@ export async function registrarGasto(
     const original = `Monto original: ${moneda} ${datos.monto} × ${tc.valor} (${tc.fuente}, ${tc.fecha}).`;
     datos = { ...datos, monto: Math.round(datos.monto * tc.valor), moneda: 'CLP', notas: [datos.notas, original].filter(Boolean).join(' · ') };
   }
+  datos = { ...datos, monto: validarMontoCLP(datos.monto, 'El monto en pesos') };   // ya convertido a pesos: nada que la base recorte en silencio
   const ahora = ahoraChileSQL();
   // La columna del enlace solo entra al INSERT cuando hay OC: sin migration-176 los gastos normales se siguen guardando.
   const [r] = await pool.query(
