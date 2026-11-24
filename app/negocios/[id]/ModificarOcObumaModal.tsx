@@ -12,7 +12,7 @@ import { IconLoader2 as Loader2 } from '@tabler/icons-react';
 
 interface LineaOc { codId: string; nombre: string; descripcion: string; cantidad: number; precio: number; subtotal: number }
 interface OcLeida {
-  id: string; folio: string | null; estado: string; internacional: boolean; tipoCambio: number; bloqueo: string | null;
+  id: string; folio: string | null; estado: string; internacional: boolean; tipoCambio: number; bloqueo: string | null; aviso?: string | null;
   observacion: string; fechaEntrega: string; metodoDespacho: string; neto: number; iva: number; total: number; lineas: LineaOc[];
 }
 
@@ -86,6 +86,7 @@ export function ModificarOcObumaModal({ negocioId, obumaCompraOcId, folio, prove
       {oc && (
         <div className="space-y-3">
           {oc.bloqueo && <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[12.5px] text-amber-900">{oc.bloqueo} No se puede modificar desde Licitank.</p>}
+          {oc.aviso && <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[12.5px] text-amber-900">{oc.aviso}</p>}
           {oc.internacional && <p className="text-[11.5px] text-zinc-500">Orden internacional: los precios están en la moneda extranjera de la orden (tipo de cambio {fmt(oc.tipoCambio, 2)}).</p>}
           <div className="space-y-2">
             {oc.lineas.map((l, i) => (

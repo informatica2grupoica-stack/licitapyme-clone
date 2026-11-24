@@ -13,9 +13,14 @@ import {
   proveedoresObumaCompleto, ESTADOS_PROYECTO_OBUMA, type ObumaCentroCosto,
 } from '@/app/lib/obuma';
 import { mencionaCodigo } from '@/app/lib/ordenes-compra';
+import { estadoCompraEfectivo } from '@/app/lib/compras-estado-core';
 
 export interface NegocioCoincidente {
   negocioId: number; licitacionCodigo: string; licitacionNombre: string | null;
+  /** true = no coincide el código completo, sino organismo-número-año (ej. proyecto «R126» de un negocio «LP26», readjudicación). */
+  aproximado?: boolean;
+  /** Estado de la compra en Compras. No se guarda en el snapshot: la ruta lo agrega al responder, siempre al día. */
+  estadoCompra?: string | null;
 }
 
 export interface OcDelProyecto {
@@ -90,10 +95,16 @@ export interface MetaProyectosObuma {
 }
 
 /** Sube cuando se agregan campos al snapshot: un snapshot guardado con otra versión no se muestra, se recalcula. */
-const VERSION_SNAPSHOT = 3;
+const VERSION_SNAPSHOT = 4;
 
 /** Código de licitación dentro de la referencia o el nombre de un Proyecto («ID2446-240-LE26», «1095439-8-LP26», «2827-72-R126»…). */
 const CODIGO_LICITACION_RE = /(\d{3,7}-\d{1,4}-(?:L[A-Z0-9]|R1|CO|SE|AG)\d{2})/i;
+
+/** Organismo-número-año de un código («ID2827-72-R126» → «2827-72-26»): la modalidad (LP, LE, R1…) cambia al readjudicar, lo demás no. */
+const CLAVE_LICITACION_RE = /(?<![0-9-])(\d{3,7})-(\d{1,4})-[A-Z][A-Z0-9](\d{2})(?![0-9A-Z])/gi;
+function clavesLicitacion(texto: string): string[] {
+  return [...String(texto || '').matchAll(CLAVE_LICITACION_RE)].map(m => `${m[1]}-${m[2]}-${m[3]}`);
+}
 
 let cacheProyectos: { en: number; datos: ProyectoObuma[]; meta: MetaProyectosObuma } | null = null;
 const CACHE_PROYECTOS_MS = 5 * 60_000;
@@ -138,6 +149,12 @@ async function calcularProyectosObuma(forzar = false): Promise<{ proyectos: Proy
       .catch(e => { console.warn('[compras-proyectos-obuma] negocios (BD) falló:', String(e).slice(0, 150)); fuentesConError.push('negocios (BD)'); return []; }),
   ]);
 
+  const negociosPorClave = new Map<string, typeof negociosRows>();
+  for (const n of negociosRows) {
+    for (const clave of new Set(clavesLicitacion(n.licitacion_codigo))) {
+      negociosPorClave.set(clave, [...(negociosPorClave.get(clave) || []), n]);
+    }
+  }
   const nombreCentroPorId = new Map(centros.map(c => [c.id, c.nombre]));
   // Texto de cada OC (referencia + observación + concepto) en mayúsculas, una sola vez, para buscar códigos de licitación sin repetir trabajo.
   const ocsConTexto = ocs.map(o => ({ o, t: `${o.compra_oc_referencia || ''} ${o.compra_oc_observacion || ''} ${String((o as Record<string, unknown>).compra_oc_concepto || '')}`.toUpperCase() }));
@@ -194,6 +211,17 @@ async function calcularProyectosObuma(forzar = false): Promise<{ proyectos: Proy
         if (mencionaCodigo(texto, n.licitacion_codigo)) {
           vistos.add(n.id);
           negociosCoincidentes.push({ negocioId: n.id, licitacionCodigo: n.licitacion_codigo, licitacionNombre: n.licitacion_nombre });
+        }
+      }
+    }
+    // Segunda pasada, solo si el código completo no calzó con nadie: mismo organismo-número-año con otra modalidad
+    // (2827-72-R126 ↔ 2827-72-LP26). Vale únicamente si UN solo negocio tiene esa clave.
+    if (negociosCoincidentes.length === 0) {
+      for (const clave of new Set(candidatosMatch.flatMap(clavesLicitacion))) {
+        const unicos = negociosPorClave.get(clave);
+        if (unicos?.length === 1 && !vistos.has(unicos[0].id)) {
+          vistos.add(unicos[0].id);
+          negociosCoincidentes.push({ negocioId: unicos[0].id, licitacionCodigo: unicos[0].licitacion_codigo, licitacionNombre: unicos[0].licitacion_nombre, aproximado: true });
         }
       }
     }
@@ -358,4 +386,22 @@ export async function listarProyectosObuma(forzar = false): Promise<{ proyectos:
     }
   }
   return recalcularYGuardar(forzar);
+}
+
+/** Agrega a cada negocio coincidente el estado actual de su compra (Abierta, En proceso, Entregada, Cerrada, Pagada, Cancelada,
+ *  Pre-compra). Se lee en cada respuesta y no del snapshot, para que un cambio de estado en Compras se vea al tiro. */
+export async function agregarEstadoCompra(proyectos: ProyectoObuma[]): Promise<ProyectoObuma[]> {
+  const ids = [...new Set(proyectos.flatMap(p => p.negociosCoincidentes.map(n => n.negocioId)))];
+  if (!ids.length) return proyectos;
+  const estados = new Map<number, string>();
+  try {
+    const [rows] = await pool.query(
+      `SELECT negocio_id, precompra, cierre_legado, estado_compra FROM compras_asignacion WHERE negocio_id IN (?)`, [ids]) as any;
+    for (const r of rows as any[]) estados.set(r.negocio_id, r.precompra ? 'PRECOMPRA' : estadoCompraEfectivo(r.cierre_legado, r.estado_compra));
+  } catch (e) {
+    console.warn('[compras-proyectos-obuma] estado de Compras no disponible:', String(e).slice(0, 150));
+  }
+  return proyectos.map(p => p.negociosCoincidentes.length
+    ? { ...p, negociosCoincidentes: p.negociosCoincidentes.map(n => ({ ...n, estadoCompra: estados.get(n.negocioId) ?? null })) }
+    : p);
 }

@@ -744,20 +744,65 @@ export async function crearOrdenCompraParaProveedor(
 }
 
 /** Lo que hoy tiene una OC (emitida desde Licitank en este negocio) en Obuma, para armar el formulario de «Modificar OC». */
-export async function leerOcParaModificar(negocioId: number, obumaCompraOcId: string) {
+export async function leerOcParaModificar(negocioId: number, obumaCompraOcId: string, esAdmin = false) {
   const [rows] = await pool.query(`SELECT id FROM compras_orden_compra_obuma WHERE negocio_id = ? AND obuma_compra_oc_id = ? LIMIT 1`, [negocioId, obumaCompraOcId]) as any;
   if (!(rows as any[])[0]) throw new Error('Esa orden de compra no pertenece a este negocio.');
   const oc = await leerOcObuma(obumaCompraOcId);
   if (!oc) throw new Error('No se encontró la orden de compra en Obuma.');
+  const yaFacturada = oc.lineas.some(l => l.cantidadFacturada > 0 || l.cantidadDespachada > 0);
   const bloqueo = /anulad/i.test(oc.estado) ? 'La orden está anulada.'
-    : oc.lineas.some(l => l.cantidadFacturada > 0 || l.cantidadDespachada > 0) ? 'La orden ya tiene productos facturados o despachados.'
+    : yaFacturada && !esAdmin ? 'La orden ya tiene productos facturados o despachados.'
     : oc.lineas.some(l => l.descuento !== 0) ? 'La orden tiene descuentos: modifícala directo en Obuma.' : null;
   return {
     id: oc.id, folio: oc.folio, estado: oc.estado, internacional: oc.internacional, tipoCambio: oc.tipoCambio, bloqueo,
+    aviso: yaFacturada && esAdmin && !bloqueo ? 'Esta orden ya tiene productos facturados o despachados. Como administrador puedes modificarla, pero la factura del proveedor no cambia: revisa que la OC y la factura queden cuadradas.' : null,
     observacion: oc.observacion, fechaEntrega: oc.fechaEntrega.split('-').reverse().join('-'), metodoDespacho: oc.metodoDespacho,
     neto: oc.neto, iva: oc.iva, total: oc.total,
     lineas: oc.lineas.map(l => ({ codId: l.codId, nombre: l.nombre, descripcion: l.descripcion, cantidad: l.cantidad, precio: l.precio, subtotal: l.subtotal })),
   };
+}
+
+/** Para OC modificadas DIRECTO en Obuma: lee la OC como está hoy allá y deja Licitank igual (líneas nuevas, quitadas, cantidades, precios,
+ *  totales, estado de Comprado y margen). Las líneas que ya conocía conservan sus datos propios; las nuevas se agregan; las que ya no están se sacan. */
+export async function sincronizarOcDesdeObuma(
+  negocioId: number, obumaCompraOcId: string, actorId: number, actorNombre: string | null,
+): Promise<{ folio: string | null; total: number; lineas: number; cambio: boolean }> {
+  const [rows] = await pool.query(
+    `SELECT id, items_json, flete_monto, proveedor_nombre, total_neto FROM compras_orden_compra_obuma WHERE negocio_id = ? AND obuma_compra_oc_id = ? LIMIT 1`,
+    [negocioId, obumaCompraOcId]) as any;
+  const fila = (rows as any[])[0];
+  if (!fila) throw new Error('Esa orden de compra no pertenece a este negocio.');
+  const oc = await leerOcObuma(obumaCompraOcId);
+  if (!oc) throw new Error('No se encontró la orden de compra en Obuma.');
+  if (/anulad/i.test(oc.estado)) throw new Error('La orden está anulada en Obuma.');
+  const factor = oc.internacional && oc.tipoCambio > 0 ? oc.tipoCambio : 1;
+
+  let anteriores: any[] = [];
+  try { anteriores = JSON.parse(fila.items_json || '[]'); } catch { /* items_json corrupto: se rearma desde Obuma */ }
+  const norm = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/[^A-Z0-9]+/g, '');
+  const usadas = new Set<number>();
+  const items = oc.lineas.map(l => {
+    const i = anteriores.findIndex((it, k) => !usadas.has(k) && ((it.obumaProductoId && it.obumaProductoId === l.productoId && l.productoId !== '0')
+      || (it.obumaCodigoComercial && it.obumaCodigoComercial === l.codigoComercial) || norm(String(it.descripcion ?? '')).slice(0, 60) === norm(l.nombre).slice(0, 60)));
+    if (i >= 0) usadas.add(i);
+    const base = i >= 0 ? anteriores[i] : { descripcion: l.nombre, obumaProductoId: l.productoId, obumaCodigoComercial: l.codigoComercial };
+    return { ...base, cantidad: l.cantidad, precioUnitario: Math.round(l.precio * factor * 100) / 100, subtotal: Math.round(l.cantidad * l.precio * factor) };
+  });
+  const flete = oc.lineas.find(l => /^FLETE/i.test(l.nombre));
+  const subtotalClp = Math.round(oc.lineas.reduce((s, l) => s + l.subtotal, 0) * factor), totalClp = Math.round(oc.total * factor);
+  const cambio = JSON.stringify(items) !== JSON.stringify(anteriores) || Math.round(Number(fila.total_neto)) !== totalClp;
+  await pool.query(
+    `UPDATE compras_orden_compra_obuma SET items_json = ?, subtotal_neto = ?, total_neto = ?, flete_monto = ? WHERE id = ?`,
+    [JSON.stringify(items), subtotalClp, totalClp, fila.flete_monto != null && flete ? Math.round(flete.subtotal * factor) : fila.flete_monto, fila.id]);
+  if (cambio) {
+    await registrarEvento({
+      tipo: 'COMPRAS_OC_OBUMA_MODIFICADA', licitacionCodigo: await licitacionDeNegocio(negocioId), actorId, actorNombre,
+      mensaje: `Se actualizó la orden de compra ${oc.folio ?? oc.id} (${fila.proveedor_nombre}) con lo que tiene en Obuma: ${items.length} línea(s), total ${new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(totalClp)}.`,
+      metadata: { negocio_id: negocioId, obuma_compra_oc_id: obumaCompraOcId, origen: 'sincronizacion_desde_obuma' },
+    }).catch(() => {});
+  }
+  await sincronizarTrasCambioDeOc(negocioId);
+  return { folio: oc.folio, total: totalClp, lineas: items.length, cambio };
 }
 
 /** Modifica una OC ya creada: la cambia en Obuma (releída y verificada) y deja Licitank al día (líneas, totales, margen, bitácora). */

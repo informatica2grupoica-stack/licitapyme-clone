@@ -49,7 +49,8 @@ function Dif({ a, b }: { a: number | null; b: number | null }) {
   const d = Math.round(a - b);
   const pct = Math.round(((a - b) / b) * 1000) / 10;
   if (Math.abs(pct) < 1) return <span className="text-tinta-2">≈ igual</span>;
-  return <span className={`font-semibold ${d > 0 ? 'text-urgente' : 'text-exito'}`}>{d > 0 ? '+' : '−'}{fmt(Math.abs(d))} <span className="font-normal">({pct > 0 ? '+' : ''}{String(pct).replace('.', ',')}%)</span></span>;
+  // Factura MAYOR que la OC (d < 0) es lo grave: se pagó más de lo ordenado. Menor también se avisa, en tono suave.
+  return <span className={`font-semibold ${d < 0 ? 'text-urgente' : 'text-alerta'}`}>{d > 0 ? '+' : '−'}{fmt(Math.abs(d))} <span className="font-normal">({pct > 0 ? '+' : ''}{String(pct).replace('.', ',')}%)</span></span>;
 }
 
 function Titulo({ children, detalle, accion }: { children: React.ReactNode; detalle?: string; accion?: React.ReactNode }) {
@@ -309,6 +310,15 @@ export function ResumenComparativoCard({ negocioId }: { negocioId: number }) {
 
       <div>
         <Titulo detalle="cotización elegida contra Obuma contra factura">Por orden de compra</Titulo>
+        {r.porOc.filter(o => o.facturas && !o.ocPropia && o.facturadoNeto && o.obumaNeto != null && Math.abs(o.obumaNeto - o.facturadoNeto) / o.facturadoNeto >= 0.01).map(o => {
+          const d = o.facturadoNeto! - o.obumaNeto!;
+          return (
+            <p key={o.ocFolio} role="alert" className="mb-2 flex items-start gap-1.5 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-[12.5px] text-rose-800" data-testid={`alerta-oc-factura-${o.ocFolio}`}>
+              <Alerta size={15} className="mt-px flex-shrink-0" />
+              <span><b>OC {o.ocFolio} no cuadra con su factura:</b> se facturó {fmt(Math.abs(d))} {d > 0 ? 'más' : 'menos'} que la OC ({String(Math.round((Math.abs(d) / o.facturadoNeto!) * 1000) / 10).replace('.', ',')} %). Revisa con el proveedor o pide a un administrador que corrija la OC.</span>
+            </p>
+          );
+        })}
         <div className={CAJA_TABLA}>
           <table className="w-full text-[12.5px] border-collapse">
             <thead>

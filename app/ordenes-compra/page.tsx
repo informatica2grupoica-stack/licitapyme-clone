@@ -23,6 +23,7 @@ import { Boton } from '@/app/components/ui/kit/Boton';
 import { Pestanas } from '@/app/components/ui/kit/Pestanas';
 import { Tooltip } from '@/app/components/ui/Tooltip';
 import { DocumentViewerModal, type VisorDoc } from '@/app/components/DocumentViewerModal';
+import { MiniaturaDoc, urlInline } from '@/app/negocios/[id]/MiniaturaDoc';
 import { IconReceipt as Receipt, IconLoader2 as Loader2, IconSearch as Search, IconFilter as Filter, IconX as X, IconCalendar as Calendar, IconBuilding as Building2, IconPackage as Package, IconChevronDown as ChevronDown, IconChevronUp as ChevronUp, IconExternalLink as ExternalLink, IconEye as Eye, IconDownload as Download, IconArrowUpRight as ArrowUpRight, IconFolderSymlink as FolderInput, IconCheck as Check } from '@tabler/icons-react';
 
 interface ItemOC { descripcion: string; cantidad: number | null; precioNeto: number | null; total: number | null }
@@ -258,6 +259,29 @@ function AccionesDocumento({ codigo, nombre, pdfUrlInicial, onVer }: { codigo: s
   );
 }
 
+// Miniatura de la OC dentro del desplegable. Solo en pantallas anchas (en móvil basta el ojo, así no se cargan iframes);
+// el PDF se pide recién cuando la fila se despliega.
+function MiniaturaOc({ oc, onVer }: { oc: OrdenCompra; onVer: (doc: VisorDoc) => void }) {
+  const [ancha, setAncha] = useState(false);
+  const [url, setUrl] = useState(oc.pdfUrl);
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 900px)');
+    const act = () => setAncha(mq.matches);
+    act(); mq.addEventListener('change', act);
+    return () => mq.removeEventListener('change', act);
+  }, []);
+  useEffect(() => {
+    if (!ancha || url) return;
+    let vivo = true;
+    fetch('/api/ordenes-compra/pdf', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ codigoOC: oc.codigo }) })
+      .then(r => r.json()).then(d => { if (vivo && d?.success && d.url) setUrl(d.url); }).catch(() => {});
+    return () => { vivo = false; };
+  }, [ancha, url, oc.codigo]);
+  if (!ancha) return null;
+  const nombre = `OC_${oc.codigo}.pdf`;
+  return <MiniaturaDoc src={url ? urlInline(url) : null} titulo={oc.codigo} detalle={oc.estado} ancho={150} onAbrir={() => { if (url) onVer({ nombre, url }); }} />;
+}
+
 interface OcAceptacion extends OrdenCompra { limite: string | null; horas: number | null; aceptadaEn: string | null }
 
 // Etiqueta de plazo para aceptar la OC: «Vence hoy 23:59», «Venció hace 2 d», «Vence en 3 d (09-11)».
@@ -316,36 +340,66 @@ function FilaOrden({ oc, onVer, onEnviarExperiencia, etiqueta }: { oc: OrdenComp
       </div>
 
       <div className="flex items-center gap-3 px-4 py-2 border-t border-linea dark:border-slate-800">
-        {oc.items.length > 0 && (
-          <button onClick={() => setAbierto(o => !o)} aria-expanded={abierto} className="text-[13px] font-medium text-tinta-2 hover:text-tinta dark:text-slate-300 inline-flex items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marca/60 rounded">
-            <Package size={16} stroke={1.75} /> {oc.items.length} ítem{oc.items.length !== 1 ? 's' : ''}
-            {abierto ? <ChevronUp size={16} stroke={1.75} /> : <ChevronDown size={16} stroke={1.75} />}
-          </button>
-        )}
-        <div className="ml-auto flex items-center gap-3">
+        <button onClick={() => setAbierto(o => !o)} aria-expanded={abierto} className="text-[13px] font-medium text-tinta-2 hover:text-tinta dark:text-slate-300 inline-flex items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marca/60 rounded">
+          <Package size={16} stroke={1.75} /> {oc.items.length > 0 ? `${oc.items.length} ítem${oc.items.length !== 1 ? 's' : ''}` : 'Detalle'}
+          {abierto ? <ChevronUp size={16} stroke={1.75} /> : <ChevronDown size={16} stroke={1.75} />}
+        </button>
+        <div className="ml-auto flex items-center gap-1 @xl:gap-3">
           {onEnviarExperiencia && <button onClick={() => onEnviarExperiencia(oc)}
-            className="text-[13px] font-medium text-tinta-2 hover:text-marca dark:text-slate-300 inline-flex items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marca/60 rounded"
-            title="Copiar a Documentos Propios de otra licitación">
-            <FolderInput size={16} stroke={1.75} /> Usar como experiencia
+            className="text-[13px] font-medium text-tinta-2 hover:text-marca dark:text-slate-300 inline-flex h-8 items-center gap-1.5 rounded px-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marca/60"
+            title="Usar como experiencia: copiar a Documentos Propios de otra licitación" aria-label="Usar como experiencia">
+            <FolderInput size={16} stroke={1.75} /> <span className="hidden @xl:inline whitespace-nowrap">Usar como experiencia</span>
           </button>}
           <AccionesDocumento codigo={oc.codigo} nombre={`OC_${oc.codigo}.pdf`} pdfUrlInicial={oc.pdfUrl} onVer={onVer} />
-          <a href={oc.url} target="_blank" rel="noopener noreferrer" className="text-[13px] font-medium text-marca hover:underline inline-flex items-center gap-1.5">
-            <ExternalLink size={16} stroke={1.75} /> Mercado Público
+          <a href={oc.url} target="_blank" rel="noopener noreferrer" title="Ver en Mercado Público" aria-label="Ver en Mercado Público"
+            className="text-[13px] font-medium text-marca hover:underline inline-flex h-8 items-center gap-1.5 rounded px-1.5">
+            <ExternalLink size={16} stroke={1.75} /> <span className="hidden @xl:inline whitespace-nowrap">Mercado Público</span>
           </a>
         </div>
       </div>
 
-      {abierto && oc.items.length > 0 && (
-        <div className="px-4 py-3 border-t border-linea dark:border-slate-800 space-y-1.5">
-          {oc.items.map((it, i) => (
-            <div key={i} className="flex items-start justify-between gap-3 text-[13px]">
-              <span className="text-tinta dark:text-slate-200 min-w-0" title={it.descripcion}>{it.descripcion || `Ítem ${i + 1}`}</span>
-              <span className="text-tinta-2 dark:text-slate-400 whitespace-nowrap tabular-nums">
-                {it.cantidad != null ? `${it.cantidad} × ` : ''}{fmtCLP(it.precioNeto, oc.moneda)}
-                {it.total != null && <b className="ml-2 font-semibold text-tinta dark:text-slate-100">{fmtCLP(it.total, oc.moneda)}</b>}
-              </span>
-            </div>
-          ))}
+      {abierto && (
+        <div className="flex gap-4 px-4 py-3 border-t border-linea dark:border-slate-800">
+          <MiniaturaOc oc={oc} onVer={onVer} />
+          <div className="min-w-0 flex-1 space-y-3">
+            <dl className="grid grid-cols-1 gap-x-6 gap-y-2.5 @xl:grid-cols-[repeat(auto-fit,minmax(170px,1fr))]">
+              {([
+                ['Comprador', [oc.compradorOrganismo, oc.compradorUnidad].filter(Boolean).join(' · ')],
+                ['Contacto', [oc.compradorContacto, oc.compradorMail].filter(Boolean).join(' · ')],
+                ['Enviada', fmtFecha(oc.fechaEnvio) || fmtFecha(oc.fechaCreacion)],
+                ['Aceptada', fmtFecha(oc.fechaAceptacion)],
+                ['Tipo', oc.tipo],
+              ] as Array<[string, string | null]>).filter(([, v]) => v).map(([k, v]) => (
+                <div key={k} className="min-w-0">
+                  <dt className="text-[11px] text-tinta-3 dark:text-slate-500">{k}</dt>
+                  <dd className="text-[13px] font-semibold text-tinta dark:text-slate-100 break-words">{v}</dd>
+                </div>
+              ))}
+            </dl>
+
+            {oc.items.length === 0 ? <p className="text-[13px] text-tinta-2 dark:text-slate-400">Esta orden no trae ítems detallados.</p> : (
+              <div className="text-[13px]">
+                <div className="hidden @xl:grid grid-cols-[minmax(0,1fr)_56px_112px_120px] gap-3 border-b border-linea pb-1.5 text-[11px] text-tinta-3 dark:border-slate-800 dark:text-slate-500">
+                  <span>Ítem</span><span className="text-right">Cant.</span><span className="text-right">Precio neto</span><span className="text-right">Total</span>
+                </div>
+                {oc.items.map((it, i) => (
+                  <div key={i} className="grid grid-cols-1 gap-0.5 border-b border-linea py-2 last:border-b-0 dark:border-slate-800 @xl:grid-cols-[minmax(0,1fr)_56px_112px_120px] @xl:gap-3">
+                    <span className="text-tinta dark:text-slate-200 break-words">{it.descripcion || `Ítem ${i + 1}`}</span>
+                    <span className="tabular-nums text-tinta-2 dark:text-slate-400 @xl:text-right">{it.cantidad != null ? <><span className="@xl:hidden">Cant. </span>{it.cantidad}</> : ''}</span>
+                    <span className="tabular-nums text-tinta-2 dark:text-slate-400 @xl:text-right">{fmtCLP(it.precioNeto, oc.moneda)}</span>
+                    <span className="tabular-nums font-semibold text-tinta dark:text-slate-100 @xl:text-right">{fmtCLP(it.total, oc.moneda)}</span>
+                  </div>
+                ))}
+                {oc.totalNeto != null && oc.total != null && (
+                  <div className="mt-1 flex justify-end gap-x-6 border-t border-linea pt-2 text-tinta-2 tabular-nums dark:border-slate-800 dark:text-slate-400">
+                    <span>Neto {fmtCLP(oc.totalNeto, oc.moneda)}</span>
+                    {oc.total !== oc.totalNeto && <span>IVA {fmtCLP(oc.total - oc.totalNeto, oc.moneda)}</span>}
+                    <span className="font-semibold text-tinta dark:text-slate-100">Total {fmtCLP(oc.total, oc.moneda)}</span>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>
@@ -492,16 +546,16 @@ export default function OrdenesCompraPage() {
 
   return (
     <AppLayout breadcrumb={[{ label: 'Órdenes de compra' }]}>
-      <div className="@container p-4 sm:p-6 max-w-5xl mx-auto space-y-4">
+      <div className="@container w-full px-4 py-4 @3xl:px-8 @3xl:py-6 max-w-[1800px] mx-auto space-y-4">
         <Encabezado
           titulo="Órdenes de compra"
           descripcion={loading ? 'Cargando…' : `${total} orden${total !== 1 ? 'es' : ''}${hayFiltro ? ' con estos filtros' : ''} · ${fmtCLP(sumaTotal)}`}
           acciones={pestana === 'todas' ? (
-            <div className="relative">
+            <div className="relative w-full @xl:w-80">
               <Search size={16} stroke={1.75} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
               <input value={q} onChange={e => setQ(e.target.value)} aria-label="Buscar órdenes de compra"
                 placeholder="Buscar código, organismo o ítem…"
-                className={`w-72 pl-9 pr-3 ${CAMPO} placeholder:text-tinta-3`} />
+                className={`w-full pl-9 pr-3 ${CAMPO} placeholder:text-tinta-3`} />
             </div>
           ) : undefined}
         />

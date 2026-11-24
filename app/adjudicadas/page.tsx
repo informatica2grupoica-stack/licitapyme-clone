@@ -33,7 +33,7 @@ import { Pestanas } from '@/app/components/ui/kit/Pestanas';
 import { Boton } from '@/app/components/ui/kit/Boton';
 import { Dona } from '@/app/components/ui/kit/Dona';
 import { Encabezado, Esqueleto, TarjetaCargando, Vacio } from '@/app/components/ui/kit/Estructura';
-import { IconTrophy as Trophy, IconCircleX as XCircle, IconExternalLink as ExternalLink, IconBuilding as Building2, IconInbox as Inbox, IconUsers as Users, IconFileCheck as FileCheck2, IconChevronDown as ChevronDown, IconChevronUp as ChevronUp, IconSearch as Search, IconX as X, IconArrowsUpDown as ArrowUpDown, IconChevronLeft as ChevronLeft, IconChevronRight as ChevronRight, IconDownload as Download, IconLoader2 as Loader2 } from '@tabler/icons-react';
+import { IconTrophy as Trophy, IconCircleX as XCircle, IconExternalLink as ExternalLink, IconBuilding as Building2, IconInbox as Inbox, IconUsers as Users, IconFileCheck as FileCheck2, IconChevronDown as ChevronDown, IconChevronUp as ChevronUp, IconSearch as Search, IconX as X, IconArrowsUpDown as ArrowUpDown, IconChevronLeft as ChevronLeft, IconChevronRight as ChevronRight, IconDownload as Download, IconLoader2 as Loader2, IconClipboardCheck as ClipboardCheck } from '@tabler/icons-react';
 import { useToast } from '@/app/components/ui/toast';
 import { ChipsOc } from '@/app/components/OcChips';
 import { getEstadoPipeline } from '@/app/lib/pipeline';
@@ -1193,6 +1193,12 @@ export default function AdjudicadasPage() {
             : `${base.length} licitación${base.length !== 1 ? 'es' : ''} resuelta${base.length !== 1 ? 's' : ''} · resultado real de Mercado Público`}
           acciones={
             <>
+              {isAdmin && (
+                <Link href="/entregas" title="Quién ya acusó recibo de cada proyecto ganado y quién falta"
+                  className="inline-flex h-9 items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-linea bg-white px-3.5 text-sm font-medium text-tinta shadow-tarjeta transition-colors hover:border-slate-300 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marca/60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800">
+                  <ClipboardCheck size={16} stroke={1.75} /> Acuses de recibo
+                </Link>
+              )}
               <Boton onClick={exportarExcel} disabled={exportando || cargandoTodo || visibles.length === 0}
                 title="Exportar a Excel las licitaciones con los filtros actuales (incluye la fecha de adjudicación)"
                 icono={exportando ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} stroke={1.75} />}>

@@ -4,7 +4,8 @@
 // de Compras (permiso `compras`).
 import { NextRequest, NextResponse } from 'next/server';
 import { permisosDeUsuario } from '@/app/lib/api-auth';
-import { listarFleteros, crearFletero, buscarFleteroEnObuma, type CategoriaFletero } from '@/app/lib/compras-logistica';
+import { listarFleteros, crearFletero, buscarFleteroEnObuma, candidatosFleteros, importarFleterosDesdeObuma, type CategoriaFletero } from '@/app/lib/compras-logistica';
+import { clienteDeHeader } from '@/app/lib/tenant';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -44,8 +45,14 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: true, identidad });
     }
 
+    const clienteId = clienteDeHeader(request) ?? 0;
+    // Transportistas que Obuma ya conoce y aún no están en el catálogo (para el botón «Traer de Obuma»).
+    if (request.nextUrl.searchParams.get('candidatos')) {
+      return NextResponse.json({ success: true, candidatos: await candidatosFleteros(clienteId) });
+    }
+
     const categoria = request.nextUrl.searchParams.get('categoria') as CategoriaFletero | null;
-    const fleteros = await listarFleteros({ categoria: categoria || undefined });
+    const fleteros = await listarFleteros({ categoria: categoria || undefined, clienteId });
     return NextResponse.json({ success: true, fleteros });
   } catch (error) {
     console.error('[logistica/fleteros][GET]', String(error));
@@ -60,8 +67,13 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const id = await crearFletero(body, userId, nombre);
-    const fleteros = await listarFleteros();
+    const clienteId = clienteDeHeader(request) ?? 0;
+    if (Array.isArray(body.importarRuts)) {
+      const importados = await importarFleterosDesdeObuma(body.importarRuts.map(String).slice(0, 100), clienteId, userId, nombre);
+      return NextResponse.json({ success: true, importados, fleteros: await listarFleteros({ clienteId }) });
+    }
+    const id = await crearFletero(body, userId, nombre, clienteId);
+    const fleteros = await listarFleteros({ clienteId });
     return NextResponse.json({ success: true, id, fleteros });
   } catch (error: any) {
     console.error('[logistica/fleteros][POST]', String(error));

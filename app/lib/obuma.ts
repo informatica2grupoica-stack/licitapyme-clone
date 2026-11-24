@@ -982,6 +982,8 @@ export interface CambiosOcObuma {
   lineas?: { codId: string; cantidad?: number; precio?: number; descripcion?: string }[];
   /** Anula la OC (`oc_estado: 'ANULADA'`, probado con la 4075). */
   anular?: boolean;
+  /** Solo administradores: permite modificar una OC que ya tiene productos facturados o despachados. */
+  forzarFacturada?: boolean;
   /** ID de la cuenta contable de una OC de Gasto (`oc_concepto_gasto`, ej. COMBUSTIBLE = 120453). */
   cuentaGasto?: string;
 }
@@ -991,7 +993,7 @@ export function armarDocActualizacionOc(
   actual: OcObumaActual, cambios: CambiosOcObuma, ctx: { proveedorRut: string | null; proveedorRazonSocial: string; centroCostoCodigo: string | null },
 ): { doc: Record<string, unknown>; subtotal: number; neto: number; iva: number; total: number; lineas: { codId: string; cantidad: number; precio: number }[] } {
   if (/anulad/i.test(actual.estado)) throw new Error(`La OC ${actual.folio ?? actual.id} está anulada: no se puede modificar.`);
-  if (actual.lineas.some(l => l.cantidadFacturada > 0 || l.cantidadDespachada > 0)) throw new Error(`La OC ${actual.folio ?? actual.id} ya tiene productos facturados o despachados: no se modifica desde Licitank.`);
+  if (!cambios.forzarFacturada && actual.lineas.some(l => l.cantidadFacturada > 0 || l.cantidadDespachada > 0)) throw new Error(`La OC ${actual.folio ?? actual.id} ya tiene productos facturados o despachados: no se modifica desde Licitank.`);
   if (actual.lineas.some(l => l.descuento !== 0) || Number(actual.filas[0]?.compra_oc_descuento_pesos) > 0 || Number(actual.filas[0]?.compra_oc_descuento_porciento) > 0)
     throw new Error(`La OC ${actual.folio ?? actual.id} tiene descuentos: modifícala directo en Obuma.`);
   const porCod = new Map((cambios.lineas ?? []).map(l => [l.codId, l]));

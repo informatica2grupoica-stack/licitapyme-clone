@@ -4,6 +4,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { permisosDeUsuario } from '@/app/lib/api-auth';
 import { sugerirFleteros } from '@/app/lib/compras-logistica';
+import { clienteDeHeader } from '@/app/lib/tenant';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -25,7 +26,7 @@ export async function GET(request: NextRequest) {
   if (!zona.trim()) return NextResponse.json({ error: 'Falta la zona de entrega.' }, { status: 400 });
 
   try {
-    const sugerencias = await sugerirFleteros(zona, urgente);
+    const sugerencias = await sugerirFleteros(zona, urgente, clienteDeHeader(request) ?? 0);
     return NextResponse.json({ success: true, sugerencias });
   } catch (error) {
     console.error('[logistica/fleteros/sugerencia][GET]', String(error));

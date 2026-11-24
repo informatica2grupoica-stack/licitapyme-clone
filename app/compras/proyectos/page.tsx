@@ -29,7 +29,7 @@ import {
   IconFolders as Folders, IconLink as LinkIcon,
 } from '@tabler/icons-react';
 
-interface NegocioCoincidente { negocioId: number; licitacionCodigo: string; licitacionNombre: string | null }
+interface NegocioCoincidente { negocioId: number; licitacionCodigo: string; licitacionNombre: string | null; aproximado?: boolean; estadoCompra?: string | null }
 interface OcDelProyecto {
   compraOcId: string; folio: string | null; fecha: string | null; estado: string | null;
   proveedorNombre: string | null; proveedorRut: string | null; total: number; neto?: number;
@@ -64,12 +64,28 @@ interface MetaProyectos {
 // «Sin ficha» = centros de costo de Obuma que no son un proyecto (administración, gasto general): acumulan miles de OC y
 // mezclarlos con los proyectos inflaba los totales, por eso van en su propia pestaña y no entran en «Todos».
 const SIN_FICHA = 'Centros sin proyecto';
+// Proyectos de prueba del equipo («TEST», «CLIENTE DE PRUEBAS»): no son negocios y desfasaban los conteos de Canceladas.
+const PRUEBAS = 'Pruebas';
+const esPrueba = (p: ProyectoObuma) => p.tieneProyectoReal && (/\b(test|prueba)/i.test(p.nombre || '') || /\bpruebas?\b/i.test(p.cliente || ''));
 // Color por estado: ámbar = en curso, cian = abierto, gris = cerrado, rojo = cancelado/rechazado (no se concretó).
 const COLOR_ESTADO: Record<string, string> = {
-  'En proceso': '#d97706', Abierto: '#0891b2', Cerrado: '#64748b', Cancelado: '#dc2626', Rechazado: '#dc2626', [SIN_FICHA]: '#94a3b8',
+  'En proceso': '#d97706', Abierto: '#0891b2', Cerrado: '#64748b', Cancelado: '#dc2626', Rechazado: '#dc2626', [SIN_FICHA]: '#94a3b8', [PRUEBAS]: '#94a3b8',
 };
-const ORDEN_ESTADOS = ['En proceso', 'Abierto', 'Cerrado', 'Cancelado', 'Rechazado', SIN_FICHA];
-const estadoDe = (p: ProyectoObuma) => (p.tieneProyectoReal ? (p.estado || 'Sin estado') : SIN_FICHA);
+const ORDEN_ESTADOS = ['En proceso', 'Abierto', 'Cerrado', 'Cancelado', 'Rechazado', PRUEBAS, SIN_FICHA];
+const estadoDe = (p: ProyectoObuma) => (!p.tieneProyectoReal ? SIN_FICHA : esPrueba(p) ? PRUEBAS : (p.estado || 'Sin estado'));
+
+// Estado de la compra en Compras y qué estado de Obuma le corresponde. Si no coinciden, hay que corregir uno de los dos.
+const ETIQUETA_COMPRA: Record<string, string> = {
+  PRECOMPRA: 'Pre-compra', ABIERTA: 'Abierta', EN_PROCESO: 'En proceso', ENTREGADA: 'Entregada', CERRADA: 'Cerrada', PAGADA: 'Pagada', CANCELADA: 'Cancelada',
+};
+const OBUMA_ESPERADO: Record<string, string[]> = {
+  ABIERTA: ['Abierto'], EN_PROCESO: ['En proceso'], ENTREGADA: ['En proceso'], CERRADA: ['Cerrado'], PAGADA: ['Cerrado'], CANCELADA: ['Cancelado', 'Rechazado'],
+};
+/** Negocios del proyecto cuyo estado en Compras no calza con el del proyecto en Obuma. */
+const desfaseCompras = (p: ProyectoObuma) => !p.tieneProyectoReal ? [] : p.negociosCoincidentes.filter(n => {
+  const esperado = n.estadoCompra ? OBUMA_ESPERADO[n.estadoCompra] : null;
+  return esperado && !esperado.includes(p.estado || '');
+});
 
 // Estado de la OC en Obuma: FACTURADA ya está en los documentos de compra; EMITIDA/SOLICITADA es plata comprometida sin factura;
 // ANULADA no es gasto (ni se suma).
@@ -189,6 +205,7 @@ export default function ProyectosObumaPage() {
     docsNeto: sumar(filtrados, p => p.documentosNeto ?? 0),
     docsCant: sumar(filtrados, p => p.cantidadFacturas),
     conNegocio: filtrados.filter(p => p.negociosCoincidentes.length > 0).length,
+    desfases: filtrados.filter(p => desfaseCompras(p).length > 0).length,
   }), [filtrados]);
 
   const firma = `${q}|${soloCoincidentes}|${estadoFiltro}`;
@@ -272,7 +289,7 @@ export default function ProyectosObumaPage() {
             {/* Indicadores del conjunto que se ve */}
             <Lista className="grid grid-cols-2 gap-3 @4xl:grid-cols-4">
               <Indicador rotulo="Proyectos" valor={filtrados.length}
-                detalle={`${totales.conNegocio} están en Licitank${hayFiltros ? ' · del filtro actual' : ''}`} />
+                detalle={`${totales.conNegocio} están en Licitank${totales.desfases ? ` · ${totales.desfases} con estado distinto en Compras` : ''}${hayFiltros ? ' · del filtro actual' : ''}`} />
               <Indicador rotulo="OC vigentes (neto)" valor={totales.ocNeto} formato={fmtMM}
                 detalle={`${totales.ocCant.toLocaleString('es-CL')} OC · sin ${totales.anuladasCant} anuladas (${fmtMM(totales.anuladasTotal)})`} />
               <Indicador rotulo="Comprometido sin factura (neto)" valor={totales.pendNeto} formato={fmtMM}
@@ -421,16 +438,27 @@ function TarjetaProyecto({ p }: { p: ProyectoObuma }) {
       )}
 
       {p.negociosCoincidentes.length > 0 && (
-        <p className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-linea/80 pt-3 text-xs dark:border-slate-800">
-          <span className="text-tinta-2 dark:text-slate-400">Negocio en Compras</span>
-          {p.negociosCoincidentes.map(n => (
-            <a key={n.negocioId} href={`/compras/${n.negocioId}`} target="_blank" rel="noreferrer"
-              className="inline-flex items-center gap-1 rounded font-medium text-marca hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marca/60"
-              title={n.licitacionNombre || undefined}>
-              {n.licitacionCodigo}{n.licitacionNombre ? ` — ${n.licitacionNombre.slice(0, 40)}` : ''} <ExternalLink size={12} stroke={1.75} />
-            </a>
+        <div className="mt-3 space-y-1 border-t border-linea/80 pt-3 text-xs dark:border-slate-800">
+          <p className="flex flex-wrap items-center gap-x-4 gap-y-1">
+            <span className="text-tinta-2 dark:text-slate-400">Negocio en Compras</span>
+            {p.negociosCoincidentes.map(n => (
+              <span key={n.negocioId} className="inline-flex flex-wrap items-center gap-x-2">
+                <a href={`/compras/${n.negocioId}`} target="_blank" rel="noreferrer"
+                  className="inline-flex items-center gap-1 rounded font-medium text-marca hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marca/60"
+                  title={n.licitacionNombre || undefined}>
+                  {n.licitacionCodigo}{n.licitacionNombre ? ` — ${n.licitacionNombre.slice(0, 40)}` : ''} <ExternalLink size={12} stroke={1.75} />
+                </a>
+                {n.estadoCompra && <span className="font-medium text-tinta dark:text-slate-100">{ETIQUETA_COMPRA[n.estadoCompra] || n.estadoCompra} en Compras</span>}
+                {n.aproximado && <span className="text-tinta-2 dark:text-slate-400" title="El código del proyecto en Obuma no es idéntico (otra modalidad, ej. R126 en vez de LP26); se unió por organismo, número y año">· unido por número</span>}
+              </span>
+            ))}
+          </p>
+          {desfaseCompras(p).map(n => (
+            <p key={n.negocioId} className="font-medium text-alerta">
+              En Compras está «{ETIQUETA_COMPRA[n.estadoCompra || ''] || n.estadoCompra}» y en Obuma el proyecto está «{p.estado}»: corrige uno de los dos.
+            </p>
           ))}
-        </p>
+        </div>
       )}
 
       {detalle.length > 0 && (

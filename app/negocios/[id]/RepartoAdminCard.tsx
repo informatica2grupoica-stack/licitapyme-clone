@@ -165,6 +165,18 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
   const [modalProveedorAbierto, setModalProveedorAbierto] = useState(false);
   const [provInicial, setProvInicial] = useState<Partial<FormProveedor>>({});
   const [ocModificando, setOcModificando] = useState<{ obumaCompraOcId: string; folio: string | null; proveedor: string } | null>(null);
+  const [ocSincronizando, setOcSincronizando] = useState<string | null>(null);
+  const sincronizarOc = async (ocId: string) => {
+    setOcSincronizando(ocId);
+    try {
+      const res = await fetch(`/api/compras/${negocioId}/orden-compra-obuma/modificar`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ocId, sincronizar: true }) });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'No se pudo actualizar');
+      toast.success(data.cambio ? 'Orden actualizada con lo de Obuma' : 'La orden ya estaba al día', `OC ${data.folio ?? ''}: ${data.lineas} línea(s), total ${fmtCLP(data.total)}.`);
+      void cargar();
+    } catch (e: any) { toast.error('No se pudo actualizar la orden', e.message); } finally { setOcSincronizando(null); }
+  };
 
   const cargar = useCallback(async () => {
     try {
@@ -552,7 +564,14 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
                           : <div className="text-xs whitespace-nowrap"><b className="tabular-nums text-slate-900">{fmtCLP(subtotalSel(p))}</b> <span className="text-slate-500">neto</span></div>}</dd>
                       </div>
                     </dl>
-                    <div className="sm:min-w-[10rem] flex justify-end self-center">
+                    <div className="sm:min-w-[10rem] flex justify-end items-center gap-2 self-center">
+                    {p.yaCreada && puedeOperar && (
+                      <button onClick={() => void sincronizarOc(p.yaCreada!.obumaCompraOcId)} disabled={ocSincronizando === p.yaCreada.obumaCompraOcId}
+                        title="Si cambiaron esta orden directo en Obuma, trae esos cambios a Licitank"
+                        className="self-center text-[12.5px] font-medium text-slate-600 hover:text-teal-700 disabled:opacity-50 whitespace-nowrap">
+                        {ocSincronizando === p.yaCreada.obumaCompraOcId ? 'Actualizando…' : 'Actualizar desde Obuma'}
+                      </button>
+                    )}
                     {p.yaCreada && puedeOperar && (
                       <button onClick={() => setOcModificando({ obumaCompraOcId: p.yaCreada!.obumaCompraOcId, folio: p.yaCreada!.folio, proveedor: p.proveedorNombre })}
                         data-testid={`oc-modificar-${p.yaCreada.folio ?? p.yaCreada.obumaCompraOcId}`}

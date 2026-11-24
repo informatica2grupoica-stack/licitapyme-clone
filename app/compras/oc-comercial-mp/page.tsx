@@ -18,6 +18,7 @@ import { Pestanas } from '@/app/components/ui/kit/Pestanas';
 import { Tarjeta, Datos, Dato, Estado } from '@/app/components/ui/kit/Tarjeta';
 import { IconSearch as Search, IconFileInvoice as FileInvoice, IconChevronDown as ChevronDown, IconSend as Send } from '@tabler/icons-react';
 import { EnviarOcModal } from '@/app/negocios/[id]/EnviarOcModal';
+import { MiniaturaDoc } from '@/app/negocios/[id]/MiniaturaDoc';
 
 interface Oc {
   id: number; folio: string; estado: 'EMITIDA' | 'FACTURADA' | 'ANULADA'; fechaOc: string; fechaEntrega: string | null;
@@ -82,7 +83,7 @@ export default function OcComercialMpPage() {
 
   return (
     <AppLayout breadcrumb={[{ label: 'OC Comercial MP' }]}>
-      <div className="@container max-w-6xl mx-auto px-4 py-6">
+      <div className="@container w-full max-w-[1800px] mx-auto px-4 py-4 @3xl:px-8 @3xl:py-6">
         <Encabezado titulo="Órdenes de compra de Comercial MP"
           descripcion="Las OC que Comercial MP emite desde Licitank, de todas las licitaciones, con su factura. Se emiten, se facturan y se anulan dentro de cada negocio, en Compras → Órdenes y facturas." />
 
@@ -139,6 +140,20 @@ export default function OcComercialMpPage() {
   );
 }
 
+// Miniatura del PDF de la OC dentro del detalle. Solo en pantallas anchas (en móvil basta «Ver PDF de la OC»).
+function MiniaturaOcPropia({ oc }: { oc: Oc }) {
+  const [ancha, setAncha] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 900px)');
+    const act = () => setAncha(mq.matches);
+    act(); mq.addEventListener('change', act);
+    return () => mq.removeEventListener('change', act);
+  }, []);
+  if (!ancha) return null;
+  const url = `/api/compras/oc-comercial-mp?pdf=${oc.id}`;
+  return <MiniaturaDoc src={url} titulo={oc.folio} detalle={oc.proveedor.nombre} ancho={150} onAbrir={() => window.open(url, '_blank', 'noopener,noreferrer')} />;
+}
+
 function FilaOc({ oc, abierta, onAbrir }: { oc: Oc; abierta: boolean; onAbrir: () => void }) {
   const dif = oc.factura?.neto != null ? Math.round(oc.factura.neto - oc.neto) : null;
   const [enviar, setEnviar] = useState(false);
@@ -169,8 +184,10 @@ function FilaOc({ oc, abierta, onAbrir }: { oc: Oc; abierta: boolean; onAbrir: (
       {abierta && (
         <motion.div key="detalle" initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
           transition={{ duration: 0.22, ease: EASE_LK }} className="overflow-hidden">
-        <div className="px-4 pb-4 border-t border-linea/80 dark:border-slate-800">
-          <div className="pt-3 overflow-x-auto">
+        <div className="flex gap-4 px-4 pb-4 pt-3 border-t border-linea/80 dark:border-slate-800">
+          <MiniaturaOcPropia oc={oc} />
+          <div className="min-w-0 flex-1">
+          <div className="overflow-x-auto">
             <table className="w-full text-[13px]">
               <thead>
                 <tr className="text-[11px] text-tinta-2 dark:text-slate-400 text-left">
@@ -238,6 +255,7 @@ function FilaOc({ oc, abierta, onAbrir }: { oc: Oc; abierta: boolean; onAbrir: (
             )}
             <Link href={`/compras/${oc.negocioId}`}
               className="inline-flex items-center h-8 px-3 text-[13px] font-medium rounded-lg text-marca hover:bg-marca-suave">Ir al negocio en Compras</Link>
+          </div>
           </div>
         </div>
         </motion.div>

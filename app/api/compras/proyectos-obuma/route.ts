@@ -6,7 +6,7 @@
 import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import { permisosCrudosDeUsuario } from '@/app/lib/api-auth';
-import { listarProyectosObuma } from '@/app/lib/compras-proyectos-obuma';
+import { listarProyectosObuma, agregarEstadoCompra } from '@/app/lib/compras-proyectos-obuma';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -29,7 +29,8 @@ export async function GET(request: NextRequest) {
 
   try {
     const forzar = request.nextUrl.searchParams.get('forzar') === '1';
-    const { proyectos, meta } = await listarProyectosObuma(forzar);
+    const { proyectos: base, meta } = await listarProyectosObuma(forzar);
+    const proyectos = await agregarEstadoCompra(base);
     return NextResponse.json({ success: true, proyectos, meta });
   } catch (error: any) {
     console.error('[compras/proyectos-obuma][GET]', String(error));

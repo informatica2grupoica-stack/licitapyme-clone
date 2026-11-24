@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useState, useEffect, useLayoutEffect, useCallback, useRef } from 'react';
-import { IconLayoutDashboard as LayoutDashboard, IconSearch as Search, IconUsers as Users, IconLogout as LogOut, IconUser as User, IconMenu as MenuIcon, IconX as X, IconRadar as Radar, IconChevronRight as ChevronRight, IconBriefcase as Briefcase, IconBell as Bell, IconTag as Tag, IconStack2 as Layers, IconHistory as History, IconSettings as Settings, IconCommand as Command, IconBan as Ban, IconActivity as Activity, IconSend as Send, IconBuilding as Building2, IconTrophy as Trophy, IconLayoutSidebarLeftCollapse as PanelLeftClose, IconLayoutSidebarLeftExpand as PanelLeftOpen, IconClipboardCheck as ClipboardCheck, IconShoppingCart as ShoppingCart, IconPackage as PackageCheck, IconLibrary as Library, IconStar as Star, IconFolderOpen as FolderOpen, IconReceipt as Receipt, IconFileInvoice as FileInvoice,IconArrowsShuffle as Shuffle, IconSun as Sun, IconMoon as Moon, IconTruck as Truck, IconFolders as Folders, IconBug as Bug, IconCoin as Coin, IconBrain as Brain, IconLock as Lock, IconBrandWhatsapp as Whatsapp, IconChartDots3 as ChartDots } from '@tabler/icons-react';
+import { IconLayoutDashboard as LayoutDashboard, IconSearch as Search, IconUsers as Users, IconLogout as LogOut, IconUser as User, IconMenu as MenuIcon, IconX as X, IconRadar as Radar, IconChevronRight as ChevronRight, IconBriefcase as Briefcase, IconBell as Bell, IconTag as Tag, IconStack2 as Layers, IconHistory as History, IconSettings as Settings, IconCommand as Command, IconBan as Ban, IconActivity as Activity, IconSend as Send, IconBuilding as Building2, IconTrophy as Trophy, IconLayoutSidebarLeftCollapse as PanelLeftClose, IconLayoutSidebarLeftExpand as PanelLeftOpen, IconClipboardCheck as ClipboardCheck, IconShoppingCart as ShoppingCart, IconLibrary as Library, IconStar as Star, IconFolderOpen as FolderOpen, IconReceipt as Receipt, IconFileInvoice as FileInvoice,IconArrowsShuffle as Shuffle, IconSun as Sun, IconMoon as Moon, IconTruck as Truck, IconFolders as Folders, IconBug as Bug, IconCoin as Coin, IconBrain as Brain, IconLock as Lock, IconBrandWhatsapp as Whatsapp, IconChartDots3 as ChartDots } from '@tabler/icons-react';
 import { LicitankIcon } from '@/app/components/LicitankLogo';
 import { Tooltip } from '@/app/components/ui/Tooltip';
 import { suscribirRealtime } from '@/app/lib/use-realtime';
@@ -73,10 +73,9 @@ const NAV_GROUPS: NavGroup[] = [
       { label: 'Órdenes de compra', href: '/ordenes-compra', icon: <Receipt size={17} />, adminOnly: true },
       // OC que Comercial MP emite desde Licitank (migration-180), de todas las licitaciones, con su factura. Pedido del dueño 05-nov-2026.
       { label: 'OC Comercial MP', href: '/compras/oc-comercial-mp', icon: <FileInvoice size={17} />, adminOnly: true },
-      // Entregas: no es una consola, es algo que cada involucrado tiene que hacer. Visible para
-      // admin, para quien tenga el permiso `entrega_proyectos`, y para cualquiera que tenga una
-      // entrega asignada (el responsable del negocio ganado, aunque no tenga permisos especiales).
-      { label: 'Entregas', href: '/entregas', icon: <PackageCheck size={17} />, adminOnly: true },
+      // «Entregas» salió del menú (2026-11-24, pedido del dueño): el acuse de proyecto ganado ya llega solo con
+      // EntregaPendienteModal; el detalle y el seguimiento viven en /entregas, al que se entra desde ese aviso y
+      // desde Ganadas/Perdidas («Acuses de recibo», admin).
       // Proveedores: catálogo de A QUIÉN LE COMPRAMOS productos (ficha completa: contacto,
       // categoría, datos bancarios) — se puebla solo al registrar cotizaciones en el Auditor de
       // Compras (spec §8.4, trazabilidad del proveedor local) y alimenta directo la emisión real de
@@ -366,21 +365,6 @@ function Sidebar({ mobileOpen, onCloseMobile }: { mobileOpen: boolean; onCloseMo
     return suscribirRealtime(ev => { if (ev.tipo === 'cambio') cargar(); });
   }, [puedeRepartir]);
 
-  // Contadores de "Entregas": pendientes (badge) y total (para saber si mostrar el ítem a alguien
-  // sin permiso que igual tiene una entrega por ser el responsable del negocio ganado).
-  const [entregas, setEntregas] = useState<{ total: number; pendientes: number }>({ total: 0, pendientes: 0 });
-  const esExternoNav = usuario?.rol === 'externo';
-  useEffect(() => {
-    if (!usuario || esExternoNav) return;
-    const cargar = () => {
-      fetch('/api/entregas?resumen=1').then(r => r.json()).then(d => {
-        if (d.success) setEntregas({ total: d.total || 0, pendientes: d.pendientes || 0 });
-      }).catch(() => {});
-    };
-    cargar();
-    return suscribirRealtime(ev => { if (ev.tipo === 'cambio') cargar(); });
-  }, [usuario, esExternoNav]);
-
   // Badge de "Errores reportados": reportes abiertos/en revisión. Solo admin (la bandeja lo es).
   // Se recarga cuando llega la notificación del reporte nuevo (tipo REPORTE_ERROR).
   const esAdminNav = usuario?.rol === 'admin';
@@ -397,9 +381,6 @@ function Sidebar({ mobileOpen, onCloseMobile }: { mobileOpen: boolean; onCloseMo
       if (ev.tipo === 'cambio' || (ev.tipo === 'notificacion' && (ev.datos as { tipo?: string })?.tipo === 'REPORTE_ERROR')) cargar();
     });
   }, [esAdminNav]);
-
-  const puedeVerEntregas =
-    usuario?.rol === 'admin' || !!usuario?.permisos?.entrega_proyectos || entregas.total > 0;
 
   const esExterno = usuario?.rol === 'externo';
   // Perfil de Compras (permiso solo_compras): menú limitado a los módulos de Compras. El admin
@@ -420,7 +401,6 @@ function Sidebar({ mobileOpen, onCloseMobile }: { mobileOpen: boolean; onCloseMo
       if (i.href === '/radar' && usuario?.permisos?.acceso_radar) return true;
       if (i.href === '/aprobaciones' && puedeAprobar) return true;
       if (i.href === '/puente' && puedeRepartir) return true;
-      if (i.href === '/entregas' && puedeVerEntregas) return true;
       if (i.href === '/compras' && puedeVerCompras) return true;
       if (i.href === '/logistica/fleteros' && puedeVerCompras) return true;
       if (i.href === '/compras/proveedores' && puedeVerCompras) return true;
@@ -446,8 +426,6 @@ function Sidebar({ mobileOpen, onCloseMobile }: { mobileOpen: boolean; onCloseMo
     items: group.items.map(i => {
       if (i.href === '/aprobaciones')
         return { ...i, badge: totalAprobacionesPendientes > 0 ? totalAprobacionesPendientes : undefined };
-      if (i.href === '/entregas')
-        return { ...i, badge: entregas.pendientes > 0 ? entregas.pendientes : undefined };
       if (i.href === '/puente')
         return { ...i, badge: totalPuente > 0 ? totalPuente : undefined };
       if (i.href === '/admin/errores')

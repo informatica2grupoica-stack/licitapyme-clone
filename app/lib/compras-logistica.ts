@@ -11,15 +11,23 @@ import pool from '@/app/lib/db';
 import { ahoraChileSQL } from '@/app/lib/tz';
 import { registrarEvento } from '@/app/lib/historial';
 import { proveedorPorRut } from '@/app/lib/obuma';
+import { CLIENTE_ICA } from '@/app/lib/tenant';
 
 export type CategoriaFletero = 'UNICA' | 'CONSOLIDADA';
 export type ModalidadRetiro = 'INTERNA' | 'EXTERNA' | 'MIXTA';
 
+/** Lo que Obuma sabe de un fletero: cuántas OC se le han hecho, cuándo fue la última y cuánto costó el último flete (neto). */
+export interface HistorialFlete { ocs: number; ultimaFecha: string | null; ultimoFlete: number | null }
+
 export interface Fletero {
   id: number; rut: string | null; nombre: string; categoria: CategoriaFletero;
+  contactoNombre: string | null; telefono: string | null; correo: string | null; comuna: string | null;
   capacidadCamion: string | null; tipoCamion: string | null; precio: number | null; costoKm: number | null;
   incluyeDescarga: boolean; tienePionetas: boolean; plazoDespachoDias: number | null;
   quedoEnPana: boolean; nota: number | null; activo: boolean; zonas: string[];
+  historial: HistorialFlete | null;
+  /** En cuántos retiros de negocios se eligió este fletero (si > 0 no se puede eliminar: se perdería ese historial). */
+  usos: number;
 }
 
 function normZona(z: string): string { return z.trim().toLowerCase(); }
@@ -38,6 +46,8 @@ async function zonasDe(fleteroIds: number[]): Promise<Map<number, string[]>> {
 function filaAFletero(r: any, zonas: string[]): Fletero {
   return {
     id: r.id, rut: r.rut, nombre: r.nombre, categoria: r.categoria,
+    contactoNombre: r.contacto_nombre ?? null, telefono: r.telefono ?? null, correo: r.correo ?? null, comuna: r.comuna ?? null,
+    historial: null, usos: 0,
     capacidadCamion: r.capacidad_camion, tipoCamion: r.tipo_camion,
     precio: r.precio == null ? null : Number(r.precio), costoKm: r.costo_km == null ? null : Number(r.costo_km),
     incluyeDescarga: !!r.incluye_descarga, tienePionetas: !!r.tiene_pionetas,
@@ -46,24 +56,180 @@ function filaAFletero(r: any, zonas: string[]): Fletero {
   };
 }
 
-export async function listarFleteros(filtro?: { categoria?: CategoriaFletero; soloActivos?: boolean }): Promise<Fletero[]> {
-  const cond: string[] = []; const params: any[] = [];
+export async function listarFleteros(filtro?: { categoria?: CategoriaFletero; soloActivos?: boolean; clienteId?: number }): Promise<Fletero[]> {
+  const clienteId = filtro?.clienteId ?? CLIENTE_ICA;
+  const cond: string[] = ['cliente_id = ?']; const params: any[] = [clienteId];
   if (filtro?.categoria) { cond.push('categoria = ?'); params.push(filtro.categoria); }
   if (filtro?.soloActivos) cond.push('activo = 1');
-  const where = cond.length ? `WHERE ${cond.join(' AND ')}` : '';
-  const [rows] = await pool.query(`SELECT * FROM compras_fletero ${where} ORDER BY nombre`, params) as any;
+  const [rows] = await pool.query(`SELECT * FROM compras_fletero WHERE ${cond.join(' AND ')} ORDER BY nombre`, params) as any;
   const zonasPorId = await zonasDe((rows as any[]).map(r => r.id));
-  return (rows as any[]).map(r => filaAFletero(r, zonasPorId.get(r.id) || []));
+  const lista = (rows as any[]).map(r => filaAFletero(r, zonasPorId.get(r.id) || []));
+  const historial = await historialDeRuts(lista.map(f => f.rut), clienteId);
+  for (const f of lista) f.historial = (f.rut && historial.get(normRut(f.rut))) || null;
+  if (lista.length) {
+    const [usos] = await pool.query(
+      `SELECT transporte_fletero_id id, COUNT(*) n FROM compras_retiro_proveedor
+        WHERE transporte_fletero_id IN (${lista.map(() => '?').join(',')}) GROUP BY transporte_fletero_id`,
+      lista.map(f => f.id)) as any;
+    const porId = new Map<number, number>((usos as any[]).map(u => [Number(u.id), Number(u.n)]));
+    for (const f of lista) f.usos = porId.get(f.id) ?? 0;
+  }
+  return lista;
+}
+
+/** Elimina un fletero del catálogo (con sus zonas). Se niega si ya se eligió en algún retiro de un negocio: se perdería ese historial
+ *  (para dejar de usarlo sin borrar nada está «en pana»). Debe ser del cliente de quien lo pide. */
+export async function eliminarFletero(id: number, clienteId: number, actorId: number, actorNombre: string | null): Promise<string> {
+  const [rows] = await pool.query(`SELECT nombre FROM compras_fletero WHERE id = ? AND cliente_id = ? LIMIT 1`, [id, clienteId]) as any;
+  const f = (rows as any[])[0];
+  if (!f) throw Object.assign(new Error('Fletero no encontrado.'), { status: 404 });
+  const [uso] = await pool.query(`SELECT COUNT(*) n FROM compras_retiro_proveedor WHERE transporte_fletero_id = ?`, [id]) as any;
+  const n = Number((uso as any[])[0]?.n ?? 0);
+  if (n > 0) {
+    throw Object.assign(new Error(`${f.nombre} está en ${n} retiro${n === 1 ? '' : 's'} de negocios: no se puede eliminar para no perder ese historial. Si ya no quieres usarlo, márcalo «en pana».`), { status: 409 });
+  }
+  await pool.query(`DELETE FROM compras_fletero_zona WHERE fletero_id = ?`, [id]);
+  await pool.query(`DELETE FROM compras_fletero WHERE id = ? AND cliente_id = ?`, [id, clienteId]);
+  await registrarEvento({
+    tipo: 'COMPRAS_FLETERO_ELIMINADO', actorId, actorNombre,
+    mensaje: `Se eliminó el fletero "${f.nombre}" del catálogo.`, metadata: { fletero_id: id },
+  });
+  return f.nombre as string;
+}
+
+// ── Lo que Obuma ya sabe de los transportistas (OC hechas, último flete) ─────────────────────────
+// Obuma existe solo para el cliente ICA (ver skill multiempresa-escalable): para otro cliente no hay historial ni candidatos.
+const normRut = (r: string | null | undefined) => String(r ?? '').replace(/[.\-\s]/g, '').toUpperCase();
+const ES_LINEA_FLETE = /flete|transporte|despacho|camion|camión/i;
+// (sin courier/expres/starken: Chilexpress y similares son paquetería, no fleteros — decisión del dueño, 24-nov-2026)
+const NOMBRE_TRANSPORTISTA = /transport|flete|logist|camion|camión/i;
+
+interface OcFlete { rut: string; razon: string; fecha: string | null; lineas: Array<{ descripcion: string; subtotal: number }> }
+
+function lineasDe(json: unknown): Array<{ descripcion: string; subtotal: number }> {
+  try {
+    return (JSON.parse(String(json ?? '[]')) as any[]).map(it => ({
+      descripcion: String(it.producto_nombre || it.producto_descripcion || ''), subtotal: Number(it.subtotal) || 0,
+    }));
+  } catch { return []; }
+}
+
+async function ocsObuma(filtroSql: string, params: any[]): Promise<OcFlete[]> {
+  const [rows] = await pool.query(
+    `SELECT proveedor_rut, proveedor_razon_social, fecha_ingreso, items_json FROM obuma_compras
+      WHERE estado <> 'ANULADA' AND proveedor_rut IS NOT NULL ${filtroSql} ORDER BY fecha_ingreso DESC`,
+    params,
+  ) as any;
+  return (rows as any[]).map(r => ({
+    rut: String(r.proveedor_rut), razon: String(r.proveedor_razon_social ?? ''),
+    fecha: r.fecha_ingreso ? new Date(r.fecha_ingreso).toISOString().slice(0, 10) : null,
+    lineas: lineasDe(r.items_json),
+  }));
+}
+
+function resumir(ocs: OcFlete[]): HistorialFlete {
+  const conFlete = ocs.find(o => o.lineas.some(l => ES_LINEA_FLETE.test(l.descripcion)));
+  const monto = conFlete ? conFlete.lineas.filter(l => ES_LINEA_FLETE.test(l.descripcion)).reduce((s, l) => s + l.subtotal, 0) : 0;
+  return { ocs: ocs.length, ultimaFecha: ocs[0]?.fecha ?? null, ultimoFlete: monto > 0 ? Math.round(monto) : null };
+}
+
+async function historialDeRuts(ruts: Array<string | null>, clienteId: number): Promise<Map<string, HistorialFlete>> {
+  const out = new Map<string, HistorialFlete>();
+  const limpios = [...new Set(ruts.filter((r): r is string => !!r).map(normRut))];
+  if (clienteId !== CLIENTE_ICA || limpios.length === 0) return out;
+  const ocs = await ocsObuma(
+    `AND REPLACE(REPLACE(REPLACE(proveedor_rut,'.',''),'-',''),' ','') IN (${limpios.map(() => '?').join(',')})`, limpios);
+  const porRut = new Map<string, OcFlete[]>();
+  for (const o of ocs) { const k = normRut(o.rut); porRut.set(k, [...(porRut.get(k) || []), o]); }
+  for (const [k, lista] of porRut) out.set(k, resumir(lista));
+  return out;
+}
+
+// Obuma rellena con «SIN INFORMACION» lo que no sabe: eso no es un dato.
+const limpio = (v: unknown): string | null => {
+  const s = String(v ?? '').replace(/\s+/g, ' ').trim();
+  return !s || /^sin informaci[oó]n$/i.test(s) || s === '-' ? null : s;
+};
+
+// Obuma guarda la comuna como código numérico («17», «212»): eso no sirve de zona, solo el texto.
+const comunaTexto = (v: unknown): string | null => { const s = limpio(v); return s && !/^\d+$/.test(s) ? s : null; };
+// Teléfonos vacíos de Obuma vienen como «0» o «000000000».
+const telefonoValido = (v: unknown): string | null => { const s = limpio(v); return s && /[1-9]/.test(s) ? s : null; };
+
+/** Contacto de un proveedor: primero lo que dice Obuma (nombre, teléfono o celular, correo, comuna); lo que falte, del catálogo de
+ *  Proveedores de Licitank (`compras_proveedor`) si el RUT está ahí. */
+async function contactoDe(obuma: Awaited<ReturnType<typeof proveedorPorRut>>, rutNorm: string) {
+  const [cp] = await pool.query(
+    `SELECT contacto_nombre, telefono, correo, comuna FROM compras_proveedor
+      WHERE REPLACE(REPLACE(REPLACE(rut,'.',''),'-',''),' ','') = ? LIMIT 1`, [rutNorm]) as any;
+  const loc = (cp as any[])[0];
+  return {
+    contactoNombre: limpio(obuma?.proveedor_contacto) ?? limpio(loc?.contacto_nombre),
+    telefono: telefonoValido(obuma?.proveedor_telefono) ?? telefonoValido(obuma?.proveedor_celular) ?? telefonoValido(loc?.telefono),
+    correo: limpio(obuma?.proveedor_email) ?? limpio(loc?.correo),
+    comuna: comunaTexto(obuma?.proveedor_comuna) ?? comunaTexto(loc?.comuna),
+  };
+}
+
+export interface CandidatoFletero {
+  rut: string; nombre: string; contactoNombre: string | null; telefono: string | null; correo: string | null; comuna: string | null;
+  historial: HistorialFlete; motivo: string;
+}
+
+/** Transportistas que Obuma ya conoce y que todavía no están en el catálogo. Un proveedor entra si su nombre es de transporte/logística
+ *  o si alguna de sus OC trae SOLO líneas de flete (así una tienda que vendió algo y cobró despacho NO entra). Los datos de contacto
+ *  salen del catálogo de Proveedores (`compras_proveedor`). */
+export async function candidatosFleteros(clienteId: number, soloRuts?: Set<string>): Promise<CandidatoFletero[]> {
+  if (clienteId !== CLIENTE_ICA) return [];
+  const [yaRows] = await pool.query(`SELECT rut FROM compras_fletero WHERE cliente_id = ? AND rut IS NOT NULL`, [clienteId]) as any;
+  const ya = new Set((yaRows as any[]).map(r => normRut(r.rut)));
+  const ocs = await ocsObuma('', []);
+  const porRut = new Map<string, OcFlete[]>();
+  for (const o of ocs) { const k = normRut(o.rut); if (k && !ya.has(k)) porRut.set(k, [...(porRut.get(k) || []), o]); }
+
+  const elegidos: Array<{ k: string; lista: OcFlete[]; motivo: string }> = [];
+  for (const [k, lista] of porRut) {
+    if (soloRuts && !soloRuts.has(k)) continue;
+    const porNombre = NOMBRE_TRANSPORTISTA.test(lista[0].razon);
+    const soloFlete = lista.some(o => o.lineas.length > 0 && o.lineas.every(l => ES_LINEA_FLETE.test(l.descripcion)));
+    if (porNombre || soloFlete) elegidos.push({ k, lista, motivo: porNombre && soloFlete ? 'nombre y OC de flete' : porNombre ? 'por su nombre' : 'sus OC son solo de flete' });
+  }
+  if (elegidos.length === 0) return [];
+
+  // Una consulta a Obuma por candidato, en serie (son pocos): si Obuma falla para uno, se queda con el catálogo local.
+  const salida: CandidatoFletero[] = [];
+  for (const { k, lista, motivo } of elegidos) {
+    const obuma = await proveedorPorRut(lista[0].rut).catch(() => null);
+    const c = await contactoDe(obuma, k);
+    salida.push({ rut: lista[0].rut, nombre: lista[0].razon.replace(/\s+/g, ' ').trim(), ...c, historial: resumir(lista), motivo });
+  }
+  return salida.sort((a, b) => b.historial.ocs - a.historial.ocs);
+}
+
+/** Importa al catálogo los transportistas elegidos (por RUT). Entran como «carga única», con el último flete como precio de referencia
+ *  y su comuna como primera zona; el resto (zonas, categoría, plazo) lo completa una persona. */
+export async function importarFleterosDesdeObuma(ruts: string[], clienteId: number, actorId: number, actorNombre: string | null): Promise<number> {
+  const quiere = new Set(ruts.map(normRut));
+  const candidatos = await candidatosFleteros(clienteId, quiere);
+  for (const c of candidatos) {
+    await crearFletero({
+      rut: c.rut, nombre: c.nombre, categoria: 'UNICA', contactoNombre: c.contactoNombre, telefono: c.telefono, correo: c.correo,
+      comuna: c.comuna, precio: c.historial.ultimoFlete, zonas: c.comuna ? [c.comuna] : [],
+    }, actorId, actorNombre, clienteId);
+  }
+  return candidatos.length;
 }
 
 export interface DatosFletero {
   rut?: string | null; nombre: string; categoria: CategoriaFletero;
+  contactoNombre?: string | null; telefono?: string | null; correo?: string | null; comuna?: string | null;
   capacidadCamion?: string | null; tipoCamion?: string | null; precio?: number | null; costoKm?: number | null;
   incluyeDescarga?: boolean; tienePionetas?: boolean; plazoDespachoDias?: number | null; zonas?: string[];
 }
 
 export interface IdentidadFleteroObuma {
   rut: string; razonSocial: string; contacto: string | null; direccion: string | null; comuna: string | null;
+  telefono: string | null; correo: string | null;
 }
 
 /** §13.3: "Se puebla desde OBUMA, que conecta con facturas y proveedores" — la IDENTIDAD del
@@ -77,26 +243,30 @@ export interface IdentidadFleteroObuma {
 export async function buscarFleteroEnObuma(rut: string): Promise<IdentidadFleteroObuma | null> {
   const p = await proveedorPorRut(rut);
   if (!p) return null;
+  const c = await contactoDe(p, normRut(p.proveedor_rut));
   return {
     rut: p.proveedor_rut, razonSocial: p.proveedor_razon_social,
-    contacto: p.proveedor_contacto || null, direccion: p.proveedor_direccion || null, comuna: p.proveedor_comuna || null,
+    contacto: c.contactoNombre, direccion: p.proveedor_direccion || null, comuna: c.comuna,
+    telefono: c.telefono, correo: c.correo,
   };
 }
 
 /** Alta de fletero (§13.3). El nombre/RUT deberían venir de `buscarFleteroEnObuma` (identidad real,
  *  spec §13.3) — se acepta igual sin ese paso para un fletero que todavía no tiene facturas en OBUMA
  *  (contratado por primera vez), pero la UI ofrece la búsqueda antes de escribir nada a mano. */
-export async function crearFletero(datos: DatosFletero, actorId: number, actorNombre: string | null): Promise<number> {
+export async function crearFletero(datos: DatosFletero, actorId: number, actorNombre: string | null, clienteId: number = CLIENTE_ICA): Promise<number> {
   if (!datos.nombre?.trim()) throw new Error('Falta el nombre del fletero.');
   if (!['UNICA', 'CONSOLIDADA'].includes(datos.categoria)) throw new Error('Categoría inválida.');
   const ahora = ahoraChileSQL();
   const [r] = await pool.query(
     `INSERT INTO compras_fletero
-       (rut, nombre, categoria, capacidad_camion, tipo_camion, precio, costo_km, incluye_descarga, tiene_pionetas,
-        plazo_despacho_dias, creado_por, creado_por_nombre, created_at, updated_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+       (cliente_id, rut, nombre, categoria, contacto_nombre, telefono, correo, comuna, capacidad_camion, tipo_camion, precio, costo_km,
+        incluye_descarga, tiene_pionetas, plazo_despacho_dias, creado_por, creado_por_nombre, created_at, updated_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     [
-      datos.rut?.trim() || null, datos.nombre.trim().slice(0, 300), datos.categoria,
+      clienteId, datos.rut?.trim() || null, datos.nombre.trim().slice(0, 300), datos.categoria,
+      datos.contactoNombre?.trim().slice(0, 160) || null, datos.telefono?.trim().slice(0, 40) || null,
+      datos.correo?.trim().slice(0, 160) || null, datos.comuna?.trim().slice(0, 120) || null,
       datos.capacidadCamion || null, datos.tipoCamion || null, datos.precio ?? null, datos.costoKm ?? null,
       datos.incluyeDescarga ? 1 : 0, datos.tienePionetas ? 1 : 0,
       datos.categoria === 'CONSOLIDADA' ? (datos.plazoDespachoDias ?? null) : null,
@@ -118,11 +288,18 @@ export async function crearFletero(datos: DatosFletero, actorId: number, actorNo
   return id;
 }
 
+/** Anti-IDOR: ¿este fletero es del cliente de quien consulta? Un id de otro cliente responde «no encontrado». */
+export async function fleteroEsDeCliente(id: number, clienteId: number): Promise<boolean> {
+  const [rows] = await pool.query(`SELECT 1 FROM compras_fletero WHERE id = ? AND cliente_id = ? LIMIT 1`, [id, clienteId]) as any;
+  return (rows as any[]).length > 0;
+}
+
 export async function actualizarFletero(id: number, datos: Partial<DatosFletero> & { activo?: boolean }): Promise<void> {
   const campos: string[] = []; const valores: any[] = [];
   const mapa: Record<string, string> = {
     rut: 'rut', nombre: 'nombre', categoria: 'categoria', capacidadCamion: 'capacidad_camion', tipoCamion: 'tipo_camion',
     precio: 'precio', costoKm: 'costo_km', plazoDespachoDias: 'plazo_despacho_dias',
+    contactoNombre: 'contacto_nombre', telefono: 'telefono', correo: 'correo', comuna: 'comuna',
   };
   for (const [k, col] of Object.entries(mapa)) {
     if ((datos as any)[k] !== undefined) { campos.push(`${col} = ?`); valores.push((datos as any)[k]); }
@@ -185,15 +362,15 @@ export interface SugerenciaFletero extends Fletero { costoTentativo: number | nu
  *  Orden (§13.3.1, "la diferenciación principal es por costo"): UNICA por precio ascendente;
  *  CONSOLIDADA por plazo de despacho primero (§13.3.3, "acá el plazo sí manda"), precio después.
  *  Los que quedaron en pana NUNCA aparecen (§13.3.2). */
-export async function sugerirFleteros(zona: string, urgente: boolean): Promise<SugerenciaFletero[]> {
+export async function sugerirFleteros(zona: string, urgente: boolean, clienteId: number = CLIENTE_ICA): Promise<SugerenciaFletero[]> {
   const zonaNorm = normZona(zona);
   if (!zonaNorm) return [];
   const [rows] = await pool.query(
     `SELECT f.* FROM compras_fletero f
        JOIN compras_fletero_zona z ON z.fletero_id = f.id
-      WHERE f.activo = 1 AND f.quedo_en_pana = 0 AND z.zona = ?
+      WHERE f.cliente_id = ? AND f.activo = 1 AND f.quedo_en_pana = 0 AND z.zona = ?
         ${urgente ? "AND f.categoria = 'UNICA'" : ''}`,
-    [zonaNorm],
+    [clienteId, zonaNorm],
   ) as any;
   const fleteros = rows as any[];
   const zonasPorId = await zonasDe(fleteros.map(f => f.id));

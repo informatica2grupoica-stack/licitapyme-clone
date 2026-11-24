@@ -187,10 +187,10 @@ export default function EntregasPage() {
   }, [entregas, q, fResponsable, fEmpresa, fEstado, fechaDesde, fechaHasta, orden]);
 
   return (
-    <AppLayout title="Entregas" breadcrumb={[{ label: 'Entregas' }]}>
+    <AppLayout title="Acuses de recibo" breadcrumb={[{ label: 'Ganadas/Perdidas', href: '/adjudicadas' }, { label: 'Acuses de recibo' }]}>
       <div className="@container max-w-5xl mx-auto p-4 sm:p-6 lg:p-8">
         <Encabezado
-          titulo="Entrega de proyectos"
+          titulo="Acuses de recibo de proyectos ganados"
           descripcion={`${hayFiltro || q ? `${filtradas.length} de ${entregas.length}` : 'Proyectos ganados'} según el acta de Mercado Público, con lo que se comprometió al postular.`}
           acciones={entregas.length > 0 ? (
             <div className="relative">

@@ -2,6 +2,11 @@
 
 Traspasado desde la memoria personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-11-24 — «Entregas» sale del menú; el acuse de proyecto ganado se queda (tsc ok; visto en navegador; SIN desplegar)
+**Decisión del dueño:** el menú «Entregas» (acuse de recibo de proyectos ganados, F.1: tablas `entrega_proyecto`/`entrega_acuse`) casi no se usaba (55 acuses pendientes, más de la mitad de cuentas de prueba) y su resumen ya está en la ficha de Compras. NO es la entrega física al cliente (eso es «Entrega y cierre» en Compras, `compras_entrega`).
+**Cómo quedó:** sin ítem ni badge en `AppLayout`; el acuse sigue llegando solo por `EntregaPendienteModal` (bloqueante, ya existía; no hizo falta franja en el Dashboard ni chip en la ficha). La página `/entregas` se conserva porque el modal manda a «Ver el detalle»: ahora se llama «Acuses de recibo de proyectos ganados» y se entra desde el modal o desde el botón «Acuses de recibo» de Ganadas/Perdidas (solo admin) para ver quién falta.
+**Pendiente:** limpiar los acuses de cuentas de prueba (Perfil Compras (prueba) 28, Usuario de Prueba 5): escribe en producción, solo con OK del dueño viendo las filas.
+
 ## 2026-10-27 — «¿A qué líneas vamos?» salía en licitaciones globales
 Caso real: 3712-74-LP26 (negocio 1511). Banner «Esta licitación es por línea (1): falta elegir a cuáles
 vamos» en una licitación de adjudicación GLOBAL con una sola línea. El selector miraba solo
