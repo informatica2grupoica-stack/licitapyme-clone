@@ -59,13 +59,15 @@ export function construirAuditoriaHtml(a: AuditoriaCompra, generadoPor?: string 
     const ocs = g.ocs.length === 0 ? '<p class="sutil">Todavía no hay órdenes de compra a este proveedor.</p>' : g.ocs.map(o => {
       const sinFac = o.facturas.length === 0;
       const d = sinFac ? -o.neto : o.facturadoNeto - o.neto;
-      const fs = o.facturas.map(f => `N° ${esc(f.folio ?? 's/n')}${f.fecha ? ` · ${fecha(f.fecha)}` : ''}${f.enlazada ? '' : ' <span class="aviso-i">(está en el proyecto de Obuma, sin enlazar a la OC)</span>'}`).join('<br>');
+      const nombreDoc = (t?: string) => t === '61' ? 'Nota de crédito' : t === '56' ? 'Nota de débito' : 'Factura';
+      const fs = o.facturas.map(f => `${nombreDoc(f.tipo)} N° ${esc(f.folio ?? 's/n')}${f.fecha ? ` · ${fecha(f.fecha)}` : ''}${f.tipo === '61' || f.tipo === '56' ? ` · ${clp(f.neto)}` : f.enlazada ? '' : ' <span class="aviso-i">(está en el proyecto de Obuma, sin enlazar a la OC)</span>'}`).join('<br>');
+      const anulada = !sinFac && Math.abs(o.facturadoNeto) <= 2;
       const lineasOc = o.lineas.length === 0 ? '' : `<table class="t fijo"><colgroup><col><col style="width:50px"><col style="width:92px"><col style="width:100px"></colgroup><thead><tr><th>Producto en la OC</th><th class="num">Cant.</th><th class="num">Precio c/u</th><th class="num">Neto</th></tr></thead><tbody>${o.lineas.map(l => `<tr><td>${esc(l.producto)}</td><td class="num">${l.cantidad ?? '—'}</td><td class="num">${clp(l.unit)}</td><td class="num">${clp(l.neto)}</td></tr>`).join('')}</tbody></table>`;
       return `<div class="oc"><div class="oc-cab"><b>OC ${esc(o.folio)}</b><span>${fecha(o.fecha)}</span>${estado(o.estado)}</div>
         ${lineasOc}
         <div class="cierre">
           <div class="paso-c"><span class="rot">Total de la OC</span><span class="cif">${clp(o.neto)}</span></div><span class="flecha">→</span>
-          <div class="paso-c"><span class="rot">Factura</span><span class="cif">${sinFac ? '<span class="mas">sin factura</span>' : clp(o.facturadoNeto)}</span>${sinFac ? '' : `<span class="peq">${fs}</span>`}</div><span class="flecha">→</span>
+          <div class="paso-c"><span class="rot">Facturado (neto de notas)</span><span class="cif">${sinFac ? '<span class="mas">sin factura</span>' : anulada ? '<span class="mas">anulada, sin factura vigente</span>' : clp(o.facturadoNeto)}</span>${sinFac ? '' : `<span class="peq">${fs}</span>`}</div><span class="flecha">→</span>
           <div class="paso-c"><span class="rot">Diferencia (factura − OC)</span><span class="cif">${dif(d)}</span>${Math.abs(d) >= 1 && Math.abs(d) <= 2 ? '<span class="peq">redondeo de IVA</span>' : ''}</div>
         </div></div>`;
     }).join('');

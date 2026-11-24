@@ -92,7 +92,8 @@ export async function auditoriaCompra(negocioId: number): Promise<AuditoriaCompr
   } catch { /* sin snapshot de Obuma: se audita sin las facturas sueltas */ }
   const foliosEnlazados = new Set(gastos.facturas.detalle.map(f => `${f.folio}`));
   const netoDoc = (d: DocumentoDelProyecto) => r0(d.neto ?? d.total / 1.19);
-  const sueltas = documentos.filter(d => d.proveedorNombre && !foliosEnlazados.has(d.folio));
+  // Las notas de crédito y de débito nunca cuelgan de una OC en Licitank, y su folio puede repetirse con el de una factura de otro proveedor: no se comparan por folio.
+  const sueltas = documentos.filter(d => d.proveedorNombre && (d.tipo === '61' || d.tipo === '56' || !foliosEnlazados.has(d.folio)));
   const notasCredito = documentos.filter(d => d.tipo === '61');
   const sueltaUsada = new Set<string>();
 
@@ -169,37 +170,59 @@ export async function auditoriaCompra(negocioId: number): Promise<AuditoriaCompr
     g.hallazgos.push({ etapa: 'cotizado-oc', donde: `${l.producto} · ${g.proveedor} · OC ${l.ocFolio}`, monto: l.neto ?? 0, texto: `La OC ${l.ocFolio} incluye «${l.producto}»${l.cantidad ? ` (${l.cantidad} u.)` : ''} que no es un producto cotizado (transporte o extra).`, accion: 'Confirmar que esté aprobado.' });
   }
 
-  // 2) OC y facturas por proveedor.
+  // 2) OC y facturas por proveedor. Las notas de crédito (restan) y de débito (suman) del proyecto de Obuma se descuentan de lo facturado de su OC:
+  // por proveedor (si tiene una sola OC en este negocio) o por monto igual a una factura de la OC (la nota puede venir a nombre de otra razón social).
   for (const o of res.porOc) {
     const g = grupoDeOc.get(String(o.ocFolio)) ?? grupo(o.proveedor);
     const facs: FacturaAuditoria[] = gastos.facturas.detalle.filter(f => f.ocFolio === o.ocFolio)
-      .map(f => ({ folio: `${f.folio}`, fecha: fechaISO(f.fecha), neto: r0((f.total || 0) / 1.19), enlazada: true }));
+      .map(f => ({ folio: `${f.folio}`, fecha: fechaISO(f.fecha), neto: r0((f.total || 0) / 1.19), enlazada: true, tipo: '33' }));
     if (o.ocPropia && o.facturas > 0 && !facs.length) facs.push({ folio: null, fecha: null, neto: o.facturadoNeto, enlazada: true });
+    // Notas de crédito/débito de esta OC: las asocia el Comparativo (misma regla, un solo lugar) y ya vienen sumadas en o.facturadoNeto.
+    const notas = o.notas ?? [];
+    for (const n of notas) {
+      for (const d of sueltas) if (d.tipo === n.tipo && d.folio === n.folio) sueltaUsada.add(d.folio);
+      facs.push({ folio: n.folio, fecha: fechaISO(n.fecha), neto: n.neto, enlazada: false, tipo: n.tipo });
+    }
+    const facturadoOc = o.facturadoNeto;
     const lineasOc = [
       ...res.filas.filter(f => f.obumaOc && String(f.obumaOc).split(', ').includes(o.ocFolio)).map(f => ({ producto: f.producto, cantidad: f.cantidad as number | null, unit: f.obumaUnit, neto: f.obumaNeto })),
       ...res.lineasSinPlan.filter(l => l.ocFolio === o.ocFolio).map(l => ({ producto: l.producto, cantidad: l.cantidad, unit: l.cantidad && l.neto != null ? r0(l.neto / l.cantidad) : null, neto: l.neto })),
     ];
-    g.ocs.push({ folio: o.ocFolio, estado: o.estado, fecha: fechaOc.get(o.ocFolio) ?? null, neto: o.obumaNeto, facturadoNeto: o.facturadoNeto, facturas: facs, lineas: lineasOc });
+    g.ocs.push({ folio: o.ocFolio, estado: o.estado, fecha: fechaOc.get(o.ocFolio) ?? null, neto: o.obumaNeto, facturadoNeto: facturadoOc, facturas: facs, lineas: lineasOc });
     g.ocNeto += o.obumaNeto;
-    g.facturadoNeto += o.facturadoNeto;
+    g.facturadoNeto += facturadoOc;
 
-    const dif = o.facturadoNeto - o.obumaNeto;
+    const dif = facturadoOc - o.obumaNeto;
     if (o.obumaNeto <= 0 || o.din?.length) continue;
+    const donde = `${g.proveedor} · OC ${o.ocFolio}`;
     if (o.facturas === 0) {
       const cand = sueltas.find(d => !sueltaUsada.has(d.folio) && (d.tipo === '33' || d.tipo === '34') && nombreSimple(d.proveedorNombre) === nombreSimple(o.proveedor));
       if (cand) {
         sueltaUsada.add(cand.folio);
         const n = netoDoc(cand);
-        g.ocs[g.ocs.length - 1].facturas.push({ folio: cand.folio, fecha: fechaISO(cand.fecha), neto: n, enlazada: false });
-        g.hallazgos.push({ etapa: 'oc-factura', donde: `${g.proveedor} · OC ${o.ocFolio} · factura N° ${cand.folio}`, monto: dif, texto: `La OC ${o.ocFolio} (${o.estado ?? '—'}) figura sin factura, pero la factura N° ${cand.folio} de ${cand.proveedorNombre} (${clp(n)} neto, ${clp(cand.total)} con IVA) ya está contabilizada en el proyecto de Obuma y ${Math.abs(n - o.obumaNeto) <= 2 ? 'coincide con la OC' : `difiere de la OC en ${clp(n - o.obumaNeto)}`}: solo no está enlazada a la OC.`, accion: `En Obuma, enlazar la factura ${cand.folio} a la OC ${o.ocFolio}.` });
+        g.ocs[g.ocs.length - 1].facturas.push({ folio: cand.folio, fecha: fechaISO(cand.fecha), neto: n, enlazada: false, tipo: cand.tipo });
+        // Esa factura suelta puede estar anulada por una nota de crédito del mismo monto: entonces no hay nada que enlazar, la OC sigue sin factura.
+        const anula = sueltas.find(d => !sueltaUsada.has(d.folio) && d.tipo === '61' && nombreSimple(d.proveedorNombre) === nombreSimple(o.proveedor) && Math.abs(Math.abs(netoDoc(d)) - n) <= 2);
+        if (anula) {
+          sueltaUsada.add(anula.folio);
+          g.ocs[g.ocs.length - 1].facturas.push({ folio: anula.folio, fecha: fechaISO(anula.fecha), neto: netoDoc(anula), enlazada: false, tipo: '61' });
+          g.hallazgos.push({ etapa: 'oc-factura', donde: `${donde} · factura N° ${cand.folio}`, monto: dif, texto: `La factura N° ${cand.folio} (${clp(n)}) de la OC ${o.ocFolio} quedó anulada por la nota de crédito N° ${anula.folio} y no hay una factura nueva: la OC queda sin facturar en Obuma.`, accion: 'Confirmar con Compras si falta re-facturar o si la nota de crédito está mal puesta.' });
+          continue;
+        }
+        g.hallazgos.push({ etapa: 'oc-factura', donde: `${donde} · factura N° ${cand.folio}`, monto: dif, texto: `La OC ${o.ocFolio} (${o.estado ?? '—'}) figura sin factura, pero la factura N° ${cand.folio} de ${cand.proveedorNombre} (${clp(n)} neto, ${clp(cand.total)} con IVA) ya está contabilizada en el proyecto de Obuma y ${Math.abs(n - o.obumaNeto) <= 2 ? 'coincide con la OC' : `difiere de la OC en ${clp(n - o.obumaNeto)}`}: solo no está enlazada a la OC.`, accion: `En Obuma, enlazar la factura ${cand.folio} a la OC ${o.ocFolio}.` });
       } else {
-        g.hallazgos.push({ etapa: 'oc-factura', donde: `${g.proveedor} · OC ${o.ocFolio}`, monto: dif, texto: `La OC ${o.ocFolio} (${o.estado ?? '—'}, ${clp(o.obumaNeto)}) no tiene factura.`, accion: 'Pedir la factura al proveedor o enlazarla en Obuma si ya llegó.' });
+        g.hallazgos.push({ etapa: 'oc-factura', donde, monto: dif, texto: `La OC ${o.ocFolio} (${o.estado ?? '—'}, ${clp(o.obumaNeto)}) no tiene factura.`, accion: 'Pedir la factura al proveedor o enlazarla en Obuma si ya llegó.' });
       }
+    } else if (notas.length) {
+      const lista = notas.map(n => `${n.tipo === '61' ? 'nota de crédito' : 'nota de débito'} N° ${n.folio} (${clp(n.neto)})`).join(', ');
+      if (Math.abs(facturadoOc) <= 2) g.hallazgos.push({ etapa: 'oc-factura', donde, monto: dif, texto: `La factura de la OC ${o.ocFolio} quedó anulada por ${lista} y no hay una factura nueva: la OC queda sin facturar en Obuma.`, accion: 'Confirmar con Compras si falta re-facturar o si la nota de crédito está mal puesta.' });
+      else if (Math.abs(dif) <= 2) g.hallazgos.push({ etapa: 'oc-factura', donde, monto: dif, texto: `OC ${o.ocFolio}: la factura se corrigió con ${lista}; el neto final queda ${clp(Math.abs(dif))} de diferencia por redondeo.` });
+      else g.hallazgos.push({ etapa: 'oc-factura', donde, monto: dif, texto: `Con ${lista}, lo facturado de la OC ${o.ocFolio} queda en ${clp(facturadoOc)}: ${clp(Math.abs(dif))} ${dif > 0 ? 'más' : 'menos'} que la OC.`, accion: 'Revisar con Compras que las notas corresponden a esta OC y el monto final.' });
     } else if (Math.abs(dif) >= 1) {
-      if (Math.abs(dif) <= 2) g.hallazgos.push({ etapa: 'oc-factura', donde: `${g.proveedor} · OC ${o.ocFolio}`, monto: dif, texto: `OC ${o.ocFolio}: ${clp(Math.abs(dif))} de diferencia por redondeo del IVA (la factura se calcula con IVA y se pasa a neto).` });
+      if (Math.abs(dif) <= 2) g.hallazgos.push({ etapa: 'oc-factura', donde, monto: dif, texto: `OC ${o.ocFolio}: ${clp(Math.abs(dif))} de diferencia por redondeo del IVA (la factura se calcula con IVA y se pasa a neto).` });
       else {
         const nc = notasCredito.filter(d => nombreSimple(d.proveedorNombre) === nombreSimple(o.proveedor));
-        g.hallazgos.push({ etapa: 'oc-factura', donde: `${g.proveedor} · OC ${o.ocFolio}`, monto: dif, texto: `La factura de la OC ${o.ocFolio} es ${clp(Math.abs(dif))} ${dif > 0 ? 'mayor' : 'menor'} que la OC (${pct(o.facturadoNeto, o.obumaNeto)}).${nc.length ? ` Hay nota de crédito ${nc.map(d => d.folio).join(', ')} de este proveedor en el proyecto.` : ''}`, accion: dif > 0 ? 'Pagaste más que lo ordenado: revisar con el proveedor.' : 'Revisar si falta cobrar o hay una entrega parcial.' });
+        g.hallazgos.push({ etapa: 'oc-factura', donde, monto: dif, texto: `La factura de la OC ${o.ocFolio} es ${clp(Math.abs(dif))} ${dif > 0 ? 'mayor' : 'menor'} que la OC (${pct(facturadoOc, o.obumaNeto)}).${nc.length ? ` Hay nota de crédito ${nc.map(d => d.folio).join(', ')} de este proveedor en el proyecto.` : ''}`, accion: dif > 0 ? 'Pagaste más que lo ordenado: revisar con el proveedor.' : 'Revisar si falta cobrar o hay una entrega parcial.' });
       }
     }
   }

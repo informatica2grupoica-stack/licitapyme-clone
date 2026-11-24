@@ -9,6 +9,7 @@ import { resumenGastosCompra } from '@/app/lib/compras-oc-obuma';
 import { emparejarPlanConObuma } from '@/app/lib/compras-sku-obuma';
 import { netoDeCompra, esOcDeGarantia } from '@/app/lib/obuma-compras';
 import { listarProyectosObuma } from '@/app/lib/compras-proyectos-obuma';
+import { asociarNotasAOc, type NotaDeOc } from '@/app/lib/compras-notas-factura';
 import { listarGastos } from '@/app/lib/compras-gastos';
 import { listarOcPropias } from '@/app/lib/compras-oc-propia';
 import pool from '@/app/lib/db';
@@ -27,7 +28,9 @@ export interface FilaComparativa {
 }
 export interface FilaPorOc {
   ocFolio: string; proveedor: string | null; estado: string | null;
-  planNeto: number | null; obumaNeto: number; facturadoNeto: number; facturas: number;
+  planNeto: number | null; obumaNeto: number; /** Neto de las facturas de la OC, ya con sus notas de crédito (restan) y de débito (suman). */ facturadoNeto: number; facturas: number;
+  /** Notas de crédito/débito del proyecto de Obuma asociadas a esta OC (ya incluidas en facturadoNeto). */
+  notas?: NotaDeOc[];
   ocPropia?: boolean;
   /** OC interna a una empresa del grupo: neto que es solo respaldo (los productos ya tienen OC externa) y no suma. */
   respaldoInternoNeto?: number;
@@ -167,6 +170,22 @@ export async function resumenComparativoCompra(negocioId: number): Promise<Resum
     });
   }
 
+  // Notas de crédito/débito del proyecto de Obuma: una factura anulada o corregida no puede seguir contando entera como «facturado».
+  try {
+    const { proyectos } = await listarProyectosObuma();
+    const documentos = proyectos.find(p => p.negociosCoincidentes.some(n => n.negocioId === negocioId))?.documentos ?? [];
+    const notasPorOc = asociarNotasAOc(documentos, porOc.map(o => ({
+      folio: o.ocFolio, proveedor: o.proveedor, ocPropia: o.ocPropia,
+      facturasNeto: gastos.facturas.detalle.filter(f => f.ocFolio === o.ocFolio).map(f => r0((f.total || 0) / 1.19)),
+    })));
+    for (const o of porOc) {
+      const notas = notasPorOc.get(o.ocFolio);
+      if (!notas?.length) continue;
+      o.notas = notas;
+      o.facturadoNeto += notas.reduce((s, n) => s + n.neto, 0);
+    }
+  } catch { /* sin snapshot de Obuma: se muestra lo facturado sin notas */ }
+
   const sum = (xs: (number | null)[]) => xs.reduce<number>((s, x) => s + (x ?? 0), 0);
   const venta = sum(filas.map(f => f.ventaNeto));
   const costeoTot = sum(filas.map(f => f.costeoNeto));
@@ -206,6 +225,8 @@ export async function resumenComparativoCompra(negocioId: number): Promise<Resum
   if (otro.length) avisos.push(`${otro.length} producto(s) se compraron a un proveedor distinto al de la cotización elegida: ${otro.map(f => `${f.producto} (cotización ${f.planProveedor}, Obuma ${f.obumaProveedor})`).join('; ')}.`);
   // Una OC en $0 (p. ej. la garantía de seriedad de FINFAST) no es una compra: no necesita factura.
   const sinFactura = porOc.filter(o => o.facturas === 0 && o.obumaNeto > 0 && !o.din?.length);
+  const anuladas = porOc.filter(o => o.notas?.length && o.obumaNeto > 0 && Math.abs(o.facturadoNeto) <= 2);
+  if (anuladas.length) avisos.push(`${anuladas.length} OC con la factura anulada por nota de crédito y sin factura nueva: ${anuladas.map(o => `OC ${o.ocFolio} ${o.proveedor || ''}`).join('; ')}.`);
   if (sinFactura.length) avisos.push(`${sinFactura.length} OC sin factura todavía: ${sinFactura.map(o => `OC ${o.ocFolio} ${o.proveedor || ''} (${o.estado || '—'})`).join('; ')}.`);
   if (gastos.facturas.descartadas.length) avisos.push(`${gastos.facturas.descartadas.length} factura(s) no se suman por estar mal enlazadas o duplicadas en Obuma (ver el recuadro de arriba).`);
   if (costeoTot > 0 && costoReal > costeoTot) avisos.push(`Lo comprado (${clp(costoReal)} entre OC de Obuma y gastos extra) supera lo costeado (${clp(costeoTot)}).`);
