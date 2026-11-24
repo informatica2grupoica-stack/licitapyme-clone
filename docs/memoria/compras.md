@@ -3,6 +3,12 @@
 Pantalla principal: `/compras/[negocioId]` (`ComprasChrome.tsx`). Traspasado desde la memoria
 personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-11-24 — Proveedores: todo desde Obuma (correo/teléfono/región), enlaces de inactivos, 26 de prueba borrados (tsc ok; sync corrido en la BD real; SIN desplegar)
+**Problema:** el catálogo mostraba Correo/Teléfono vacíos (la sync no los guardaba aunque `proveedores.list.json` los trae: `proveedor_email`, `_telefono`/`_celular`, `_region`) y 109 proveedores sin enlace a Obuma.
+**Hecho:** `identidadDesdeObuma` guarda correo/teléfono/región solo si Obuma tiene dato (no pisa lo escrito a mano). La sync ya no ignora un proveedor inactivo en Obuma si lo tenemos por id o RUT (Obuma tiene 2.854, 435 activos; los inactivos nuevos no se importan). Corrida real: 490 actualizados; 26 proveedores sin Obuma y sin cotizaciones/OC borrados (pruebas «ZZ…», demos «Tecno Andes»…, «(por completar)» huérfanos; respaldo solo en el scratchpad); 12 enlazados por nombre revisado a mano.
+**REGLAS DEL DUEÑO (24-nov):** (1) NUNCA borrar un proveedor de Licitank sin su autorización expresa (los 26 borrados hoy fueron autorizados por «si no estaban en Obuma, elimínalos» y no tenían cotizaciones ni OC; los 52 restantes NO se borran). (2) Un proveedor sin RUT no entra al catálogo: `obtenerOCrearProveedor` devuelve `null` y la cotización se guarda igual con su nombre, sin ficha.
+**Pendiente:** 52 siguen sin Obuma (casi todos con cotizaciones reales: crearlos en Obuma con «Crear en Obuma» o decidir borrar), duplicados Hoffens (593/594) y Zhengzhou (405 / 539 «OMAR MARTIN», RUT 55.555.555-5). «Categoría» no existe en Obuma: se carga a mano. Los «(por completar)» nacen en `cotizaciones/route.ts` cuando no se lee el proveedor del archivo.
+
 ## 2026-11-24 — OC modificada directo en Obuma: botón «Actualizar desde Obuma» (tsc ok; SIN probar contra Obuma real; SIN desplegar)
 **Problema:** la OC 4032 (Bioplast) se cambió en Obuma y Licitank seguía mostrando las líneas/totales guardados al emitirla (`compras_orden_compra_obuma.items_json`): solo «Modificar OC» de Licitank los actualizaba.
 **Hecho:** `sincronizarOcDesdeObuma` (`compras-oc-obuma.ts`) relee la OC en Obuma y rearma líneas (nuevas se agregan, quitadas se sacan, las conocidas conservan sus datos), totales, Comprado y margen; POST `.../orden-compra-obuma/modificar` con `{ocId, sincronizar:true}`; botón junto a «Modificar OC» en `RepartoAdminCard`.

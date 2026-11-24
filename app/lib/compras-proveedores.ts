@@ -197,6 +197,12 @@ function identidadDesdeObuma(
     contactoNombre: limpiarCampoObuma(remoto.proveedor_contacto),
     direccion: limpiarCampoObuma(remoto.proveedor_direccion),
     comuna: limpiarCampoObuma(remoto.proveedor_comuna),
+    // Correo, teléfono y región SÍ vienen en proveedores.list.json (verificado 24-nov-2026) pero no
+    // se guardaban. Solo se incluyen si Obuma tiene dato: `undefined` deja intacto lo que el equipo
+    // ya haya escrito a mano (p. ej. el correo guardado al «Enviar OC al proveedor»).
+    correo: limpiarCampoObuma(remoto.proveedor_email) ?? undefined,
+    telefono: (limpiarCampoObuma(remoto.proveedor_telefono) ?? limpiarCampoObuma(remoto.proveedor_celular)) ?? undefined,
+    region: limpiarCampoObuma(remoto.proveedor_region) ?? undefined,
     obumaProveedorId: obumaId,
     obumaTieneCuentaBancaria: String(remoto.proveedor_banco_cuenta) === '1',
     obumaNumeroCuenta: limpiarCampoObuma(remoto.proveedor_nro_cuenta),
@@ -259,7 +265,7 @@ export async function validarProveedorObuma(rut: string): Promise<ValidacionProv
  *  catálogo completo — y si existe ahí, la ficha se crea ya con giro/contacto/dirección/comuna
  *  reales y enlazada a `obuma_proveedor_id`. Si Obuma no lo tiene o la consulta falla (offline,
  *  cuota agotada), sigue el camino de siempre: ficha mínima con lo tipeado a mano. */
-export async function obtenerOCrearProveedor(nombreEmpresa: string, rut: string | null, actorId: number, actorNombre: string | null): Promise<number> {
+export async function obtenerOCrearProveedor(nombreEmpresa: string, rut: string | null, actorId: number, actorNombre: string | null): Promise<number | null> {
   const nombreLimpio = nombreEmpresa.trim();
   if (rut?.trim()) {
     // BUG REAL (10-sep-2026, auditoría estática): comparar el RUT tal cual llegó ("76.123.456-7"
@@ -289,6 +295,9 @@ export async function obtenerOCrearProveedor(nombreEmpresa: string, rut: string 
     const match = (rows as any[]).find(r => normNombreProveedor(r.nombre_empresa) === nombreNorm);
     if (match) return match.id;
   }
+  // Regla del dueño (24-nov-2026): un proveedor sin RUT (los «(por completar) archivo.pdf» y nombres sueltos de
+  // cotizaciones) NO entra al catálogo; la cotización se guarda igual con su nombre, sin ficha. Solo entra con RUT.
+  if (!rut?.trim()) return null;
   return crearProveedor({ nombreEmpresa: nombreLimpio, rut }, actorId, actorNombre);
 }
 
@@ -370,11 +379,15 @@ export async function sincronizarProveedoresObuma(
   const vistoRutNorm = new Set<string>();
   const unicos: ObumaProveedor[] = [];
   for (const p of remotos) {
-    if (p.proveedor_activo !== '1' || !p.proveedor_razon_social?.trim()) continue;
+    if (!p.proveedor_razon_social?.trim()) continue;
     const obumaId = String(p.proveedor_id);
     if (vistoObumaId.has(obumaId)) continue;
     const identidad = identidadDesdeObuma(p, formasPago, comprasPorProveedor);
     const rutNorm = identidad.rut ? normRut(identidad.rut) : null;
+    // Un proveedor que Obuma marca inactivo solo se importa si YA lo tenemos (por id o RUT): así se
+    // enlaza y refresca (cotizaciones y OC lo usan) sin traer los ~2.400 inactivos al catálogo.
+    const yaLoTenemos = localPorObumaId.has(obumaId) || (!!rutNorm && localPorRut.has(rutNorm));
+    if (p.proveedor_activo !== '1' && !yaLoTenemos) continue;
     if (rutNorm && vistoRutNorm.has(rutNorm)) continue;
     vistoObumaId.add(obumaId);
     if (rutNorm) vistoRutNorm.add(rutNorm);
