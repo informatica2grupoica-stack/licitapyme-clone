@@ -1692,6 +1692,7 @@ export default function ComprasPage() {
           'Lugar': lugarCorto(f) || '',
           'Licitación': f.licitacionNombre || '',
           'Código': f.licitacionCodigo,
+          'Empresa': f.empresaNombre || '',
           'Estado': estadoEntregaGantt(f, h).texto,
           'Monto nuestro': f.montoNuestro ?? '',
           'Ganado (fecha)': fechaHoraParaExcel(f.ganadoAt).fecha,
@@ -1712,7 +1713,7 @@ export default function ComprasPage() {
         };
       });
       const ws = hojaDeFilas(XLSX, filas);
-      ws['!cols'] = [{ wch: 16 }, { wch: 52 }, { wch: 16 }, { wch: 26 }, { wch: 14 }, { wch: 14 }, { wch: 22 }, { wch: 9 }, { wch: 10 }, { wch: 13 }, { wch: 13 }, { wch: 13 }, { wch: 12 }, { wch: 15 }, { wch: 30 }, { wch: 22 }, { wch: 22 }, { wch: 9 }, { wch: 12 }];
+      ws['!cols'] = [{ wch: 16 }, { wch: 52 }, { wch: 16 }, { wch: 24 }, { wch: 26 }, { wch: 14 }, { wch: 14 }, { wch: 22 }, { wch: 9 }, { wch: 10 }, { wch: 13 }, { wch: 13 }, { wch: 13 }, { wch: 12 }, { wch: 15 }, { wch: 30 }, { wch: 22 }, { wch: 22 }, { wch: 9 }, { wch: 12 }];
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, ambito === 'precompras' ? 'Pre-compras' : 'Compras');
       XLSX.writeFile(wb, `compras-${dayjs().format('DD-MM-YYYY')}.xlsx`);
