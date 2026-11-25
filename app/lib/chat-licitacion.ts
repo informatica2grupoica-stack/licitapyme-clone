@@ -15,10 +15,9 @@
 // Modelo principal: GLM de Z.AI, fijado a glm-4.7 (MODELO_CHAT_PRINCIPAL más abajo) — NO el
 // glm-4.7-flashx por defecto del resto del sistema, ver el comentario junto a esa constante.
 // Respaldo automático (cfgTextoRespaldos en gemini.ts): otro modelo GLM más liviano, luego
-// DeepSeek. Gemini está RETIRADO (dormido salvo GEMINI_HABILITADO=1 + key).
+// DeepSeek. Gemini fuera de la plataforma (25-nov-2026).
 
 import pool from './db';
-import { geminiHabilitado } from './gemini';
 import { crearChatIAChatbot, MOTOR_CHAT } from './chat-ia';
 import { ocrTieneHuecos } from './zai-ocr';
 import { filtroDocsVisibles, codigoAlmacenDocs, CLIENTE_ICA } from './tenant';
@@ -57,7 +56,6 @@ const esPropio = (categoria: string | null) => (categoria || '').toUpperCase() =
 // Turnos recientes que se envían al modelo como memoria de la conversación.
 const MAX_TURNOS = 6;
 
-const MODELO_GEMINI = 'gemini-2.5-flash';
 
 // Cada documento se envuelve con este marcador para que el modelo pueda citar de qué
 // documento salió cada dato. Mismo formato en el corpus y en el doc individual. Si el método de
@@ -447,53 +445,6 @@ function historialParaModelo(historial: MensajeHistorial[]): MensajeHistorial[] 
   return historial.slice(-MAX_TURNOS * 2);
 }
 
-const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
-
-// Gemini 2.5-flash vía REST (texto). Alterna al alias estable ante 429/503.
-async function responderConGemini(contexto: string, historial: MensajeHistorial[], pregunta: string): Promise<string> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) throw new Error('GEMINI_API_KEY no configurada');
-
-  const contents = [
-    { role: 'user', parts: [{ text: `DOCUMENTOS DE LA LICITACIÓN:\n\n${contexto}` }] },
-    { role: 'model', parts: [{ text: 'Entendido. Tengo el contenido de los documentos de esta licitación. ¿Qué necesitas saber?' }] },
-    ...historialParaModelo(historial).map(h => ({
-      role: h.rol === 'usuario' ? 'user' : 'model',
-      parts: [{ text: h.mensaje }],
-    })),
-    { role: 'user', parts: [{ text: pregunta }] },
-  ];
-
-  const body = JSON.stringify({
-    systemInstruction: { parts: [{ text: REGLAS }] },
-    contents,
-    // thinkingBudget:0 → sin tokens de "thinking" (un chat sobre contexto dado no lo necesita):
-    // ahorra tokens y evita que el thinking se coma el presupuesto y devuelva texto vacío.
-    generationConfig: { temperature: 0.1, maxOutputTokens: 8_000, thinkingConfig: { thinkingBudget: 0 } },
-  });
-
-  const MODELOS = [MODELO_GEMINI, 'gemini-flash-latest'];
-  const ESPERAS = [0, 5_000];
-  let ultimoErr = '';
-  for (let i = 0; i < MODELOS.length; i++) {
-    if (i > 0) await sleep(ESPERAS[i]);
-    const modelo = MODELOS[i];
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${modelo}:generateContent?key=${apiKey}`,
-      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body, signal: AbortSignal.timeout(60_000) },
-    );
-    if (res.ok) {
-      const data = await res.json();
-      const texto = String(data.candidates?.[0]?.content?.parts?.[0]?.text ?? '').trim();
-      if (texto) return texto;
-      ultimoErr = `${modelo}: respuesta vacía (finishReason=${data.candidates?.[0]?.finishReason})`;
-      continue;
-    }
-    ultimoErr = `${modelo} ${res.status}: ${(await res.text().catch(() => '')).slice(0, 150)}`;
-    if (res.status !== 429 && res.status !== 503) break;
-  }
-  throw new Error(`Gemini no respondió: ${ultimoErr}`);
-}
 
 // AUDITORÍA ago-2026: el chat usaba el proveedor de texto ACTIVO sin fijar modelo, es decir
 // GLM_TEXT_MODEL por defecto (glm-4.7-flashx) — el rung más barato/rápido de la cadena, el mismo
@@ -548,17 +499,9 @@ export async function responderChat(opts: {
   pregunta: string;
 }): Promise<{ respuesta: string; modelo: string }> {
   const { contexto, historial, pregunta } = opts;
-  // Principal: GLM de Z.AI (crearChatIA ya trae respaldo DeepSeek automático). Gemini está
-  // RETIRADO: su respaldo solo corre si se reactiva a propósito (GEMINI_HABILITADO=1 + key).
-  try {
-    const { texto: respuesta, modelo } = await responderConIA(contexto, historial, pregunta);
-    return { respuesta, modelo };
-  } catch (e) {
-    if (!geminiHabilitado()) throw e;
-    console.warn('[chat-licitacion] GLM falló, uso Gemini de respaldo:', e instanceof Error ? e.message : e);
-    const respuesta = await responderConGemini(contexto, historial, pregunta);
-    return { respuesta, modelo: MODELO_GEMINI };
-  }
+  // Motor: Kimi económico con respaldo GLM (chat-ia.ts). Gemini fuera de la plataforma (25-nov-2026, pedido del dueño).
+  const { texto: respuesta, modelo } = await responderConIA(contexto, historial, pregunta);
+  return { respuesta, modelo };
 }
 
 /** Multiempresa: la conversación de una empresa-cliente nunca se mezcla con la de otra aunque hablen de la misma licitación

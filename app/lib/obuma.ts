@@ -86,6 +86,17 @@ export interface ObumaProveedor {
   [k: string]: unknown;
 }
 
+/** Una página de cualquier listado de Obuma (`<endpoint>.list.json`), sin tipar: la usa el espejo de la BD (obuma-espejo.ts). */
+export function listarObumaCrudo(endpoint: string, params: Record<string, string | number | undefined> = {}) {
+  return llamar<ObumaListado<Record<string, unknown>>>(BASE_V1, `/${endpoint}.list.json`, params);
+}
+
+/** Un registro de cualquier entidad de Obuma por su id (`<endpoint>.findById.json/{id}`), o null si no existe. */
+export async function obumaCrudoPorId(endpoint: string, id: string | number): Promise<Record<string, unknown> | null> {
+  const r = await llamar<ObumaListado<Record<string, unknown>>>(BASE_V1, `/${endpoint}.findById.json/${id}`);
+  return r.data?.[0] || null;
+}
+
 export function listarProveedores(params: { limit?: number; page?: number } = {}) {
   return llamar<ObumaListado<ObumaProveedor>>(BASE_V1, '/proveedores.list.json', params);
 }

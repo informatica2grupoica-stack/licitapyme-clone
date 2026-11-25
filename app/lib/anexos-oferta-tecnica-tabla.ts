@@ -89,6 +89,37 @@ export function textoEspecificacionDeFicha(f: FichaLineaAuditor): string | null 
   return partes.length ? partes.join('. ') + '.' : null;
 }
 
+/**
+ * ¿La etiqueta de la casilla pide «Descripción de los productos ofertados» (un cuadro de texto libre
+ * bajo el rótulo, como en el Formato 5 de 2723-79-LE26)? Solo el rótulo completo: «Descripción» a secas
+ * o «Descripción del servicio» son otra cosa.
+ */
+export const RE_DESCRIPCION_DE_PRODUCTOS_OFERTADOS =
+  /^descripci[oó]n\s+(?:t[eé]cnica\s+)?de\s+(?:los|las)\s+(?:productos?|bienes|art[ií]culos|equipos)(?:\s+(?:a\s+)?(?:ofertad[oa]s?|ofrecid[oa]s?|suministrar))?\s*:?\s*$/i;
+
+/**
+ * El texto del cuadro «Descripción de los productos ofertados»: por cada producto del costeo, su nombre
+ * (sin el «- Modelo» del costeo), la cantidad y, si el Auditor tiene la opción APROBADA, lo que ofertamos
+ * (mismo criterio que la columna ESPECIFICACIÓN: sin marca ni modelo, solo requisitos que cumplen con su
+ * valor). `sinEspecificacion` lista los productos que quedaron solo con nombre: el equipo debe saberlo.
+ * Sin productos en el costeo no hay nada que decir y devuelve null (queda pendiente).
+ */
+export function textoDescripcionDeProductosOfertados(
+  items: ItemCosteoPrecio[], fichas?: FichaLineaAuditor[],
+): { texto: string; partes: string[]; sinEspecificacion: string[] } | null {
+  const lista = items.map(it => ({ it, nombre: nombreDeProductoParaAnexo(it.descripcion) })).filter(x => x.nombre);
+  if (!lista.length) return null;
+  const sinEspecificacion: string[] = [];
+  const partes = lista.map(({ it, nombre }, k) => {
+    const ficha = fichaDeProducto(nombre, fichas);
+    const espec = ficha ? textoEspecificacionDeFicha(ficha) : null;
+    if (!espec) sinEspecificacion.push(nombre);
+    const cantidad = it.cantidad ? ` (${new Intl.NumberFormat('es-CL').format(it.cantidad)} ${it.cantidad === 1 ? 'unidad' : 'unidades'})` : '';
+    return `${lista.length > 1 ? `${k + 1}) ` : ''}${nombre}${cantidad}${espec ? `: ${espec}` : '.'}`;
+  });
+  return { texto: partes.join(' '), partes, sinEspecificacion };
+}
+
 export function resolverTablaProductosEnBlanco(tablasCrudo: TablaCruda[], items: ItemCosteoPrecio[], fichas?: FichaLineaAuditor[]): RellenoProductoTecnico[] {
   if (!items.length) return [];
   const out: RellenoProductoTecnico[] = [];

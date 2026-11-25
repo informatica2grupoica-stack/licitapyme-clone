@@ -8,6 +8,9 @@
 //   npx tsx scripts/anexos-banco.mts --out baseline.json  → guarda para comparar
 //   npx tsx scripts/anexos-banco.mts --comparar baseline.json  → corre y hace el diff
 //   npx tsx scripts/anexos-banco.mts --generar salida/         → ADEMÁS escribe los .docx finales
+//   npx tsx scripts/anexos-banco.mts --lic COD1,COD2 --con-datos → todos los Word de esas licitaciones, con costeo,
+//        bases, Auditor y OC como la ruta real (/api/anexos/generar), guardando el texto generado y los totales
+//        para el diff (con --comparar muestra también los valores que CAMBIAN, no solo los que aparecen/desaparecen)
 //
 // `--generar` es el chequeo que ninguna métrica reemplaza: escribe el documento que realmente se
 // subiría (mismo generarAnexoFinal que usa /api/anexos/generar, con las respuestas humanas
@@ -30,6 +33,8 @@ const { analizarAnexoParaUI, generarAnexoFinal } = await import('@/app/lib/anexo
 const { dividirPorFormularios } = await import('@/app/lib/anexos-dividir');
 const { convertirDocADocx } = await import('@/app/lib/anexos-doc-legacy');
 const { conCamposDerivados } = await import('@/app/lib/anexos-derivados');
+const datosAnexo = await import('@/app/lib/anexos-datos');
+const { textoPlanoDeXml } = await import('@/app/lib/anexos-dividir');
 
 // Set por defecto: las licitaciones que HOY están en etapa ANEXOS, que son las únicas con una
 // empresa realmente asignada (la asignación ocurre justo al entrar a esa etapa). Probar con
@@ -40,7 +45,9 @@ const arg = (nombre: string) => {
   const i = process.argv.indexOf(`--${nombre}`);
   return i >= 0 ? process.argv[i + 1] : undefined;
 };
-const ids = (arg('ids')?.split(',').map(Number).filter(Boolean)) || IDS_POR_DEFECTO;
+const lics = arg('lic')?.split(',').map(x => x.trim()).filter(Boolean);
+const conDatos = process.argv.includes('--con-datos');
+let ids = (arg('ids')?.split(',').map(Number).filter(Boolean)) || IDS_POR_DEFECTO;
 const empresaId = arg('empresa') ? Number(arg('empresa')) : undefined;
 const salida = arg('out');
 const comparar = arg('comparar');
@@ -57,7 +64,7 @@ const pool = mysql.createPool({
 // solo sirve para forzar una comparación puntual.
 async function empresaDeLicitacion(codigo: string) {
   const id = empresaId ?? (await pool.query(
-    `SELECT empresa_id FROM negocios WHERE licitacion_codigo = ? AND activo = TRUE AND empresa_id IS NOT NULL LIMIT 1`,
+    `SELECT empresa_id FROM negocios WHERE licitacion_codigo = ? AND activo = TRUE AND empresa_id IS NOT NULL ORDER BY id DESC LIMIT 1`,
     [codigo],
   ) as any)[0][0]?.empresa_id;
   if (!id) return null;
@@ -78,9 +85,23 @@ interface ResultadoDoc {
   alertas: string[];
   checklist: string[];
   error?: string;
+  /** Solo con --con-datos: lo que queda escrito en el .docx final y los totales contra el costeo. */
+  generado?: { lineas: string[]; totales: { etiqueta: string; valor: string }[]; avisos: string[]; costeoNeto: number | null; completados: number; firmaRequerida: boolean };
 }
 
 const resultados: ResultadoDoc[] = [];
+
+// --lic: todos los Word de esas licitaciones (mismo criterio que la ruta real: cualquier .doc/.docx
+// que no sea un documento propio).
+if (lics?.length) {
+  const [rows]: any = await pool.query(
+    `SELECT id FROM documentos_cache WHERE licitacion_codigo IN (?) AND categoria <> 'DOCUMENTOS_PROPIOS'
+        AND (documento_nombre LIKE '%.docx' OR documento_nombre LIKE '%.doc') ORDER BY licitacion_codigo, id`, [lics]);
+  ids = rows.map((r: any) => r.id);
+}
+// Los bytes se guardan una vez en disco: así cada corrida mide el MISMO documento y no depende de la red.
+const carpetaCache = join('scripts', 'scratch', 'cache-docs');
+mkdirSync(carpetaCache, { recursive: true });
 
 for (const id of ids) {
   const [docs]: any = await pool.query(
@@ -92,17 +113,36 @@ for (const id of ids) {
   const base: ResultadoDoc = { id, licitacion: d.licitacion_codigo, nombre: d.documento_nombre, auto: [], pendientes: [], alertas: [], checklist: [] };
   const asignada = await empresaDeLicitacion(d.licitacion_codigo);
   if (!asignada) { console.log(`[${id}] ${d.licitacion_codigo} no tiene empresa asignada — se omite`); continue; }
-  const empresa = asignada.empresa;
+  let empresa = asignada.empresa;
+  // Con --con-datos la ficha es la MISMA de la ruta real (ciudad/comuna, fecha del cierre, datos de la licitación).
+  if (conDatos) { try { empresa = await datosAnexo.cargarEmpresaEnriquecida(d.licitacion_codigo, String(asignada.id)); } catch (e: any) { console.log(`  ERROR empresa: ${e?.message}`); resultados.push({ ...base, error: `empresa: ${e?.message}` }); continue; } }
   // El encabezado va ANTES del trabajo: la generación de .docx imprime sus propias líneas y sin
   // esto aparecían bajo el encabezado del documento anterior.
   console.log(`\n${'='.repeat(78)}\n[${base.licitacion}] ${base.nombre} (id ${id}) — empresa: ${empresa.razon_social}\n${'='.repeat(78)}`);
   try {
-    const res = await fetch(d.documento_url_local);
-    if (!res.ok) throw new Error(`descarga HTTP ${res.status}`);
-    let buffer: Buffer = Buffer.from(await res.arrayBuffer());
-    if (/\.doc$/i.test(d.documento_nombre)) buffer = Buffer.from(await convertirDocADocx(buffer));
+    const rutaCache = join(carpetaCache, `${id}.${/\.doc$/i.test(d.documento_nombre) ? 'docx' : 'bin'}`);
+    let buffer: Buffer;
+    if (existsSync(rutaCache)) buffer = readFileSync(rutaCache);
+    else {
+      const res = await fetch(d.documento_url_local);
+      if (!res.ok) throw new Error(`descarga HTTP ${res.status}`);
+      buffer = Buffer.from(await res.arrayBuffer());
+      if (/\.doc$/i.test(d.documento_nombre)) buffer = Buffer.from(await convertirDocADocx(buffer));
+      writeFileSync(rutaCache, buffer);
+    }
 
-    const analisis = await analizarAnexoParaUI(buffer, empresa);
+    // Costeo, bases, Auditor y OC como la ruta real (los carga una sola vez por licitación).
+    const extra = conDatos ? await (async () => {
+      const [items, bases, auditor, expOc] = await Promise.all([
+        datosAnexo.obtenerItemsCosteoParaAnexo(d.licitacion_codigo), datosAnexo.obtenerTextoBasesParaAnexo(d.licitacion_codigo),
+        datosAnexo.obtenerDatosAuditorParaAnexo(d.licitacion_codigo), datosAnexo.obtenerExperienciaOcParaAnexo(Number(asignada.id)),
+      ]);
+      return { items, bases, auditor, expOc };
+    })() : null;
+
+    const analisis = extra
+      ? await analizarAnexoParaUI(buffer, empresa, extra.items, extra.bases, extra.auditor, false, extra.expOc)
+      : await analizarAnexoParaUI(buffer, empresa);
 
     for (const m of analisis.completadosAuto) base.auto.push({ etiqueta: m.etiqueta, campo: m.campo, valor: m.valor, via: m.via });
     // Las casillas de tabla (celda vacía dentro de una tabla real) NO están en completadosAuto —
@@ -129,11 +169,28 @@ for (const id of ids) {
     base.alertas = (analisis.alertasInadmisibilidad || []).filter(a => !a.disponible).map(a => a.riesgo);
     base.checklist = analisis.checklistPendientes || [];
 
+    if (extra) {
+      const gen = await generarAnexoFinal(buffer, empresa, {}, extra.items, extra.bases, extra.auditor, extra.expOc);
+      const xmlGen = (await abrirDocx(gen.buffer)).xml;
+      const [cr]: any = await pool.query(
+        `SELECT c.total_precio_neto FROM checklist_comercial_costeo c JOIN negocios n ON n.id = c.negocio_id
+          WHERE n.licitacion_codigo = ? AND n.activo = TRUE AND c.vigente = 1 LIMIT 1`, [d.licitacion_codigo]);
+      base.generado = {
+        // Una línea por párrafo del documento tal como queda (para el diff antes/después).
+        lineas: textoPlanoDeXml(xmlGen).split(/\n+/).map((x: string) => x.trim()).filter(Boolean),
+        totales: (gen.totalesEscritos || []).map((t: any) => ({ etiqueta: t.etiqueta, valor: t.valor })),
+        avisos: gen.avisos || [], costeoNeto: cr[0]?.total_precio_neto != null ? Number(cr[0].total_precio_neto) : null,
+        completados: gen.completados, firmaRequerida: !!gen.firmaRequerida,
+      };
+    }
+
     // Mismo camino EXACTO que /api/anexos/generar (relleno + verificación de integridad +
     // división por formulario), con las respuestas humanas vacías — lo que se sube si el usuario
     // no escribe nada a mano.
     if (carpetaDocx) {
-      const gen = await generarAnexoFinal(buffer, empresa, {});
+      const gen = extra
+        ? await generarAnexoFinal(buffer, empresa, {}, extra.items, extra.bases, extra.auditor, extra.expOc)
+        : await generarAnexoFinal(buffer, empresa, {});
       if (!gen.integridad.parrafosIguales) {
         console.log(`  ⚠ integridad FALLÓ (${gen.integridad.parrafosAntes} → ${gen.integridad.parrafosDespues} párrafos) — no se escribe`);
       } else {
@@ -182,10 +239,29 @@ if (comparar) {
       const ahoraAuto = new Set(ahora.auto.map(claveAuto));
       const ganados = [...ahoraAuto].filter(k => !antesAuto.has(k));
       const perdidos = [...antesAuto].filter(k => !ahoraAuto.has(k));
-      if (!ganados.length && !perdidos.length) continue;
+      // Valores que CAMBIAN en una casilla que sigue automática (un dato equivocado nuevo no se vería de otro modo).
+      const valorDe = (xs: { etiqueta: string; campo: string; valor: string }[]) => {
+        const m = new Map<string, string[]>();
+        for (const a of xs) m.set(claveAuto(a), [...(m.get(claveAuto(a)) || []), a.valor]);
+        return m;
+      };
+      const vAntes = valorDe(antes.auto), vAhora = valorDe(ahora.auto);
+      const cambiados: string[] = [];
+      for (const [k, v] of vAhora) {
+        const o = vAntes.get(k); if (!o) continue;
+        if (JSON.stringify(o) !== JSON.stringify(v)) cambiados.push(`${k}: «${o.join('|')}» → «${v.join('|')}»`);
+      }
+      // Líneas del documento generado que aparecen / desaparecen.
+      const lAntes = new Set(antes.generado?.lineas || []), lAhora = new Set(ahora.generado?.lineas || []);
+      const lineasNuevas = antes.generado && ahora.generado ? [...lAhora].filter(l => !lAntes.has(l)) : [];
+      const lineasPerdidas = antes.generado && ahora.generado ? [...lAntes].filter(l => !lAhora.has(l)) : [];
+      if (!ganados.length && !perdidos.length && !cambiados.length && !lineasNuevas.length && !lineasPerdidas.length) continue;
       console.log(`\n[${ahora.licitacion}] ${ahora.nombre}  (${antes.auto.length} → ${ahora.auto.length} auto)`);
       for (const g of ganados) console.log(`   + ${g}`);
       for (const p of perdidos) console.log(`   - ${p}   ← REGRESIÓN, revisar`);
+      for (const c of cambiados) console.log(`   ~ ${c}   ← VALOR DISTINTO, revisar`);
+      for (const l of lineasPerdidas.slice(0, 12)) console.log(`   ◂ ${l.slice(0, 160)}`);
+      for (const l of lineasNuevas.slice(0, 12)) console.log(`   ▸ ${l.slice(0, 160)}`);
     }
     const autoAntes = previo.reduce((s, r) => s + r.auto.length, 0);
     console.log(`\nTotal automáticos: ${autoAntes} → ${totalAuto}  (${totalAuto - autoAntes >= 0 ? '+' : ''}${totalAuto - autoAntes})`);
@@ -193,3 +269,5 @@ if (comparar) {
 }
 
 await pool.end();
+
+process.exit(0); // la conexión del pool de la app queda abierta y el proceso no terminaba solo

@@ -2,6 +2,16 @@
 
 Traspasado desde la memoria personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-11-25 — La viabilidad ya no genera el Excel COSTEO_*.xlsx en los documentos (pedido del dueño)
+**Regla:** `analizarYGuardarViabilidadIAImpl` (`viabilidad-ia.ts`) ya no llama a `autoGenerarCosteo` (se borró junto a `cotizarPreciosManifiesto`). El costeo digital del negocio (`actualizarCosteosTrasReanalisis`) y el volcado de ítems siguen. **Decisión (dueño, 25-nov): «nos quedamos solo con el costeo digital».** Se borró la ruta `/api/documentos/generar-costeo`, los botones «Regenerar» (DocumentosSection) y «Productos a costeo» (GestionAside, ya estaba oculto) y su regla en `modulos.ts`. `generar-costeo.ts` (la librería) se conserva: la usan el costeo digital y «exportar Excel» del editor. No volver a generar un COSTEO_*.xlsx automático en Documentos.
+**Costeo digital (aclarado el mismo día):** no se guarda al terminar la viabilidad; se arma al abrir la pestaña Costeo desde el informe (`estadoDesdeViabilidad`) y el re-análisis lo actualiza si ya está guardado. Los anexos toman precios primero del costeo digital; el xlsx en Documentos Propios era solo respaldo. Sin viabilidad, la pestaña muestra la alerta «Ojo: no tienes costeo si no realizas la viabilidad» (`CosteoEditorCard.tsx`).
+**Pendiente:** sin desplegar; los `COSTEO_*.xlsx` ya subidos siguen en los documentos de cada licitación (no se borraron). `cv/viabilidad-ia.ts` ya no lo generaba (queda su función muerta).
+
+## 2026-11-25 — Cadena de IA de la viabilidad (pedido del dueño) + Gemini fuera de Compras
+**Regla:** la viabilidad (`viabilidad-ia.ts` y `cv/viabilidad-ia.ts`) corre GLM de la más barata a la más cara SIN glm-5.2 (flashx → glm-4.5-air → glm-4.7), si todas caen o se pasan de tiempo salta a Kimi (`kimi`) y al final Gemini. DeepSeek ya no entra. Flag `cadenaViabilidad` en `crearChatIA` (`gemini.ts`, `cfgViabilidadRespaldos`); manda sobre `soloGlm`/`deepSeekUltimoRecurso`/`geminiUltimoRecurso`.
+**Gemini sale de Compras:** el pareo de cotizaciones corre solo con glm-4.7 y el agente de documentos de Compras queda apagado (`agenteDocumentosDisponible` = false; pasarlo a otra IA queda pendiente si se quiere de vuelta). Gemini solo queda como último eslabón de la viabilidad.
+**Pendiente:** sin desplegar ni probar con una licitación real; Kimi razona en `high` (lento) y el corte por inactividad es de 45 s. Inventario por IA: `docs/uso-de-ia-por-proveedor.pdf`.
+
 ## 2026-11-23 — «Requisitos generales de los productos»: 227 citas en 3708-49-LE26 (obra vial, Pitrufquén)
 La segunda pasada (`completarCaracteristicasLiterales`) corre una vez por ítem y las EETT se remiten entre sí («Ídem Ítem 1.0.1»):
 el mismo párrafo llegaba N veces, mezclado con detalles constructivos (curado de hormigón, riego de liga), y la «Cita» era el propio

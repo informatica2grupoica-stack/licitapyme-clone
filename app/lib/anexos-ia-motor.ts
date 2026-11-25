@@ -16,6 +16,7 @@
 // la casilla queda pendiente. Para "especifico_licitacion" (precio/cantidad) este motor NUNCA
 // inventa el número — lo deja pendiente y el pipeline de costeo YA EXISTENTE (anexos-precios-ia.ts,
 // sin tocar) lo resuelve cruzando contra el Motor Comercial, igual que hoy.
+import { opcionesIAAnexos } from '@/app/lib/anexos-ia-opciones';
 import { crearChatIA as crearChatIABase } from '@/app/lib/gemini';
 import { conModuloIA } from '@/app/lib/ia-uso';
 const crearChatIA = conModuloIA('anexos', crearChatIABase);
@@ -654,7 +655,7 @@ async function resolverLoteCampos(
       messages: [{ role: 'system', content: SYS_CAMPOS }, { role: 'user', content: user }],
       temperature: 0, stream: false, max_tokens: 4_000,
       response_format: { type: 'json_object' },
-    }, { timeoutMs: 60_000, modeloPreferido: 'glm-4.7', soloGlm: true });
+    }, opcionesIAAnexos(60_000));
 
     const txt = String(completion.choices?.[0]?.message?.content ?? '');
     const parsed: any = parseJsonIA(txt) || {};
@@ -764,7 +765,7 @@ async function resolverLoteDesdeBases(items: ItemLote[], basesTexto: string): Pr
       messages: [{ role: 'system', content: SYS_BASES_CAMPOS }, { role: 'user', content: user }],
       temperature: 0, stream: false, max_tokens: 4_000,
       response_format: { type: 'json_object' },
-    }, { timeoutMs: 60_000, modeloPreferido: 'glm-4.7', soloGlm: true });
+    }, opcionesIAAnexos(60_000));
 
     const txt = String(completion.choices?.[0]?.message?.content ?? '');
     const parsed: any = parseJsonIA(txt) || {};
@@ -860,7 +861,7 @@ async function resolverLoteDesdeOrdenesCompra(items: ItemLote[], ocsTexto: strin
       messages: [{ role: 'system', content: SYS_OC_EXPERIENCIA }, { role: 'user', content: user }],
       temperature: 0, stream: false, max_tokens: 4_000,
       response_format: { type: 'json_object' },
-    }, { timeoutMs: 60_000, modeloPreferido: 'glm-4.7', soloGlm: true });
+    }, opcionesIAAnexos(60_000));
 
     const txt = String(completion.choices?.[0]?.message?.content ?? '');
     const parsed: any = parseJsonIA(txt) || {};
@@ -957,7 +958,7 @@ export async function resolverAlertasInadmisibilidad(basesTexto: string, tituloA
       // 43 s colgado y después "Request timed out", con 90 s de espera máxima antes de que la
       // cadena de respaldo se active. El usuario lo reportó como "a veces se cuelga". Fijar
       // glm-4.7 lo saca del camino; la cadena (4.5-air → 4.7 → 5.2) sigue disponible si este falla.
-    }, { timeoutMs: 90_000, modeloPreferido: 'glm-4.7', soloGlm: true });
+    }, opcionesIAAnexos(90_000));
     const txt = String(completion.choices?.[0]?.message?.content ?? '');
     const parsed: any = parseJsonIA(txt) || {};
     const arr = Array.isArray(parsed.alertas) ? parsed.alertas : [];
@@ -1014,7 +1015,7 @@ export async function identificarCamposDeSeccionEscaneada(
       temperature: 0.1, stream: false, max_tokens: 1_500,
       response_format: { type: 'json_object' },
       // Ver el comentario de resolverAlertasInadmisibilidad: misma corrección, misma razón.
-    }, { timeoutMs: 60_000, modeloPreferido: 'glm-4.7', soloGlm: true });
+    }, opcionesIAAnexos(60_000));
     const txt = String(completion.choices?.[0]?.message?.content ?? '');
     const parsed: any = parseJsonIA(txt) || {};
     const arr = Array.isArray(parsed.campos) ? parsed.campos : [];

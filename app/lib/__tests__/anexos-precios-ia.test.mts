@@ -58,3 +58,34 @@ test('compartenPalabra: descarta el cruce real "TRAZADO Y NIVELES" ↔ "NIVEL DE
 test('compartenPalabra: acepta cuando SÍ hay una palabra real en común (mismo ítem, redactado distinto)', () => {
   assert.equal(compartenPalabra('Casco de seguridad', 'Casco de seguridad industrial Bullard'), true);
 });
+
+// ── 2723-79-LE26 (Buin): el costeo guarda «<producto> - <modelo>» y otra puntuación; sin IA el unitario quedaba vacío.
+import { matchPorSimilitud } from '../anexos-precios-ia';
+test('matchPorSimilitud: el mismo ítem con «- modelo» del costeo y otra puntuación se resuelve sin IA', () => {
+  const items = [
+    { descripcion: 'BASURERO MODELO ALAMEDA (OCTAGONAL) CON ESCUDO MUNICIPAL ADOSADO POR AMBOS LADOS EN SCROLL EN FE.MACIZO - Modelo Alameda (Octagonal)', precioUnitario: 275500, unidad: 'unidades', cantidad: 24 },
+    { descripcion: 'ESCAÑO ANTIVANDÁLICO DE HORMIGÓN PULIDO GRIS SIMILAR A MODELO ALERCE INCLUSIVO - Similar a modelo Alerce Inclusivo', precioUnitario: 303050, unidad: 'unidades', cantidad: 36 },
+  ];
+  const r = matchPorSimilitud([
+    'Basurero modelo alameda (octagonal) con escudo municipal adosado por ambos lados en scroll en fe. Macizo — Valor Neto Unitario',
+    'Escaño antivandálico de hormigón pulido gris similar a modelo alerce inclusivo — Valor Neto Unitario',
+  ], items);
+  assert.deepEqual(r.matches.map(m => m.precioUnitario), [275500, 303050]);
+  assert.equal(r.sinResolver.length, 0);
+});
+
+test('matchPorSimilitud: nunca adivina — medida distinta, dos candidatos o un ítem ajeno quedan sin resolver', () => {
+  const items = [
+    { descripcion: 'ESCAÑO DE HORMIGÓN 180 CM CON RESPALDO - Alerce', precioUnitario: 300000, unidad: 'u', cantidad: 5 },
+    { descripcion: 'ESCAÑO DE HORMIGÓN 150 CM CON RESPALDO - Alerce', precioUnitario: 250000, unidad: 'u', cantidad: 5 },
+  ];
+  // 160 cm no está en ninguno: no se elige el «más parecido».
+  assert.equal(matchPorSimilitud(['Escaño de hormigón 160 cm con respaldo — Valor Unitario'], items).matches.length, 0);
+  // La medida exacta sí lo resuelve, sin confundirlo con el otro.
+  assert.equal(matchPorSimilitud(['Escaño de hormigón 150 cm con respaldo — Valor Unitario'], items).matches[0]?.precioUnitario, 250000);
+  // Un ítem que no está en el costeo.
+  assert.equal(matchPorSimilitud(['Mesa de comedor de madera maciza — Valor Unitario'], items).matches.length, 0);
+  // Dos ítems que calzan igual en el costeo = ambiguo.
+  const doble = [items[0], { ...items[0], descripcion: 'ESCAÑO DE HORMIGÓN 180 CM CON RESPALDO - Otro', precioUnitario: 1 }];
+  assert.equal(matchPorSimilitud(['Escaño de hormigón 180 cm con respaldo — Valor Unitario'], doble).matches.length, 0);
+});

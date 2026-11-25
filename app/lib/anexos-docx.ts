@@ -69,8 +69,25 @@ export function decodificarXml(s: string): string {
 
 // Texto plano de una lista de <w:t> ya extraídos del XML — el mismo criterio en todos los lugares
 // que leen texto (párrafos, celdas, runs) para que ninguno vea entidades sin decodificar.
+//
+// Un salto de línea suave (`<w:br/>`) entre dos textos es un ESPACIO para quien lee: el encabezado
+// «Valor Neto⏎Unitario» (Formato 6 de 2723-79-LE26) se leía «Valor NetoUnitario» y la regla de «precio
+// unitario» (`\bunitario\b`) no lo reconocía: el unitario quedaba vacío y el pie sin calcular. Solo se
+// agrega entre texto y texto: un salto al final o al principio no cambia lo que se lee, y los de
+// página/columna no son un espacio.
 export function textoDeRuns(cuerpo: string): string {
-  return decodificarXml([...cuerpo.matchAll(/<w:t[^>]*>([^<]*)<\/w:t>/g)].map(m => m[1]).join(''));
+  const piezas: string[] = [];
+  let saltoPendiente = false;
+  for (const m of cuerpo.matchAll(/<w:t[^>]*>([^<]*)<\/w:t>|<w:br\b(?![^>]*w:type="(?:page|column)")[^>]*\/>/g)) {
+    if (m[1] === undefined) { saltoPendiente = piezas.length > 0; continue; }
+    if (saltoPendiente && m[1] !== '') {
+      const previo = piezas[piezas.length - 1];
+      if (!/\s$/.test(previo) && !/^\s/.test(m[1])) piezas.push(' ');
+      saltoPendiente = false;
+    }
+    piezas.push(m[1]);
+  }
+  return decodificarXml(piezas.join(''));
 }
 
 // ── Namespaces: declararlos EN LA RAÍZ, que es el único alcance que cubre todo el documento ──

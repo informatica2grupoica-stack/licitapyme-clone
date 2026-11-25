@@ -41,6 +41,16 @@ export function AprobacionPendienteModal() {
     return suscribirRealtime(ev => { if (ev.tipo === 'cambio') cargar(); });
   }, [puedeAprobar, cargar]);
 
+  // Se cierra sola a los 10 s (queda silenciada esta sesión; los pendientes siguen en /aprobaciones).
+  useEffect(() => {
+    if (!visible || !usuario) return;
+    const t = setTimeout(() => {
+      try { sessionStorage.setItem(clave(usuario.id), '1'); } catch { /* sin storage */ }
+      setVisible(false);
+    }, 10000);
+    return () => clearTimeout(t);
+  }, [visible, usuario]);
+
   const cerrar = () => {
     if (usuario) { try { sessionStorage.setItem(clave(usuario.id), '1'); } catch { /* no bloquear por storage */ } }
     setVisible(false);
@@ -54,32 +64,22 @@ export function AprobacionPendienteModal() {
   if (!visible || !puedeAprobar) return null;
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-xl shadow-flotante w-full max-w-2xl overflow-hidden">
-        <div className="px-6 py-5 flex items-start gap-3">
-          <div className="w-10 h-10 rounded-xl bg-cyan-50 border border-cyan-200 flex items-center justify-center flex-shrink-0">
-            <ClipboardCheck size={18} className="text-cyan-600" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <h2 className="text-[15px] font-semibold text-zinc-900">
-              {totalPendientes === 1 ? 'Hay 1 negocio esperando tu aprobación' : `Hay ${totalPendientes} negocios esperando tu aprobación`}
-            </h2>
-            <p className="text-[12px] text-zinc-500 mt-1">
-              Bloque técnico y/o comercial cargados por el asistente, listos para revisar.
-            </p>
-          </div>
-          <button onClick={cerrar} className="p-1 rounded-lg text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 transition-colors flex-shrink-0" aria-label="Cerrar">
-            <X size={16} />
-          </button>
+    <div className="fixed bottom-4 right-4 z-[100] w-[calc(100vw-2rem)] max-w-sm bg-white rounded-xl border border-zinc-200 shadow-flotante overflow-hidden" role="status">
+      <div className="px-4 py-3.5 flex items-start gap-3">
+        <div className="w-8 h-8 rounded-lg bg-cyan-50 border border-cyan-200 flex items-center justify-center flex-shrink-0">
+          <ClipboardCheck size={16} className="text-cyan-600" />
         </div>
-        <div className="px-6 pb-5 flex gap-2.5">
-          <button onClick={cerrar} className="flex-1 px-4 py-2 rounded-lg text-[13px] font-semibold text-zinc-600 border border-zinc-200 hover:bg-zinc-50 transition-colors">
-            Ahora no
-          </button>
-          <button onClick={ir} className="flex-1 px-4 py-2 rounded-lg text-[13px] font-semibold text-white bg-cyan-600 hover:bg-cyan-700 transition-colors">
+        <div className="flex-1 min-w-0">
+          <h2 className="text-[13px] font-semibold text-zinc-900">
+            {totalPendientes === 1 ? 'Hay 1 negocio esperando tu aprobación' : `Hay ${totalPendientes} negocios esperando tu aprobación`}
+          </h2>
+          <button onClick={ir} className="mt-2 text-[12px] font-semibold text-teal-600 hover:text-teal-700">
             Ir a Aprobaciones
           </button>
         </div>
+        <button onClick={cerrar} className="p-1 rounded-lg text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 transition-colors flex-shrink-0" aria-label="Cerrar">
+          <X size={14} />
+        </button>
       </div>
     </div>
   );

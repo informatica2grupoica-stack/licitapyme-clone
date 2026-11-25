@@ -191,6 +191,8 @@ async function jobOrdenesCompra() { await loop('órdenes de compra', '/api/cron/
 // compras nuevas siempre están en las primeras páginas (comprasOc.list.json entrega más reciente
 // primero), así que un barrido corto (5 páginas ≈ últimas 500 compras) alcanza sin re-barrer el
 // historial completo cada día.
+// Espejo completo de Obuma en la BD (obuma_registro): ~75 llamadas al día, sin IA. Después las pantallas y el chatbot leen de la BD.
+async function jobEspejoObuma() { await loop('espejo Obuma', '/api/cron/obuma-espejo', { maxPasadas: 1 }); }
 async function jobComprasObuma() { await loop('compras Obuma', '/api/cron/obuma-compras', { maxPasadas: 1, body: { paginas: 5 } }); }
 
 // DESACTIVADO 22-sep-2026, mismo día: soporte de Obuma confirmó por correo que
@@ -237,6 +239,7 @@ cron.schedule('35 1-23/4 * * *', jobViabilidadPerfil, opts); // 01:35,05:35,... 
 cron.schedule('40 7 * * *',     jobOrdenesCompra, opts);
 // 07:45: justo después de las OC de MP, mismo criterio de horario.
 cron.schedule('45 7 * * *',     jobComprasObuma, opts);
+cron.schedule('55 7 * * *',     () => sinSolapar('espejo-obuma', jobEspejoObuma), opts);
 // DESACTIVADO 22-sep-2026 — ver comentario de jobObumaProyectos más arriba: ya no hace falta,
 // Proyectos se lee por API real en cada carga de la pantalla.
 // cron.schedule('50 7 * * *',  jobObumaProyectos, opts);

@@ -30,6 +30,8 @@ import { fusionarEdicionCompras, cambiosDeCompras, mensajeCambiosCompras } from 
 import { auditarFilasCambiadasEnSegundoPlano } from '@/app/lib/auditor-compras';
 import { registrarEvento } from '@/app/lib/historial';
 import { publicarCambio } from '@/app/lib/sse-bus';
+import { cambiosDeCantidad } from '@/app/lib/costeo-cantidad';
+import { avisarCambioDeCantidad, ultimaAlertaCantidad } from '@/app/lib/costeo-aviso-cantidad';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -272,6 +274,8 @@ export async function GET(request: NextRequest, { params }: Params) {
       success: true, estado, sinGuardar, agregados, reclasificados, presupuestoPublicado, presupuestosPorLinea,
       actualizadoAt: (await marcaGuardado(negocio.id)).at,
       sinViabilidad: !guardado && !desdeViab,
+      // Señal roja de arriba: la última vez que alguien cambió la cantidad de un ítem (quién, día y hora).
+      alertaCantidad: await ultimaAlertaCantidad(negocio),
       // congelado = el editor deshabilita todos los campos: así el perfil de Compras lo ve sin poder tocarlo.
       congelado: soloLectura || await costeoCongelado(negocio.id, userId, rol),
       // El editor habilita SOLO costo real, links y filas nuevas cuando esto es true (ver PATCH).
@@ -410,6 +414,10 @@ export async function PUT(request: NextRequest, { params }: Params) {
       actorId: userId, actorNombre: nombreActor, mensaje: `${nombreActor} guardó el costeo (versión ${version}): ${cambios.slice(0, 3).join("; ")}`.slice(0, 500),
       metadata: { negocio_id: negocio.id, version, cambios },
     });
+
+    // Cambió la cantidad de algún ítem ya guardado: campana a los admin y señal roja arriba del costeo (no crítico).
+    try { await avisarCambioDeCantidad(negocio, { id: Number(userId), nombre: nombreActor }, cambiosDeCantidad(estadoPrevio, estado)); }
+    catch (e) { console.error('[comercial/costeo-editor] aviso de cambio de cantidad falló (no crítico):', String(e).slice(0, 150)); }
 
     // Si Compras ya está abierto para este negocio, "Productos y cobertura" se mantiene al día
     // solo (pedido explícito del usuario, 15-sep-2026: "la idea es que lo saque del costeo") — sin

@@ -3,6 +3,18 @@
 Costeo digital del negocio (editor + burbuja flotante) y Excel de costeo (plantilla V3).
 Traspasado desde la memoria personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-11-25 — Cambio de CANTIDAD en el costeo: campana a los admin + señal roja arriba (pedido del dueño)
+**Regla:** si al guardar el costeo (PUT) cambia la `cantidad` de un ítem que ya estaba guardado (se empareja por `id`; agregar/quitar
+ítems y costos adicionales no cuentan; sin guardado previo no se compara), `avisarCambioDeCantidad` (`costeo-aviso-cantidad.ts`)
+manda un aviso SOLO por campana a los admin activos de la misma empresa del negocio (menos quien lo hizo; tipo
+`COSTEO_CANTIDAD_MODIFICADA`) y deja una marca sin destinatario (`COSTEO_CANTIDAD_MARCA`, en `historial_eventos`, fuera del
+Historial de admin y de las campanas). El editor la lee en el GET (`alertaCantidad`) y muestra arriba un cartel ROJO con quién, día,
+hora y los ítems (`CosteoEditorCard.tsx`). Se queda hasta el próximo cambio; no es parte del «Registro de cambios».
+**Por qué la marca no va en `datos_json`:** Compras, el re-análisis y la OC propia reescriben `datos_json` desde un estado reconstruido y la habrían borrado.
+**Verificado:** 6 tests (`costeo-cantidad.test.mts`), 732 del bloque costeo/auditor/compras, `tsc`; el GET sigue respondiendo en 1476 y 1786.
+**Probado en real (25-nov, negocio 1476, con OK del dueño):** +1 a una cantidad y guardado → 2 avisos de campana (Asesor y Carolina; Alexis, que guardó, no) + la marca; el cartel rojo se ve arriba del costeo; después se devolvió la cantidad (22 filas intactas) y se BORRARON las 6 filas de prueba de `historial_eventos`. Quedaron 2 versiones extra del costeo del 1476 en `checklist_comercial_costeo` y sus eventos COSTEO_GUARDADO. Además se arregló `fechaRegistro` (regex sin `\` mostraba la fecha cruda, también en «Registro»).
+**Pendiente:** el re-análisis que corrige cantidades NO avisa (no es una persona); el primer guardado tampoco.
+
 ## 2026-11-19 — «Importar Excel» solo llenaba 6 de 32 filas (759-30-LE26, negocio 891)
 **Pedido del dueño:** «cuando importo el costeo no ingresa completo».
 **Causa:** el parser leía bien las 32 filas; la fusión (`fusionarDesdeExcel`) emparejaba por nombre y el costeo digital tiene

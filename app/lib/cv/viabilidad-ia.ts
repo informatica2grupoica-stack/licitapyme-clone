@@ -870,6 +870,8 @@ async function llamarGlmJSON(systemPrompt: string, userPrompt: string, traza?: T
         streamCapMsPrimario: Math.max(120_000, Number(process.env.VIABILIDAD_STREAM_CAP_MS_PRIMARIO) || 200_000),
         streamCapMs: Math.max(90_000, Number(process.env.VIABILIDAD_STREAM_CAP_MS) || 300_000),
         soloGlm: true,
+        // 25-nov-2026 (pedido del dueño): GLM barato→caro sin glm-5.2 → Kimi → Gemini; sin DeepSeek. Manda sobre los flags de abajo.
+        cadenaViabilidad: true,
         // ÚLTIMO RECURSO DEEPSEEK (20-ago-2026, pedido explícito del usuario tras 2422-144-LE26:
         // glm-5.2 y glm-4.7 se agotaron por timeout y la licitación quedó SIN análisis). La
         // preferencia sigue siendo GLM —DeepSeek solo se toca cuando la escalera GLM completa se

@@ -680,6 +680,8 @@ const RE_COLUMNA_DEL_ORGANISMO = /puntaje\s+(asignado|obtenido)|uso\s+(exclusivo
 // otra forma (unidad de medida, cantidad, plazo). Se usan para elegir el texto que identifica a la
 // fila cuando la tabla trae encabezado — ver detectarCandidatosTabla. Sin tildes a propósito: la
 // comparación normaliza antes (DESCRIPCIÓN / DESCRIPCION / Ítem / item son la misma columna).
+// Un número de orden («1», «1.1», «A», «2.3.1», «N°4») no nombra la fila.
+const RE_SOLO_NUMERO_DE_ORDEN = /^(?:n[°º.]?\s*)?[a-z]?\d{1,3}(?:[.\-]\d{1,3})*[a-z]?[.)]?$|^[a-z][.)]?$/i;
 const RE_COLUMNA_DESCRIPTIVA = /\b(producto|productos|descripcion|descripciones|detalle|detalles|item|items|articulo|articulos|servicio|servicios|glosa|partida|partidas|insumo|insumos|material|materiales|especie|especies)\b/;
 
 function sinTildesMinuscula(s: string): string {
@@ -866,7 +868,9 @@ export function indiceFilaEncabezado(filas: { completa: boolean; numCeldas: numb
 // en la segunda. Tiene 2 celdas con texto y gridSpan, igual que el encabezado ancho de 2 columnas de
 // abajo, y se tomaba por encabezado: todas las filas de requisitos quedaban bajo la columna
 // «CARACTERÍSTICAS GENERALES» en vez de «CUMPLE SI/NO» / «CATÁLOGO» / «OBSERVACIONES» (1057922-28-LP26).
-const RE_NUMERO_DE_SECCION = /^(?:\d{1,2}|[IVX]{1,4}|[A-Z])[.)]?$/;
+// Con numeración decimal también («1.1», «1.2», «2.3.1»): 1180747-16-LE26, Formulario 3 — «1.2 | UNIDAD DENTAL (BRAQUET)» se
+// tomaba por encabezado y las columnas CUMPLE / CATÁLOGO / OBSERVACIONES se llamaban «UNIDAD DENTAL (BRAQUET)».
+const RE_NUMERO_DE_SECCION = /^(?:\d{1,2}(?:\.\d{1,3})*|[IVX]{1,4}|[A-Z])[.)]?$/;
 
 // `numCeldasConTexto` no cuenta las celdas que traen solo «$»: son casillas de monto, no nombres de
 // columna. Con el «$» contado, la primera fila de productos de 4844-24-LE26 (Anexo N°5: «| ESCÁNER…
@@ -1153,13 +1157,18 @@ export function detectarCandidatosTabla(xml: string): CandidatoCelda[] {
         // Con encabezado detectado hay una señal mucho mejor que la longitud: la propia tabla dice
         // cuál es su columna descriptiva ("PRODUCTOS", "DESCRIPCIÓN", "ÍTEM", "DETALLE"…).
         let filaContexto = '';
-        const colDescriptiva = hayEncabezado
-          ? nombresColumna.findIndex(n => RE_COLUMNA_DESCRIPTIVA.test(sinTildesMinuscula(n)))
-          : -1;
-        if (colDescriptiva >= 0) {
-          const celdaDescriptiva = celdas.find((_, i) => columnaDeCadaCelda[i] === colDescriptiva);
-          if (celdaDescriptiva?.texto) filaContexto = celdaDescriptiva.texto;
-        }
+        // Puede haber VARIAS columnas descriptivas: «Ítem | Descripción | Cantidad…» (2723-79-LE26,
+        // Formato 6). «Ítem» trae el número de orden («1.1»), no el nombre: la etiqueta salía «1.1 —
+        // Valor Neto Unitario» y el precio nunca se cruzaba con el costeo. Se toma la primera cuyo
+        // texto NO es un simple número de orden; si todas lo son, la primera con texto (como antes).
+        const columnasDescriptivas = hayEncabezado
+          ? nombresColumna.map((n, i) => (RE_COLUMNA_DESCRIPTIVA.test(sinTildesMinuscula(n)) ? i : -1)).filter(i => i >= 0)
+          : [];
+        const textosDescriptivos = columnasDescriptivas
+          .map(col => celdas.find((_, i) => columnaDeCadaCelda[i] === col)?.texto ?? '')
+          .filter(t => t);
+        const elegido = textosDescriptivos.find(t => !RE_SOLO_NUMERO_DE_ORDEN.test(t.trim())) ?? textosDescriptivos[0];
+        if (elegido) filaContexto = elegido;
         // Sin columna descriptiva (o con esa celda vacía) se mantiene el criterio de siempre.
         if (!filaContexto) for (const c of celdas) if (c.texto.length > filaContexto.length) filaContexto = c.texto;
         // Una fila SIN NINGÚN texto propio sigue siendo válida: en una tabla que se llena entera
@@ -1530,6 +1539,15 @@ export function detectarBlancosInline(xml: string): CandidatoInline[] {
         // coordenadas de run (es lo que edita rellenarRunPorIndice), así que absorber texto que
         // vive en otro run correría la escritura a un lugar equivocado.
         const rotuloPegado = absorbeAntesDelBlanco(texto, b.posEnTexto);
+        // «(NOMBRE DEL PROPONENTE O REPRESENTANTE LEGAL)» en SU PROPIO párrafo, justo bajo la línea donde se
+        // escribe el nombre (4844-24-LE26, Anexo N°3): es el pie de esa línea, no una casilla. Tratarlo como
+        // marcador borraba el rótulo y repetía el nombre debajo. Solo si el paréntesis ocupa todo el párrafo
+        // y el párrafo de arriba (saltando vacíos) termina en una raya o línea de puntos.
+        if (b.textoMarcador && textoParrafoCompleto.trim().startsWith('(') && b.largo >= textoParrafoCompleto.trim().length - 1) {
+          let arriba = '';
+          for (let k = 1; k <= 3 && !arriba; k++) arriba = (textoDeParrafo(indiceParrafo - k) || '').trim();
+          if (/(?:_{4,}|\.{4,}|…{2,})\s*[,.;:]?\s*$/.test(arriba)) continue;
+        }
         out.push({
           indiceRun: indiceRunGlobal, indiceParrafo,
           textoRunOriginal: texto, posEnTexto: b.posEnTexto, largo: b.largo,
@@ -1614,7 +1632,8 @@ const RE_CONECTOR_DE_CON_DECADA = /^del?\s*(?:19|20)\d$/i;
 // caía entero. Es la MISMA fecha de siempre (la de presentación de la oferta), solo rotulada
 // distinto — cuarta forma registrada de escribir la fecha en un anexo chileno.
 // Se acepta también el siglo/década ya impresos ("del año 20___"), igual que las otras formas.
-const RE_CONECTOR_DEL_MES = /^del?\s+mes(?:\s+de)?$/i;
+// «a ____ días del mes de ____ del año ____» (declaración jurada tipo notarial: 4844-24-LE26, 1002588-102-LP26): el «días» es parte del conector.
+const RE_CONECTOR_DEL_MES = /^(?:d[ií]as?\s+)?del?\s+mes(?:\s+de)?$/i;
 const RE_CONECTOR_DEL_ANIO = /^del?\s+a[nñ]o(?:\s*(?:19|20)\d{0,2})?$/i;
 const RE_CONECTOR_DEL_ANIO_CON_SIGLO = /^del?\s+a[nñ]o\s*(?:19|20)$/i;
 const RE_CONECTOR_DEL_ANIO_CON_DECADA = /^del?\s+a[nñ]o\s*(?:19|20)\d$/i;
@@ -1632,7 +1651,9 @@ export function detectarTripletesFecha(blancos: CandidatoInline[]): Map<string, 
     if (grupoSinOrdenar.length < 2) continue;
     const grupo = [...grupoSinOrdenar].sort((a, b) => a.posEnParrafo - b.posEnParrafo);
     const texto = grupo[0].parrafoCompleto;
-    if (texto.length > LARGO_MAX_LINEA_FECHA) continue;
+    // Un párrafo largo (la declaración entera: «En ___ a ___ días del mes de ___ del año ___ comparece…») solo se
+    // mira si el conector nombra expresamente «del mes»; con un simple «de» seguiría siendo demasiado ambiguo.
+    const parrafoLargo = texto.length > LARGO_MAX_LINEA_FECHA;
     let i = 0;
     while (i < grupo.length) {
       // Trío: día / mes / año, los tres en blanco — se intenta PRIMERO (más específico: dos
@@ -1648,7 +1669,7 @@ export function detectarTripletesFecha(blancos: CandidatoInline[]): Map<string, 
         const esDe = abreMes && (RE_CONECTOR_DE.test(conector2) || RE_CONECTOR_DEL_ANIO.test(conector2));
         const esDeConSiglo = abreMes && (RE_CONECTOR_DE_CON_SIGLO.test(conector2) || RE_CONECTOR_DEL_ANIO_CON_SIGLO.test(conector2));
         const esDeConDecada = abreMes && (RE_CONECTOR_DE_CON_DECADA.test(conector2) || RE_CONECTOR_DEL_ANIO_CON_DECADA.test(conector2));
-        if (esBarra || esDe || esDeConSiglo || esDeConDecada) {
+        if ((esBarra || esDe || esDeConSiglo || esDeConDecada) && (!parrafoLargo || RE_CONECTOR_DEL_MES.test(conector1))) {
           out.set(`${b1.indiceRun}:${b1.posEnTexto}`, 'dia');
           out.set(`${b2.indiceRun}:${b2.posEnTexto}`, esBarra ? 'mes_numero' : 'mes_palabra');
           out.set(`${b3.indiceRun}:${b3.posEnTexto}`,
@@ -1658,7 +1679,7 @@ export function detectarTripletesFecha(blancos: CandidatoInline[]): Map<string, 
         }
       }
       // Dupla: día / mes, con el año ya impreso a continuación.
-      if (i + 1 < grupo.length) {
+      if (!parrafoLargo && i + 1 < grupo.length) {
         const [b1, b2] = [grupo[i], grupo[i + 1]];
         const conector = texto.slice(b1.posEnParrafo + b1.largo, b2.posEnParrafo).trim();
         const cola = texto.slice(b2.posEnParrafo + b2.largo, b2.posEnParrafo + b2.largo + LARGO_COLA_ANIO);

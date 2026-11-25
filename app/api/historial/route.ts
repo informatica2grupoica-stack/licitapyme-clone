@@ -55,7 +55,7 @@ export async function GET(request: NextRequest) {
       const [rows] = await pool.query(
         `SELECT id, tipo, licitacion_codigo, licitacion_nombre, usuario_id, usuario_nombre,
                 actor_id, actor_nombre, mensaje, metadata, leido, created_at
-         FROM historial_eventos WHERE cliente_id = ? ORDER BY created_at DESC LIMIT ?`, [usuario.clienteId, limit]);
+         FROM historial_eventos WHERE cliente_id = ? AND tipo <> 'COSTEO_CANTIDAD_MARCA' ORDER BY created_at DESC LIMIT ?`, [usuario.clienteId, limit]);
       eventos = rows as any[];
     } else {
       // Campana: solo las notificaciones dirigidas a este usuario.

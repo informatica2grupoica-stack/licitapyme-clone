@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><title>LICITANK — Dónde se usa cada IA</title>
+<style>
+@page{size:A4;margin:14mm}
+body{font-family:Segoe UI,Arial,sans-serif;font-size:10.5pt;color:#1a1a1a;line-height:1.35}
+h1{font-size:19pt;margin:0 0 2mm}
+.sub{color:#555;margin-bottom:6mm}
+h2{font-size:14pt;margin:7mm 0 1mm;padding:2mm 3mm;color:#fff;border-radius:2mm;break-after:avoid}
+.glm h2{background:#1f5fbf}.kimi h2{background:#6b3fa0}.gem h2{background:#c0602a}.ds h2{background:#2d7d4f}.otro h2{background:#555}
+.modelo{font-size:9.5pt;color:#444;margin:1mm 0 2mm}
+table{width:100%;border-collapse:collapse;margin-bottom:3mm}
+th{background:#eee;text-align:left;font-size:9pt;padding:1.5mm 2mm;border:1px solid #ccc}
+td{padding:1.5mm 2mm;border:1px solid #ccc;vertical-align:top;font-size:9.5pt}
+tr{break-inside:avoid}
+code{font-size:8.5pt;color:#333}
+.nota{border-left:3px solid #c0602a;background:#fff6ef;padding:2mm 3mm;margin:3mm 0;font-size:9.5pt}
+.pb{break-before:page}
+</style></head><body>
+<h1>LICITANK — Dónde se usa cada IA</h1>
+<div class="sub">Según el código (25-nov-2026). No incluye lo que cambie el <code>.env</code> del servidor. Archivos dentro de <code>app/lib/</code> salvo que se indique.</div>
+
+<div class="glm"><h2>1) GLM (Z.AI) — la IA principal</h2>
+<div class="modelo">Por defecto: <b>glm-4.7-flashx</b>. Si falla, baja: glm-4.7 → glm-4.5-air → glm-5.2 → DeepSeek. «Solo GLM» = no cae a DeepSeek.</div>
+<table><tr><th style="width:36%">Se usa en</th><th style="width:20%">Modelo</th><th>Archivo</th></tr>
+<tr><td>Viabilidad IA de Grupo ICA</td><td>cadena por defecto (solo GLM)</td><td><code>viabilidad-ia.ts</code></td></tr>
+<tr><td>Viabilidad en la ficha de la licitación</td><td>cadena por defecto (solo GLM)</td><td><code>cv/viabilidad-ia.ts</code></td></tr>
+<tr><td>Scoring y análisis híbrido de viabilidad</td><td>cadena por defecto</td><td><code>viabilidad.ts</code></td></tr>
+<tr><td>Viabilidad de empresas-cliente</td><td>solo GLM + DeepSeek último recurso</td><td><code>cliente-viabilidad.ts</code></td></tr>
+<tr><td>Clasificar documentos</td><td>cadena por defecto</td><td><code>clasificacion.ts</code></td></tr>
+<tr><td>Aprender de correcciones del experto (viabilidad)</td><td>cadena por defecto</td><td><code>viabilidad-feedback.ts</code></td></tr>
+<tr><td>Aprender de correcciones en anexos</td><td>cadena por defecto</td><td><code>anexos-feedback.ts</code></td></tr>
+<tr><td>Buscar precios de mercado (con Serper)</td><td>cadena por defecto</td><td><code>buscador-precios.ts</code></td></tr>
+<tr><td>Separar specs reales de una máquina</td><td>cadena por defecto</td><td><code>buscar-equipamiento.ts</code></td></tr>
+<tr><td>Producto de referencia de las bases</td><td>cadena por defecto</td><td><code>producto-referencia.ts</code></td></tr>
+<tr><td>Llamada corta del Auditor Técnico (30 s)</td><td>cadena por defecto</td><td><code>auditor-tecnico.ts:582</code></td></tr>
+<tr><td>Rellenar anexos (motor IA, 5 llamadas)</td><td>glm-4.7, solo GLM</td><td><code>anexos-ia-motor.ts</code></td></tr>
+<tr><td>Precios de los anexos</td><td>glm-4.7, solo GLM</td><td><code>anexos-precios-ia.ts</code></td></tr>
+<tr><td>Segunda revisión de los anexos</td><td>glm-4.7, solo GLM</td><td><code>anexos-repaso-ia.ts</code></td></tr>
+<tr><td>Leer la cotización (OCR + lectura)</td><td>glm-4.7, solo GLM</td><td><code>compras-cotizacion-ocr.ts</code></td></tr>
+<tr><td>Comparador de cotizaciones</td><td>glm-4.7, solo GLM</td><td><code>compras-auditor.ts</code></td></tr>
+<tr><td>Auditor de Compras</td><td>glm-4.7, solo GLM</td><td><code>auditor-compras.ts</code></td></tr>
+<tr><td>Aprobaciones de Compras</td><td>glm-4.7, solo GLM</td><td><code>compras-aprobaciones.ts</code></td></tr>
+<tr><td>Leer documentos de entrega</td><td>glm-4.7, solo GLM</td><td><code>compras-entrega-lectura.ts</code></td></tr>
+<tr><td>Reloj de Compras</td><td>glm-4.7, solo GLM</td><td><code>compras-reloj.ts</code></td></tr>
+<tr><td>Pareo de cotizaciones (cuando Gemini falla)</td><td>glm-4.7, solo GLM</td><td><code>compras-pareo-global.ts:62</code></td></tr>
+<tr><td>Respaldo del Lector del Auditor (si Kimi falla)</td><td>glm-4.7, solo GLM</td><td><code>auditor-lector.ts:249,256</code></td></tr>
+<tr><td>Respaldo de todos los chats (si Kimi falla)</td><td>glm-4.7, solo GLM</td><td><code>chat-ia.ts:24</code></td></tr>
+<tr><td>Auditor Técnico, motor alternativo a Kimi</td><td>glm-5.2</td><td><code>auditor-tecnico.ts:89</code>, <code>MOTOR_GLM</code></td></tr>
+<tr><td>OCR de PDFs escaneados</td><td>glm-ocr</td><td><code>zai-ocr.ts</code> (desde <code>document-extraction.ts</code>)</td></tr>
+</table></div>
+
+<div class="kimi pb"><h2>2) Kimi (Moonshot) — fichas técnicas, Auditor, chats</h2>
+<div class="modelo"><b>kimi</b> = K3, razonamiento alto. <b>kimi rápido</b> = K2.6 sin razonar (más barato).</div>
+<table><tr><th style="width:36%">Se usa en</th><th style="width:20%">Modelo</th><th>Archivo</th></tr>
+<tr><td>Comparador técnico: ficha contra bases (sin respaldo)</td><td>kimi estricto</td><td><code>auditor-comparador.ts</code>, <code>auditor-comparador-v3.ts</code>, <code>auditor-tecnico-v2.ts</code>, <code>auditor-tecnico.ts:234,319</code></td></tr>
+<tr><td>Pre-postulación</td><td>kimi estricto</td><td><code>auditor-prepostulacion.ts</code></td></tr>
+<tr><td>Lector de documentos del Auditor</td><td>kimi, esfuerzo bajo</td><td><code>auditor-lector.ts:251</code></td></tr>
+<tr><td>Ficha propia</td><td>kimi</td><td><code>auditor-ficha-propia.ts</code></td></tr>
+<tr><td>Posición de la oferta</td><td>kimi</td><td><code>auditor-posicion.ts</code></td></tr>
+<tr><td>Segmentación</td><td>kimi</td><td><code>auditor-segmentacion-ia.ts</code></td></tr>
+<tr><td>Costo IA del Auditor</td><td>kimi</td><td><code>auditor-costo-ia.ts</code></td></tr>
+<tr><td>Sugerir la línea de un producto</td><td>kimi</td><td><code>auditor-sugerir-linea.ts</code></td></tr>
+<tr><td>Prefiltro del radar</td><td>kimi (K3, bajo)</td><td><code>prefiltro.ts</code></td></tr>
+<tr><td>Todos los chats (base)</td><td>kimi rápido</td><td><code>chat-ia.ts</code></td></tr>
+<tr><td>Chat global (ankIA)</td><td>kimi rápido</td><td><code>chat-global.ts</code></td></tr>
+<tr><td>Chat de licitación</td><td>kimi rápido</td><td><code>chat-licitacion.ts</code></td></tr>
+<tr><td>Analizar documento</td><td>kimi rápido</td><td><code>app/api/analizar-documento/route.ts</code></td></tr>
+<tr><td>Evaluar empresa por RUT</td><td>kimi rápido</td><td><code>evaluar-empresa-rut.ts</code></td></tr>
+</table></div>
+
+<div class="gem"><h2>3) Gemini (Google)</h2>
+<div class="modelo">Modelos: gemini-2.5-flash y flash-lite (la variable GEMINI_MODEL manda en la cadena). Los modelos «Pro» están bloqueados por código.</div>
+<table><tr><th style="width:36%">Se usa en</th><th style="width:20%">Estado</th><th>Archivo</th></tr>
+<tr><td>Agente que lee los documentos del negocio y audita lo que se tipea en Compras (flash-lite para leer PDFs, flash para auditar; llamada directa, con tope diario)</td><td><b>Activo</b> (basta la key)</td><td><code>compras-agente-documentos.ts</code>; rutas <code>app/api/compras/[negocioId]/agente-documentos/</code>; pantallas AuditorComprasCard y AuditoriaAgenteNegocioCard</td></tr>
+<tr><td>Pareo de cotizaciones con productos (primer intento; si falla, GLM)</td><td><b>Activo</b> (apagar: GEMINI_TEXTO_HABILITADO=0)</td><td><code>compras-pareo-global.ts:52</code></td></tr>
+<tr><td>Último eslabón de la cadena de texto</td><td>Activo si hay key</td><td><code>gemini.ts</code></td></tr>
+<tr><td>Visión y File API (leer imágenes/PDF)</td><td>Dormido (GEMINI_HABILITADO=1)</td><td><code>gemini.ts:644, 724</code></td></tr>
+<tr><td>Clasificar la primera página de un PDF escaneado</td><td>Dormido</td><td><code>clasificacion.ts:371</code></td></tr>
+<tr><td>OCR de documentos</td><td>Dormido</td><td><code>document-extraction.ts:632</code></td></tr>
+<tr><td>Respaldo del chat de licitación</td><td>Dormido</td><td><code>chat-licitacion.ts:482, 557</code></td></tr>
+<tr><td>Viabilidad completa con Gemini</td><td>Dormido (IA_TEXT_PROVIDER=gemini)</td><td><code>viabilidad-ia.ts:988</code>, <code>cv/viabilidad-ia.ts:1001</code></td></tr>
+</table>
+<div class="nota">Dato para el «hoy»: las <b>cotizaciones</b> se leen con GLM, no con Gemini. Gemini solo hace el pareo cotización↔producto y el agente de documentos de Compras.</div></div>
+
+<div class="ds"><h2>4) DeepSeek</h2>
+<div class="modelo">Modelo: deepseek-v4-flash.</div>
+<table><tr><th style="width:36%">Se usa en</th><th>Detalle</th></tr>
+<tr><td>Respaldo final de la cadena por defecto</td><td>Solo si GLM entero falla. Ninguna función lo pide como primera opción.</td></tr>
+<tr><td>Viabilidad de empresas-cliente</td><td>Pedido explícito como último recurso (<code>cliente-viabilidad.ts:147</code>).</td></tr>
+</table></div>
+
+<div class="otro"><h2>5) Otros motores (no son IA de texto)</h2>
+<table><tr><th style="width:36%">Qué</th><th>Para qué</th></tr>
+<tr><td>Serper</td><td>Buscar en Google Shopping y web (precios de mercado y producto de referencia). La IA solo decide sobre lo encontrado.</td></tr>
+<tr><td>Tesseract</td><td>OCR local de respaldo si GLM-OCR falla.</td></tr>
+</table></div>
+</body></html>

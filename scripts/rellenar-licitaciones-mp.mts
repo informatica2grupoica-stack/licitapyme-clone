@@ -21,6 +21,7 @@ for (const l of fs.readFileSync('.env.local', 'utf8').split('\n')) {
 const arg = (n: string) => { const i = process.argv.indexOf(n); return i >= 0 ? process.argv[i + 1] : undefined; };
 const aplicar = process.argv.includes('--aplicar');
 const soloAdjudicadas = process.argv.includes('--solo-adjudicadas');
+const solo_nuestras = process.argv.includes('--solo-nuestras');
 const limite = Number(arg('--limite')) || 100;
 const espera = Number(arg('--espera')) || 1500;
 const tope = (Number(arg('--max-min')) || 60) * 60_000;
@@ -42,7 +43,16 @@ async function main() {
   console.log(`Pendiente: ${c.adj_sin_detalle} adjudicadas sin detalle de adjudicación · ${c.sin_raw} sin raw_json · de ${c.total} licitaciones`);
   if (!aplicar) { console.log('Solo conteo. Para procesar: --aplicar --limite N'); await pool.end(); return; }
 
-  const [filas]: any = await pool.query(
+  // --solo-nuestras: únicamente licitaciones que la empresa toca (negocios, viabilidad, análisis, checklist, OC, competencia…), incluso las que aún no están en el caché.
+  const NUESTRAS = ['negocios', 'viabilidad_licitacion', 'analisis_ia_licitacion', 'checklist_comercial', 'ordenes_compra', 'oferta_competencia', 'licitacion_apertura', 'compras_asignacion', 'entrega_proyecto', 'negocio_lineas_oferta']
+    .map(t => `SELECT licitacion_codigo k FROM ${t}`).join(' UNION ');
+  const [filas]: any = solo_nuestras
+    ? await pool.query(
+      `SELECT u.k AS codigo, (l.estado = 'Adjudicada' AND a.licitacion_codigo IS NULL) AS falta_adj
+         FROM (${NUESTRAS}) u LEFT JOIN licitaciones_cache l ON l.codigo = u.k LEFT JOIN adjudicacion_cache a ON a.licitacion_codigo = u.k
+        WHERE u.k IS NOT NULL AND (l.codigo IS NULL OR l.raw_json IS NULL OR (l.estado = 'Adjudicada' AND a.licitacion_codigo IS NULL))
+        ORDER BY falta_adj DESC, u.k LIMIT ?`, [limite])
+    : await pool.query(
     `SELECT l.codigo, (${esAdj} AND a.licitacion_codigo IS NULL) AS falta_adj
        FROM licitaciones_cache l LEFT JOIN adjudicacion_cache a ON a.licitacion_codigo = l.codigo
       WHERE ${soloAdjudicadas ? `(${esAdj} AND a.licitacion_codigo IS NULL)` : `((${esAdj} AND a.licitacion_codigo IS NULL) OR l.raw_json IS NULL)`}

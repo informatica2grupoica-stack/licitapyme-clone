@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useRealtime } from '@/app/lib/use-realtime';
-import { IconFileText as FileText, IconRefresh as RefreshCw, IconLoader2 as Loader2, IconDownload as Download, IconFolderOpen as FolderOpen, IconFolder as Folder, IconAlertTriangle as AlertTriangle, IconTableOptions as TableProperties, IconUpload as Upload, IconTrash as Trash2, IconPencil as Pencil, IconCheck as Check, IconX as X, IconFolderPlus as FolderPlus, IconScissors as Scissors, IconMessageQuestion as Preguntar, IconCloudDownload as CloudDownload } from '@tabler/icons-react';
+import { IconFileText as FileText, IconRefresh as RefreshCw, IconLoader2 as Loader2, IconDownload as Download, IconFolderOpen as FolderOpen, IconFolder as Folder, IconAlertTriangle as AlertTriangle, IconUpload as Upload, IconTrash as Trash2, IconPencil as Pencil, IconCheck as Check, IconX as X, IconFolderPlus as FolderPlus, IconScissors as Scissors, IconMessageQuestion as Preguntar, IconCloudDownload as CloudDownload } from '@tabler/icons-react';
 import { DocumentoAdjunto } from '@/app/types/search.types';
 import { getFileIcon, formatFileSize, esUrlAnalizable } from '../utils';
 import { urlDescarga } from '@/app/lib/descargas-cliente';
@@ -1299,27 +1299,6 @@ export function DocumentosSection({
   // Documento abierto en el chat rápido de IA (modal). null = cerrado.
   const [iaDoc, setIaDoc] = useState<{ nombre: string; url: string } | null>(null);
 
-  // Regeneración del Excel de costeo desde el informe IA ya guardado (sin re-analizar:
-  // reusa el manifiesto y solo vuelve a armar el Excel con la plantilla actual).
-  const [regenerandoCosteo, setRegenerandoCosteo] = useState(false);
-  const [costeoError, setCosteoError] = useState<string | null>(null);
-
-  const handleRegenerarCosteo = async () => {
-    setRegenerandoCosteo(true);
-    setCosteoError(null);
-    try {
-      const r = await fetch(`/api/documentos/generar-costeo/${encodeURIComponent(codigoDecoded)}`, { method: 'POST' });
-      const j = await r.json().catch(() => ({}));
-      if (!r.ok) { setCosteoError(j.error || 'No se pudo regenerar el costeo.'); return; }
-      fetchDocumentos(); // refresca la lista para que aparezca el archivo nuevo
-    } catch {
-      setCosteoError('Error de red al regenerar el costeo.');
-    } finally {
-      setRegenerandoCosteo(false);
-    }
-  };
-
-  const costeo = !clasificando ? documentosCache.find(d => d.nombre?.includes('COSTEO_') && (d as any).categoria === 'DOCUMENTOS_PROPIOS') : undefined;
   const BLOQUE = 'bg-white border border-linea rounded-2xl shadow-tarjeta p-5 dark:bg-slate-900 dark:border-slate-800';
   const ICONO = 'w-9 h-9 rounded-xl bg-slate-100 text-slate-500 flex items-center justify-center flex-shrink-0 dark:bg-slate-800 dark:text-slate-400';
 
@@ -1351,7 +1330,7 @@ export function DocumentosSection({
           </div>
         </div>
 
-        {(descargandoAuto || clasificando || costeo || (!clasificando && resumenClasificacion?.estado === 'incompleto' && resumenClasificacion.falta.length > 0)) && (
+        {(descargandoAuto || clasificando || (!clasificando && resumenClasificacion?.estado === 'incompleto' && resumenClasificacion.falta.length > 0)) && (
           <div className="mt-4 space-y-2.5">
             {/* Progreso — descarga o clasificación (la descarga tiene prioridad visual) */}
             {descargandoAuto ? (
@@ -1359,27 +1338,6 @@ export function DocumentosSection({
             ) : clasificando ? (
               <ProgresoBanner fase="clasificando" totalDocs={documentosCache.length} />
             ) : null}
-
-            {/* Costeo generado — aparece cuando hay un COSTEO_ en DOCUMENTOS_PROPIOS */}
-            {costeo && (
-              <div className="flex flex-wrap items-center gap-3 rounded-xl bg-slate-50 px-4 py-3 dark:bg-slate-800/50">
-                <span className="w-8 h-8 rounded-lg bg-white text-exito flex items-center justify-center flex-shrink-0 shadow-tarjeta dark:bg-slate-900"><TableProperties size={16} /></span>
-                <div className="flex-1 min-w-[200px]">
-                  <p className="text-[13px] font-medium text-tinta dark:text-slate-100">Excel de costeo generado</p>
-                  <p className="text-xs text-tinta-2 dark:text-slate-400 truncate">{costeo.nombre} · en Documentos para Mercado Público</p>
-                  {costeoError && <p className="text-xs text-urgente mt-1">{costeoError}</p>}
-                </div>
-                <Boton tamano="sm" onClick={handleRegenerarCosteo} disabled={regenerandoCosteo}
-                  title="Regenerar el Excel desde el informe guardado (sin volver a analizar)"
-                  icono={regenerandoCosteo ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />}>
-                  {regenerandoCosteo ? 'Regenerando…' : 'Regenerar'}
-                </Boton>
-                <a href={urlDescarga((costeo as any).url_local || (costeo as any).url)} download={costeo.nombre}
-                  className="inline-flex items-center justify-center gap-1.5 h-8 px-3 rounded-lg text-[13px] font-medium bg-marca text-white hover:bg-marca-fuerte shadow-tarjeta transition-colors duration-150">
-                  <Download size={15} /> Descargar
-                </a>
-              </div>
-            )}
 
             {/* Set incompleto */}
             {!clasificando && resumenClasificacion?.estado === 'incompleto' && resumenClasificacion.falta.length > 0 && (

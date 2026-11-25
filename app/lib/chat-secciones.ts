@@ -80,9 +80,12 @@ export const SECCIONES: SeccionChat[] = [
   },
   {
     id: 'proyectos', nombre: 'Proyectos (Obuma)', ruta: /^\/compras\/proyectos(\/|$)/, rutaModulo: '/compras/proyectos',
-    tablas: ['obuma_proyectos_reales', 'obuma_compras', 'compras_orden_compra_obuma', 'negocios'],
+    tablas: ['obuma_proyectos_reales', 'obuma_compras', 'obuma_registro', 'compras_orden_compra_obuma', 'negocios'],
     que: 'los proyectos y compras registrados en Obuma',
     sugerencias: ['¿Cuántos proyectos tenemos en Obuma?', '¿Cuánto hemos comprado por proyecto?'],
+    notas: {
+      obuma_registro: 'Espejo de Obuma, una fila por registro; filtra SIEMPRE por entidad: compra (facturas de compra), compra_oc (órdenes de compra), compra_dte (facturas recibidas del SII), gasto, pago_compra (rel_documento_id = compra), venta (tipo_dcto 33 factura, 52 guía de despacho, 61 nota de crédito, 39 boleta), cobro_venta (rel_documento_id = venta), cliente, proveedor, producto. contraparte_id es el proveedor (compras) o el cliente (ventas) y se cruza con filas entidad proveedor/cliente por obuma_id. Excluye estado = \'ANULADA\' al sumar montos. Todos los campos de Obuma están en raw_json (JSON_EXTRACT(raw_json, \'$.campo\')).',
+    },
   },
   {
     id: 'oc-comercial-mp', nombre: 'OC Comercial MP', ruta: /^\/compras\/oc-comercial-mp(\/|$)/, rutaModulo: '/compras/oc-comercial-mp',
@@ -102,20 +105,24 @@ export const SECCIONES: SeccionChat[] = [
       'compras_gasto', 'compras_gasto_categoria', 'compras_incidencia', 'compras_incidencia_tipo', 'compras_aprobacion_linea', 'compras_orden_compra_obuma', 'compras_oc_pago', 'compras_oc_cancelacion',
       'compras_proveedor', 'compras_entrega', 'compras_historial_oc', 'compras_historial_oc_item', 'compras_cotizacion_item', 'compras_auditoria_cotizacion', 'compras_asignacion', 'compras_coencargado',
       'compras_compra_rapida', 'compras_borrador_compra', 'compras_tipo_cambio', 'compras_producto_importacion', 'compras_importacion_embarque', 'compras_auditor_costeo_proyecto', 'compras_auditor_costeo_linea',
-      'compras_auditor_costeo_captura', 'compras_reparto_administrativo', 'compras_reparto_respaldo', 'compras_doc_generado', 'compras_tarea_catalogo',
+      'obuma_compras', 'obuma_registro', 'compras_auditor_costeo_captura', 'compras_reparto_administrativo', 'compras_reparto_respaldo', 'compras_doc_generado', 'compras_tarea_catalogo',
       'negocio_costeo_editor'],
     que: 'el proceso de compra de cada negocio ganado: productos, cotizaciones, SKU, órdenes de compra, pagos, tareas y gastos',
     sugerencias: ['¿Qué compras tienen tareas atrasadas?', '¿Qué negocios todavía no tienen orden de compra?', '¿Cuánto llevamos gastado en compras este mes?', '¿Qué productos faltan por cotizar?'],
+    notas: {
+      obuma_compras: 'OC de Obuma ya cruzadas con la licitación: licitacion_codigo, folio, estado, neto/total, proveedor_razon_social; facturas_json = facturas enlazadas (arreglo JSON con folioDte, tipoDcto, total, fecha). Facturas contables, pagos y guías están en obuma_registro, que se une por centro de costo: obuma_registro.centro_costo = obuma_compras.centro_costo. En obuma_registro filtra SIEMPRE por entidad: compra (factura de compra; total y pagado), pago_compra (rel_documento_id = obuma_id de la compra), compra_dte (factura recibida del SII; folio y rel_documento_id = compra), venta con tipo_dcto 52 (guía de despacho emitida; referencia = observación). «Sin pagar» = pagado menor que total. Excluye estado ANULADA.',
+    },
   },
   {
     id: 'ordenes-compra', nombre: 'Órdenes de compra', ruta: /^\/ordenes-compra(\/|$)/, rutaModulo: '/ordenes-compra',
-    tablas: ['ordenes_compra', 'compras_orden_compra_obuma', 'compras_oc_pago', 'compras_historial_oc', 'compras_historial_oc_item', 'negocios'],
+    tablas: ['ordenes_compra', 'compras_orden_compra_obuma', 'compras_oc_pago', 'compras_historial_oc', 'compras_historial_oc_item', 'obuma_compras', 'obuma_registro', 'negocios'],
     que: 'las órdenes de compra de los clientes y las que emitimos a proveedores, con sus pagos',
     sugerencias: ['¿Qué órdenes de compra llegaron esta semana?', '¿Qué OC están sin pagar?', '¿Cuál es la OC más grande de este año?'],
     // Mismo conteo que la pantalla (listarOrdenesCompra en app/lib/ordenes-compra.ts): 267 OC al 17-nov-2026.
     notas: {
       ordenes_compra: 'OC que los ORGANISMOS nos emiten por Mercado Público (no son las que emitimos a proveedores). es_nuestra = 1 = OC a una de nuestras empresas; la pantalla muestra solo es_nuestra = 1 salvo que pidan «de terceros». Sin período en la pregunta = total histórico. Monto: total; fecha: COALESCE(fecha_envio, fecha_creacion).',
       compras_orden_compra_obuma: 'OC que NOSOTROS emitimos a proveedores (vía Obuma). Sus pagos están en compras_oc_pago; «sin pagar» = sin filas en compras_oc_pago (LEFT JOIN + IS NULL).',
+      obuma_compras: 'OC de Obuma ya cruzadas con la licitación: licitacion_codigo, folio, estado, neto/total, proveedor_razon_social; facturas_json = facturas enlazadas (arreglo JSON con folioDte, tipoDcto, total, fecha). Facturas contables, pagos y guías están en obuma_registro, que se une por centro de costo: obuma_registro.centro_costo = obuma_compras.centro_costo. En obuma_registro filtra SIEMPRE por entidad: compra (factura de compra; total y pagado), pago_compra (rel_documento_id = obuma_id de la compra), compra_dte (factura recibida del SII; folio y rel_documento_id = compra), venta con tipo_dcto 52 (guía de despacho emitida; referencia = observación). «Sin pagar» = pagado menor que total. Excluye estado ANULADA.',
     },
   },
   {

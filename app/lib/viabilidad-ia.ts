@@ -857,6 +857,8 @@ async function llamarGlmJSON(systemPrompt: string, userPrompt: string, traza?: T
         streamCapMsPrimario: Math.max(120_000, Number(process.env.VIABILIDAD_STREAM_CAP_MS_PRIMARIO) || 200_000),
         streamCapMs: Math.max(90_000, Number(process.env.VIABILIDAD_STREAM_CAP_MS) || 300_000),
         soloGlm: true,
+        // 25-nov-2026 (pedido del dueño): GLM barato→caro sin glm-5.2 → Kimi → Gemini; sin DeepSeek. Manda sobre los dos flags de abajo.
+        cadenaViabilidad: true,
         // ÚLTIMO RECURSO DEEPSEEK (20-ago-2026, pedido explícito del usuario tras 2422-144-LE26:
         // glm-5.2 y glm-4.7 se agotaron por timeout y la licitación quedó SIN análisis). La
         // preferencia sigue siendo GLM —DeepSeek solo se toca cuando la escalera GLM completa se
@@ -2376,129 +2378,12 @@ async function analizarYGuardarViabilidadIAImpl(codigo: string, onFase?: (fase: 
   } catch (e) { console.warn(`[viabilidad-ia-v4] ${codigo}: no se pudo conservar la confirmación:`, String(e).slice(0, 160)); }
   try { await guardarViabilidadIAV4(codigo, rv3); }
   catch (e) { console.error('[viabilidad-ia-v4] guardar falló:', String(e).slice(0, 200)); }
-  // Vuelca ítems al negocio y genera el Excel de costeo.
+  // Vuelca ítems al negocio. Ya NO se genera el Excel COSTEO_*.xlsx en los documentos (pedido del dueño, 25-nov-2026).
   try { await volcarManifiestoAItems(codigo, rv3 as any); }
   catch (e) { console.error('[viabilidad-ia-v3] volcar ítems falló:', String(e).slice(0, 200)); }
-  try { await autoGenerarCosteo(codigo, rv3 as any); }
-  catch (e) { console.error('[viabilidad-ia-v3] generar costeo falló:', String(e).slice(0, 200)); }
   try { await (await import('@/app/lib/costeo-editor-reanalisis')).actualizarCosteosTrasReanalisis(codigo, informeAnterior, rv3); }
   catch (e) { console.error('[viabilidad-ia-v3] actualizar costeo digital falló:', String(e).slice(0, 200)); }
   return rv3 as any;
-}
-
-// Genera el Excel de costeo automáticamente tras el análisis IA.
-async function autoGenerarCosteo(codigo: string, r: ViabilidadIAResult): Promise<void> {
-  const manifiesto = Array.isArray(r.manifiesto_productos) ? r.manifiesto_productos : [];
-  console.log(`[costeo] ${codigo}: manifiesto tiene ${manifiesto.length} ítems`);
-  if (manifiesto.length === 0) return;
-
-  const { adaptarViabilidadACosteo, generarCosteoExcel } = await import('@/app/lib/generar-costeo');
-  const { subirDocumentoR2 } = await import('@/app/lib/r2');
-
-  const datosCosteo = adaptarViabilidadACosteo(codigo, r);
-
-  // PRECIOS DE MERCADO en la viabilidad: DESACTIVADO por defecto para NO gastar tokens de Serper
-  // en cada análisis. El costeo se genera aquí SIN precios; la búsqueda de productos (Serper) se
-  // dispara bajo demanda con el botón "Productos a costeo" en Negocios (cuando el perfil trabaja la
-  // licitación → estado En proceso), que llama a /api/documentos/generar-costeo con ?precios=1.
-  // Para volver a cotizar en automático durante la viabilidad, pon COSTEO_PRECIOS_AUTO=1.
-  if (process.env.COSTEO_PRECIOS_AUTO === '1') {
-    try {
-      const precios = await cotizarPreciosManifiesto(codigo, manifiesto, r);
-      const conPrecio = precios.filter(p => p.precio_neto != null).length;
-      if (conPrecio > 0) {
-        (datosCosteo as any).precios = precios;
-        console.log(`[costeo] ${codigo}: precios de mercado (auto) → ${conPrecio}/${precios.length} ítems cotizados`);
-      }
-    } catch (e) {
-      console.error(`[costeo] ${codigo}: cotización de precios falló (se sigue sin precios):`, String(e).slice(0, 200));
-    }
-  }
-
-  console.log(`[costeo] ${codigo}: generando Excel (${datosCosteo.modalidad}, ${datosCosteo.grupos.length} hoja(s))…`);
-  const buffer = await generarCosteoExcel(datosCosteo);
-  console.log(`[costeo] ${codigo}: buffer ${buffer.length} bytes — subiendo a R2…`);
-
-  const fecha = new Date().toISOString().slice(0, 10);
-  const nombreArchivo = `COSTEO_${codigo}_${fecha}.xlsx`;
-  const url = await subirDocumentoR2(codigo, nombreArchivo, buffer,
-    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-  console.log(`[costeo] ${codigo}: R2 OK → ${url}`);
-
-  const totalItems = datosCosteo.grupos.reduce((s, g) => s + g.items.length, 0);
-
-  // Inserción defensiva: descubre qué columnas opcionales existen antes de insertar.
-  // Evita que columnas agregadas por migraciones pendientes (categoria, content_type,
-  // usuario_id) rompan el flujo si aún no se aplicaron en la BD live.
-  let colsExtra = '';
-  let valsExtra = '';
-  let updateExtra = '';
-  const params: any[] = [codigo, nombreArchivo, url, buffer.length];
-
-  try {
-    const [cols] = await pool.query(
-      `SELECT COLUMN_NAME FROM information_schema.COLUMNS
-       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'documentos_cache'
-       AND COLUMN_NAME IN ('categoria','content_type')`,
-    ) as any[];
-    const existentes = new Set((cols as any[]).map((c: any) => c.COLUMN_NAME));
-
-    if (existentes.has('content_type')) {
-      colsExtra  += ', content_type';
-      valsExtra  += ', ?';
-      updateExtra += ', content_type = VALUES(content_type)';
-      params.push('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    }
-    if (existentes.has('categoria')) {
-      // El costeo (con o sin precios de mercado) queda como DOCUMENTOS_PROPIOS: visible para
-      // cualquier perfil asignado a la licitación. La viabilidad la puede hacer cualquiera y
-      // el costeo con precios se genera y se ve igual (ya no es exclusivo de admin).
-      const categoriaDoc = 'DOCUMENTOS_PROPIOS';
-      colsExtra  += ', categoria';
-      valsExtra  += ', ?';
-      updateExtra += ', categoria = VALUES(categoria)';
-      params.push(categoriaDoc);
-    }
-  } catch { /* si falla la introspección, continúa sin columnas extra */ }
-
-  await pool.query(
-    `INSERT INTO documentos_cache
-       (licitacion_codigo, documento_nombre, documento_url_local, size_bytes${colsExtra})
-     VALUES (?, ?, ?, ?${valsExtra})
-     ON DUPLICATE KEY UPDATE
-       documento_url_local = VALUES(documento_url_local),
-       size_bytes          = VALUES(size_bytes)${updateExtra},
-       updated_at          = CURRENT_TIMESTAMP`,
-    params,
-  );
-
-  console.log(`[costeo] ✅ ${codigo}: Excel guardado (${datosCosteo.modalidad}, ${datosCosteo.grupos.length} hoja(s), ${totalItems} ítems)`);
-}
-
-// Cotiza los ítems del manifiesto con el buscador de precios (Serper + caché) y devuelve
-// los PrecioMercadoItem que el Excel de costeo casa por descripción. Región y rubro salen
-// del meta de la licitación para afinar la búsqueda.
-async function cotizarPreciosManifiesto(
-  codigo: string,
-  manifiesto: ManifiestoLinea[],
-  r: ViabilidadIAResult,
-): Promise<import('@/app/lib/generar-costeo').PrecioMercadoItem[]> {
-  if (!process.env.SERPER_API_KEY) {
-    console.warn(`[costeo] ${codigo}: SERPER_API_KEY ausente → sin precios de mercado`);
-    return [];
-  }
-  const { cotizarManifiesto } = await import('@/app/lib/buscador-precios');
-
-  const region = r.meta?.region || '';
-  const contexto = r.meta?.linea_negocio || '';
-  console.log(`[costeo] ${codigo}: cotizando ${manifiesto.length} ítems (región="${region}", rubro="${contexto}")…`);
-  const t0 = Date.now();
-  const precios = await cotizarManifiesto(manifiesto, { region, contexto });
-  const segs = ((Date.now() - t0) / 1000).toFixed(1);
-  const hits = precios.filter(p => p.tienda).length;
-  const cacheHits = precios.filter(p => p.desde_cache).length;
-  console.log(`[costeo] ${codigo}: cotización lista en ${segs}s — ${hits}/${precios.length} con match (${cacheHits} de caché)`);
-  return precios;
 }
 
 // Vuelca el manifiesto de productos (lo que la IA encontró en la documentación) a

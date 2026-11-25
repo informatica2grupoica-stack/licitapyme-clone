@@ -22,6 +22,7 @@
 // que degrade lo que estaba bien destruye la automatización y hace que el humano vuelva a llenar
 // todo a mano — el resultado sería PEOR que no revisar. Por eso el prompt exige error evidente, y
 // por eso existe el cortacircuito de abajo.
+import { opcionesIAAnexos } from '@/app/lib/anexos-ia-opciones';
 import { crearChatIA as crearChatIABase } from '@/app/lib/gemini';
 import { conModuloIA } from '@/app/lib/ia-uso';
 const crearChatIA = conModuloIA('anexos', crearChatIABase);
@@ -146,7 +147,7 @@ async function revisarLote(items: ItemRepaso[], ficha: string): Promise<Map<numb
       messages: [{ role: 'system', content: SYS_REPASO }, { role: 'user', content: user }],
       temperature: 0, stream: false, max_tokens: 3_000,
       response_format: { type: 'json_object' },
-    }, { timeoutMs: 60_000, modeloPreferido: 'glm-4.7', soloGlm: true });
+    }, opcionesIAAnexos(60_000));
 
     const parsed: any = parseJsonIA(String(completion.choices?.[0]?.message?.content ?? '')) || {};
     const arr = Array.isArray(parsed.casillas) ? parsed.casillas : [];

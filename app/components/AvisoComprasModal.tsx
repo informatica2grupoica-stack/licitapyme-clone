@@ -4,7 +4,7 @@
 // (aprobó / aprobó con cambios / rechazó): muestra el mensaje y lleva directo al paso donde hay que corregir.
 // No bloquea la app («Más tarde» lo cierra). Llega en vivo (SSE) y, si el encargado no estaba conectado, al entrar
 // aparece el último aviso sin leer. Cerrarlo lo silencia por esta sesión del navegador; la campana y el correo siguen.
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { IconAlertTriangle as Alerta, IconCircleCheck as Check, IconPencil as Lapiz, IconX as X } from '@tabler/icons-react';
 import { useSession } from '@/app/lib/session-context';
@@ -34,25 +34,25 @@ export function AvisoComprasModal() {
 
   const yaVisto = (id: number) => { try { return sessionStorage.getItem(clave(id)) === '1'; } catch { return false; } };
 
-  // Al entrar: el aviso sin leer más reciente (por si no estaba conectado cuando se decidió).
-  const cargar = useCallback(async () => {
-    try {
-      const d = await fetch('/api/historial?limit=15').then(r => r.json());
-      if (!d.success) return;
-      const a = (d.eventos as any[]).filter(e => !e.leido).map(aAviso).find((x): x is Aviso => !!x && !yaVisto(x.id));
-      if (a) setAviso(a);
-    } catch { /* silencioso: nunca bloquear la app por un aviso */ }
-  }, []);
+  // Se cierra sola a los 10 s: ya no estorba y queda en la campana.
+  useEffect(() => {
+    if (!aviso) return;
+    const t = setTimeout(() => {
+      try { sessionStorage.setItem(clave(aviso.id), '1'); } catch { /* sin storage */ }
+      setAviso(null);
+    }, 10000);
+    return () => clearTimeout(t);
+  }, [aviso]);
 
   useEffect(() => {
     if (!usuario) return;
-    cargar();
+    // Solo avisos en vivo: al entrar ya no reaparece el último (está en la campana).
     return suscribirRealtime(ev => {
       if (ev.tipo !== 'notificacion') return;
       const a = aAviso(ev.datos as any);
       if (a && !yaVisto(a.id)) setAviso(a);
     });
-  }, [usuario, cargar]);
+  }, [usuario]);
 
   const cerrar = () => {
     if (aviso) { try { sessionStorage.setItem(clave(aviso.id), '1'); } catch { /* no bloquear por storage */ } }
@@ -82,29 +82,26 @@ export function AvisoComprasModal() {
       : { caja: 'bg-rose-50 border-rose-200', icono: 'text-rose-600', boton: 'bg-rose-600 hover:bg-rose-700' };
   const Icono = aprobada ? Check : cambios ? Lapiz : Alerta;
 
+  // Tarjeta discreta abajo a la derecha (sin fondo oscuro, no tapa la pantalla). Se cierra sola;
+  // el aviso queda siempre en la campana, que lleva a la misma pantalla.
   return (
-    <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" role="alertdialog" aria-labelledby="aviso-compras-titulo" data-testid="aviso-compras-modal">
-      <div className="bg-white rounded-xl shadow-flotante w-full max-w-xl overflow-hidden">
-        <div className="px-6 py-5 flex items-start gap-3">
-          <div className={`w-10 h-10 rounded-xl border flex items-center justify-center flex-shrink-0 ${tono.caja}`}>
-            <Icono size={18} className={tono.icono} />
-          </div>
-          <div className="flex-1 min-w-0">
-            <h2 id="aviso-compras-titulo" className="text-[15px] font-semibold text-zinc-900">{titulo}</h2>
-            <p className="text-[13px] text-zinc-600 mt-1.5 leading-relaxed break-words">{aviso.mensaje}</p>
-          </div>
-          <button onClick={cerrar} className="p-1 rounded-lg text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 transition-colors flex-shrink-0" aria-label="Cerrar">
-            <X size={16} />
-          </button>
+    <div className="fixed bottom-4 right-4 z-[110] w-[calc(100vw-2rem)] max-w-sm bg-white rounded-xl border border-zinc-200 shadow-flotante overflow-hidden" role="status" aria-labelledby="aviso-compras-titulo" data-testid="aviso-compras-modal">
+      <div className="px-4 py-3.5 flex items-start gap-3">
+        <div className={`w-8 h-8 rounded-lg border flex items-center justify-center flex-shrink-0 ${tono.caja}`}>
+          <Icono size={16} className={tono.icono} />
         </div>
-        <div className="px-6 pb-5 flex gap-2.5">
-          <button onClick={cerrar} className="flex-1 px-4 py-2 rounded-lg text-[13px] font-semibold text-zinc-600 border border-zinc-200 hover:bg-zinc-50 transition-colors">Más tarde</button>
+        <div className="flex-1 min-w-0">
+          <h2 id="aviso-compras-titulo" className="text-[13px] font-semibold text-zinc-900">{titulo}</h2>
+          <p className="text-[12px] text-zinc-600 mt-1 leading-snug break-words line-clamp-3">{aviso.mensaje}</p>
           {aviso.url && (
-            <button onClick={ir} className={`flex-1 px-4 py-2 rounded-lg text-[13px] font-semibold text-white transition-colors ${tono.boton}`}>
+            <button onClick={ir} className="mt-2 text-[12px] font-semibold text-teal-600 hover:text-teal-700">
               {aprobada ? 'Abrir Compras' : incidencia ? 'Ver el producto' : 'Ir a corregir'}
             </button>
           )}
         </div>
+        <button onClick={cerrar} className="p-1 rounded-lg text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 transition-colors flex-shrink-0" aria-label="Cerrar">
+          <X size={14} />
+        </button>
       </div>
     </div>
   );

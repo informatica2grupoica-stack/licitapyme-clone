@@ -560,7 +560,24 @@ async function intentarCadena(chain: ProveedorTexto[], params: any, reqOpts: any
 // para no romper el caller — mejor GLM que un error de "proveedor sin key" en una función que no
 // lo espera. La cadena de respaldo se arma igual a partir de ese proveedor (cfgTextoRespaldos ya
 // sabe deduplicar contra el activo), así que un fallo de Kimi cae a DeepSeek/GLM en vez de morir.
-export async function crearChatIA(params: any, opts: { timeoutMs?: number; timeoutMsPrimario?: number; sinRespaldo?: boolean; soloGlm?: boolean; modeloPreferido?: string; proveedorPreferido?: string; deepSeekUltimoRecurso?: boolean; geminiUltimoRecurso?: boolean; deadlineMs?: number; streamIdleMs?: number; streamCapMsPrimario?: number; streamCapMs?: number } = {}) {
+// CADENA DE LA VIABILIDAD (25-nov-2026, pedido del dueño): todos los GLM de la más barata a la más cara SIN glm-5.2,
+// después Kimi y al final Gemini. DeepSeek NO entra. Se activa con opts.cadenaViabilidad. `add` descarta el activo y repetidos.
+// Orden por precio (entrada/salida por 1M): flashx 0,07/0,40 → air 0,20/1,10 → glm-4.7 0,60/2,20.
+function cfgViabilidadRespaldos(activo: ProveedorTexto): ProveedorTexto[] {
+  const chain: ProveedorTexto[] = [];
+  const add = (cfg?: ProveedorTexto) => {
+    if (!cfg || !process.env[cfg.keyEnv]) return;
+    if (cfg.keyEnv === activo.keyEnv && cfg.model === activo.model) return;
+    if (chain.some((c) => c.keyEnv === cfg.keyEnv && c.model === cfg.model)) return;
+    chain.push(cfg);
+  };
+  add(PROVEEDORES_TEXTO.zai); add(PROVEEDORES_TEXTO.zai_alt2); add(PROVEEDORES_TEXTO.zai_alt);
+  add(PROVEEDORES_TEXTO.kimi);
+  if (geminiTextoHabilitado()) add(PROVEEDORES_TEXTO.gemini);
+  return chain;
+}
+
+export async function crearChatIA(params: any, opts: { timeoutMs?: number; timeoutMsPrimario?: number; sinRespaldo?: boolean; soloGlm?: boolean; cadenaViabilidad?: boolean;modeloPreferido?: string; proveedorPreferido?: string; deepSeekUltimoRecurso?: boolean; geminiUltimoRecurso?: boolean; deadlineMs?: number; streamIdleMs?: number; streamCapMsPrimario?: number; streamCapMs?: number } = {}) {
   // Multiempresa: una empresa-cliente que ya gastó su tope mensual de IA no sigue gastando (Grupo ICA no tiene tope).
   await (await import('@/app/lib/medidor-cliente')).verificarTopeIA();
   const proveedorForzado = opts.proveedorPreferido ? PROVEEDORES_TEXTO[opts.proveedorPreferido] : undefined;
@@ -602,6 +619,8 @@ export async function crearChatIA(params: any, opts: { timeoutMs?: number; timeo
     // le compite — a estos dos solo se llega con la escalera GLM entera agotada.
     if (opts.geminiUltimoRecurso && geminiTextoHabilitado()) respaldos = [...respaldos, PROVEEDORES_TEXTO.gemini];
   }
+
+  if (opts.cadenaViabilidad && !(opts.sinRespaldo || sinRespaldoGlobal)) respaldos = cfgViabilidadRespaldos(activo);
 
   // Breaker: si el principal ya se declaró sin saldo y hay cadena, vamos directo al respaldo.
   const finLimite = opts.deadlineMs ? Date.now() + opts.deadlineMs : undefined;

@@ -51,7 +51,8 @@ const MODELO_LECTURA = process.env.AGENTE_COMPRAS_MODELO_OCR || 'gemini-2.5-flas
 const MODELO_AUDITORIA = process.env.AGENTE_COMPRAS_MODELO || 'gemini-2.5-flash';
 
 export function agenteDocumentosDisponible(): boolean {
-  return Boolean(GEMINI_API_KEY);
+  // 25-nov-2026 (pedido del dueño): Gemini fuera de la plataforma → el agente queda apagado (rutas y pantallas ya lo tratan como no disponible).
+  return false;
 }
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));

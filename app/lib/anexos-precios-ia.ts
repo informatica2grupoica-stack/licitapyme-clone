@@ -13,6 +13,7 @@
 //
 // gemini.ts es server-only (arrastra node:async_hooks) — este módulo NUNCA se importa desde un
 // Client Component, solo desde anexos-rellenar.ts (que a su vez solo corren las rutas /api/anexos).
+import { opcionesIAAnexos } from '@/app/lib/anexos-ia-opciones';
 import { crearChatIA as crearChatIABase } from '@/app/lib/gemini';
 import { conModuloIA } from '@/app/lib/ia-uso';
 const crearChatIA = conModuloIA('anexos', crearChatIABase);
@@ -70,6 +71,44 @@ export function matchExacto(etiquetas: string[], items: ItemCosteoPrecio[]): { m
     const item = porTexto.get(normalizarParaMatchExacto(filaTexto));
     if (item) matches.push({ etiqueta, precioUnitario: item.precioUnitario, itemDescripcion: item.descripcion });
     else sinResolver.push(etiqueta);
+  }
+  return { matches, sinResolver };
+}
+
+// ── Match por SIMILITUD CLARA, también sin IA ────────────────────────────────────────────────
+// El costeo guarda «<producto> - <modelo>» y a veces con otra puntuación («EN FE.MACIZO» vs «en fe.
+// Macizo»): el match exacto falla aunque sea el mismo ítem (Formato 6 de 2723-79-LE26: el unitario
+// quedaba vacío si la IA no estaba disponible). Aquí se acepta SOLO una coincidencia inequívoca: las
+// palabras de la fila están casi todas en el ítem, el nombre base del ítem (antes del « - modelo»)
+// está casi todo en la fila, los NÚMEROS (medidas, capacidades, modelos) son los mismos, y un solo
+// ítem cumple. Con dos candidatos o una medida distinta (150 ≠ 180 cm) no resuelve: va a la IA o
+// queda pendiente — nunca se adivina.
+function tokensDeMatch(s: string): string[] {
+  const n = s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+  return [...new Set(n.replace(/[^a-z0-9]+/g, ' ').split(' ').filter(t => t.length >= 3 || /^\d+$/.test(t)))];
+}
+
+export function matchPorSimilitud(etiquetas: string[], items: ItemCosteoPrecio[]): { matches: MatchPrecio[]; sinResolver: string[] } {
+  const matches: MatchPrecio[] = [];
+  const sinResolver: string[] = [];
+  const usados = new Set<string>();
+  for (const etiqueta of etiquetas) {
+    const tr = tokensDeMatch(etiqueta.split(' — ')[0]);
+    const candidatos = items.filter(it => !usados.has(it.descripcion)).map(it => {
+      const ti = tokensDeMatch(it.descripcion);
+      const corte = it.descripcion.lastIndexOf(' - ');
+      const tBase = corte > 0 ? tokensDeMatch(it.descripcion.slice(0, corte)) : ti;
+      const cubre = (a: string[], b: Set<string>) => (a.length ? a.filter(x => b.has(x)).length / a.length : 0);
+      const setI = new Set(ti), setR = new Set(tr);
+      const filaEnItem = cubre(tr, setI), baseEnFila = cubre(tBase, setR);
+      const numsFila = tr.filter(x => /\d/.test(x)), numsBase = tBase.filter(x => /\d/.test(x));
+      const numerosOk = numsFila.every(x => setI.has(x)) && numsBase.every(x => setR.has(x));
+      return { it, ok: tr.length >= 3 && filaEnItem >= 0.9 && baseEnFila >= 0.8 && numerosOk, score: filaEnItem + baseEnFila };
+    }).filter(c => c.ok);
+    if (candidatos.length === 1) {
+      usados.add(candidatos[0].it.descripcion);
+      matches.push({ etiqueta, precioUnitario: candidatos[0].it.precioUnitario, itemDescripcion: candidatos[0].it.descripcion });
+    } else sinResolver.push(etiqueta);
   }
   return { matches, sinResolver };
 }
@@ -137,7 +176,7 @@ ${items.map((it, i) => `${i + 1}: ${it.descripcion}${it.unidad ? `, unidad ${it.
       // Mismo modelo que el resto del motor de anexos (31-ago-2026): sin fijarlo caía en
       // `glm-4.7-flashx`, medido colgándose 43 s antes de dar timeout. Ver el comentario largo en
       // resolverAlertasInadmisibilidad (anexos-ia-motor.ts).
-    }, { timeoutMs: 60_000, modeloPreferido: 'glm-4.7', soloGlm: true });
+    }, opcionesIAAnexos(60_000));
 
     const txt = String(completion.choices?.[0]?.message?.content ?? '');
     const parsed: any = parseJsonIA(txt) || {};
@@ -185,7 +224,12 @@ export async function matchearPreciosConIA(etiquetas: string[], items: ItemCoste
 
   // Paso 0: match exacto por texto (ver matchExacto) — sin esto, se le pagaba a la IA por
   // resolver algo que ya se sabía con certeza en el 90%+ de los casos reales.
-  const { matches: exactos, sinResolver: sinResolverExacto } = matchExacto(elegibles, items);
+  const { matches: exactosPuros, sinResolver: sinResolverPuro } = matchExacto(elegibles, items);
+  // Paso 0b: similitud inequívoca (ver matchPorSimilitud), también sin IA. Los ítems ya usados por un
+  // match exacto no se vuelven a ofrecer.
+  const itemsLibres = items.filter(it => !exactosPuros.some(m => m.itemDescripcion === it.descripcion));
+  const { matches: porSimilitud, sinResolver: sinResolverExacto } = matchPorSimilitud(sinResolverPuro, itemsLibres);
+  const exactos = [...exactosPuros, ...porSimilitud];
   if (sinResolverExacto.length === 0) return exactos;
 
   const primeraPasada = await matchearVarios(sinResolverExacto, items, TAMANO_LOTE);

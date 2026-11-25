@@ -39,7 +39,7 @@ import {
 import { repasarConIA, repasoActivado } from '@/app/lib/anexos-repaso-ia';
 import { matchearPreciosConIA } from '@/app/lib/anexos-precios-ia';
 import { esCandidatoDePrecioUnitario, esPrecioUnitarioConIva } from '@/app/lib/anexos-precios-columnas';
-import { resolverTablaProductosEnBlanco } from '@/app/lib/anexos-oferta-tecnica-tabla';
+import { resolverTablaProductosEnBlanco, RE_DESCRIPCION_DE_PRODUCTOS_OFERTADOS, textoDescripcionDeProductosOfertados } from '@/app/lib/anexos-oferta-tecnica-tabla';
 import { resolverTablaPorOrden, resolverDescripcionDeItems } from '@/app/lib/anexos-tabla-por-orden';
 import { resolverMontoUnicoOferta, resolverPieApilado, porcentajeIvaDeclarado, totalNetoDeItemsCosteo, montoEnPalabras } from '@/app/lib/anexos-monto-oferta';
 import {
@@ -154,7 +154,8 @@ function esPersonaJuridica(empresa: EmpresaCampos): boolean {
   const t = String(empresa.tipo_persona_juridica || '');
   return !!t.trim() && !/persona\s+natural/i.test(t);
 }
-const RE_COMPROMISO_DEL_OFERENTE = /garant[ií]a|plazo\s+de\s+entrega|d[ií]as\s+(corridos|h[aá]biles)|marcar\s+con\s+una?\s+x|\bcumple\b/i;
+const RE_COLUMNA_DE_RESPUESTA_DEL_OFERENTE = /\bcumple\b|cat[aá]logo|datasheet|data\s*sheet|p[aá]gina|observaci|respaldo|puntaje|folleto|brochure/i;
+const RE_COMPROMISO_DEL_OFERENTE =/garant[ií]a|plazo\s+de\s+entrega|d[ií]as\s+(corridos|h[aá]biles)|marcar\s+con\s+una?\s+x|\bcumple\b/i;
 // Casilla de MONTO de nuestra oferta. Nunca sale de las bases: ahí solo está el presupuesto del organismo. BUG REAL
 // (4170-63-LE26, Anexo Nº4, 06-nov-2026): la IA de bases escribió el «presupuesto máximo» de cada ítem ($19.063.800, el
 // «$ 7-514-850» del OCR, $3.927.000) en «Monto total Neto» y en el pie. Los montos salen del costeo / Auditor o quedan pendientes.
@@ -400,6 +401,35 @@ async function resolverTodo(
     for (const [m, n] of conteo) checklistPendientes.push(n > 1 && /^El Auditor|^La ficha t[eé]cnica no trae este/.test(m) ? `Ficha técnica (${n} casillas): ${m}` : `Ficha técnica: ${m}`);
   }
 
+  // «Descripción de los productos ofertados» (cuadro de texto libre del anexo técnico): lo que ofertamos
+  // = productos del costeo + lo aprobado en el Auditor. Antes quedaba vacío como «no aplica al oferente».
+  if (itemsCosteo && itemsCosteo.length > 0 && pendientesTrasAuditor.some(c => RE_DESCRIPCION_DE_PRODUCTOS_OFERTADOS.test(c.etiqueta.trim()))) {
+    const desc = textoDescripcionDeProductosOfertados(itemsCosteo, datosAuditor?.fichas);
+    if (desc) {
+      const quedan: typeof pendientesTrasAuditor = [];
+      for (const c of pendientesTrasAuditor) {
+        if (!RE_DESCRIPCION_DE_PRODUCTOS_OFERTADOS.test(c.etiqueta.trim())) { quedan.push(c); continue; }
+        // El cuadro trae el rótulo y debajo párrafos vacíos: un producto por párrafo (si faltan párrafos, el
+        // resto va junto en el último). Sin párrafo vacío debajo, se agrega al final del rótulo.
+        const vacios: { paraId: string; indice: number }[] = [];
+        for (let k = c.indice + 1; k < parrafos.length && parrafos[k].vacio && vacios.length < desc.partes.length; k++) vacios.push({ paraId: parrafos[k].paraId, indice: parrafos[k].indice });
+        if (vacios.length) {
+          vacios.forEach((v, k) => {
+            const valor = k === vacios.length - 1 ? desc.partes.slice(k).join(' ') : desc.partes[k];
+            matcheados.push({ c: { etiqueta: c.etiqueta, paraId: v.paraId, indice: v.indice }, campo: 'auditor_tecnico_comercial', valor, via: 'auditor' });
+          });
+        } else {
+          matcheados.push({ c, campo: 'auditor_tecnico_comercial', valor: desc.texto, via: 'auditor', ...(c.dosPuntos ? { dosPuntos: true } : {}) });
+        }
+        pendientesConMotivo.delete(c.indice);
+      }
+      pendientesTrasAuditor = quedan;
+      if (desc.sinEspecificacion.length) {
+        checklistPendientes.push(`Descripción de los productos: ${desc.sinEspecificacion.length === itemsCosteo.length ? 'ningún producto' : `${desc.sinEspecificacion.join('; ')} no tiene`} ficha aprobada en el Auditor, quedó solo con el nombre del costeo y la cantidad. Aprobar la opción en el Auditor para que se llene con lo que ofertamos.`);
+      }
+    }
+  }
+
   // Precios del Motor Comercial: no es un dato de la ficha de empresa, sale del .xlsx del
   // costeo (ver anexos-precios-ia.ts) — se cruza sobre lo que el Auditor dejó pendiente.
   let pendientesTrasPrecio = pendientesTrasAuditor;
@@ -491,7 +521,13 @@ async function resolverTodo(
       p.motivo = 'Plazo, garantía u opción a marcar: lo compromete el oferente — se define en el Auditor o a mano.';
     }
   }
-  const puedeIrALaIA = (c: CandidatoCelda) => !indicesDeFichaAuditor.has(c.indice) && !RE_COMPROMISO_DEL_OFERENTE.test(c.etiqueta);
+  // Las columnas donde el OFERENTE responde sobre su propio producto («CUMPLE», «CATÁLOGO / PÁGINA / DATASHEET»,
+  // «OBSERVACIONES», «PUNTAJE…») nunca se responden con un texto de bases: ahí está lo que EXIGE el organismo, no lo
+  // que ofertamos. 1180747-16-LE26, Formulario 3: sin ficha aprobada en el Auditor, la IA de bases copiaba el requisito
+  // («Esterilizable en autoclave», «OBLIGATORIO») en esas columnas — un dato equivocado, no un pendiente.
+  const columnaDe = (etiqueta: string) => { const p = etiqueta.split(' — '); return p.length > 1 ? p[p.length - 1] : ''; };
+  const puedeIrALaIA = (c: CandidatoCelda) => !indicesDeFichaAuditor.has(c.indice) && !RE_COMPROMISO_DEL_OFERENTE.test(c.etiqueta)
+    && !RE_COLUMNA_DE_RESPUESTA_DEL_OFERENTE.test(columnaDe(c.etiqueta));
   // Montos: fuera solo de la IA de BASES (en la de órdenes de compra el «Monto» de la experiencia sí es un dato real de la OC).
   if (basesTexto && basesTexto.trim()) {
     const celdaEspecifico = pendientesTrasPrecio.filter(c => pendientesConMotivo.get(c.indice)?.categoria === 'especifico_licitacion' && puedeIrALaIA(c) && !RE_MONTO_DE_LA_OFERTA.test(c.etiqueta));

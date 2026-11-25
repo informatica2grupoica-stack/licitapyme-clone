@@ -98,7 +98,6 @@ const REGLAS: Regla[] = [
   { modulo: 'anexos',     re: /^\/api\/negocios\/[^/]+\/prepostulacion(\/|$)/ },    // certificado y candado de anexos: va con Postulación
   { modulo: 'auditor',    re: /^\/api\/negocios\/[^/]+\/auditor(\/|$)/ },
   { modulo: 'costeo',     re: /^\/api\/negocios\/[^/]+\/(comercial|lineas-oferta)(\/|$)/ },
-  { modulo: 'costeo',     re: /^\/api\/documentos\/generar-costeo(\/|$)/ },
   { modulo: 'anexos',     re: /^\/api\/anexos(\/|$)/ },
   { modulo: 'anexos',     re: /^\/api\/empresas\/[^/]+\/(documentos|firmas)(\/|$)/ },
   // Órdenes de compra (2026-11-18, plan Básico): cada empresa ve solo las suyas (ordenes_compra.cliente_id, migration-197), así que viene con Negocios.

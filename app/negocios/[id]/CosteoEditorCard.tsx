@@ -972,7 +972,7 @@ interface EntradaRegistro {
 
 /** '2026-10-13 09:41:00' → '13-10-2026 09:41' (ya viene en hora de Chile, no se convierte). */
 function fechaRegistro(f: string): string {
-  const m = /^(d{4})-(d{2})-(d{2})[ T](d{2}):(d{2})/.exec(f || '');
+  const m = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/.exec(f || '');
   return m ? `${m[3]}-${m[2]}-${m[1]} ${m[4]}:${m[5]}` : f;
 }
 
@@ -1113,6 +1113,8 @@ export function CosteoEditorCard({
   // «Registro» de la cabecera), fuera de las tablas.
   const [registro, setRegistro] = useState<EntradaRegistro[]>([]);
   const [verRegistro, setVerRegistro] = useState(false);
+  // Señal roja arriba del costeo: la última vez que alguien cambió la cantidad de un ítem (no es parte del registro).
+  const [alertaCantidad, setAlertaCantidad] = useState<{ quien: string; fecha: string; cambios: string[] } | null>(null);
 
   const cargar = useCallback(async () => {
     try {
@@ -1129,7 +1131,8 @@ export function CosteoEditorCard({
       setEsAdmin(!!d.esAdmin);
       setPuedeAgregar({ fila: !!d.puedeAgregar?.fila, gasto: !!d.puedeAgregar?.gasto, adicional: !!d.puedeAgregar?.adicional });
       setRegistro(Array.isArray(d.registro) ? d.registro : []);
-      const pub = Number(d.presupuestoPublicado); // ojo: Number(null) es 0, no NaN
+      setAlertaCantidad(d.alertaCantidad ?? null);
+      const pub =Number(d.presupuestoPublicado); // ojo: Number(null) es 0, no NaN
       setPresupuestoPublicado(d.presupuestoPublicado != null && Number.isFinite(pub) && pub > 0 ? pub : null);
       setPresupuestosPorLinea(d.presupuestosPorLinea && typeof d.presupuestosPorLinea === 'object' ? d.presupuestosPorLinea : {});
       // `estadoHeredado` (traspaso embebida → burbuja global) manda sobre lo que traiga el
@@ -1426,6 +1429,7 @@ export function CosteoEditorCard({
       const r = await fetch(`/api/negocios/${negocioId}/comercial/costeo-editor`);
       const d = await r.json();
       if (r.ok && Array.isArray(d.registro)) setRegistro(d.registro);
+      if (r.ok) setAlertaCantidad(d.alertaCantidad ?? null);
     } catch { /* el registro no es crítico */ }
   };
 
@@ -1537,15 +1541,21 @@ export function CosteoEditorCard({
     </div>
   );
 
+  if (!estado && sinViabilidad) return (
+    <div className="bg-amber-50 rounded-xl border border-amber-200 p-10 text-center dark:bg-amber-950/30 dark:border-amber-900">
+      <AlertTriangle size={26} className="text-alerta mx-auto mb-3" />
+      <p className="text-[13px] font-semibold text-amber-900 mb-1 dark:text-amber-200">El costeo no se visualiza porque falta realizar la viabilidad</p>
+      <p className="text-[12px] text-amber-800 max-w-sm mx-auto dark:text-amber-300">
+        Ojo: no tienes costeo si no realizas la viabilidad. Corre el análisis de viabilidad de esta licitación y vuelve acá.
+      </p>
+    </div>
+  );
+
   if (!estado) return (
     <div className="bg-white rounded-xl border border-zinc-200 p-10 text-center">
       <Calculator size={26} className="text-zinc-300 mx-auto mb-3" />
       <p className="text-[13px] font-semibold text-zinc-700 mb-1">Sin ítems todavía</p>
-      <p className="text-[12px] text-zinc-400 max-w-sm mx-auto">
-        {sinViabilidad
-          ? 'El costeo se arma desde el manifiesto de viabilidad. Corre el análisis de viabilidad y vuelve acá.'
-          : 'No se encontraron productos en el manifiesto de esta licitación.'}
-      </p>
+      <p className="text-[12px] text-zinc-400 max-w-sm mx-auto">No se encontraron productos en el manifiesto de esta licitación.</p>
     </div>
   );
 
@@ -1641,6 +1651,18 @@ export function CosteoEditorCard({
   // ── Cabecera + resumen (siempre visible, dentro o fuera de pantalla completa) ──────────────
   const Cabecera = (
     <div className="bg-white p-4" style={pantallaCompleta ? { borderBottom: `1px solid ${GRID_BORDE}` } : undefined}>
+      {alertaCantidad && (
+        <div role="alert" className="mb-3 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2">
+          <AlertTriangle size={15} className="text-red-600 flex-shrink-0 mt-0.5" />
+          <div className="min-w-0 text-[12px] leading-snug text-red-700">
+            <p className="font-semibold">
+              Se modificó la cantidad de ítems · {alertaCantidad.quien} · {fechaRegistro(alertaCantidad.fecha)}
+            </p>
+            {alertaCantidad.cambios.slice(0, 3).map((c, i) => <p key={i} className="truncate">{c}</p>)}
+            {alertaCantidad.cambios.length > 3 && <p>y {alertaCantidad.cambios.length - 3} más</p>}
+          </div>
+        </div>
+      )}
       <div className="flex items-start justify-between gap-3 flex-wrap mb-1">
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center flex-shrink-0">

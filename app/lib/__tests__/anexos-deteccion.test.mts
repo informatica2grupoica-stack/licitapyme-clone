@@ -3007,3 +3007,89 @@ test('Descripción de una fila: no se toca con varias filas, con columna de prec
   const lleno = normalizarParaIds(NS + tabla(fila('Descripción', 'Precio Total'), fila('Lo escribió una persona', 'x')) + FIN).xml;
   assert.equal(resolverDescripcionDeItems(extraerTablasCrudo(lleno), itemsPorOrden).length, 0);
 });
+
+// ── 2723-79-LE26 (Buin), Formato 6 «Oferta económica»: «Ítem | Descripción | Cantidad | Valor Neto⏎Unitario | Valor Neto Total»
+// El encabezado «Valor Neto⏎Unitario» trae un salto de línea suave (<w:br/>) y se leía «Valor NetoUnitario»: la
+// regla de precio unitario no lo reconocía y el unitario quedaba vacío. Además la etiqueta de la fila salía «1.1 —
+// Valor Neto Unitario» (la columna «Ítem» es un número de orden) y el precio nunca se cruzaba con el costeo.
+test('Buin Formato 6: salto de línea en el encabezado = espacio y la fila se nombra por «Descripción», no por «Ítem»', async () => {
+  const { textoDeRuns } = await import('../anexos-docx');
+  assert.equal(textoDeRuns('<w:r><w:t>Valor Neto</w:t></w:r><w:r><w:br/><w:t>Unitario</w:t></w:r>'), 'Valor Neto Unitario');
+  // Un salto al final o de página no agrega espacios; un espacio que ya existe no se duplica.
+  assert.equal(textoDeRuns('<w:r><w:t>Total</w:t><w:br/></w:r>'), 'Total');
+  assert.equal(textoDeRuns('<w:r><w:t>Uno </w:t><w:br/><w:t>dos</w:t></w:r>'), 'Uno dos');
+  assert.equal(textoDeRuns('<w:r><w:t>Uno</w:t><w:br w:type="page"/><w:t>dos</w:t></w:r>'), 'Unodos');
+
+  const encabezado = '<w:tr>' + ['Ítem', 'Descripción', 'Cantidad'].map(celda).join('')
+    + '<w:tc><w:tcPr><w:tcW w:w="1250" w:type="pct"/></w:tcPr><w:p><w:r><w:t>Valor Neto</w:t></w:r><w:r><w:br/><w:t>Unitario</w:t></w:r></w:p></w:tc>'
+    + celda('Valor Neto Total') + '</w:tr>';
+  const xml = NS + tabla(
+    encabezado,
+    fila('1.1', 'Basurero modelo alameda (octagonal) con escudo municipal', '24', '', ''),
+    fila('1.2', 'Escaño antivandálico de hormigón pulido gris', '36', '', ''),
+  ) + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  const etiquetas = detectarCandidatosTabla(norm).map(c => c.etiqueta);
+  assert.deepEqual(etiquetas, [
+    'Basurero modelo alameda (octagonal) con escudo municipal — Valor Neto Unitario',
+    'Basurero modelo alameda (octagonal) con escudo municipal — Valor Neto Total',
+    'Escaño antivandálico de hormigón pulido gris — Valor Neto Unitario',
+    'Escaño antivandálico de hormigón pulido gris — Valor Neto Total',
+  ]);
+  assert.equal(esCandidatoDePrecioUnitario(etiquetas[0]), true);
+  assert.equal(esCandidatoDePrecioUnitario(etiquetas[1]), false);
+});
+
+// ── 4844-24-LE26, Anexo N°3 «Declaración jurada de inhabilidad» (formato notarial con puntos suspensivos) ──
+// 1) «(NOMBRE DEL PROPONENTE O REPRESENTANTE LEGAL)» va en SU párrafo, bajo la línea donde se escribe el nombre: es el
+//    pie de la línea, no una casilla. Se tomaba por marcador: borraba el rótulo y repetía el nombre debajo.
+// 2) «En ……… a ……… días del mes de ……… del año ………comparece…» está en un párrafo largo y con «días del mes de»: la fecha
+//    quedaba sin llenar.
+test('4844 Anexo 3: el rótulo entre paréntesis bajo la raya no es casilla (pero sin raya arriba sí lo es)', () => {
+  const raya = '_'.repeat(60);
+  const xml = NS + p('  YO,' + raya + ',') + p('(NOMBRE DEL PROPONENTE O REPRESENTANTE LEGAL)') + p('') + p('Texto intermedio') + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  const blancos = detectarBlancosInline(norm);
+  assert.equal(blancos.length, 1, JSON.stringify(blancos.map(b => b.contexto)));
+  assert.equal(blancos[0].contexto, 'YO,');
+
+  // Sin raya ni puntos arriba, el paréntesis a párrafo completo sigue siendo el marcador de siempre.
+  const suelto = NS + p('Declaro bajo juramento lo siguiente') + p('(NOMBRE DEL PROPONENTE O REPRESENTANTE LEGAL)') + FIN;
+  const { xml: norm2 } = normalizarParaIds(suelto);
+  assert.equal(detectarBlancosInline(norm2).length, 1);
+});
+
+test('4844 Anexo 3: «a …… días del mes de …… del año ……» en un párrafo largo = día / mes / año', () => {
+  const linea = 'En……………………………..a…………………………días del mes de……………….…..del año…………comparece………..…. de nacionalidad..……………..……profesión………………………………………….., RUT N°…………………………… con domicilio en………………… en representación de………………… quien bajo Juramento expone lo siguiente:';
+  const { xml: norm } = normalizarParaIds(NS + p(linea) + FIN);
+  const blancos = detectarBlancosInline(norm);
+  const roles = detectarTripletesFecha(blancos);
+  const porContexto = (c: string) => roles.get(`${blancos.find(b => b.contexto === c)!.indiceRun}:${blancos.find(b => b.contexto === c)!.posEnTexto}`);
+  assert.equal(porContexto('a'), 'dia');
+  assert.equal(porContexto('días del mes de'), 'mes_palabra');
+  assert.equal(porContexto('del año'), 'anio');
+  // Un párrafo largo con solo «de» entre blancos sigue sin interpretarse como fecha.
+  const ambiguo = 'Que el monto de ______ pesos, de ______ unidades, de ______ días, se compromete a pagar dentro del plazo señalado en las bases de licitación y sus anexos respectivos.';
+  const { xml: norm3 } = normalizarParaIds(NS + p(ambiguo) + FIN);
+  assert.equal(detectarTripletesFecha(detectarBlancosInline(norm3)).size, 0);
+});
+
+// ── 1180747-16-LE26, Formulario 3 (Rx / unidad dental): subsecciones con numeración decimal «1.2 | UNIDAD DENTAL (BRAQUET)» ──
+// «1.2» no calzaba como número de sección: la fila se tomaba por encabezado y las columnas CUMPLE / CATÁLOGO / OBSERVACIONES
+// pasaban a llamarse «UNIDAD DENTAL (BRAQUET)». Sin ficha aprobada en el Auditor, la IA de bases copiaba entonces el texto
+// del requisito en esas celdas (dato equivocado, en producción también).
+test('ficha de especificaciones: «1.2 | UNIDAD DENTAL (BRAQUET)» (numeración decimal) no es encabezado', () => {
+  const xml = NS + `<w:tbl><w:tblPr/>`
+    + `<w:tr>${celdaAncho('', 300)}${celdaAncho('NOMBRE DEL EQUIPO: UNIDAD DENTAL', 2500, 4)}${celdaAncho('OFERENTE', 2200, 3)}</w:tr>`
+    + `<w:tr>${celdaAncho('', 300)}${celdaAncho('ESPECIFICACIONES TÉCNICAS', 1500)}${celdaAncho('TIPO DE REQUERIMIENTO', 500)}${celdaAncho('PUNTAJE EETT', 350)}${celdaAncho('CUMPLE SI/NO', 345)}${celdaAncho('CATÁLOGO/ PÁGINA PROVEEDOR/ DATASHEET', 900)}${celdaAncho('OBSERVACIONES', 700)}${celdaAncho('PUNTAJE ASIGNADO', 405)}</w:tr>`
+    + `<w:tr>${celdaAncho('1.1', 300)}${celdaAncho('CARACTERÍSTICAS GENERALES', 4700, 7)}</w:tr>`
+    + `<w:tr>${celdaAncho('1.1.1', 300)}${celdaAncho('Sillón odontológico electromecánico', 1500)}${celdaAncho('OBLIGATORIO', 500)}${celdaAncho('', 350)}${celdaAncho('', 345)}${celdaAncho('', 900)}${celdaAncho('', 700)}${celdaAncho('', 405)}</w:tr>`
+    + `<w:tr>${celdaAncho('1.2', 300)}${celdaAncho('UNIDAD DENTAL (BRAQUET)', 4700, 7)}</w:tr>`
+    + `<w:tr>${celdaAncho('1.2.1', 300)}${celdaAncho('Bandeja de instrumentos amplia', 1500)}${celdaAncho('OBLIGATORIO', 500)}${celdaAncho('', 350)}${celdaAncho('', 345)}${celdaAncho('', 900)}${celdaAncho('', 700)}${celdaAncho('', 405)}</w:tr>`
+    + `</w:tbl>` + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  const etiquetas = detectarCandidatosTabla(norm).map(c => c.etiqueta);
+  const columnas = new Set(etiquetas.map(e => e.split(' — ').at(-1)));
+  assert.deepEqual([...columnas].sort(), ['CATÁLOGO/ PÁGINA PROVEEDOR/ DATASHEET', 'CUMPLE SI/NO', 'OBSERVACIONES'], JSON.stringify(etiquetas));
+  assert.ok(etiquetas.includes('Bandeja de instrumentos amplia — CUMPLE SI/NO'));
+});

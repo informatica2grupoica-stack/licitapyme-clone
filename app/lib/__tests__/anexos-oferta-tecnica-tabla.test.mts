@@ -120,3 +120,37 @@ test('al quitar marca y modelo no queda el rótulo «marca,» suelto', () => {
   f.requisitos = [{ texto: 'Controlador', estado: 'CUMPLE', ofertado: 'SmartSolar MPPT 100/50, marca Victron, 100V 50A', cita: '' }];
   assert.equal(textoEspecificacionDeFicha(f), '100V 50A.');
 });
+
+// ── 2723-79-LE26 (Buin), Formato 5: el cuadro «Descripción de los productos ofertados:» quedaba vacío ──
+import { RE_DESCRIPCION_DE_PRODUCTOS_OFERTADOS, textoDescripcionDeProductosOfertados } from '../anexos-oferta-tecnica-tabla';
+test('Descripción de los productos ofertados: solo el rótulo completo calza', () => {
+  for (const ok of ['Descripción de los productos ofertados:', 'Descripcion de los productos ofertados', 'DESCRIPCIÓN DE LOS BIENES OFERTADOS :', 'Descripción técnica de los productos']) {
+    assert.equal(RE_DESCRIPCION_DE_PRODUCTOS_OFERTADOS.test(ok), true, ok);
+  }
+  for (const no of ['Descripción', 'Descripción del servicio', 'Descripción de los productos ofertados y su garantía en meses']) {
+    assert.equal(RE_DESCRIPCION_DE_PRODUCTOS_OFERTADOS.test(no), false, no);
+  }
+});
+
+test('textoDescripcionDeProductosOfertados: nombre del costeo + cantidad + lo ofertado aprobado, sin marca ni modelo; avisa lo que quedó sin ficha', () => {
+  const items = [
+    item('BASURERO MODELO ALAMEDA (OCTAGONAL) - Modelo Alameda (Octagonal)', 24),
+    item('ESCAÑO ANTIVANDÁLICO DE HORMIGÓN PULIDO GRIS', 1),
+  ];
+  const fichas: FichaLineaAuditor[] = [{
+    lineaNumero: 1, producto: 'BASURERO MODELO ALAMEDA (OCTAGONAL)', motivo: null,
+    opcion: { marca: null, modelo: 'Alameda (octagonal)', fabricante: null, pais: null, anio: null, documento: 'cot.pdf' },
+    requisitos: [
+      { texto: 'RECEPTÁCULO EN PLANCHA 1.5 MM', estado: 'CUMPLE', ofertado: 'Plancha de acero 1020 de 1,5 mm', cita: '' },
+      { texto: 'CAPACIDAD', estado: 'CUMPLE', ofertado: '70 litros', cita: '' },
+      { texto: 'SISTEMA PIVOTANTE', estado: 'FALTA_DATO', ofertado: '', cita: '' },
+    ],
+  }];
+  const r = textoDescripcionDeProductosOfertados(items, fichas)!;
+  assert.equal(r.partes.length, 2);
+  assert.equal(r.partes[0], '1) BASURERO MODELO ALAMEDA (OCTAGONAL) (24 unidades): Plancha de acero 1020 de 1,5 mm. 70 litros.');
+  assert.equal(r.partes[1], '2) ESCAÑO ANTIVANDÁLICO DE HORMIGÓN PULIDO GRIS (1 unidad).');
+  assert.deepEqual(r.sinEspecificacion, ['ESCAÑO ANTIVANDÁLICO DE HORMIGÓN PULIDO GRIS']);
+  // Sin costeo no hay nada que decir.
+  assert.equal(textoDescripcionDeProductosOfertados([], fichas), null);
+});

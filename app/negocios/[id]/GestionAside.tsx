@@ -38,9 +38,6 @@ function avatarGrad(id: number): string {
   return grads[id % grads.length];
 }
 
-// «Productos a costeo» está escondido por pedido del dueño (2026-11-09): aún no se usa.
-// Para volver a mostrarlo basta poner esto en true; el botón y la ruta de la API siguen intactos.
-const MOSTRAR_PRODUCTOS_COSTEO = false;
 
 // Saca modales y paneles del contenedor «sticky» de la barra (que crea su propio nivel de apilado y
 // quedaría por debajo de la cabecera y de las notificaciones).
@@ -316,7 +313,6 @@ export function GestionAside({
   const [usuariosLista, setUsuariosLista] = useState<{ id: number; nombre: string | null; email: string }[]>([]);
   const [mostrarReasignar, setMostrarReasignar] = useState(false);
   const [historial, setHistorial] = useState<EventoLic[]>([]);
-  const [productosCosteoLoading, setProductosCosteoLoading] = useState(false);
   const [historialOpen, setHistorialOpen] = useState(false);
 
   useEffect(() => {
@@ -390,23 +386,6 @@ export function GestionAside({
     } catch (e: any) {
       onNegocioChange(estadoAnterior);
       toast.error('Error al actualizar etapa', e?.message);
-    }
-  };
-
-  const handleProductosCosteo = async () => {
-    if (productosCosteoLoading) return;
-    setProductosCosteoLoading(true);
-    toast.success('Buscando productos y precios…', 'Puede tardar ~30-60s');
-    try {
-      const r = await fetch(`/api/documentos/generar-costeo/${encodeURIComponent(negocio.licitacion_codigo)}?precios=1`, { method: 'POST' });
-      const j = await r.json().catch(() => ({}));
-      if (!r.ok) { toast.error('No se pudo generar', j.error || 'Error al buscar productos'); return; }
-      toast.success('Costeo con precios listo', 'Revisa el Excel en Documentos Propios');
-      onDocumentosRefrescar?.();
-    } catch {
-      toast.error('Error de red al buscar productos');
-    } finally {
-      setProductosCosteoLoading(false);
     }
   };
 
@@ -584,12 +563,6 @@ export function GestionAside({
                 className="flex items-center gap-2 px-2.5 py-2 text-[13px] text-tinta-2 dark:text-slate-300 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800">
                 <ExternalLink size={14} className="text-slate-400" /> Ver en Mercado Público
               </a>
-              {MOSTRAR_PRODUCTOS_COSTEO && (
-                <button onClick={() => { cerrar(); handleProductosCosteo(); }} disabled={productosCosteoLoading}
-                  className="flex items-center gap-2 px-2.5 py-2 text-[13px] text-tinta-2 dark:text-slate-300 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 text-left disabled:opacity-60">
-                  <ShoppingCart size={14} className="text-slate-400" /> Productos a costeo
-                </button>
-              )}
               {isAdmin && (
                 <button onClick={() => { cerrar(); eliminar(); }}
                   className="flex items-center gap-2 px-2.5 py-2 text-[13px] text-red-600 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/30 text-left">
@@ -666,16 +639,6 @@ export function GestionAside({
                 <ShoppingCart size={12} /> Ir a pre-compra
               </Link>
             )}
-            {MOSTRAR_PRODUCTOS_COSTEO && (<>
-            <button onClick={handleProductosCosteo} disabled={productosCosteoLoading}
-              title="Busca productos y precios de mercado (Chile) para los ítems del costeo y regenera el Excel con precios"
-              className="flex items-center justify-center gap-1.5 w-full text-[11px] font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg py-1.5 transition-colors disabled:opacity-60">
-              {productosCosteoLoading ? <><Loader2 size={12} className="animate-spin" /> Buscando productos…</> : <><ShoppingCart size={12} /> Productos a costeo</>}
-            </button>
-            <p className="text-[10px] text-zinc-400 mt-1 leading-snug">
-              Precios de mercado para <strong className="text-zinc-500">{negocio.usuario_nombre || negocio.usuario_email.split('@')[0]}</strong>. El Excel queda en Documentos Propios.
-            </p>
-            </>)}
           </div>
         </div>
 
