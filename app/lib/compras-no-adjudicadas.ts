@@ -94,7 +94,11 @@ export function decidirNoAdjudicadas(
   // Varios productos bajo el mismo número de línea (caso 2827-72-LP26: 18 productos en las líneas 1 a 4 del acta) solo se
   // aceptan si los números del costeo son EXACTAMENTE los del acta: el costeo está agrupado por línea del llamado. Con
   // cualquier hueco (un número del acta sin productos) sigue sin haber cruce seguro y no se toca nada.
-  if (hayRepetidos && vistos.size !== porCorrelativo.size) {
+  // Caso 2378-117-LP26: se postuló a las líneas 1 y 5 de 5 (las 2 a 4 no tienen productos) y se ganó la 5. Si hay productos
+  // agrupados por línea (una numeración ordinal no se repite) y al menos una línea GANADA tiene productos, los números son
+  // los de la licitación aunque falten líneas: se pueden marcar las ajenas. Sin ninguna ganada con productos, no hay prueba.
+  const hayGanadaConProductos = conCorrelativo.some(p => porCorrelativo.get(Number(p.correlativo))?.esNuestra);
+  if (hayRepetidos && vistos.size !== porCorrelativo.size && !hayGanadaConProductos) {
     return sinCruce('Hay productos con el mismo correlativo: no se puede cruzar con seguridad.', activos, ganadas);
   }
 

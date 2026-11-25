@@ -3,6 +3,12 @@
 Pantalla principal: `/compras/[negocioId]` (`ComprasChrome.tsx`). Traspasado desde la memoria
 personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-11-25 — Líneas no ganadas seguían como productos (2378-117-LP26, negocio 1385)
+**Caso:** postulamos las líneas 1 y 5 de 5, el acta nos dio solo la 5; los 24 productos de la línea 1 seguían «Pendiente» junto a los de la 5.
+**Causa:** `decidirNoAdjudicadas` no cruzaba si había productos agrupados por línea y faltaba alguna línea del acta en el costeo (líneas 2–4 no postuladas).
+**Arreglo:** ese freno se levanta si al menos una línea GANADA tiene productos (la numeración repetida = números de la licitación). Sin ganada con productos sigue sin tocar nada.
+**Verificado:** tests nuevos (22 + 292 de compras), `tsc`, y la decisión sobre los datos reales del 1385 marca los 24 de la línea 1 y ninguno de la 5. BD no escrita: se aplica sola al abrir Productos y cobertura. Sin ver en pantalla ni desplegar.
+
 ## 2026-11-25 — Dashboard de Compras: solo datos reales (tsc OK; consultas probadas en la BD real, solo lectura; SIN ver en pantalla ni desplegar)
 **Regla del dueño:** nada inventado, nunca. Cuatro lecturas de `compras-dashboard.ts` (relojes vencidos, sin fijar, incidencias abiertas, cierre legado) tenían `.catch(() => null)` y, si fallaban, la tarjeta mostraba 0 como si fuera verdad; ahora el error sube y la ruta responde «no se pudo cargar». Todas corren bien hoy: 32 negocios vivos (10 urgentes), 2 relojes vencidos, 30 sin reloj fijado, 2 incidencias, 33 entregadas / 11 no realizadas (legado), 22 con OC / 10 sin OC, 980 tareas. La tarjeta de resultado económico sigue ocultándose si no se puede calcular (no inventa).
 **Pendiente (multiempresa):** `compras_asignacion` no tiene `cliente_id`: este dashboard cuenta todas las empresas juntas; hoy solo hay datos de Grupo ICA.

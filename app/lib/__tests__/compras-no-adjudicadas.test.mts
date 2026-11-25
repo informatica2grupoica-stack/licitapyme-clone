@@ -84,9 +84,18 @@ test('caso 2827-72-LP26: varios productos por línea y los números del costeo =
   assert.equal(d.omitido, null);
 });
 
-test('varios productos por línea pero falta una línea del acta en el costeo: no se toca nada', () => {
-  const d = decidirNoAdjudicadas([prod(1, 1), prod(2, 1), prod(3, 4)], [ajena(1), ajena(2), ajena(3), nuestra(4)], true);
+test('varios productos por línea, faltan líneas del acta en el costeo y NINGUNA ganada tiene productos: no se toca nada', () => {
+  const d = decidirNoAdjudicadas([prod(1, 1), prod(2, 1), prod(3, 2)], [ajena(1), ajena(2), ajena(3), nuestra(4)], true);
   assert.deepEqual(d.marcar, []);
+});
+
+test('caso 2378-117-LP26: postulamos solo las líneas 1 y 5 de 5 y ganamos la 5 → los productos de la línea 1 quedan NO_ADJUDICADA', () => {
+  const productos = [prod(880, 1), prod(881, 1), prod(882, 1), prod(904, 5, 'COTIZANDO'), prod(905, 5, 'COTIZANDO')];
+  const acta = [ajena(1), ajena(2), ajena(3), ajena(4), nuestra(5)];
+  const d = decidirNoAdjudicadas(productos, acta, true);
+  assert.deepEqual(d.marcar.sort(), [880, 881, 882]);
+  assert.deepEqual(d.restaurar, []);
+  assert.equal(d.omitido, null);
 });
 
 test('esSubestadoFuera: RENUNCIADO y NO_ADJUDICADA salen de la cobertura; el resto no', () => {
