@@ -774,9 +774,9 @@ export async function homologarCotizacionIA(cotizacionId: number): Promise<{ ite
     llamarIA: async (system, user) => {
       const completion: any = await conCupo('compras-lectura', 3, () => crearChatIA({
         messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
-        temperature: 0, stream: false, max_tokens: 4_500,
+        temperature: 0, stream: false, max_tokens: 14_000, // el razonamiento de Kimi gasta del mismo presupuesto que el JSON
         response_format: { type: 'json_object' },
-      }, { timeoutMs: 90_000, modeloPreferido: 'glm-4.7', soloGlm: true }));
+      }, { timeoutMs: 180_000, modeloPreferido: 'glm-5.2', respaldoKimi: true }));
       return { content: String(completion.choices?.[0]?.message?.content ?? ''), finishReason: completion.choices?.[0]?.finish_reason ?? null };
     },
   });

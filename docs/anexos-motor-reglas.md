@@ -145,6 +145,14 @@ hay texto afuera, es una acotación y se descarta (`Nombre (si correspondiere)`)
 
 ### Reglas especiales de detección
 
+**Auditoría 25-nov-2026 (banco de 14 licitaciones).** (a) Un salto de línea suave (`<w:br/>`) entre dos textos de una
+celda es un espacio: «Valor Neto⏎Unitario» ya es precio unitario (`textoDeRuns`). (b) En una tabla con varias columnas
+descriptivas («Ítem | Descripción»), la fila se nombra por la primera cuyo texto NO es un número de orden («1.1»). (c) Un
+paréntesis que ocupa TODO su párrafo y va bajo una raya o línea de puntos («(NOMBRE DEL PROPONENTE O REPRESENTANTE LEGAL)») es
+el rótulo de esa línea, no una casilla. (d) «a ___ días del mes de ___ del año ___» es fecha también dentro de un párrafo
+largo (el conector «del mes» es inequívoco; con un simple «de» el párrafo largo sigue sin interpretarse). (e) Las filas de
+sección con numeración decimal («1.2 | UNIDAD DENTAL») no son encabezado (`RE_NUMERO_DE_SECCION`).
+
 **Secciones por tipo de oferente.** Si el documento se divide en Persona Natural / Persona Jurídica
 / UTP, solo se rellena la **jurídica**. Las otras dos se omiten sin preguntar. `postulaComoUTP`
 invierte la decisión solo para los bloques UTP, cuando el usuario confirma que esta vez sí se
@@ -410,11 +418,19 @@ Estas tres no dependen de `ANEXOS_IA_RESPALDO`, porque resuelven cosas que no sa
    en las bases solo está el presupuesto del organismo, nunca nuestra oferta (4170-63-LE26 escribía el
    presupuesto máximo de cada ítem en «Monto total»). Los montos salen del costeo/Auditor o quedan
    pendientes. La IA de órdenes de compra sí puede llenar el «Monto» de la experiencia.
+   **Tampoco las columnas donde el oferente responde sobre su producto** («CUMPLE», «CATÁLOGO / PÁGINA /
+   DATASHEET», «OBSERVACIONES», «PUNTAJE…»): ahí va lo que OFERTAMOS (Auditor aprobado), no lo que exige el organismo
+   (`RE_COLUMNA_DE_RESPUESTA_DEL_OFERENTE`, anexos-rellenar.ts). Sin esto la IA copiaba el requisito («OBLIGATORIO», «Esterilizable
+   en autoclave») en esas celdas cuando no había ficha aprobada (1180747-16-LE26).
 2. **Precios desde el COSTEO** (`anexos-precios-ia.ts` + `motor-comercial.ts`). El costeo aporta
    descripción + precio unitario de venta por ítem. El parser lee **cualquier planilla**, no solo la
    plantilla V3: detecta el encabezado, exige columna de precio de venta, excluye la sección "REAL"
    (Compras) y descarta las filas de pie. Reconoce por línea (hoja `LINEAn` **o** columna `Línea`) y
-   suma alzada.
+   suma alzada. **Orden de emparejado de una fila con el costeo:** 1) texto exacto normalizado, 2) similitud
+   inequívoca SIN IA (`matchPorSimilitud`: las palabras de la fila están en el ítem, el nombre base del ítem —antes
+   de «- modelo»— está en la fila, los números/medidas son los mismos y un solo ítem cumple), 3) IA. Todas las
+   llamadas de IA de anexos pasan por `opcionesIAAnexos` (anexos-ia-opciones.ts): GLM-4.7 por defecto;
+   `ANEXOS_IA_PROVEEDOR` permite MEDIR otro proveedor (kimi_rapido, kimi) sin tocar el código.
 3. **Experiencia desde ÓRDENES DE COMPRA** (`resolverExperienciaDesdeOrdenesCompra`). Llena tablas de
    "Experiencia del Oferente" con OC reales (Aceptada / Recepción conforme). Regla de pertinencia: si
    el objeto de la OC no calza con el rubro que pide la licitación, **no se usa** — mejor fila vacía

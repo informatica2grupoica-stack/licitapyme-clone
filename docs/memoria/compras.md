@@ -3,6 +3,12 @@
 Pantalla principal: `/compras/[negocioId]` (`ComprasChrome.tsx`). Traspasado desde la memoria
 personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-11-25 (noche) — Fichas técnicas y cotizaciones: GLM-5.2 primero, Kimi K3 de respaldo (tsc OK; sin probar con IA real ni desplegar)
+**Decisión del dueño:** reparto de IA — viabilidad = GLM; OCR de escaneados = GLM-OCR de Z.AI con Tesseract de respaldo (en todo documento escaneado, sobre todo en la viabilidad; Gemini OCR apagado); chatbots = Kimi; fichas técnicas y cotizaciones (lectura, homologación, pareo global) = una IA que no se equivoque. Quedan pocos créditos de Kimi: **GLM-5.2 primero y Kimi K3 solo si GLM falla**, hasta cargar más créditos (entonces se puede volver a K3 al frente).
+**Hecho:** opción nueva `respaldoKimi` de `crearChatIA` (respaldo único K3, sin DeepSeek ni Gemini) en `compras-cotizacion-ocr.ts`, `compras-auditor.ts` (homologación), `compras-pareo-global.ts`, `producto-referencia.ts` y el motor de fichas (`MOTOR_FICHAS` por defecto en `compararFichaProveedor`/`auditarFichasMultiples`, y `clasificarCaracteristicasLinea`).
+**No tocado:** entrega-lectura, aprobaciones, reloj y `auditor-compras.ts` siguen en GLM-4.7; el Auditor ya era Kimi.
+**Pendiente:** medir con el banco 1356 (GLM-4.7 daba 75,8 %, Kimi rápido 78,8 %) GLM-5.2 vs K3 alto/medio vs K2.6 con razonamiento. Precios US$/M: GLM-4.7 0,6/2,2 · GLM-5.2 1,4/4,4 · K2.6 0,95/4 · K3.1 Pro 2/10 · K3 3/15.
+
 ## 2026-11-25 — Líneas no ganadas seguían como productos (2378-117-LP26, negocio 1385)
 **Caso:** postulamos las líneas 1 y 5 de 5, el acta nos dio solo la 5; los 24 productos de la línea 1 seguían «Pendiente» junto a los de la 5.
 **Causa:** `decidirNoAdjudicadas` no cruzaba si había productos agrupados por línea y faltaba alguna línea del acta en el costeo (líneas 2–4 no postuladas).

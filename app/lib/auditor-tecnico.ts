@@ -84,9 +84,9 @@ ${caracteristicas.map((c, i) => `${i + 1}. ${c}`).join('\n')}`;
 
   const completion: any = await crearChatIA({
     messages: [{ role: 'system', content: SYS_AGENTE1 }, { role: 'user', content: user }],
-    temperature: 0.1, stream: false, max_tokens: 4_000,
+    temperature: 0.1, stream: false, max_tokens: 12_000, // el razonamiento de Kimi gasta del mismo presupuesto que el JSON
     response_format: { type: 'json_object' },
-  }, { timeoutMs: 90_000, modeloPreferido: 'glm-5.2' });
+  }, { timeoutMs: 180_000, modeloPreferido: 'glm-5.2', respaldoKimi: true });
 
   const txt = String(completion.choices?.[0]?.message?.content ?? '');
   const parsed: any = parseJsonIA(txt) || {};
@@ -156,6 +156,7 @@ export interface MotorComparacion {
   maxTokens: number;
   loteMax: number;               // tope de características por llamada — ver la nota de abajo
   sinRespaldo?: boolean;         // true → si este modelo falla, error visible: NO cae en silencio a otro modelo
+  respaldoKimi?: boolean;        // true → si GLM falla, un solo respaldo Kimi K3 (ver crearChatIA)
 }
 export const MOTOR_GLM: MotorComparacion = { modeloPreferido: 'glm-5.2', timeoutMs: 90_000, maxTokens: 6_000, loteMax: MAX_CARACT_POR_LLAMADA };
 // Kimi K3 razona SIEMPRE — no se puede apagar, solo graduar (ver reasoningEffort en gemini.ts) — y
@@ -168,6 +169,9 @@ const MOTOR_KIMI: MotorComparacion = { proveedorPreferido: 'kimi', timeoutMs: 18
  *  la IA, creo que lo hace otro"). Sin respaldo: si Kimi falla se ve el error en vez de que el
  *  veredicto lo dé, sin avisar, DeepSeek/GLM/Gemini — que era justo la duda del usuario. */
 export const MOTOR_KIMI_ESTRICTO: MotorComparacion = { ...MOTOR_KIMI, sinRespaldo: true };
+/** Fichas técnicas de Compras/Comercial (25-nov-2026): GLM-5.2 primero (barato) y, si falla, Kimi K3 como único respaldo (quedan pocos créditos de Kimi).
+ *  maxTokens y lote van al tamaño de Kimi porque es el respaldo (razona y gasta del mismo presupuesto). */
+export const MOTOR_FICHAS: MotorComparacion = { modeloPreferido: 'glm-5.2', respaldoKimi: true, timeoutMs: 180_000, maxTokens: 16_000, loteMax: 15 };
 
 /** Lo exigido, con el NÚMERO. Antes solo se mandaba valor_requerido_texto: para "Voltaje (EXACTO V)" la
  *  IA no sabía que se exigía 220, y un modelo estricto (Kimi K3) contestaba "no se entregó el valor
@@ -197,7 +201,7 @@ export async function compararFichaProveedor(
   fichaNombre: string,
   opciones: { motor?: MotorComparacion; modeloObjetivo?: string | null } = {},
 ): Promise<Map<number, VeredictoCaracteristica>> {
-  const { motor = MOTOR_GLM, modeloObjetivo = null } = opciones;
+  const { motor = MOTOR_FICHAS, modeloObjetivo = null } = opciones;
   const resultado = new Map<number, VeredictoCaracteristica>();
   if (!caracteristicas.length) return resultado;
 
@@ -479,7 +483,7 @@ export interface ResultadoAuditoriaMultiple {
 export async function auditarFichasMultiples(
   caracteristicas: Array<Pick<CaracteristicaClasificada, 'descripcion' | 'tipo' | 'valorRequeridoNumero' | 'valorRequeridoNumeroMax' | 'unidadRequerida' | 'valorRequeridoTexto'> & { id: number }>,
   fichas: FichaEntrada[],
-  motor: MotorComparacion = MOTOR_GLM,
+  motor: MotorComparacion = MOTOR_FICHAS,
 ): Promise<ResultadoAuditoriaMultiple> {
   if (!fichas.length) return { modo: 'unica', veredictosFinales: new Map(), faltantes: caracteristicas.map(c => c.id), conflictos: [] };
 

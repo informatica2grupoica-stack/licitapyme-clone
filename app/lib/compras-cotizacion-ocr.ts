@@ -319,9 +319,9 @@ export async function extraerDatosCotizacionDeDocumento(
     const sistema = SYS_EXTRACCION.replace('{{PROPIAS}}', propias.nombres.length ? propias.nombres.map((n, i) => `${n}${propias.ruts[i] ? ` (RUT ${propias.ruts[i]})` : ''}`).join('; ') : 'Inversiones Claro ARZ SpA; Comercial MP SpA');
     const completion: any = await conCupo('compras-lectura', 3, () => crearChatIA({
       messages: [{ role: 'system', content: sistema }, { role: 'user', content: texto.slice(0, 12_000) }],
-      temperature: 0, stream: false, max_tokens: 2_500,
+      temperature: 0, stream: false, max_tokens: 10_000, // el razonamiento de Kimi gasta del mismo presupuesto que el JSON
       response_format: { type: 'json_object' },
-    }, { timeoutMs: 60_000, modeloPreferido: 'glm-4.7', soloGlm: true }));
+    }, { timeoutMs: 180_000, modeloPreferido: 'glm-5.2', respaldoKimi: true }));
 
     const parsed: any = parseJsonIA(String(completion.choices?.[0]?.message?.content ?? '')) || {};
     // Number(null) es 0 y "consultar precio" volvía como $0 (auditoría 07-oct-2026): un 0 es "sin precio", no un precio.

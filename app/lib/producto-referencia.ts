@@ -100,9 +100,9 @@ async function llamarIAJson(system: string, user: string, maxTokens: number): Pr
     messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
     temperature: 0.1,
     stream: false,
-    max_tokens: maxTokens,
+    max_tokens: Math.max(maxTokens, 12_000), // el razonamiento de Kimi gasta del mismo presupuesto que el JSON
     response_format: { type: 'json_object' },
-  }, { timeoutMs: 60_000 });
+  }, { timeoutMs: 180_000, modeloPreferido: 'glm-5.2', respaldoKimi: true });
   return parseJsonIA(String(completion.choices?.[0]?.message?.content ?? '')) || {};
 }
 

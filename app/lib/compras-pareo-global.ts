@@ -20,10 +20,6 @@ import { reparacionesDeUnidad, parearNegocio, planificarEscrituraPareo, type Cot
 
 const crearChatIA = conModuloIA('compras', crearChatIABase);
 
-/** Modelo del pareo. En el banco (negocio 1356) glm-4.7 dio 75,8 % y Kimi rápido 78,8 % contra el comparativo del equipo, con ~1 min contra ~5 min:
- *  se usa glm-4.7 (el mismo de la lectura de cotizaciones). Cambiar aquí si el banco dice otra cosa. */
-const MODELO_PAREO = 'glm-4.7'; // 25-nov-2026: ya no hay Gemini, este es el único modelo del pareo
-
 export interface ResumenPareo { ejecutado: boolean; motivo?: string; asignados: number; quitados: number; sinRespaldo: number; saltados: number; llamadas: number; sinCuadrar: string[] }
 
 async function ejecutar(negocioId: number, actor?: { id: number; nombre: string | null }, quitar = false): Promise<ResumenPareo> {
@@ -45,10 +41,10 @@ async function ejecutar(negocioId: number, actor?: { id: number; nombre: string 
     llamarIA: async (system, user) => {
       const messages = [{ role: 'system', content: system }, { role: 'user', content: user }];
       const salida = (c: any) => ({ content: String(c.choices?.[0]?.message?.content ?? ''), finishReason: c.choices?.[0]?.finish_reason ?? null });
-      // 25-nov-2026 (pedido del dueño): Gemini fuera del pareo; solo GLM.
+      // 25-nov-2026 (pedido del dueño): el pareo va con Kimi (rápido, sin razonar); si falla, un respaldo GLM-4.7. Sin Gemini.
       const completion: any = await conCupo('compras-lectura', 3, () => crearChatIA({
-        messages, temperature: 0, stream: false, max_tokens: 12_000, response_format: { type: 'json_object' },
-      }, { timeoutMs: 300_000, modeloPreferido: MODELO_PAREO, soloGlm: true }));
+        messages, temperature: 0, stream: false, max_tokens: 24_000, response_format: { type: 'json_object' },
+      }, { timeoutMs: 420_000, modeloPreferido: 'glm-5.2', respaldoKimi: true }));
       return salida(completion);
     },
   });

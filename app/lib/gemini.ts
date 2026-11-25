@@ -577,7 +577,7 @@ function cfgViabilidadRespaldos(activo: ProveedorTexto): ProveedorTexto[] {
   return chain;
 }
 
-export async function crearChatIA(params: any, opts: { timeoutMs?: number; timeoutMsPrimario?: number; sinRespaldo?: boolean; soloGlm?: boolean; cadenaViabilidad?: boolean;modeloPreferido?: string; proveedorPreferido?: string; deepSeekUltimoRecurso?: boolean; geminiUltimoRecurso?: boolean; deadlineMs?: number; streamIdleMs?: number; streamCapMsPrimario?: number; streamCapMs?: number } = {}) {
+export async function crearChatIA(params: any, opts: { timeoutMs?: number; timeoutMsPrimario?: number; sinRespaldo?: boolean; soloGlm?: boolean; cadenaViabilidad?: boolean;modeloPreferido?: string; proveedorPreferido?: string; deepSeekUltimoRecurso?: boolean; geminiUltimoRecurso?: boolean; deadlineMs?: number; streamIdleMs?: number; streamCapMsPrimario?: number; streamCapMs?: number; respaldoKimi?: boolean } = {}) {
   // Multiempresa: una empresa-cliente que ya gastó su tope mensual de IA no sigue gastando (Grupo ICA no tiene tope).
   await (await import('@/app/lib/medidor-cliente')).verificarTopeIA();
   const proveedorForzado = opts.proveedorPreferido ? PROVEEDORES_TEXTO[opts.proveedorPreferido] : undefined;
@@ -621,6 +621,12 @@ export async function crearChatIA(params: any, opts: { timeoutMs?: number; timeo
   }
 
   if (opts.cadenaViabilidad && !(opts.sinRespaldo || sinRespaldoGlobal)) respaldos = cfgViabilidadRespaldos(activo);
+
+  // 25-nov-2026 (pedido del dueño; quedan pocos créditos de Kimi): fichas y cotizaciones van con GLM-5.2 y, si falla,
+  // UN solo respaldo Kimi K3 (nada de DeepSeek ni Gemini). Se aplica solo cuando el activo es GLM.
+  if (opts.respaldoKimi && activo.keyEnv === 'ZAI_API_KEY' && !(opts.sinRespaldo || sinRespaldoGlobal)) {
+    respaldos = [PROVEEDORES_TEXTO.kimi].filter((c) => process.env[c.keyEnv]);
+  }
 
   // Breaker: si el principal ya se declaró sin saldo y hay cadena, vamos directo al respaldo.
   const finLimite = opts.deadlineMs ? Date.now() + opts.deadlineMs : undefined;
