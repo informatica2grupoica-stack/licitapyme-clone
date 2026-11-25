@@ -7,7 +7,7 @@ import { diasCalendarioChile } from '@/app/lib/tz';
 import { SearchRequest, SearchResponse, Oportunidad } from '@/app/types/search.types';
 import { Licitacion } from '@/app/types/mercado-publico.types';
 import { leerCache, enriquecerYCachear } from '@/app/lib/licitaciones-cache';
-import { buscarEnCache, buscarPorTitulo, type CandidatoGlobal } from '@/app/lib/busqueda-global';
+import { buscarSinLimites } from '@/app/lib/busqueda-sin-limites';
 
 // Código de estado "Publicada" en la API de MP (ver ESTADO_CODIGOS).
 const ESTADO_PUBLICADA = 5;
@@ -102,7 +102,7 @@ async function enrichirPagina(
 //   tipo+año: 1-4 letras + 2 dígitos (ej: LE26, LP26, LR26, L126, CO26)
 function esBusquedaPorCodigo(consulta: string): boolean {
   if (!consulta) return false;
-  const patronCodigo = /^\d{2,8}-\d{1,4}-[A-Z]{1,4}\d{2}$/i;
+  const patronCodigo = /^\d{2,8}-\d{1,4}-[A-Z]{1,4}\d{2,4}$/i;
   // También ID numérico largo
   const patronNumerico = /^\d{8,}$/;
   return patronCodigo.test(consulta.trim()) || patronNumerico.test(consulta.trim());
@@ -151,7 +151,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         // Si es búsqueda por código, buscar específicamente por código
         if (esCodigo && consulta) {
           console.log(`🔍 Buscando por código específico: ${consulta}`);
-          const licitacion = await client.obtenerPorCodigo(consulta);
+          const codigoBuscado = consulta.trim().toUpperCase();
+          // Si la API no responde (rate-limit) o no la devuelve, se usa lo que ya está en el caché.
+          const licitacion = (await client.obtenerPorCodigo(codigoBuscado).catch(() => null))
+            ?? (await leerCache([codigoBuscado])).get(codigoBuscado)?.lic ?? null;
           
           if (licitacion) {
             // Convertir licitación individual a formato Oportunidad
@@ -209,133 +212,81 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             };
           }
         } else {
-          // ── Universo del buscador: SOLO licitaciones ABIERTAS ──────────────
-          // La lista autoritativa la da la API en vivo. Nada cerrado, desierto,
-          // adjudicado ni revocado entra acá.
+          // ── Buscador sin límites (estilo Mercado Público) ──────────────────
+          // Universo = todo `licitaciones_cache` (cualquier estado, tipo y región) con los
+          // filtros aplicados en SQL; la API en vivo solo dice qué sigue Publicada ahora.
           const poolKey = 'pool_abiertas';
           const cachedPool = rawPool.get(poolKey);
-          let abiertas: Licitacion[];
-
-          // Ranking del matcher, para reponerlo después de filtrar/paginar/enriquecer.
-          let porCodigo: Map<string, CandidatoGlobal> | null = null;
+          let abiertas: Licitacion[] | null = null;
 
           if (cachedPool && Date.now() - cachedPool.timestamp < RAW_POOL_DURATION) {
             abiertas = cachedPool.data;
-            console.log(`⚡ Pool cacheado: ${abiertas.length} abiertas`);
           } else {
-            // `estado=activas` es el índice en vivo de MP de todo lo abierto y ya
-            // incluye lo publicado hoy: medido contra el listado por fecha de los
-            // últimos 15 días, ese barrido aportaba 0 licitaciones abiertas nuevas
-            // y solo gatillaba 429 de rate-limit. Queda como respaldo por si
-            // `activas` falla o viene vacío.
-            console.log('🌍 Consultando licitaciones abiertas de Mercado Público...');
-            const unicas = new Map<string, Licitacion>();
-
-            const activas = await client.obtenerActivasHoy();
-            for (const lic of activas) {
-              if (lic?.Codigo) unicas.set(lic.Codigo, lic);
-            }
-
-            if (unicas.size === 0) {
-              console.warn(`⚠️ "activas" vino vacío — respaldo por fecha (${DIAS_RECIENTES} días)`);
-              const recientes = await client.obtenerUltimosDias(DIAS_RECIENTES);
-              // Del listado por fecha solo sirven las que siguen Publicadas:
-              // también trae cerradas, desiertas, adjudicadas y revocadas.
-              for (const lic of recientes) {
-                if (lic?.Codigo && Number(lic.CodigoEstado) === ESTADO_PUBLICADA) {
-                  unicas.set(lic.Codigo, lic);
+            try {
+              const unicas = new Map<string, Licitacion>();
+              for (const lic of await client.obtenerActivasHoy()) {
+                if (lic?.Codigo) unicas.set(lic.Codigo, lic);
+              }
+              if (unicas.size === 0) {
+                const recientes = await client.obtenerUltimosDias(DIAS_RECIENTES);
+                for (const lic of recientes) {
+                  if (lic?.Codigo && Number(lic.CodigoEstado) === ESTADO_PUBLICADA) unicas.set(lic.Codigo, lic);
                 }
               }
+              if (unicas.size > 0) {
+                abiertas = Array.from(unicas.values());
+                rawPool.set(poolKey, { data: abiertas, timestamp: Date.now() });
+              }
+            } catch (e) {
+              console.warn('⚠️ API en vivo sin respuesta; se busca solo en el caché', e);
             }
-
-            abiertas = Array.from(unicas.values());
-            rawPool.set(poolKey, { data: abiertas, timestamp: Date.now() });
-            console.log(`✅ Abiertas: ${abiertas.length}`);
           }
 
-          if (abiertas.length === 0) {
-            console.warn('⚠️ No se encontraron licitaciones, usando datos MOCK');
-            searchResult = searchEngine.search(MOCK_LICITACIONES, {
-              consulta,
-              pagina,
+          const global = await buscarSinLimites({
+            consulta,
+            estados: filters.filtro_estado as string[] | undefined,
+            tipos: filters.filtro_tipo,
+            regiones: filters.filtro_regiones,
+            organismo: filters.filtro_organismos?.[0],
+            montoMin: filters.filtro_monto_min,
+            montoMax: filters.filtro_monto_max,
+            cierreDesde: filters.filtro_fecha_cierre_desde,
+            cierreHasta: filters.filtro_fecha_cierre_hasta,
+            publicacionDesde: filters.filtro_fecha_publicacion_desde,
+            publicacionHasta: filters.filtro_fecha_publicacion_hasta,
+            codigos: filters.filtro_codigos,
+            orden: filters.tipo_orden ?? undefined,
+            pagina,
+            porPagina: resultados_por_pagina,
+          }, abiertas);
+
+          const base: Oportunidad[] = global.licitaciones.map(x => ({
+            ...searchEngine.licitacionToOportunidad(x.lic, ''),
+            score: x.score,
+            match_fuentes: x.fuentes,
+          }));
+          // Las abiertas recién publicadas (aún sin detalle en el caché) se completan aquí.
+          const original = new Map(base.map(r => [r.codigo, r]));
+          const resultados = (await enrichirPagina(client, base)).map(r => {
+            const o = original.get(r.codigo);
+            return o ? { ...r, score: o.score, match_fuentes: o.match_fuentes } : r;
+          });
+
+          searchResult = {
+            resultados,
+            meta: {
+              pagina_actual: pagina,
+              total_paginas: Math.ceil(global.total / resultados_por_pagina),
+              total_resultados: global.total,
               resultados_por_pagina,
-              ...filters
-            });
-            searchResult.meta.fuente_datos = 'MOCK (fallback)';
-            searchResult.meta.total_licitaciones_procesadas = MOCK_LICITACIONES.length;
-          } else if (!consulta?.trim()) {
-            // Sin texto: listado de abiertas con los filtros y el orden pedidos.
-            searchResult = searchEngine.search(abiertas, {
-              consulta: '',
-              pagina,
-              resultados_por_pagina,
-              ...filters
-            });
-            searchResult.meta.fuente_datos = 'Mercado Público (licitaciones abiertas)';
-            searchResult.meta.total_licitaciones_procesadas = abiertas.length;
-          } else {
-            // ── Búsqueda por texto, sin restricción de campo ────────────────
-            // El listado de la API solo trae el título. Buscar ahí dejaba fuera
-            // ~60% de las coincidencias reales, que viven en los ítems. Por eso
-            // el match se hace contra `licitaciones_cache` (nombre + descripción
-            // + ítems + categoría) acotado a lo que está abierto ahora.
-            console.log(`✅ Buscando "${consulta}" en ${abiertas.length} abiertas (todos los campos)`);
-            const codigosAbiertos = new Set(abiertas.map(l => l.Codigo));
-            const enCache = await buscarEnCache(consulta, codigosAbiertos);
-
-            // Las abiertas que el cron aún no enriquece se matchean por título.
-            const yaMatcheadas = new Set(enCache.map(c => c.lic.Codigo));
-            const porTitulo = buscarPorTitulo(
-              consulta,
-              abiertas.filter(l => !yaMatcheadas.has(l.Codigo)),
-            );
-
-            // La fecha de cierre y el estado del caché pueden estar atrasados si MP
-            // extendió el plazo. Los de la API en vivo mandan.
-            const enVivo = new Map(abiertas.map(l => [l.Codigo, l]));
-            for (const c of enCache) {
-              const live = enVivo.get(c.lic.Codigo);
-              if (live?.FechaCierre) c.lic.FechaCierre = live.FechaCierre;
-            }
-
-            const candidatos = [...enCache, ...porTitulo].sort((a, b) => b.score - a.score);
-            console.log(`   → ${candidatos.length} coinciden (${enCache.length} por contenido, ${porTitulo.length} solo por título)`);
-
-            porCodigo = new Map(candidatos.map(c => [c.lic.Codigo, c]));
-
-            // `search` con consulta vacía no re-puntúa ni aplica su umbral de
-            // relevancia: solo filtra, ordena y pagina. Como deja todos los
-            // scores en 1, el orden 'relevancia' no reordena y el sort estable
-            // preserva el ranking del matcher que ya viene aplicado arriba.
-            searchResult = searchEngine.search(candidatos.map(c => c.lic), {
-              consulta: '',
-              pagina,
-              resultados_por_pagina,
-              ...filters,
-              tipo_orden: filters.tipo_orden || 'relevancia',
-            });
-
-            searchResult.meta.fuente_datos = 'Mercado Público — búsqueda global (título, descripción, ítems y categoría)';
-            searchResult.meta.total_licitaciones_procesadas = abiertas.length;
-          }
-
-          // ── Enriquecer los resultados de esta página ──────────────────────
-          // Las que vinieron del caché ya traen organismo/monto/descripción;
-          // esto solo completa las que se matchearon por título.
-          if (searchResult.resultados.length > 0) {
-            console.log(`🔍 Enriqueciendo ${searchResult.resultados.length} resultados...`);
-            searchResult.resultados = await enrichirPagina(client, searchResult.resultados);
-          }
-
-          // El score y los campos donde calzó se reponen al final: `enrichirPagina`
-          // reconstruye las oportunidades desde el caché y perdería ambos.
-          if (porCodigo) {
-            const ranking = porCodigo;
-            searchResult.resultados = searchResult.resultados.map(r => {
-              const c = ranking.get(r.codigo);
-              return c ? { ...r, score: c.score, match_fuentes: c.fuentes } : r;
-            });
-          }
+              tiempo_busqueda_ms: Date.now() - startTime,
+              tipo_orden_aplicado: (filters.tipo_orden || (consulta?.trim() ? 'relevancia' : 'fecha_publicacion_desc')) as any,
+              fuente_datos: abiertas
+                ? 'Mercado Público — todas las licitaciones (cualquier estado)'
+                : 'Caché de Mercado Público (API en vivo sin respuesta)',
+              total_licitaciones_procesadas: global.total,
+            },
+          };
         }
       } catch (apiError) {
         console.error('❌ Error al consultar API real:', apiError);

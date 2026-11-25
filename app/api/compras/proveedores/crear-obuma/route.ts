@@ -5,7 +5,7 @@ import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import { permisosCrudosDeUsuario } from '@/app/lib/api-auth';
 import { crearProveedorEnObumaExplicito, datosProveedorDesdeBody, verificarProveedorEnObuma } from '@/app/lib/compras-oc-obuma';
-import { obtenerOCrearProveedor, listarProveedores } from '@/app/lib/compras-proveedores';
+import { registrarProveedorCreadoEnObuma, listarProveedores } from '@/app/lib/compras-proveedores';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -23,7 +23,7 @@ export async function POST(request: NextRequest) {
     if (existente) return NextResponse.json({ error: `Ese RUT ya existe en Obuma: ${existente.razonSocial}. Usa "Sincronizar con Obuma" para traerlo.` }, { status: 409 });
     const resultado = await crearProveedorEnObumaExplicito(datos);
     // Lo deja también en el catálogo local, ya enlazado a la ficha de Obuma recién creada.
-    await obtenerOCrearProveedor(datos.razonSocial, datos.rut, userId, request.headers.get('x-user-nombre')).catch(e => console.error('[proveedores/crear-obuma] catálogo local', String(e)));
+    await registrarProveedorCreadoEnObuma(datos, userId, request.headers.get('x-user-nombre')).catch(e => console.error('[proveedores/crear-obuma] catálogo local', String(e)));
     return NextResponse.json({ success: true, ...resultado, proveedores: await listarProveedores() });
   } catch (error: any) {
     console.error('[proveedores/crear-obuma][POST]', String(error));

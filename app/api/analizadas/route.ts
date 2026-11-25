@@ -28,7 +28,17 @@ export async function GET(request: NextRequest) {
   try {
     // Dueño = el negocio ACTIVO más reciente de esa licitación (una fila por código, sin
     // duplicar la analizada aunque se haya asignado a varios perfiles con el tiempo).
-    const [rows] = await pool.query(
+    // Se ordena y limita SOLO por id (filas livianas) y recién después se traen las columnas
+    // pesadas: ordenar filas con informe_ejecutivo (JSON grande) reventaba la memoria de
+    // ordenamiento de MySQL ("Out of sort memory") y la pantalla mostraba "no hay analizadas".
+    const [idRows] = await pool.query(
+      `SELECT licitacion_codigo FROM viabilidad_licitacion
+       WHERE modelo LIKE 'ia+%' ORDER BY updated_at DESC LIMIT 500`,
+    ) as any[];
+    const codigos: string[] = (idRows as any[]).map(r => r.licitacion_codigo);
+    const posicion = new Map(codigos.map((c, i) => [c, i]));
+
+    const [rowsSinOrden] = codigos.length === 0 ? [[]] as any[] : await pool.query(
       `SELECT v.licitacion_codigo, v.score_total, v.semaforo, v.area_negocio,
               v.created_at, v.updated_at, v.confianza_analisis, v.informe_ejecutivo,
               (SELECT MAX(a.licitacion_nombre)    FROM alertas_licitaciones a WHERE a.licitacion_codigo = v.licitacion_codigo) AS nombre,
@@ -44,10 +54,10 @@ export async function GET(request: NextRequest) {
            ON pick.mid = n1.id
        ) ng ON ng.licitacion_codigo = v.licitacion_codigo
        LEFT JOIN usuarios u ON u.id = ng.asignado_a
-       WHERE v.modelo LIKE 'ia+%'
-       ORDER BY v.updated_at DESC
-       LIMIT 500`,
+       WHERE v.licitacion_codigo IN (?)`,
+      [codigos],
     ) as any[];
+    const rows = (rowsSinOrden as any[]).slice().sort((x, y) => (posicion.get(x.licitacion_codigo) ?? 0) - (posicion.get(y.licitacion_codigo) ?? 0));
 
     // Normaliza el veredicto de negocio a un único vocabulario (GANABLE / PUEDE_SER / NO_VAMOS),
     // venga el informe en esquema v3 (tarjeta_decision) o v2 (veredicto.gana_probable).

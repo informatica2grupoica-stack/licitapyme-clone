@@ -34,15 +34,14 @@ function getUser(request: NextRequest) {
   return { id: n, email: request.headers.get('x-user-email') || '', rol: request.headers.get('x-user-rol') || 'usuario' };
 }
 
-// Query tolerante: si una tabla/columna falta, degrada en vez de romper el tablero. PERO deja
-// rastro en el log: un catch mudo aquí hizo que el endpoint sirviera datos del respaldo (sin
-// apertura ni adjudicación) durante semanas y nadie se enteró — los KPIs se veían normales,
-// solo que mentían.
+// Regla del dueño (2026-11-25): solo datos reales, nunca inventados. Antes una consulta rota se degradaba a [] y el
+// tablero servía datos del respaldo (sin apertura ni adjudicación) durante semanas con KPIs que se veían normales y
+// mentían. Ahora el error sube y la pantalla dice que no se pudo cargar.
 async function q<T = any>(sql: string, params: any[] = []): Promise<T[]> {
   try { const [rows] = await pool.query(sql, params); return rows as T[]; }
   catch (e) {
-    console.error('[dashboard/analitica] query falló → se degrada:', String(e).slice(0, 200));
-    return [];
+    console.error('[dashboard/analitica] query falló:', String(e).slice(0, 200));
+    throw e;
   }
 }
 

@@ -6,7 +6,7 @@
 
 import pool from '@/app/lib/db';
 import type { Licitacion, LicitacionItem } from '@/app/types/mercado-publico.types';
-import type { MercadoPublicoClient } from '@/app/lib/mercado-publico';
+import { respuestaCrudaDe, type MercadoPublicoClient } from '@/app/lib/mercado-publico';
 import { notificarCambioFechaCierre } from '@/app/lib/refrescar-estados';
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
@@ -52,6 +52,7 @@ function filaALicitacion(row: any): Licitacion {
     Organismo: row.organismo || '',
     CodigoOrganismo: '',
     Region: row.region || '',
+    ComunaUnidad: row.comuna || '',
     MontoEstimado: row.monto != null ? Number(row.monto) : undefined,
     MontoTotal: row.monto != null ? Number(row.monto) : undefined,
     Tipo: row.tipo || '',
@@ -153,6 +154,25 @@ export async function guardarCache(lics: Licitacion[]): Promise<void> {
            items_json=VALUES(items_json), enriquecido=1, enriched_at=NOW(), updated_at=NOW()`,
         values,
       );
+      // Comuna aparte y best-effort: si la migración 206 aún no está aplicada, el caché sigue igual.
+      const conComuna = chunk.filter(l => l.ComunaUnidad);
+      if (conComuna.length) {
+        try {
+          await pool.query(
+            `UPDATE licitaciones_cache SET comuna = CASE codigo ${conComuna.map(() => 'WHEN ? THEN ?').join(' ')} END
+             WHERE codigo IN (${conComuna.map(() => '?').join(',')})`,
+            [...conComuna.flatMap(l => [l.Codigo, l.ComunaUnidad!.substring(0, 120)]), ...conComuna.map(l => l.Codigo)],
+          );
+        } catch { /* columna comuna inexistente */ }
+      }
+      // Respuesta completa de la API (migration-207), también best-effort. Solo si esta pasada la trae: nunca borra lo ya guardado.
+      for (const l of chunk) {
+        const cruda = respuestaCrudaDe(l);
+        if (!cruda) continue;
+        try {
+          await pool.query(`UPDATE licitaciones_cache SET raw_json = ? WHERE codigo = ?`, [JSON.stringify(cruda), l.Codigo]);
+        } catch { break; /* columna raw_json inexistente: migration-207 pendiente */ }
+      }
     }
   } catch {
     // Tabla inexistente → no rompe; simplemente no se cachea

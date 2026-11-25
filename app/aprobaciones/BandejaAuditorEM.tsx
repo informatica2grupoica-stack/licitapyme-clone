@@ -22,7 +22,7 @@ const fecha = (iso: string | null) => {
 const claveO = (negocioId: number, opcionId: number) => `o:${negocioId}:${opcionId}`;
 const claveR = (negocioId: number, opcionId: number, n: number) => `r:${negocioId}:${opcionId}:${n}`;
 
-export function BandejaAuditorEM({ onConteo }: { onConteo?: (n: number) => void }) {
+export function BandejaAuditorEM({ onConteo, busqueda = '' }: { onConteo?: (n: number) => void; busqueda?: string }) {
   const toast = useToast();
   const confirmar = useConfirm();
   const [negocios, setNegocios] = useState<NegocioBandejaEM[] | null>(null);
@@ -69,11 +69,16 @@ export function BandejaAuditorEM({ onConteo }: { onConteo?: (n: number) => void 
   const total = negocios.reduce((s, n) => s + n.opciones.length + n.requisitos.length, 0);
   if (total === 0) return null;
 
+  // Buscador global de la bandeja: solo oculta tarjetas; conteos y selección siguen sobre todo.
+  const q = busqueda.trim().toLowerCase();
+  const visibles = q ? negocios.filter(n => `${n.licitacionCodigo} ${n.licitacionNombre ?? ''} ${n.asignadoNombre ?? ''}`.toLowerCase().includes(q)) : negocios;
+  if (visibles.length === 0) return null;
+
   const opcionesSel = negocios.flatMap(n => n.opciones.filter(o => sel.has(claveO(n.negocioId, o.opcionId))).map(o => ({ negocioId: n.negocioId, opcionId: o.opcionId })));
   const requisitosSel = negocios.flatMap(n => n.requisitos.filter(r => sel.has(claveR(n.negocioId, r.opcionId, r.n))).map(r => ({ negocioId: n.negocioId, opcionId: r.opcionId, n: r.n })));
   const alternar = (k: string) => setSel(prev => { const s = new Set(prev); if (s.has(k)) s.delete(k); else s.add(k); return s; });
-  const todasOpciones = negocios.flatMap(n => n.opciones.map(o => claveO(n.negocioId, o.opcionId)));
-  const todosRequisitos = negocios.flatMap(n => n.requisitos.map(r => claveR(n.negocioId, r.opcionId, r.n)));
+  const todasOpciones = visibles.flatMap(n => n.opciones.map(o => claveO(n.negocioId, o.opcionId)));
+  const todosRequisitos = visibles.flatMap(n => n.requisitos.map(r => claveR(n.negocioId, r.opcionId, r.n)));
 
   const aprobar = async (items: Array<{ negocioId: number; opcionId: number }>) => {
     const ok = await confirmar({
@@ -107,7 +112,7 @@ export function BandejaAuditorEM({ onConteo }: { onConteo?: (n: number) => void 
         </div>
       </div>
 
-      {negocios.map(n => (
+      {visibles.map(n => (
         <div key={n.negocioId} className="rounded-xl border border-linea bg-white shadow-tarjeta overflow-hidden dark:bg-slate-900 dark:border-slate-800">
           <div className="px-4 py-3 border-b border-zinc-100 flex items-start gap-3 flex-wrap">
             <div className="min-w-0 flex-1">

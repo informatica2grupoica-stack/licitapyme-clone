@@ -61,7 +61,7 @@ export function SearchBar({ onSearch, loading = false, placeholder, initialValue
         </button>
       </div>
       <p className="text-center text-xs text-slate-500 mt-2">
-        Busca por nombre, categoría o código exacto de licitación
+        Busca por nombre, producto, organismo o código de licitación (completo o parcial, ej. 2495-17)
       </p>
     </form>
   );

@@ -12,6 +12,7 @@ export interface NegocioComp {
 }
 export interface LineaAdj {
   cantidad?: number; montoUnitario: number | null; rutProveedor: string | null; proveedor: string | null; esNuestra?: boolean;
+  producto?: string | null; descripcion?: string | null; unidad?: string | null;
 }
 export interface AdjComp {
   esAdjudicada: boolean; ganamos?: boolean; montoNuestro?: number | null; fechaAdjudicacion?: string | null;
@@ -132,4 +133,61 @@ export function calcularCompetencia(negocios: NegocioComp[], adj: Record<string,
     oferentesMediana: mediana(oferentes), oferentesConDato: oferentes.length,
   };
   return { resumen, competidores, porEmpresa };
+}
+
+// ── Pestaña «Mercado»: dónde y en qué productos perdemos (todo sale del acta de nuestras licitaciones resueltas) ──────────
+export interface OrganismoComp {
+  organismo: string; ganadas: number; perdidas: number; efectividad: number | null;
+  /** Plata de nuestras perdidas que se llevaron terceros en ese organismo (precio × cantidad). */
+  montoPerdido: number; oferentesMediana: number | null;
+}
+export interface ProductoComp {
+  producto: string; lineas: number; licitaciones: number; monto: number;
+  precioMediano: number | null; precioMin: number | null; precioMax: number | null;
+  /** Quién se lo llevó más veces (nombre, líneas). */
+  topProveedores: { nombre: string; lineas: number }[];
+}
+
+export function calcularMercado(negocios: NegocioComp[], adj: Record<string, AdjComp | null>) {
+  const resueltas = negocios.filter(n => esResuelta(n, adj[n.licitacion_codigo]));
+  const org = new Map<string, OrganismoComp & { _of: number[] }>();
+  const prod = new Map<string, { producto: string; lic: Set<string>; lineas: number; monto: number; precios: number[]; prov: Map<string, number> }>();
+
+  for (const n of resueltas) {
+    const a = adj[n.licitacion_codigo] || null;
+    const r = resultadoDe(n, a);
+    const nombre = (n.licitacion_organismo || 'Sin organismo').trim();
+    const o = org.get(nombre) || { organismo: nombre, ganadas: 0, perdidas: 0, efectividad: null, montoPerdido: 0, oferentesMediana: null, _of: [] };
+    const nOf = Number(a?.adjudicacion?.numeroOferentes);
+    if (Number.isFinite(nOf) && nOf > 0) o._of.push(nOf);
+    if (r === 'ganada') o.ganadas++;
+    else {
+      o.perdidas++;
+      for (const l of (a?.lineasAdjudicadas || []).filter(x => !x.esNuestra && claveProveedor(x))) {
+        const cant = Number(l.cantidad) || 1, unit = Number(l.montoUnitario) || 0;
+        o.montoPerdido += unit * cant;
+        const nombreProd = (l.producto || '').trim() || 'Sin clasificar';
+        const clave = nombreProd.toUpperCase();
+        const p = prod.get(clave) || { producto: nombreProd, lic: new Set<string>(), lineas: 0, monto: 0, precios: [], prov: new Map<string, number>() };
+        p.lic.add(n.licitacion_codigo); p.lineas++; p.monto += unit * cant;
+        if (unit > 0) p.precios.push(unit);
+        const pv = (l.proveedor || l.rutProveedor || 'Proveedor').trim();
+        p.prov.set(pv, (p.prov.get(pv) || 0) + 1);
+        prod.set(clave, p);
+      }
+    }
+    org.set(nombre, o);
+  }
+
+  const organismos: OrganismoComp[] = [...org.values()].map(({ _of, ...o }) => ({
+    ...o, oferentesMediana: mediana(_of), efectividad: o.ganadas + o.perdidas ? o.ganadas / (o.ganadas + o.perdidas) : null,
+  })).sort((x, y) => (y.ganadas + y.perdidas) - (x.ganadas + x.perdidas) || y.montoPerdido - x.montoPerdido);
+
+  const productos: ProductoComp[] = [...prod.values()].map(p => ({
+    producto: p.producto, lineas: p.lineas, licitaciones: p.lic.size, monto: p.monto,
+    precioMediano: mediana(p.precios), precioMin: p.precios.length ? Math.min(...p.precios) : null, precioMax: p.precios.length ? Math.max(...p.precios) : null,
+    topProveedores: [...p.prov.entries()].sort((x, y) => y[1] - x[1]).slice(0, 3).map(([nombre, lineas]) => ({ nombre, lineas })),
+  })).sort((x, y) => y.monto - x.monto);
+
+  return { organismos, productos };
 }

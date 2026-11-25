@@ -38,7 +38,11 @@ export const SECCIONES: SeccionChat[] = [
   {
     id: 'negocios', nombre: 'Negocios', ruta: /^\/negocios\/?$/, rutaModulo: '/negocios',
     tablas: ['negocios', 'comentarios_negocio', 'comentarios_licitacion', 'historial_eventos', 'negocio_lineas_oferta', 'linea_producto_ofertado', 'negocio_costeo_editor', 'checklist_comercial', 'checklist_comercial_caracteristicas',
-      'auditor_opcion', 'auditor_costo_asociado', 'auditor_prepost_item', 'etiquetas', 'negocios_etiquetas', 'usuarios', 'licitaciones_cache', 'viabilidad_licitacion'],
+      'auditor_opcion', 'auditor_costo_asociado', 'auditor_prepost_item', 'etiquetas', 'negocios_etiquetas', 'usuarios', 'licitaciones_cache', 'viabilidad_licitacion',
+      // Lo que el Auditor y el checklist guardan por negocio (antes ningún chat lo leía)
+      'auditor_captura', 'auditor_comparador_linea', 'auditor_evento', 'auditor_extraccion', 'auditor_linea_estado', 'auditor_posicion_precio', 'auditor_prepost_linea',
+      'auditor_respaldo', 'auditor_verificacion_costo', 'auditor_verificacion_tecnica', 'checklist_comercial_bitacora', 'checklist_comercial_congelamiento',
+      'checklist_comercial_costeo', 'checklist_comercial_documentos', 'checklist_comercial_foro_snapshot'],
     que: 'las licitaciones que tomamos como negocio, su etapa, responsable, comentarios, viabilidad, costeo y auditoría de requisitos',
     sugerencias: ['¿Qué negocios cierran esta semana?', '¿Cuántos negocios tiene cada persona?', '¿Qué negocios están en proceso sin movimiento?', '¿Cuál es el monto total de lo que está en proceso?'],
     notas: {
@@ -98,6 +102,7 @@ export const SECCIONES: SeccionChat[] = [
       'compras_gasto', 'compras_gasto_categoria', 'compras_incidencia', 'compras_incidencia_tipo', 'compras_aprobacion_linea', 'compras_orden_compra_obuma', 'compras_oc_pago', 'compras_oc_cancelacion',
       'compras_proveedor', 'compras_entrega', 'compras_historial_oc', 'compras_historial_oc_item', 'compras_cotizacion_item', 'compras_auditoria_cotizacion', 'compras_asignacion', 'compras_coencargado',
       'compras_compra_rapida', 'compras_borrador_compra', 'compras_tipo_cambio', 'compras_producto_importacion', 'compras_importacion_embarque', 'compras_auditor_costeo_proyecto', 'compras_auditor_costeo_linea',
+      'compras_auditor_costeo_captura', 'compras_reparto_administrativo', 'compras_reparto_respaldo', 'compras_doc_generado', 'compras_tarea_catalogo',
       'negocio_costeo_editor'],
     que: 'el proceso de compra de cada negocio ganado: productos, cotizaciones, SKU, órdenes de compra, pagos, tareas y gastos',
     sugerencias: ['¿Qué compras tienen tareas atrasadas?', '¿Qué negocios todavía no tienen orden de compra?', '¿Cuánto llevamos gastado en compras este mes?', '¿Qué productos faltan por cotizar?'],
@@ -115,7 +120,7 @@ export const SECCIONES: SeccionChat[] = [
   },
   {
     id: 'entregas', nombre: 'Entregas', ruta: /^\/entregas(\/|$)/, rutaModulo: '/entregas',
-    tablas: ['entrega_proyecto', 'entrega_acuse', 'compras_entrega', 'compras_entrega_punto', 'negocios'],
+    tablas: ['entrega_proyecto', 'entrega_acuse', 'compras_entrega', 'compras_entrega_punto', 'compras_entrega_archivo', 'negocios'],
     que: 'las entregas a los clientes, sus puntos de entrega y los acuses',
     sugerencias: ['¿Qué entregas están pendientes?', '¿Qué entregas no tienen acuse?', '¿Cuántas entregas hicimos este mes?'],
   },
@@ -127,13 +132,13 @@ export const SECCIONES: SeccionChat[] = [
   },
   {
     id: 'radar', nombre: 'Radar', ruta: /^\/radar(\/|$)/, rutaModulo: '/radar',
-    tablas: ['licitaciones_cache', 'prefiltro_licitacion', 'palabras_clave', 'alertas_licitaciones', 'licitaciones_descartadas', 'favoritos', 'viabilidad_licitacion'],
+    tablas: ['licitaciones_cache', 'prefiltro_licitacion', 'palabras_clave', 'alertas_licitaciones', 'licitaciones_descartadas', 'favoritos', 'viabilidad_licitacion', 'licitacion_unidad_cache'],
     que: 'las licitaciones nuevas que detecta el radar según nuestras palabras clave',
     sugerencias: ['¿Qué licitaciones nuevas entraron hoy?', '¿Qué palabras clave traen más licitaciones?', '¿Cuáles cierran esta semana?'],
   },
   {
     id: 'buscador', nombre: 'Buscador', ruta: /^\/$/, rutaModulo: '/',
-    tablas: ['licitaciones_cache', 'adjudicacion_cache', 'oferta_competencia', 'precios_mercado', 'favoritos', 'search_history'],
+    tablas: ['licitaciones_cache', 'adjudicacion_cache', 'oferta_competencia', 'precios_mercado', 'favoritos', 'search_history', 'licitacion_unidad_cache'],
     que: 'el buscador de licitaciones de Mercado Público y los precios de mercado',
     sugerencias: ['¿Qué licitaciones de este rubro están abiertas?', '¿Cuánto se ha pagado por este producto?', '¿Qué organismos compran más?'],
   },
@@ -146,7 +151,8 @@ export const SECCIONES: SeccionChat[] = [
   },
   {
     id: 'analizadas', nombre: 'Analizadas', ruta: /^\/analizadas(\/|$)/, rutaModulo: '/analizadas',
-    tablas: ['viabilidad_licitacion', 'analisis_ia_licitacion', 'prefiltro_licitacion', 'licitaciones_cache', 'negocios'],
+    tablas: ['viabilidad_licitacion', 'analisis_ia_licitacion', 'prefiltro_licitacion', 'licitaciones_cache', 'negocios',
+      'viabilidad_feedback', 'viabilidad_jobs', 'cliente_viabilidad', 'cliente_viabilidad_v4', 'cliente_perfil', 'cliente_evaluacion'],
     que: 'las licitaciones con análisis de viabilidad hecho',
     sugerencias: ['¿Cuáles tienen el mejor puntaje de viabilidad?', '¿Cuántas analizamos esta semana?', '¿Cuáles quedaron en rojo y por qué?'],
   },
@@ -162,7 +168,7 @@ export const SECCIONES: SeccionChat[] = [
   },
   {
     id: 'analisis-licitacion', nombre: 'Análisis de licitación', ruta: /^\/analisis-licitacion(\/|$)/, rutaModulo: '/analisis-licitacion',
-    tablas: ['licitaciones_cache', 'viabilidad_licitacion', 'analisis_ia_licitacion', 'adjudicacion_cache', 'oferta_competencia', 'oferta_competencia_documento', 'licitacion_apertura'],
+    tablas: ['licitaciones_cache', 'viabilidad_licitacion', 'analisis_ia_licitacion', 'adjudicacion_cache', 'oferta_competencia', 'oferta_competencia_documento', 'licitacion_apertura', 'documentos_cache'],
     que: 'el análisis de una licitación, su viabilidad y su competencia',
     sugerencias: ['¿Qué licitaciones parecidas ganamos antes?', '¿Quién ganó licitaciones de este tipo?'],
   },

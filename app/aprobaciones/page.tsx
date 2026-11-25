@@ -3,7 +3,7 @@
 // BANDEJA DE APROBACIÓN TRANSVERSAL (Auditor Técnico, Fase 2) — todos los negocios con algo
 // pendiente de aprobación (bloque técnico y/o comercial), de todos los asistentes, en un solo
 // lugar. Vista propia del asesor/CA — no una sección dentro de cada negocio.
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { AppLayout } from '@/app/components/AppLayout';
 import { useSession } from '@/app/lib/session-context';
@@ -50,8 +50,8 @@ export default function AprobacionesPage() {
   const [negocios, setNegocios] = useState<NegocioAprobacion[]>([]);
   // Lo que Compras mandó a aprobar (compra rápida, cuadro comparativo, margen, corregidos, renuncias): cada ítem lleva directo a donde se decide.
   const [compras, setCompras] = useState<ItemBandejaCompras[]>([]);
-  const [vista, setVista] = useState<'todo' | 'compras' | 'auditor'>('todo');
-  const [busquedaCompras, setBusquedaCompras] = useState('');
+  const [vista, setVista] = useState<'compras' | 'auditor'>('auditor');
+  const vistaElegida = useRef(false);   // si el usuario ya eligió pestaña, no se la cambiamos al recargar
   const [filtroTipo, setFiltroTipo] = useState<'TODOS' | TipoItemCompras>('TODOS');
   const [filtroSolicitante, setFiltroSolicitante] = useState('TODOS');
   const [soloAntiguos, setSoloAntiguos] = useState(false);
@@ -69,6 +69,7 @@ export default function AprobacionesPage() {
 
   // Opciones del Auditor (en aprobación y requisitos complementados): las cuenta su propia sección, BandejaAuditorEM.
   const [conteoEM, setConteoEM] = useState(0);
+  // Un solo buscador para toda la bandeja (compras, licitaciones y opciones del Auditor).
   const [busqueda, setBusqueda] = useState('');
   const [filtroAsistente, setFiltroAsistente] = useState('TODOS');
   const [filtroSemaforo, setFiltroSemaforo] = useState<string>('TODOS');
@@ -83,6 +84,7 @@ export default function AprobacionesPage() {
       setNegocios(data.negocios || []);
       setCompras(data.compras || []);
       setError(null);
+      if (!vistaElegida.current && (data.negocios || []).length === 0 && (data.compras || []).length > 0) setVista('compras');
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -226,22 +228,22 @@ export default function AprobacionesPage() {
 
   const solicitantes = useMemo(() => Array.from(new Set(compras.map(c => c.solicitadoPorNombre).filter((v): v is string => !!v))).sort(), [compras]);
   const comprasFiltradas = useMemo(() => {
-    const q = busquedaCompras.trim().toLowerCase();
+    const q = busqueda.trim().toLowerCase();
     return compras.filter(c => {
       if (filtroTipo !== 'TODOS' && c.tipo !== filtroTipo) return false;
       if (filtroSolicitante !== 'TODOS' && c.solicitadoPorNombre !== filtroSolicitante) return false;
       if (soloAntiguos && (minutosEsperando(c.solicitadoAt) ?? 0) < 60 * 24) return false;
       return !q || `${c.licitacionCodigo} ${c.licitacionNombre} ${c.titulo} ${c.detalle}`.toLowerCase().includes(q);
     });
-  }, [compras, busquedaCompras, filtroTipo, filtroSolicitante, soloAntiguos]);
-  const hayFiltrosCompras = busquedaCompras.trim() !== '' || filtroTipo !== 'TODOS' || filtroSolicitante !== 'TODOS' || soloAntiguos;
-  const limpiarFiltrosCompras = () => { setBusquedaCompras(''); setFiltroTipo('TODOS'); setFiltroSolicitante('TODOS'); setSoloAntiguos(false); };
+  }, [compras, busqueda, filtroTipo, filtroSolicitante, soloAntiguos]);
+  const hayFiltrosCompras = filtroTipo !== 'TODOS' || filtroSolicitante !== 'TODOS' || soloAntiguos;
+  const limpiarFiltrosCompras = () => { setBusqueda(''); setFiltroTipo('TODOS'); setFiltroSolicitante('TODOS'); setSoloAntiguos(false); };
 
   // Urgentes: Compras que llevan más de un día esperando y licitaciones que cierran en menos de 24 h (o ya vencidas) o con semáforo rojo.
   const urgentes = useMemo(() => compras.filter(c => (minutosEsperando(c.solicitadoAt) ?? 0) >= 60 * 24).length
     + negocios.filter(n => n.semaforo === 'ROJO' || (n.cierre.horasRestantes != null && n.cierre.horasRestantes < 24)).length, [compras, negocios]);
 
-  const hayFiltrosActivos = busqueda.trim() !== '' || filtroAsistente !== 'TODOS' || filtroSemaforo !== 'TODOS';
+  const hayFiltrosActivos = filtroAsistente !== 'TODOS' || filtroSemaforo !== 'TODOS';
   const limpiarFiltros = () => { setBusqueda(''); setFiltroAsistente('TODOS'); setFiltroSemaforo('TODOS'); };
 
   // Lista a renderizar: lo filtrado + cualquier tarjeta en pleno flash verde que un refresco ya
@@ -273,44 +275,49 @@ export default function AprobacionesPage() {
 
         {error && <Banner variante="error" accion={{ label: 'Reintentar', onClick: cargar }}>{error}</Banner>}
 
-        {(compras.length > 0 || negocios.length > 0) && (
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5" role="tablist" aria-label="Qué aprobar" data-testid="aprob-resumen">
-            {([
-              { clave: 'todo', titulo: 'Todo', valor: compras.length + negocios.length + conteoEM, nota: 'pendiente de tu aprobación', vista: 'todo' as const },
-              { clave: 'auditor', titulo: 'Licitaciones', valor: negocios.length, nota: 'técnico y comercial, desde Negocios', vista: 'auditor' as const },
-              { clave: 'compras', titulo: 'Compras', valor: compras.length, nota: 'compras, márgenes y renuncias', vista: 'compras' as const },
-              { clave: 'urgente', titulo: 'Urgentes', valor: urgentes, nota: 'esperan más de un día o cierran en menos de 24 h', vista: null },
-            ]).map(k => {
-              const activa = k.vista != null && vista === k.vista;
-              const esUrgente = k.clave === 'urgente';
-              return (
-                <button key={k.clave} type="button" role={k.vista ? 'tab' : undefined} aria-selected={k.vista ? activa : undefined}
-                  onClick={() => k.vista && setVista(k.vista)} disabled={!k.vista}
-                  className={`text-left rounded-xl border px-4 py-3.5 transition-[box-shadow,transform,border-color,background-color] duration-150 ease-lk ${
-                    activa ? 'bg-marca-suave border-marca/40 ring-1 ring-marca/20 dark:bg-teal-500/10 dark:border-teal-500/40'
-                    : esUrgente && k.valor > 0 ? 'bg-red-50/60 border-red-200 dark:bg-red-500/10 dark:border-red-500/30'
-                    : 'bg-white border-linea dark:bg-slate-900 dark:border-slate-800'} ${k.vista ? 'shadow-tarjeta hover:shadow-tarjeta-hover hover:-translate-y-px cursor-pointer' : 'cursor-default'}`}>
-                  <p className={`text-[12.5px] font-medium ${activa ? 'text-marca dark:text-teal-300' : 'text-tinta-2 dark:text-slate-400'}`}>{k.titulo}</p>
-                  <p className={`text-[28px] font-semibold tracking-tight leading-none mt-1.5 tabular-nums ${esUrgente ? (k.valor > 0 ? 'text-urgente dark:text-red-400' : 'text-tinta-3') : 'text-tinta dark:text-slate-50'}`}>{k.valor}</p>
-                  <p className="text-xs text-tinta-2 dark:text-slate-400 mt-1.5 leading-snug">{k.nota}</p>
-                </button>
-              );
-            })}
+        <div role="tablist" aria-label="Qué aprobar" data-testid="aprob-pestanas" className="flex gap-1 border-b border-linea dark:border-slate-800">
+          {([
+            { v: 'auditor' as const, titulo: 'Licitaciones', n: negocios.length + conteoEM, nota: 'técnico y comercial' },
+            { v: 'compras' as const, titulo: 'Compras', n: compras.length, nota: 'compras, márgenes y renuncias' },
+          ]).map(t => {
+            const activa = vista === t.v;
+            return (
+              <button key={t.v} type="button" role="tab" aria-selected={activa} data-testid={`pestana-${t.v}`}
+                onClick={() => { vistaElegida.current = true; setVista(t.v); }}
+                className={`-mb-px flex items-center gap-2 px-4 h-11 text-[14px] font-medium border-b-2 transition-colors duration-150 ${activa ? 'border-marca text-marca dark:text-teal-300 dark:border-teal-400' : 'border-transparent text-tinta-2 hover:text-tinta dark:text-slate-400 dark:hover:text-slate-200'}`}>
+                {t.titulo}
+                <span className={`min-w-[22px] px-1.5 h-[22px] inline-flex items-center justify-center rounded-full text-[12px] tabular-nums ${activa ? 'bg-marca-suave text-marca dark:bg-teal-500/15 dark:text-teal-300' : t.n > 0 ? 'bg-slate-100 text-tinta dark:bg-slate-800 dark:text-slate-200' : 'bg-slate-50 text-tinta-3 dark:bg-slate-800/50'}`}>{t.n}</span>
+              </button>
+            );
+          })}
+          {urgentes > 0 && <span className="ml-auto self-center text-[13px] text-urgente dark:text-red-400 flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-red-600" aria-hidden />{urgentes} {urgentes === 1 ? 'urgente' : 'urgentes'}</span>}
+        </div>
+
+        {(compras.length > 0 || negocios.length > 0 || conteoEM > 0) && (
+          <div className={`${BARRA_FILTROS} flex items-center gap-2`} data-testid="aprob-buscador">
+            <div className="relative flex-1">
+              <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input value={busqueda} onChange={e => setBusqueda(e.target.value)} aria-label="Buscar en todas las aprobaciones"
+                placeholder="Buscar en todas las aprobaciones: código, licitación, organismo, producto o tienda…" className={CAMPO} />
+            </div>
+            {busqueda && <button onClick={() => setBusqueda('')} className="flex items-center gap-1 px-2 h-8 text-[13px] font-medium text-tinta-2 hover:text-tinta dark:text-slate-400 dark:hover:text-slate-200"><X size={13} /> Limpiar</button>}
           </div>
         )}
 
         {/* Opciones del Auditor: primero, porque frenan el paso a Pre-postulación de cada licitación */}
-        <div className={vista === 'compras' ? 'hidden' : ''}><BandejaAuditorEM onConteo={setConteoEM} /></div>
+        <div className={vista === 'compras' ? 'hidden' : ''}><BandejaAuditorEM onConteo={setConteoEM} busqueda={busqueda} /></div>
 
         {loading ? (
           <div className="space-y-3"><TarjetaCargando /><TarjetaCargando /></div>
-        ) : negocios.length === 0 && compras.length === 0 && conteoEM > 0 ? null : negocios.length === 0 && compras.length === 0 ? (
+        ) : negocios.length === 0 && compras.length === 0 && conteoEM === 0 ? (
           <Vacio icono={<Inbox size={28} />} titulo="No hay nada esperando tu aprobación"
             texto="Cuando un asistente deje listo el bloque técnico o comercial de un negocio, o Compras mande algo a aprobar, aparece aquí." />
         ) : (
           <div className="space-y-8">
+            {vista === 'compras' && compras.length === 0 && <Vacio icono={<Inbox size={28} />} titulo="No hay compras por aprobar" texto="Compras rápidas, cuadros comparativos, márgenes y renuncias aparecen aquí." />}
+            {vista === 'auditor' && negocios.length === 0 && conteoEM === 0 && <Vacio icono={<Inbox size={28} />} titulo="No hay licitaciones por aprobar" texto="Cuando un asistente deje listo el bloque técnico o comercial de un negocio, aparece aquí." />}
             {/* COMPRAS: sus propios filtros (tipo de aprobación, quién lo mandó, antigüedad) */}
-            {vista !== 'auditor' && compras.length > 0 && (
+            {vista === 'compras' && compras.length > 0 && (
               <section className="space-y-3" data-testid="aprob-seccion-compras" aria-label="Compras">
                 <div className="flex items-baseline gap-2">
                   <h2 className="text-[15px] font-semibold tracking-tight text-tinta dark:text-slate-100">Compras</h2>
@@ -318,10 +325,6 @@ export default function AprobacionesPage() {
                 </div>
                 <div className={`${BARRA_FILTROS} space-y-2`} data-testid="filtros-compras">
                   <div className="flex flex-wrap items-center gap-2">
-                    <div className="relative flex-1 min-w-[200px]">
-                      <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
-                      <input value={busquedaCompras} onChange={e => setBusquedaCompras(e.target.value)} placeholder="Buscar licitación, producto o tienda…" className={CAMPO} />
-                    </div>
                     {solicitantes.length > 1 && (
                       <select value={filtroSolicitante} onChange={e => setFiltroSolicitante(e.target.value)} className={SELECT_CLS} aria-label="Quién lo mandó">
                         <option value="TODOS">Quién lo mandó: todos</option>
@@ -352,17 +355,13 @@ export default function AprobacionesPage() {
             )}
 
             {/* AUDITOR (licitaciones): sus propios filtros (código/organismo, asistente, urgencia de cierre) */}
-            {vista !== 'compras' && negocios.length > 0 && (
+            {vista === 'auditor' && negocios.length > 0 && (
               <section className="space-y-3" data-testid="aprob-seccion-auditor" aria-label="Auditor">
                 <div className="flex items-baseline gap-2">
                   <h2 className="text-[15px] font-semibold tracking-tight text-tinta dark:text-slate-100">Licitaciones</h2>
                   <span className="text-[13px] text-tinta-2 dark:text-slate-400">{negociosFiltrados.length === negocios.length ? `${negocios.length} por visar` : `${negociosFiltrados.length} de ${negocios.length}`}</span>
                 </div>
                 <div className={`flex flex-wrap items-center gap-2 ${BARRA_FILTROS}`} data-testid="filtros-auditor">
-                  <div className="relative flex-1 min-w-[200px]">
-                    <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
-                    <input value={busqueda} onChange={e => setBusqueda(e.target.value)} placeholder="Buscar código, nombre u organismo…" className={CAMPO} />
-                  </div>
                   {asistentes.length > 1 && (
                     <select value={filtroAsistente} onChange={e => setFiltroAsistente(e.target.value)} className={SELECT_CLS} aria-label="Asistente">
                       <option value="TODOS">Todos los asistentes</option>

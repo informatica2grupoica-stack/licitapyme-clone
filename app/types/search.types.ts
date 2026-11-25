@@ -12,6 +12,10 @@ export interface SearchRequest {
   filtro_organismos?: string[];
   filtro_fecha_cierre_desde?: string;
   filtro_fecha_cierre_hasta?: string;
+  filtro_fecha_publicacion_desde?: string;
+  filtro_fecha_publicacion_hasta?: string;
+  /** Solo estos códigos (p. ej. los favoritos del usuario). */
+  filtro_codigos?: string[];
   tipo_orden?: TipoOrden;
 }
 

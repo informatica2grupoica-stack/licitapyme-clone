@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8">
+<title>LICITANK — Automatizaciones y sincronizaciones</title>
+<style>
+@page { size: A4; margin: 16mm 14mm; }
+body { font-family: Arial, Helvetica, sans-serif; font-size: 10.5pt; color: #1a1a1a; line-height: 1.4; }
+h1 { font-size: 20pt; margin: 0 0 2px; }
+.sub { color: #555; margin-bottom: 14px; font-size: 9.5pt; }
+h2 { font-size: 13pt; border-bottom: 2px solid #1a1a1a; padding-bottom: 3px; margin: 20px 0 8px; break-after: avoid; }
+table { width: 100%; border-collapse: collapse; margin: 6px 0; }
+th, td { border: 1px solid #999; padding: 4px 7px; vertical-align: top; text-align: left; }
+th { background: #eee; }
+td:first-child { width: 27%; font-weight: bold; }
+tr { break-inside: avoid; }
+ul { margin: 4px 0 4px 18px; padding: 0; }
+li { margin-bottom: 3px; }
+h3 { font-size: 11pt; margin: 12px 0 4px; break-after: avoid; }
+.nota { background: #f5f5f5; border-left: 3px solid #888; padding: 6px 10px; margin: 8px 0; font-size: 9.5pt; }
+</style></head><body>
+<h1>LICITANK — Automatizaciones y sincronizaciones</h1>
+<div class="sub">Informe del 25-nov-2026 · Hecho leyendo el código (scheduler y rutas /api/cron). No se comprobó corriendo en el VPS.</div>
+
+<div class="nota">Todo lo programado lo dispara un contenedor <b>scheduler</b> (hora de Chile). Llama a <code>/api/cron/*</code> con el CRON_SECRET. Si <code>NEXT_PUBLIC_AUTOMATIZACION_PAUSADA=true</code>, no dispara nada. Si un job falla 3 veces seguidas, avisa a los admin por la campana.</div>
+
+<h2>1. Automático por horario</h2>
+<table>
+<tr><th>Cuándo</th><th>Qué hace</th></tr>
+<tr><td>Cada 4 h (00, 04, 08…)</td><td><b>Intake</b>: busca licitaciones nuevas en Mercado Público según las palabras clave de cada usuario y genera alertas.</td></tr>
+<tr><td>Cada 4 h, a las :30</td><td><b>Enriquecer</b>: completa ítems, categoría y descripción de lo que falta y vuelve a cruzar con las keywords.</td></tr>
+<tr><td>Cada 4 h (01, 05, 09…)</td><td><b>Prefiltro con IA</b> (Kimi): marca pasa, excluida o revisión humana.</td></tr>
+<tr><td>Cada 4 h, 01:30, 05:30…</td><td><b>Viabilidad IA</b> de lo que ya tiene documentos y pasó el prefiltro. Lote chico para controlar el costo.</td></tr>
+<tr><td>Cada 4 h, 01:35, 05:35…</td><td><b>Viabilidad del perfil piloto</b>: lo asignado y activo de perfiles con permiso «viabilidad_automatica».</td></tr>
+<tr><td>Cada 2 h</td><td><b>Descarga de documentos</b> de los negocios asignados que quedaron sin documentos (también al arrancar).</td></tr>
+<tr><td>Cada 30 min</td><td><b>Ganada / perdida</b>: estado en MP de las asignadas y resultado de las postuladas. Pasan solas a Adjudicada o Perdida y avisan.</td></tr>
+<tr><td>Cada hora, :10</td><td><b>Aperturas</b>: detecta en el portal si ya se abrió la oferta de las postuladas.</td></tr>
+<tr><td>Cada hora, :15</td><td><b>Ofertas de la competencia</b> (quién ofertó y a qué precio, con sus documentos) y <b>Preguntas y Respuestas</b> del foro.</td></tr>
+<tr><td>Cada 20 min</td><td><b>Compras</b>: asigna encargado si pasaron 3 h hábiles sin que lo hiciera el jefe de ventas; carga sola la OC del cliente y el acta de evaluación (5 negocios por corrida).</td></tr>
+<tr><td>Cada 5 min</td><td><b>Evaluación por RUT</b> de empresas-cliente nuevas.</td></tr>
+<tr><td>Cada 5 min</td><td><b>Cola de WhatsApp</b>: reintenta los avisos pendientes.</td></tr>
+<tr><td>Puente (cola)</td><td>Reintenta descarga y viabilidad de lo empujado que falló o quedó a medias. Su horario exacto en el scheduler no pude confirmarlo; revisarlo.</td></tr>
+<tr><td>07:40 diario</td><td><b>Órdenes de compra de MP</b>: baja el listado del día (~16.000 OC), ventana de 3 días, cruza con lo que ofertamos. Avisa por campana y correo.</td></tr>
+<tr><td>07:45 diario</td><td><b>Compras de Obuma</b>: lee las últimas ~500 y guarda las que mencionan una licitación nuestra. Se salta las compras Cerradas, Pagadas y Canceladas.</td></tr>
+<tr><td>03:20 diario</td><td><b>Purga</b> de tablas que crecen sin límite. Sin PURGA_ACTIVA=1 solo simula y deja el conteo en el log.</td></tr>
+</table>
+<p>El cron de Proyectos de Obuma está desactivado a propósito desde el 22-sep: ahora se lee en vivo por la API.</p>
+
+<h2>2. Automático por eventos (sin horario)</h2>
+<ul>
+<li><b>Estado de cada producto en Compras</b>: avanza solo (Cotizando, Comprado, En bodega, Listo para entrega, Entregado) según cotización, OC emitida, recepción en bodega y guía firmada. Nunca retrocede.</li>
+<li><b>Pareo global de cotizaciones</b>: corre solo después de leer cada cotización.</li>
+<li><b>Cotización con especificaciones técnicas</b>: también queda como ficha del producto.</li>
+<li><b>Sincronización tras cambiar una OC</b> (Obuma o propia): resincroniza el negocio; el margen se reabre si baja 2 puntos o más.</li>
+<li><b>Congelamiento al postular</b>: el Auditor queda como registro histórico y arma el paquete que pasa a Compras.</li>
+<li><b>Avisos</b> por correo, WhatsApp y campana en ganada, perdida, apertura, OC nueva y cambio de estado, según perfil y área de cada destinatario.</li>
+<li><b>PDF oficial de la OC</b>: se descarga solo.</li>
+<li><b>Reloj de entrega</b>: apagado por decisión del dueño (6-nov).</li>
+</ul>
+
+<h2>3. Lo que se sincroniza</h2>
+<h3>Con Mercado Público</h3>
+<ul>
+<li>Licitaciones en <code>licitaciones_cache</code> (se agrega <code>raw_json</code>, migration-207, ya aplicada en producción).</li>
+<li>Estados y adjudicaciones, órdenes de compra, ofertas de la competencia, Preguntas y Respuestas.</li>
+<li>Documentos: se descargan con el navegador del VPS (MP exige IP chilena) y se guardan en R2.</li>
+<li>La cuota diaria del ticket de MP está gobernada: reparte lo que queda entre las corridas del día.</li>
+</ul>
+<h3>Con Obuma (ERP)</h3>
+<ul>
+<li><b>Obuma → Licitank</b>: compras con ítems, facturas y notas de crédito (salta lo que no cambió); proveedores (los 2.881, dados de baja ocultos); proyectos (en vivo, caché de 5 min, cruzados con Compras); cobros y pagos; facturas enlazadas a la OC.</li>
+<li><b>Licitank → Obuma</b>: crear y modificar OC; crear proveedor y «Guardar en Obuma» (la API no guarda banco ni cuenta; el correo a Obuma está en docs/obuma/); crear SKU; guías de despacho.</li>
+<li><b>Manual</b>: «Sincronizar con Obuma ahora» por negocio refresca todo sin checkpoint.</li>
+</ul>
+<h3>Otras</h3>
+<ul>
+<li><b>Costeo → Compras</b>: botón «Sincronizar con costeo»; saca lo que ya no está, con historial.</li>
+<li><b>Base local y VPS</b>: sincronizar-bd-local; hoy el PC usa solo la BD del VPS por el túnel 3307.</li>
+<li><b>WhatsApp</b> (Evolution, número emisor vinculado por QR) y <b>correo</b> (SMTP propio por empresa).</li>
+</ul>
+
+<h2>4. Pendientes y riesgos</h2>
+<ul>
+<li>Obuma limita a 1.500 llamadas por día por método; la sincronización de compras ya filtra por fecha para gastar menos.</li>
+<li>Plan «Licitank 100 % en la BD» a medio hacer: 5.620 adjudicadas sin detalle y <code>comuna</code> 100 % vacía; falta correr <code>scripts/rellenar-licitaciones-mp.mts</code> por tandas.</li>
+<li>Varias cosas figuran «sin desplegar» en la memoria: pareo, estados, proveedores y buscador sin límites.</li>
+</ul>
+</body></html>

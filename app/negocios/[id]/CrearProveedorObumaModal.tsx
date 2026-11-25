@@ -16,8 +16,8 @@ export const formProveedorVacio = {
   listaPrecio: '', tipoDespacho: '', medioDespacho: '', cuentaCorriente: false, creditoAprobado: '', diasPago: '', plazoPago: '', permitirDteSinOc: false,
 };
 export type FormProveedor = typeof formProveedorVacio;
-// Bancos del desplegable del formulario web de Obuma de esta cuenta (leídos 09-oct-2026): [id, nombre].
-// La API no publica este catálogo; si Obuma agrega bancos, hay que sumarlos acá.
+// Respaldo si no se puede leer el catálogo vivo (`/api/compras/proveedores/bancos` → pg-bancos.list.json de Obuma): [id, nombre].
+// Bancos del desplegable del formulario web de Obuma de esta cuenta (leídos 09-oct-2026).
 const BANCOS_OBUMA: [string, string][] = [
   ['1', 'BANCO DE CHILE'], ['2', 'BANCO INTERNACIONAL'], ['3', 'SCOTIABANK CHILE'], ['4', 'BANCO DE CREDITO E INVERSIONES'],
   ['5', 'CORPBANCA'], ['6', 'BANCO BICE'], ['7', 'HSBC BANK'], ['8', 'BANCO SANTANDER-CHILE'], ['9', 'BANCO ITAÚ CHILE'],
@@ -37,9 +37,13 @@ export function CrearProveedorObumaModal({ negocioId, inicial, onCerrar, onCread
   const [form, setForm] = useState<FormProveedor>({ ...formProveedorVacio, ...inicial });
   const [formasPago, setFormasPago] = useState<FormaPago[]>([]);
   const [guardando, setGuardando] = useState(false);
+  const [bancos, setBancos] = useState<[string, string][]>(BANCOS_OBUMA);
 
   useEffect(() => {
     let vivo = true;
+    fetch('/api/compras/proveedores/bancos').then(r => r.json()).then(d => {
+      if (vivo && d.success && Array.isArray(d.bancos) && d.bancos.length) setBancos(d.bancos.map((b: { id: string; nombre: string }) => [b.id, b.nombre] as [string, string]));
+    }).catch(() => {});
     fetch('/api/compras/obuma-formas-pago').then(r => r.json()).then(d => { if (vivo && d.success) setFormasPago(d.formas || []); }).catch(() => {});
     return () => { vivo = false; };
   }, []);
@@ -165,7 +169,7 @@ export function CrearProveedorObumaModal({ negocioId, inicial, onCerrar, onCread
               <select value={form.bancoCuenta} onChange={e => setForm(f => ({ ...f, bancoCuenta: e.target.value }))}
                 className="mt-0.5 w-full text-[13px] font-normal border border-zinc-200 rounded-lg px-2.5 py-2 outline-none focus:ring-1 focus:ring-teal-500 bg-white">
                 <option value="">— sin definir —</option>
-                {BANCOS_OBUMA.map(([id, nombre]) => <option key={id} value={id}>{nombre}</option>)}
+                {bancos.map(([id, nombre]) => <option key={id} value={id}>{nombre}</option>)}
               </select>
             </label>
             <label className="text-[10.5px] font-semibold text-zinc-500">
@@ -240,7 +244,7 @@ export function CrearProveedorObumaModal({ negocioId, inicial, onCerrar, onCread
             </label>
           </div>
           <p className="text-[10px] text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5">
-            Probado el 09-oct-2026: la API de Obuma NO guarda banco, N° y tipo de cuenta, tipo de despacho ni cuenta corriente (responde OK y los deja vacíos). Se mandan igual, y si Obuma no los guarda te avisa al crear; hay que completarlos a mano en la ficha del proveedor en Obuma. "Tipo de proveedor" no tiene campo acá — también se completa en Obuma.
+            Probado el 09-oct-2026: la API de Obuma NO guarda banco, N° y tipo de cuenta, tipo de despacho ni cuenta corriente (responde OK y los deja vacíos). Se mandan igual, y si Obuma no los guarda te avisa al crear. Los datos bancarios quedan guardados en Licitank (ficha del proveedor, con la marca «falta cargar en Obuma»); hay que completarlos a mano en la ficha del proveedor en Obuma. "Tipo de proveedor" no tiene campo acá — también se completa en Obuma.
           </p>
         </div>
         <div className="px-4 py-3 border-t border-zinc-100 flex items-center gap-2">

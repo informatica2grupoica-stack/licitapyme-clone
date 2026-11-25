@@ -43,6 +43,7 @@ interface Alerta {
   licitacion_fecha_publicacion: string | null;
   licitacion_estado: string | null;
   licitacion_region: string | null;
+  licitacion_comuna?: string | null;
   licitacion_tipo: string | null;
   match_fuente: string | null;
   match_contexto: string | null;
@@ -401,39 +402,47 @@ function LicitacionListItem({
           <p className={`text-[13px] text-tinta dark:text-slate-100 truncate hover:text-marca transition-colors ${noLeida ? 'font-semibold' : 'font-medium'}`}>
             <Resaltar texto={alerta.licitacion_nombre || alerta.licitacion_codigo} keywords={keywords} />
           </p>
-          {alerta.licitacion_organismo && (
-            <p className="text-xs text-tinta-2 dark:text-slate-400 truncate">{alerta.licitacion_organismo}</p>
+          {(alerta.licitacion_organismo || alerta.licitacion_comuna || alerta.licitacion_region) && (
+            <p className="text-xs text-tinta-2 dark:text-slate-400 truncate">
+              {[alerta.licitacion_organismo, alerta.licitacion_comuna || alerta.licitacion_region].filter(Boolean).join(' · ')}
+            </p>
           )}
         </Link>
 
-        <div className="flex-shrink-0 w-36 text-right">
-          {(alerta.licitacion_monto ?? 0) > 0 && (
-            <p className="text-[13px] font-semibold text-tinta dark:text-slate-100 tabular-nums">{fmt(alerta.licitacion_monto)}</p>
-          )}
+        <div className="flex-shrink-0 w-32 text-right">
+          {(alerta.licitacion_monto ?? 0) > 0
+            ? <p className="text-[13px] font-semibold text-tinta dark:text-slate-100 tabular-nums" title="Presupuesto estimado">{fmt(alerta.licitacion_monto)}</p>
+            : <p className="text-xs text-tinta-3" title="El comprador no publicó presupuesto">Sin presupuesto</p>}
           <div className="mt-0.5 flex justify-end"><DiasCountdown cierre={alerta.licitacion_cierre} /></div>
         </div>
 
-        <div className="flex-shrink-0 flex items-center gap-3">
-          {alerta.viabilidad_semaforo && (
-            <ViabilidadBadge semaforo={alerta.viabilidad_semaforo} score={alerta.viabilidad_score} />
-          )}
-          {alerta.prefiltro_decision && (
-            <PrefiltroBadge decision={alerta.prefiltro_decision} categoria={alerta.prefiltro_categoria} motivo={alerta.prefiltro_motivo} confianza={alerta.prefiltro_confianza} />
-          )}
-          {alerta.tiene_documentos && (
-            <span title="Las bases y anexos ya están descargados en el sistema" className="inline-flex items-center gap-1 text-xs text-tinta-2">
-              <FileText size={13} strokeWidth={1.75} className="text-slate-400" /> Docs
-            </span>
-          )}
-          {alerta.asignada && (
-            <span title={`Asignada a ${alerta.asignado_nombre || 'un perfil del equipo'}`} className="inline-flex items-center gap-1 text-xs text-exito">
-              <UserCheck size={13} strokeWidth={1.75} /> Asignada
-            </span>
-          )}
-          {alerta.en_puente && !alerta.asignada && (
-            <span title="Esperando reparto en el puente del radar" className="inline-flex items-center gap-1 text-xs text-tinta-2">
-              <Shuffle size={13} strokeWidth={1.75} className="text-slate-400" /> Puente
-            </span>
+        <div className="flex-shrink-0 w-[250px] flex flex-col items-start gap-1 min-w-0">
+          <div className="flex items-center gap-3 min-h-[18px]">
+            {alerta.viabilidad_semaforo && (
+              <ViabilidadBadge semaforo={alerta.viabilidad_semaforo} score={alerta.viabilidad_score} />
+            )}
+            {alerta.prefiltro_decision && (
+              <PrefiltroBadge decision={alerta.prefiltro_decision} categoria={alerta.prefiltro_categoria} motivo={alerta.prefiltro_motivo} confianza={alerta.prefiltro_confianza} />
+            )}
+          </div>
+          {(!!alerta.tiene_documentos || alerta.asignada || (alerta.en_puente && !alerta.asignada)) && (
+            <div className="flex items-center gap-3">
+              {!!alerta.tiene_documentos && (
+                <span title="Las bases y anexos ya están descargados en el sistema" className="inline-flex items-center gap-1 text-xs text-tinta-2">
+                  <FileText size={13} strokeWidth={1.75} className="text-slate-400" /> Docs
+                </span>
+              )}
+              {alerta.asignada && (
+                <span title={`Asignada a ${alerta.asignado_nombre || 'un perfil del equipo'}`} className="inline-flex items-center gap-1 text-xs text-exito">
+                  <UserCheck size={13} strokeWidth={1.75} /> Asignada
+                </span>
+              )}
+              {alerta.en_puente && !alerta.asignada && (
+                <span title="Esperando reparto en el puente del radar" className="inline-flex items-center gap-1 text-xs text-tinta-2">
+                  <Shuffle size={13} strokeWidth={1.75} className="text-slate-400" /> Puente
+                </span>
+              )}
+            </div>
           )}
         </div>
 
@@ -550,7 +559,7 @@ function LicitacionCard({
         {/* Datos rotulados */}
         <Datos columnas={4}>
           <Dato rotulo="Organismo"><span title={alerta.licitacion_organismo || undefined}>{alerta.licitacion_organismo}</span></Dato>
-          <Dato rotulo="Región">{alerta.licitacion_region}</Dato>
+          <Dato rotulo="Comuna / Región">{[alerta.licitacion_comuna, alerta.licitacion_region].filter(Boolean).join(', ') || undefined}</Dato>
           <Dato rotulo="Monto estimado">{alerta.licitacion_monto != null && alerta.licitacion_monto > 0 ? fmt(alerta.licitacion_monto) : undefined}</Dato>
           <Dato rotulo={alerta.licitacion_fecha_publicacion ? 'Publicada' : 'Llegó al sistema'}>
             <span title={alerta.licitacion_fecha_publicacion ? 'Fecha de publicación (Mercado Público)' : 'La API no entregó fecha de publicación — se muestra la fecha en que llegó al sistema'}>
@@ -796,6 +805,12 @@ function AsignarModal({ usuarios, count, unaNombre = null, onClose, onConfirm, l
   usuarios: Usuario[]; count: number; unaNombre?: string | null; onClose: () => void; onConfirm: (usuarioId: number) => void; loading: boolean; usuarioActualId?: number;
 }) {
   const [sel, setSel] = useState<number | null>(null);
+
+  useEffect(() => {
+    const onEsc = (e: KeyboardEvent) => { if (e.key === 'Escape' && !loading) onClose(); };
+    window.addEventListener('keydown', onEsc);
+    return () => window.removeEventListener('keydown', onEsc);
+  }, [onClose, loading]);
 
   // Orden: perfiles normales primero (con el usuario actual al tope), luego admins al final.
   const usuariosOrdenados = useMemo(() => {

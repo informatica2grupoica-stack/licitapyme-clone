@@ -28,7 +28,7 @@ const TABLAS_PERMITIDAS = [
 
 // ─── Separación por empresa-cliente (multiempresa) ───────────────────────────────
 // Datos de Mercado Público que son iguales para todas las empresas: se leen sin filtro.
-const TABLAS_COMPARTIDAS = new Set(['licitaciones_cache', 'adjudicacion_cache', 'oferta_competencia', 'preguntas_respuestas_cache', 'precios_mercado', 'licitacion_apertura']);
+const TABLAS_COMPARTIDAS = new Set(['licitaciones_cache', 'adjudicacion_cache', 'oferta_competencia', 'preguntas_respuestas_cache', 'precios_mercado', 'licitacion_apertura', 'licitacion_unidad_cache']);
 // Análisis de mercado de Grupo ICA (viabilidad v4, prefiltro): sin dueño por empresa; los ve todo perfil de ICA, ninguna empresa-cliente.
 const TABLAS_MERCADO_ICA = new Set(['viabilidad_licitacion', 'prefiltro_licitacion', 'analisis_ia_licitacion']);
 // Columnas que jamás llegan al modelo aunque la tabla esté permitida.

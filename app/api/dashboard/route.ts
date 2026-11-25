@@ -33,14 +33,14 @@ function getUserFromHeaders(request: NextRequest) {
   return { id: n, email: request.headers.get('x-user-email') || '', rol: request.headers.get('x-user-rol') || 'usuario' };
 }
 
-// Helper: query que no rompe el dashboard si una tabla/columna falta. Loguea siempre: un
-// catch mudo aquí devuelve un 0 indistinguible de "no hay nada", y así fue como un choque de
-// collations dejó KPIs mintiendo sin que nadie lo notara.
+// Helper de consulta. Regla del dueño (2026-11-25): el dashboard solo muestra datos reales, NUNCA inventados.
+// Si una consulta falla NO se devuelve [] (se vería como un «0» que parece verdad, y así un choque de collations dejó
+// KPIs mintiendo sin que nadie lo notara): se deja subir el error y la pantalla muestra «no se pudo cargar».
 async function q<T = any>(sql: string, params: any[] = []): Promise<T[]> {
   try { const [rows] = await pool.query(sql, params); return rows as T[]; }
   catch (e) {
-    console.error('[dashboard] query falló → se degrada:', String(e).slice(0, 200));
-    return [];
+    console.error('[dashboard] query falló:', String(e).slice(0, 200));
+    throw e;
   }
 }
 
@@ -71,7 +71,7 @@ export async function GET(request: NextRequest) {
       const [nUsers] = await q(`SELECT COUNT(*) AS n FROM usuarios WHERE created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY) AND cliente_id = ?`, [clienteId]);
       const ultimosAccesos = await q(
         `SELECT id, email, nombre, empresa, rol, ultimo_login, created_at
-         FROM usuarios WHERE cliente_id = ? ORDER BY COALESCE(ultimo_login, created_at) DESC LIMIT 6`, [clienteId]);
+         FROM usuarios WHERE cliente_id = ? AND activo = TRUE ORDER BY COALESCE(ultimo_login, created_at) DESC LIMIT 6`, [clienteId]);
 
       // UNIVERSO DEL RADAR: EXACTAMENTE lo que la pestaña "Licitaciones" del radar muestra en
       // su contador, para que el dashboard y el radar nunca discrepen. La definición vive en
@@ -147,16 +147,17 @@ export async function GET(request: NextRequest) {
       // Desglose POR PERFIL: seguimiento de cada usuario (asignadas, monto, descartadas y
       // distribución por etapa del pipeline). Una sola query agrupada usuario × etapa; el
       // resto se arma en JS.
-      const perfilRows = await q<{ uid: number; nombre: string | null; email: string; etapa: string; n: number; monto: number }>(
-        `SELECT n.asignado_a AS uid, u.nombre, u.email,
+      // Las cuentas desactivadas SE QUEDAN (su historial es parte de los números reales); solo se marcan.
+      const perfilRows = await q<{ uid: number; nombre: string | null; email: string; activo: number; etapa: string; n: number; monto: number }>(
+        `SELECT n.asignado_a AS uid, u.nombre, u.email, u.activo,
                 COALESCE(n.estado_pipeline,'ASIGNADO') AS etapa,
                 COUNT(*) AS n, COALESCE(SUM(n.licitacion_monto),0) AS monto
          FROM negocios n JOIN usuarios u ON u.id = n.asignado_a
          WHERE n.activo = TRUE AND n.cliente_id = ?
-         GROUP BY n.asignado_a, u.nombre, u.email, etapa`, [clienteId]);
-      const perfilMap = new Map<number, { id: number; nombre: string | null; email: string; total: number; monto: number; descartadas: number; pipeline: { etapa: string; n: number }[] }>();
+         GROUP BY n.asignado_a, u.nombre, u.email, u.activo, etapa`, [clienteId]);
+      const perfilMap = new Map<number, { id: number; nombre: string | null; email: string; activo: boolean; total: number; monto: number; descartadas: number; pipeline: { etapa: string; n: number }[] }>();
       for (const r of perfilRows) {
-        if (!perfilMap.has(r.uid)) perfilMap.set(r.uid, { id: r.uid, nombre: r.nombre, email: r.email, total: 0, monto: 0, descartadas: 0, pipeline: [] });
+        if (!perfilMap.has(r.uid)) perfilMap.set(r.uid, { id: r.uid, nombre: r.nombre, email: r.email, activo: !!r.activo, total: 0, monto: 0, descartadas: 0, pipeline: [] });
         const p = perfilMap.get(r.uid)!;
         // Las DESCARTADA se cuentan aparte y NO entran en total/monto/flujo (en trabajo).
         if (r.etapa === 'DESCARTADA') { p.descartadas += Number(r.n); continue; }

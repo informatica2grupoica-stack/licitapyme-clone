@@ -101,6 +101,12 @@ export default function DescartadasPage() {
   const [busqueda, setBusqueda] = useState('');
   const [fechaDesde, setFechaDesde] = useState('');
   const [fechaHasta, setFechaHasta] = useState('');
+  // Solo se pintan las primeras N filas de cada lista (hay >12.000 descartadas: pintarlas todas
+  // generaba ~500.000 nodos y colgaba el navegador, sobre todo en móvil). Los filtros y KPIs
+  // siguen calculándose sobre el total; "Mostrar más" amplía la ventana.
+  const PAGINA = 50;
+  const [verNegocios, setVerNegocios] = useState(PAGINA);
+  const [verRadar, setVerRadar] = useState(PAGINA);
   const hayFiltro = filtroUsuario.length > 0 || filtroMotivo.length > 0 || filtroTipo.length > 0
     || busqueda.trim() !== '' || fechaDesde !== '' || fechaHasta !== '';
   const limpiarFiltros = () => {
@@ -157,6 +163,10 @@ export default function DescartadasPage() {
         || (r.licitacion_organismo || '').toLowerCase().includes(q)) &&
     enRango(r.created_at, fechaDesde, fechaHasta),
   ), [radarItems, filtroTipo, q, fechaDesde, fechaHasta]);
+
+  // Al cambiar cualquier filtro se vuelve a la primera página.
+  useEffect(() => { setVerNegocios(PAGINA); setVerRadar(PAGINA); },
+    [filtroUsuario, filtroMotivo, filtroTipo, busqueda, fechaDesde, fechaHasta]);
 
   useEffect(() => {
     if (!cargandoSesion && usuario && !esAdmin) router.replace('/negocios');
@@ -373,7 +383,7 @@ export default function DescartadasPage() {
             {itemsFiltrados.length === 0 && (
               <p className="text-sm text-tinta-2 dark:text-slate-400 py-6 text-center">Ninguna descartada coincide con el filtro.</p>
             )}
-            {itemsFiltrados.map(d => (
+            {itemsFiltrados.slice(0, verNegocios).map(d => (
               <div key={d.id} className={`${SUPERFICIE} px-4 py-3.5`}>
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
@@ -419,6 +429,13 @@ export default function DescartadasPage() {
                 </div>
               </div>
             ))}
+            {itemsFiltrados.length > verNegocios && (
+              <div className="pt-1 text-center">
+                <Boton onClick={() => setVerNegocios(v => v + PAGINA)}>
+                  Mostrar {Math.min(PAGINA, itemsFiltrados.length - verNegocios)} más · quedan {itemsFiltrados.length - verNegocios}
+                </Boton>
+              </div>
+            )}
           </div>
         )}
 
@@ -432,7 +449,7 @@ export default function DescartadasPage() {
               </span>
             </div>
             <div className="space-y-2">
-              {radarFiltrados.map(r => (
+              {radarFiltrados.slice(0, verRadar).map(r => (
                 <div key={r.licitacion_codigo} className={`${SUPERFICIE} px-4 py-3.5`}>
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
@@ -465,6 +482,13 @@ export default function DescartadasPage() {
                   </div>
                 </div>
               ))}
+              {radarFiltrados.length > verRadar && (
+                <div className="pt-1 text-center">
+                  <Boton onClick={() => setVerRadar(v => v + PAGINA)}>
+                    Mostrar {Math.min(PAGINA, radarFiltrados.length - verRadar)} más · quedan {radarFiltrados.length - verRadar}
+                  </Boton>
+                </div>
+              )}
             </div>
           </div>
         )}

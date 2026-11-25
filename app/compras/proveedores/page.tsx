@@ -13,6 +13,7 @@ import { IconLoader2 as Loader2, IconPlus as Plus, IconX as X, IconSearch as Sea
 import { Encabezado, Esqueleto, Vacio } from '@/app/components/ui/kit/Estructura';
 import { Boton } from '@/app/components/ui/kit/Boton';
 import { Indicador } from '@/app/components/ui/kit/Indicador';
+import { Dato, Estado } from '@/app/components/ui/kit/Tarjeta';
 import { Lista } from '@/app/components/ui/kit/Aparecer';
 import { Banner } from '@/app/components/ui/Banner';
 
@@ -24,6 +25,7 @@ interface Proveedor {
   rutTitular: string | null; correoPagos: string | null; obumaProveedorId: string | null;
   obumaTieneCuentaBancaria: boolean | null; obumaNumeroCuenta: string | null;
   obumaTipoCuenta: string | null; obumaFormaPago: string | null;
+  obumaBanco: string | null; bancoPendienteEnObuma: boolean;
   obumaComprasCantidad: number; obumaComprasMontoTotal: number; obumaUltimaCompraFecha: string | null;
   notas: string | null; activo: boolean;
 }
@@ -66,6 +68,19 @@ export default function ProveedoresPage() {
   // catálogo entero son 388 filas, no vale la pena un viaje al servidor por cada toggle.
   const [filtroCuenta, setFiltroCuenta] = useState(false);
   const [filtroCompras, setFiltroCompras] = useState(false);
+  // Los proveedores dados de baja en Obuma están en la base pero no se muestran salvo que se pida.
+  const [verInactivos, setVerInactivos] = useState(false);
+  const [enviandoObuma, setEnviandoObuma] = useState<number | null>(null);
+  // Edición de la ficha (23-nov-2026: antes solo se podía mirar; el botón de Obuma reenviaba lo mismo que ya había).
+  const [editando, setEditando] = useState<number | null>(null);
+  const [edicion, setEdicion] = useState<Record<string, string>>({});
+  const [guardandoEdicion, setGuardandoEdicion] = useState(false);
+  // Filtros desplegables (todo en pantalla, sobre lo ya cargado).
+  const [fCategoria, setFCategoria] = useState('');
+  const [fBanco, setFBanco] = useState('');
+  const [fFalta, setFFalta] = useState('');
+  const [fUltima, setFUltima] = useState('');
+  const [orden, setOrden] = useState('nombre');
   // Búsqueda por PRODUCTO (pedido explícito, 14-sep-2026: "si pongo martillo, decime a quién le
   // hemos comprado martillo") — corre en paralelo a la búsqueda normal de nombre/RUT, sobre el mismo
   // campo de texto. Independiente de `cargar`: esta pega contra Obuma, no contra el catálogo local.
@@ -83,13 +98,48 @@ export default function ProveedoresPage() {
     return { total: proveedores.length, conCuenta, conCompras, montoTotal };
   }, [proveedores]);
 
+  const norm = (s: string | null | undefined) => (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+  const opciones = useMemo(() => {
+    const uniq = (f: (p: Proveedor) => string | null) => Array.from(new Set(proveedores.map(f).filter((x): x is string => !!x && !!x.trim()))).sort((a, b) => a.localeCompare(b, 'es'));
+    return { categorias: uniq(p => p.categoria), bancos: uniq(p => p.obumaBanco || p.banco) };
+  }, [proveedores]);
+
+  // Proveedores a los que SÍ se les compró lo que se escribió en el buscador (búsqueda por ítem, contra las OC de Obuma).
+  const idsPorItem = useMemo(() => {
+    const s = new Set<number>();
+    if (busquedaProducto.estado === 'listo') for (const r of busquedaProducto.resultados) if (r.proveedorId) s.add(r.proveedorId);
+    return s;
+  }, [busquedaProducto]);
+
+  const hayFiltros = !!(filtroCuenta || filtroCompras || fCategoria || fBanco || fFalta || fUltima);
+  const limpiarFiltros = () => { setFiltroCuenta(false); setFiltroCompras(false); setFCategoria(''); setFBanco(''); setFFalta(''); setFUltima(''); };
+
   const proveedoresFiltrados = useMemo(() => {
-    return proveedores.filter(p => {
+    const t = norm(q.trim());
+    const hace12m = new Date(); hace12m.setFullYear(hace12m.getFullYear() - 1);
+    const lista = proveedores.filter(p => {
+      // Buscador: calza por nombre/RUT o porque se le compró ese ítem.
+      if (t && !(norm(p.nombreEmpresa).includes(t) || norm(p.nombreFantasia).includes(t) || norm(p.rut).includes(t) || idsPorItem.has(p.id))) return false;
       if (filtroCuenta && !p.obumaTieneCuentaBancaria) return false;
       if (filtroCompras && p.obumaComprasCantidad <= 0) return false;
+      if (fCategoria && p.categoria !== fCategoria) return false;
+      if (fBanco && (p.obumaBanco || p.banco) !== fBanco) return false;
+      if (fFalta === 'correo' && p.correo) return false;
+      if (fFalta === 'telefono' && p.telefono) return false;
+      if (fFalta === 'contacto' && p.contactoNombre) return false;
+      if (fFalta === 'direccion' && p.direccion) return false;
+      if (fFalta === 'cuenta' && (p.obumaTieneCuentaBancaria || p.banco)) return false;
+      if (fFalta === 'pendiente' && !p.bancoPendienteEnObuma) return false;
+      if (fUltima === 'nunca' && p.obumaUltimaCompraFecha) return false;
+      if (fUltima === '12m' && !(p.obumaUltimaCompraFecha && new Date(p.obumaUltimaCompraFecha) >= hace12m)) return false;
+      if (fUltima === 'antiguo' && !(p.obumaUltimaCompraFecha && new Date(p.obumaUltimaCompraFecha) < hace12m)) return false;
       return true;
     });
-  }, [proveedores, filtroCuenta, filtroCompras]);
+    if (orden === 'monto') lista.sort((a, b) => b.obumaComprasMontoTotal - a.obumaComprasMontoTotal);
+    else if (orden === 'compras') lista.sort((a, b) => b.obumaComprasCantidad - a.obumaComprasCantidad);
+    else if (orden === 'ultima') lista.sort((a, b) => (b.obumaUltimaCompraFecha || '').localeCompare(a.obumaUltimaCompraFecha || ''));
+    return lista;
+  }, [proveedores, q, idsPorItem, filtroCuenta, filtroCompras, fCategoria, fBanco, fFalta, fUltima, orden]);
 
   // "Ser admin" ya no alcanza solo (pedido explícito, 10-sep-2026) — mismo criterio que el backend
   // (app/api/compras/proveedores/route.ts).
@@ -98,9 +148,61 @@ export default function ProveedoresPage() {
   // Lectura abierta a todo perfil interno; el externo (cliente) sigue sin acceso.
   const puedeVer = !!usuario && usuario.rol !== 'externo';
 
-  const cargar = useCallback(async (busqueda?: string) => {
+  // Envía a Obuma los datos de contacto de la ficha (correo, teléfono, dirección…). Banco y cuenta no: la API de Obuma no los guarda.
+  const guardarEnObuma = async (p: Proveedor) => {
+    setEnviandoObuma(p.id);
     try {
-      const res = await fetch(`/api/compras/proveedores${busqueda ? `?q=${encodeURIComponent(busqueda)}` : ''}`);
+      const res = await fetch(`/api/compras/proveedores/${p.id}/guardar-obuma`, { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo guardar en Obuma');
+      if (data.noGuardados?.length) toast.warning('Obuma no guardó todo', `No quedaron: ${data.noGuardados.join(', ')}`);
+      else toast.success('Guardado en Obuma', p.nombreEmpresa);
+      if (data.alterados?.length) toast.warning('Revisa la ficha en Obuma', `Cambiaron campos que no se tocaron: ${data.alterados.join(', ')}`);
+    } catch (e: any) {
+      toast.error('No se pudo guardar en Obuma', e.message);
+    } finally {
+      setEnviandoObuma(null);
+    }
+  };
+
+  const CAMPOS_EDICION = ['contactoNombre', 'telefono', 'correo', 'direccion', 'comuna', 'region', 'giro', 'banco', 'tipoCuenta', 'numeroCuenta', 'titularCuenta', 'rutTitular', 'correoPagos'] as const;
+  const iniciarEdicion = (p: Proveedor) => {
+    setEdicion(Object.fromEntries(CAMPOS_EDICION.map(c => [c, ((p as any)[c] as string | null) || ''])));
+    setEditando(p.id);
+  };
+
+  // Guarda en Licitank y, si se pide y la ficha está enlazada, lo envía también a Obuma (solo contacto: banco/cuenta no los guarda su API).
+  const guardarEdicion = async (p: Proveedor, aObuma: boolean) => {
+    setGuardandoEdicion(true);
+    try {
+      const res = await fetch(`/api/compras/proveedores/${p.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(edicion) });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo guardar');
+      const nuevo: Proveedor = { ...p, ...Object.fromEntries(Object.entries(edicion).map(([k, v]) => [k, v.trim() || null])) } as Proveedor;
+      nuevo.bancoPendienteEnObuma = !!nuevo.obumaProveedorId && !!(nuevo.numeroCuenta || nuevo.banco) && !nuevo.obumaNumeroCuenta;
+      setProveedores(lista => lista.map(x => x.id === p.id ? nuevo : x));
+      setEditando(null);
+      if (aObuma && p.obumaProveedorId) await guardarEnObuma(nuevo);
+      else toast.success('Guardado en Licitank', p.nombreEmpresa);
+    } catch (e: any) {
+      toast.error('No se pudo guardar', e.message);
+    } finally {
+      setGuardandoEdicion(false);
+    }
+  };
+
+  const copiarDatosBancarios = async (p: Proveedor) => {
+    const texto = [p.nombreEmpresa, p.rut && `RUT ${p.rut}`, p.banco && `Banco: ${p.banco}`, p.tipoCuenta && `Tipo: ${p.tipoCuenta}`, p.numeroCuenta && `N° cuenta: ${p.numeroCuenta}`, p.titularCuenta && `Titular: ${p.titularCuenta}`].filter(Boolean).join('\n');
+    try { await navigator.clipboard.writeText(texto); toast.success('Datos bancarios copiados', 'Pégalos en la ficha del proveedor en Obuma.'); }
+    catch { toast.error('No se pudo copiar', 'Selecciona y copia el texto a mano.'); }
+  };
+
+  // Se carga el catálogo completo y se filtra en pantalla (buscador incluido) para poder combinar nombre, ítem y filtros.
+  const cargar = useCallback(async () => {
+    try {
+      const qs = new URLSearchParams();
+      if (verInactivos) qs.set('inactivos', '1');
+      const res = await fetch(`/api/compras/proveedores${qs.size ? `?${qs}` : ''}`);
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo cargar');
       setProveedores(data.proveedores || []);
@@ -109,18 +211,13 @@ export default function ProveedoresPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [verInactivos]);
 
   useEffect(() => {
     if (cargandoSesion) return;
     if (!puedeVer) { router.replace('/dashboard'); return; }
     cargar();
   }, [cargandoSesion, puedeVer, router, cargar]);
-
-  useEffect(() => {
-    const t = setTimeout(() => cargar(q), 300);
-    return () => clearTimeout(t);
-  }, [q, cargar]);
 
   // Mismo debounce, búsqueda independiente: el catálogo local (compras_proveedor) no tiene ítems de
   // compra — buscar "martillo" ahí nunca iba a encontrar nada. Se pega directo a Obuma (producto →
@@ -214,7 +311,7 @@ export default function ProveedoresPage() {
   // cualquier filtro que lo estuviera tapando, y lo despliega directo (sin esto, "a quién le
   // compramos martillo" mostraba el nombre pero la persona tenía que buscarlo de nuevo a mano).
   const irAProveedor = (proveedorId: number) => {
-    setFiltroCuenta(false); setFiltroCompras(false);
+    limpiarFiltros();
     setExpandido(proveedorId);
     if (!historiales[proveedorId]) cargarHistorial(proveedorId);
     setTimeout(() => document.getElementById(`proveedor-${proveedorId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 50);
@@ -276,7 +373,7 @@ export default function ProveedoresPage() {
             <>
               <div className="relative">
                 <Search size={16} stroke={1.75} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                <input value={q} onChange={e => setQ(e.target.value)} placeholder="Buscar nombre o RUT…" aria-label="Buscar proveedores"
+                <input value={q} onChange={e => setQ(e.target.value)} placeholder="Buscar nombre, RUT o ítem…" aria-label="Buscar proveedores"
                   className="h-9 w-56 rounded-lg border border-linea bg-white pl-9 pr-3 text-[13px] text-tinta placeholder:text-tinta-3 outline-none focus-visible:ring-2 focus-visible:ring-marca/60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" />
               </div>
               {!soloLectura && <Boton onClick={sincronizarObuma} disabled={sincronizando || sincronizandoItems}
@@ -286,9 +383,40 @@ export default function ProveedoresPage() {
             </>
           }
         />
+        {(() => {
+          const p = editando != null ? proveedores.find(x => x.id === editando) : null;
+          if (!p) return null;
+          return (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onMouseDown={e => { if (e.target === e.currentTarget && !guardandoEdicion) setEditando(null); }}>
+              <div role="dialog" aria-modal="true" aria-label={`Editar ${p.nombreEmpresa}`} className="bg-white dark:bg-slate-900 rounded-xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto p-5 space-y-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <h2 className="text-[15px] font-semibold text-tinta dark:text-slate-100">Editar proveedor</h2>
+                    <p className="text-xs text-tinta-2">{p.nombreEmpresa}{p.rut && ` · ${p.rut}`}</p>
+                  </div>
+                  <button onClick={() => setEditando(null)} disabled={guardandoEdicion} aria-label="Cerrar" className="text-tinta-2 hover:text-tinta"><X size={18} stroke={1.75} /></button>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  {([['contactoNombre', 'Contacto'], ['telefono', 'Teléfono'], ['correo', 'Correo'], ['direccion', 'Dirección'], ['comuna', 'Comuna'], ['region', 'Región'], ['giro', 'Giro'],
+                    ['banco', 'Banco'], ['tipoCuenta', 'Tipo de cuenta'], ['numeroCuenta', 'N° de cuenta'], ['titularCuenta', 'Titular'], ['rutTitular', 'RUT del titular'], ['correoPagos', 'Correo de pagos']] as const).map(([c, rotulo]) => (
+                    <input key={c} value={edicion[c] ?? ''} onChange={e => setEdicion(m => ({ ...m, [c]: e.target.value }))} placeholder={rotulo} aria-label={rotulo}
+                      className="h-9 text-[13px] text-tinta placeholder:text-tinta-3 border border-linea dark:border-slate-700 bg-white dark:bg-slate-900 dark:text-slate-100 rounded-lg px-3 outline-none focus-visible:ring-2 focus-visible:ring-marca/60" />
+                  ))}
+                </div>
+                <p className="text-xs text-tinta-2">A Obuma van contacto, teléfono, correo, dirección, comuna, región y giro (sin vaciar lo que ya tenga). Banco y cuenta quedan solo en Licitank: la API de Obuma no los guarda.</p>
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  <Boton onClick={() => setEditando(null)} disabled={guardandoEdicion}>Cancelar</Boton>
+                  <Boton variante={p.obumaProveedorId ? undefined : 'primario'} onClick={() => guardarEdicion(p, false)} disabled={guardandoEdicion}>{p.obumaProveedorId ? 'Guardar solo en Licitank' : 'Guardar'}</Boton>
+                  {p.obumaProveedorId && <Boton variante="primario" onClick={() => guardarEdicion(p, true)} disabled={guardandoEdicion}
+                    icono={guardandoEdicion ? <Loader2 size={16} className="animate-spin" /> : undefined}>Guardar y enviar a Obuma</Boton>}
+                </div>
+              </div>
+            </div>
+          );
+        })()}
         {crearObumaAbierto && (
           <CrearProveedorObumaModal onCerrar={() => setCrearObumaAbierto(false)}
-            onCreado={() => { setCrearObumaAbierto(false); cargar(q.trim() || undefined); }} />
+            onCreado={() => { setCrearObumaAbierto(false); cargar(); }} />
         )}
 
         {/* Progreso del backfill de ítems del historial (pedido explícito, 14-sep-2026: "todo en
@@ -319,14 +447,40 @@ export default function ProveedoresPage() {
           <Indicador rotulo="Comprado histórico" valor={stats.montoTotal} formato={fmtCLP} />
         </Lista>
 
-        {(filtroCuenta || filtroCompras) && (
-          <div className="flex items-center gap-2 text-xs text-tinta-2 dark:text-slate-400">
-            <TrendingUp size={16} stroke={1.75} /> Mostrando {proveedoresFiltrados.length} de {stats.total}
-            {filtroCuenta && <span className="text-marca font-medium">· con cuenta bancaria</span>}
-            {filtroCompras && <span className="text-marca font-medium">· con compras</span>}
-            <button onClick={() => { setFiltroCuenta(false); setFiltroCompras(false); }} className="text-tinta-2 hover:text-tinta-2 dark:hover:text-slate-400 underline">limpiar</button>
-          </div>
-        )}
+        <label className="flex items-center gap-2 text-xs text-tinta-2 dark:text-slate-400 w-fit cursor-pointer">
+          <input type="checkbox" checked={verInactivos} onChange={e => setVerInactivos(e.target.checked)} className="accent-teal-600" />
+          Mostrar también los dados de baja en Obuma
+        </label>
+
+        {/* Filtros: se combinan entre sí y con el buscador (nombre, RUT o ítem comprado). */}
+        <div className="flex flex-wrap items-center gap-2">
+          {([
+            ...(opciones.categorias.length ? [['Categoría', fCategoria, setFCategoria, opciones.categorias.map(c => [c, c])] as [string, string, (v: string) => void, string[][]]] : []),
+            ['Banco', fBanco, setFBanco, opciones.bancos.map(c => [c, c])],
+            ['Falta completar', fFalta, setFFalta, [['correo', 'Sin correo'], ['telefono', 'Sin teléfono'], ['contacto', 'Sin contacto'], ['direccion', 'Sin dirección'], ['cuenta', 'Sin cuenta bancaria'], ['pendiente', 'Banco pendiente en Obuma']]],
+            ['Última compra', fUltima, setFUltima, [['12m', 'En los últimos 12 meses'], ['antiguo', 'Hace más de 12 meses'], ['nunca', 'Nunca']]],
+          ] as [string, string, (v: string) => void, string[][]][]).map(([rotulo, valor, set, ops]) => (
+            <select key={rotulo} value={valor} onChange={e => set(e.target.value)} aria-label={rotulo}
+              className={`h-8 text-xs rounded-lg border px-2 bg-white dark:bg-slate-900 outline-none focus-visible:ring-2 focus-visible:ring-marca/60 max-w-[190px] ${valor ? 'border-marca text-marca font-medium' : 'border-linea dark:border-slate-700 text-tinta-2 dark:text-slate-400'}`}>
+              <option value="">{rotulo}: todos</option>
+              {ops.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+            </select>
+          ))}
+          <select value={orden} onChange={e => setOrden(e.target.value)} aria-label="Ordenar"
+            className="h-8 text-xs rounded-lg border border-linea dark:border-slate-700 px-2 bg-white dark:bg-slate-900 text-tinta-2 dark:text-slate-400 outline-none focus-visible:ring-2 focus-visible:ring-marca/60">
+            <option value="nombre">Orden: nombre</option>
+            <option value="monto">Orden: más comprado ($)</option>
+            <option value="compras">Orden: más órdenes de compra</option>
+            <option value="ultima">Orden: compra más reciente</option>
+          </select>
+          {(hayFiltros || q.trim()) && (
+            <span className="flex items-center gap-2 text-xs text-tinta-2 dark:text-slate-400">
+              <TrendingUp size={16} stroke={1.75} /> Mostrando {proveedoresFiltrados.length} de {stats.total}
+              {idsPorItem.size > 0 && <span className="text-marca font-medium">· incluye a quienes les compramos "{q.trim()}"</span>}
+              {hayFiltros && <button onClick={limpiarFiltros} className="underline">limpiar filtros</button>}
+            </span>
+          )}
+        </div>
 
         {/* Búsqueda por PRODUCTO (pedido explícito, 14-sep-2026) — mismo campo de arriba, pero esto
             busca en las compras REALES de Obuma, no en el catálogo local. Solo se muestra con 3+
@@ -429,8 +583,8 @@ export default function ProveedoresPage() {
         {loading ? (
           <div className="space-y-2">{[1, 2, 3, 4, 5].map(i => <Esqueleto key={i} className="h-11 rounded-lg" />)}</div>
         ) : (
-          <div className="bg-white dark:bg-slate-900 rounded-xl border border-linea dark:border-slate-800 shadow-tarjeta overflow-x-auto">
-            <table className="w-full min-w-[1100px] text-[13px]">
+          <div className="bg-white dark:bg-slate-900 rounded-xl border border-linea dark:border-slate-800 shadow-tarjeta overflow-x-auto @container/tabla">
+            <table className="w-full min-w-[960px] text-[13px]">
               <thead>
                 <tr className="border-b border-linea dark:border-slate-800 text-left text-[11px] text-tinta-2 dark:text-slate-400">
                     <th className="px-3 h-10 font-medium ">Proveedor</th>
@@ -467,83 +621,125 @@ export default function ProveedoresPage() {
                     <td className={td}>{activo ? <ChevronUp size={16} stroke={1.75} className="text-marca" /> : <ChevronDown size={16} stroke={1.75} className="text-slate-400" />}</td>
                   </tr>
                   {activo && (
-                  <tr className="bg-white dark:bg-slate-900"><td colSpan={11} className="px-4 pb-3 pt-2">
-                    <div className="space-y-3">
-                      <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs text-tinta-2 dark:text-slate-400">
-                        {p.giro && <p><span className="text-tinta-3">Giro:</span> {p.giro}</p>}
-                        {p.contactoNombre && <p className="flex items-center gap-1"><Mail size={14} stroke={1.75} className="text-slate-400" /> {p.contactoNombre}</p>}
-                        {p.telefono && <p className="flex items-center gap-1"><Phone size={14} stroke={1.75} className="text-slate-400" /> {p.telefono}</p>}
-                        {p.correo && <p>{p.correo}</p>}
-                        {(p.direccion || p.comuna) && <p>{[p.direccion, p.comuna, p.region].filter(Boolean).join(', ')}</p>}
-                        {p.banco && <p className="flex items-center gap-1"><Landmark size={14} stroke={1.75} className="text-slate-400" /> {p.banco} — {p.tipoCuenta} {p.numeroCuenta}</p>}
-                        {p.titularCuenta && <p>Titular: {p.titularCuenta} {p.rutTitular && `(${p.rutTitular})`}</p>}
-                        {p.correoPagos && <p>Pagos: {p.correoPagos}</p>}
-                        {p.notas && <p className="col-span-2 text-tinta-2 italic">{p.notas}</p>}
+                  <tr className="bg-slate-50/70 dark:bg-slate-950/40"><td colSpan={11} className="px-4 py-4">
+                    <div className="space-y-4 sticky left-0 w-[calc(100cqw-2rem)]">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <h3 className="text-[15px] font-semibold tracking-tight text-tinta dark:text-slate-50">{p.nombreEmpresa}</h3>
+                          {p.giro && <p className="text-xs text-tinta-2 dark:text-slate-400 mt-0.5">{p.giro}</p>}
+                        </div>
+                        {!soloLectura && (
+                          <div className="flex flex-wrap items-center gap-2">
+                            {p.obumaProveedorId && <Boton onClick={() => guardarEnObuma(p)} disabled={enviandoObuma === p.id}
+                              icono={enviandoObuma === p.id ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} stroke={1.75} />}>Reenviar contacto a Obuma</Boton>}
+                            <Boton variante="primario" onClick={() => iniciarEdicion(p)}>Editar datos</Boton>
+                          </div>
+                        )}
                       </div>
 
-                      {/* Cuenta bancaria EN OBUMA (solo lectura — pedido explícito, 14-sep-2026).
-                          Obuma no expone el nombre del banco, solo si tiene cuenta, número, tipo y
-                          forma de pago. */}
-                      {p.obumaProveedorId && (
-                        <div className="border-t border-linea dark:border-slate-800 pt-2.5">
-                          <p className="text-xs font-semibold text-tinta-2 flex items-center gap-1 mb-1"><CreditCard size={14} stroke={1.75} /> Cuenta bancaria en Obuma</p>
-                          {p.obumaTieneCuentaBancaria ? (
-                            <p className="text-xs text-tinta-2 dark:text-slate-400">
-                              {p.obumaTipoCuenta || 'Cuenta'} N° {p.obumaNumeroCuenta || '—'}
-                              {p.obumaFormaPago && ` · forma de pago: ${p.obumaFormaPago}`}
-                            </p>
+                      <div className="grid grid-cols-1 @4xl:grid-cols-3 gap-3">
+                        {/* Contacto */}
+                        <div className="bg-white dark:bg-slate-900 border border-linea dark:border-slate-800 rounded-xl p-4">
+                          <p className="text-[13px] font-semibold text-tinta dark:text-slate-100 flex items-center gap-2 mb-3"><Mail size={18} stroke={1.75} className="text-slate-400" /> Contacto</p>
+                          <dl className="grid grid-cols-2 gap-x-4 gap-y-3">
+                            <Dato rotulo="Nombre">{p.contactoNombre}</Dato>
+                            <Dato rotulo="Teléfono">{p.telefono}</Dato>
+                            <div className="col-span-2"><Dato rotulo="Correo">{p.correo}</Dato></div>
+                            <div className="col-span-2"><Dato rotulo="Dirección">{[p.direccion, p.comuna, p.region].filter(Boolean).join(', ')}</Dato></div>
+                          </dl>
+                          {!(p.contactoNombre || p.telefono || p.correo || p.direccion) && <p className="text-xs text-tinta-2">Sin datos de contacto. Usa «Editar datos» para completarlos.</p>}
+                        </div>
+
+                        {/* Cuenta bancaria: lo de Obuma manda; si Obuma no la tiene se muestra lo cargado en Licitank. */}
+                        <div className="bg-white dark:bg-slate-900 border border-linea dark:border-slate-800 rounded-xl p-4">
+                          <p className="text-[13px] font-semibold text-tinta dark:text-slate-100 flex items-center gap-2 mb-3"><Landmark size={18} stroke={1.75} className="text-slate-400" /> Cuenta bancaria</p>
+                          {(p.obumaBanco || p.banco || p.obumaNumeroCuenta || p.numeroCuenta) ? (
+                            <dl className="grid grid-cols-2 gap-x-4 gap-y-3">
+                              <div className="col-span-2"><Dato rotulo="Banco">{p.obumaBanco || p.banco}</Dato></div>
+                              <Dato rotulo="Tipo">{p.obumaTipoCuenta || p.tipoCuenta}</Dato>
+                              <Dato rotulo="N° de cuenta">{p.obumaNumeroCuenta || p.numeroCuenta}</Dato>
+                              <Dato rotulo="Titular">{p.titularCuenta}</Dato>
+                              <Dato rotulo="RUT del titular">{p.rutTitular}</Dato>
+                              <Dato rotulo="Forma de pago">{p.obumaFormaPago}</Dato>
+                              <Dato rotulo="Correo de pagos">{p.correoPagos}</Dato>
+                            </dl>
                           ) : (
-                            <p className="text-xs text-tinta-2">No tiene cuenta bancaria cargada en Obuma.</p>
+                            <p className="text-xs text-tinta-2">No tiene cuenta bancaria cargada{p.obumaProveedorId ? ' en Obuma ni en Licitank' : ''}.</p>
+                          )}
+                          {p.bancoPendienteEnObuma && !soloLectura && (
+                            <div className="mt-3 pt-3 border-t border-linea dark:border-slate-800 space-y-2">
+                              <p className="text-xs text-alerta">Falta cargar estos datos bancarios en Obuma (su API no los guarda).</p>
+                              <Boton tamano="sm" onClick={() => copiarDatosBancarios(p)}>Copiar datos bancarios</Boton>
+                            </div>
                           )}
                         </div>
-                      )}
+
+                        {/* Resumen de compras */}
+                        <div className="bg-white dark:bg-slate-900 border border-linea dark:border-slate-800 rounded-xl p-4">
+                          <p className="text-[13px] font-semibold text-tinta dark:text-slate-100 flex items-center gap-2 mb-3"><ShoppingCart size={18} stroke={1.75} className="text-slate-400" /> Lo que le hemos comprado</p>
+                          <p className="text-2xl font-semibold tracking-tight tabular-nums text-tinta dark:text-slate-50">{fmtCLP(p.obumaComprasMontoTotal)}</p>
+                          <p className="text-xs text-tinta-2 dark:text-slate-400 mt-1">
+                            {p.obumaComprasCantidad > 0
+                              ? `${p.obumaComprasCantidad} orden(es) de compra${p.obumaUltimaCompraFecha ? ` · última el ${p.obumaUltimaCompraFecha.slice(0, 10)}` : ''}`
+                              : 'Nunca le hemos comprado.'}
+                          </p>
+                        </div>
+                      </div>
 
                       {/* Historial de compras REAL (OC de Obuma) — carga perezosa, ver toggleExpandido. */}
-                      <div className="border-t border-linea dark:border-slate-800 pt-2.5">
-                        <p className="text-xs font-semibold text-tinta-2 flex items-center gap-1 mb-1"><ShoppingCart size={14} stroke={1.75} /> Compras a este proveedor</p>
+                      <div className="bg-white dark:bg-slate-900 border border-linea dark:border-slate-800 rounded-xl overflow-hidden">
+                        <p className="px-4 py-3 text-[13px] font-semibold text-tinta dark:text-slate-100 flex items-center gap-2 border-b border-linea dark:border-slate-800"><PackageSearch size={18} stroke={1.75} className="text-slate-400" /> Órdenes de compra</p>
                         {!p.obumaProveedorId ? (
-                          <p className="text-xs text-tinta-2">Todavía no está enlazado a una ficha de Obuma — no se puede consultar el historial. Usa "Sincronizar con Obuma".</p>
+                          <p className="px-4 py-3 text-xs text-tinta-2">Todavía no está enlazado a una ficha de Obuma, así que no se puede consultar el historial. Usa «Sincronizar con Obuma».</p>
                         ) : historiales[p.id]?.estado === 'cargando' ? (
-                          <p className="text-xs text-tinta-2 flex items-center gap-1"><Loader2 size={14} className="animate-spin" /> Consultando en Obuma…</p>
+                          <div className="p-4 space-y-2">{[1, 2, 3].map(i => <Esqueleto key={i} className="h-8 rounded-lg" />)}</div>
                         ) : historiales[p.id]?.estado === 'error' ? (
-                          <p className="text-xs text-alerta">No se pudo consultar el historial ahora.</p>
+                          <p className="px-4 py-3 text-xs text-alerta">No se pudo consultar el historial ahora.</p>
                         ) : historiales[p.id]?.estado === 'listo' ? (
                           (() => {
                             const h = historiales[p.id] as { estado: 'listo'; tieneObuma: boolean; compras: CompraOcResumen[]; totalComprado: number; hayMas: boolean };
-                            if (h.compras.length === 0) return <p className="text-xs text-tinta-2">Nunca le hemos comprado (sin órdenes de compra en Obuma).</p>;
+                            if (h.compras.length === 0) return <p className="px-4 py-3 text-xs text-tinta-2">Nunca le hemos comprado (sin órdenes de compra en Obuma).</p>;
                             return (
-                              <div className="space-y-1.5">
-                                <p className="text-xs font-medium text-exito">
-                                  Sí le hemos comprado — {h.compras.length}{h.hayMas ? '+' : ''} orden(es) de compra, {fmtCLP(h.totalComprado)}{h.hayMas ? ' (de las mostradas)' : ' en total'}.
-                                </p>
-                                {h.hayMas && <p className="text-xs text-tinta-2">Mostrando las {h.compras.length} más recientes — hay más en Obuma.</p>}
-                                <div className="space-y-1">
-                                  {h.compras.map(c => (
-                                    <div key={c.id} className="border border-linea dark:border-slate-800 rounded-lg bg-white dark:bg-slate-900">
-                                      <button onClick={() => c.folio && toggleOc(c.folio)} className="w-full flex items-center justify-between gap-2 px-3 py-2 text-left hover:bg-slate-50 dark:hover:bg-slate-800/50">
-                                        <span className="text-xs text-tinta-2 dark:text-slate-400">
-                                          {c.folio ? `OC ${c.folio}` : `#${c.id}`} · {c.fecha.slice(0, 10)} · {c.estado}
-                                        </span>
-                                        <span className="text-xs font-semibold text-tinta dark:text-slate-200 flex items-center gap-1">{fmtCLP(c.total)} <PackageSearch size={14} stroke={1.75} className="text-slate-400" /></span>
-                                      </button>
-                                      {c.folio && ocAbierta === c.folio && (
-                                        <div className="px-2 pb-1.5 border-t border-linea dark:border-slate-800">
-                                          {itemsPorFolio[c.folio]?.estado === 'cargando' && (
-                                            <p className="text-xs text-tinta-2 flex items-center gap-1 pt-1"><Loader2 size={14} className="animate-spin" /> Cargando ítems…</p>
-                                          )}
-                                          {itemsPorFolio[c.folio]?.estado === 'error' && <p className="text-xs text-alerta pt-1">No se pudieron cargar los ítems.</p>}
-                                          {itemsPorFolio[c.folio]?.estado === 'listo' && (
-                                            <ul className="pt-1 space-y-0.5">
-                                              {(itemsPorFolio[c.folio] as { estado: 'listo'; items: ItemCompraOc[] }).items.map((it, i) => (
-                                                <li key={i} className="text-xs text-tinta-2 dark:text-slate-400">{it.cantidad}× {it.nombre} — {fmtCLP(it.subtotal)}</li>
-                                              ))}
-                                            </ul>
-                                          )}
-                                        </div>
-                                      )}
-                                    </div>
-                                  ))}
-                                </div>
+                              <div>
+                                <table className="w-full text-[13px]">
+                                  <thead>
+                                    <tr className="text-left text-[11px] text-tinta-2 dark:text-slate-400 border-b border-linea dark:border-slate-800">
+                                      <th className="px-4 h-9 font-medium">Orden</th>
+                                      <th className="px-3 h-9 font-medium">Fecha</th>
+                                      <th className="px-3 h-9 font-medium">Estado</th>
+                                      <th className="px-4 h-9 font-medium text-right">Monto</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="divide-y divide-linea dark:divide-slate-800">
+                                    {h.compras.map(c => (
+                                      <Fragment key={c.id}>
+                                        <tr onClick={() => c.folio && toggleOc(c.folio)} className={c.folio ? 'cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50' : ''}>
+                                          <td className="px-4 h-10 font-medium text-tinta dark:text-slate-100 whitespace-nowrap">{c.folio ? `OC ${c.folio}` : `#${c.id}`}</td>
+                                          <td className="px-3 h-10 text-tinta-2 dark:text-slate-400 whitespace-nowrap">{c.fecha.slice(0, 10)}</td>
+                                          <td className="px-3 h-10 text-tinta-2 dark:text-slate-400"><Estado color={/FACTURADA|RECIBIDA|PAGADA/i.test(c.estado) ? '#16a34a' : /ANULADA|RECHAZADA/i.test(c.estado) ? '#dc2626' : '#94a3b8'}>{c.estado.charAt(0) + c.estado.slice(1).toLowerCase()}</Estado></td>
+                                          <td className="px-4 h-10 text-right font-semibold tabular-nums text-tinta dark:text-slate-100 whitespace-nowrap">{fmtCLP(c.total)}</td>
+                                        </tr>
+                                        {c.folio && ocAbierta === c.folio && (
+                                          <tr><td colSpan={4} className="px-4 pb-3 pt-1 bg-slate-50/70 dark:bg-slate-950/40">
+                                            {itemsPorFolio[c.folio]?.estado === 'cargando' && <Esqueleto className="h-6 rounded-lg" />}
+                                            {itemsPorFolio[c.folio]?.estado === 'error' && <p className="text-xs text-alerta">No se pudieron cargar los ítems.</p>}
+                                            {itemsPorFolio[c.folio]?.estado === 'listo' && (
+                                              <ul className="space-y-1">
+                                                {(itemsPorFolio[c.folio] as { estado: 'listo'; items: ItemCompraOc[] }).items.map((it, i) => (
+                                                  <li key={i} className="flex items-baseline justify-between gap-3 text-xs text-tinta-2 dark:text-slate-400">
+                                                    <span className="min-w-0">{it.cantidad}× {it.nombre}</span>
+                                                    <span className="tabular-nums whitespace-nowrap">{fmtCLP(it.subtotal)}</span>
+                                                  </li>
+                                                ))}
+                                              </ul>
+                                            )}
+                                          </td></tr>
+                                        )}
+                                      </Fragment>
+                                    ))}
+                                  </tbody>
+                                </table>
+                                {h.hayMas && <p className="px-4 py-2 text-xs text-tinta-2 border-t border-linea dark:border-slate-800">Mostrando las {h.compras.length} más recientes: hay más en Obuma.</p>}
                               </div>
                             );
                           })()

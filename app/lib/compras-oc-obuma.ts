@@ -16,7 +16,7 @@ import { listarAprobacionesLinea } from '@/app/lib/compras-aprobacion-lineas';
 import { listarProductosCompra, sincronizarTareaOcProveedores } from '@/app/lib/compras';
 import { productosConCompraRapidaAprobada, listarComprasRapidas, type CompraRapida } from '@/app/lib/compras-compra-rapida';
 import {
-  crearOrdenCompraObuma, descripcionesProductosObuma, modificarOrdenCompraObuma, leerOcObuma, type CambiosOcObuma, proveedorPorId, listarFormasPago, centrosDeCostoCompleto, proveedorPorRut, crearProveedorObuma, buscarCentroCostoPorLicitacion,
+  crearOrdenCompraObuma, descripcionesProductosObuma, modificarOrdenCompraObuma, leerOcObuma, type CambiosOcObuma, proveedorPorId, listarFormasPago, centrosDeCostoCompleto, proveedorPorRut, crearProveedorObuma, buscarCentroCostoPorLicitacion, folioProyectoPorLicitacion,
   listarComprasOc, listarComprasOcItems, mapaFormasPagoCompleto, listarMonedasExtranjerasObuma, type ObumaFormaPago, type DatosCrearProveedorObuma,
 } from '@/app/lib/obuma';
 import { METODOS_DESPACHO_OBUMA } from '@/app/lib/obuma-despacho';
@@ -646,6 +646,9 @@ export async function crearOrdenCompraParaProveedor(
   // El centro de costo elegido en el formulario manda; si no se eligió, el que se detecta por el código de la licitación.
   const centroCosto = opciones.centroCostoId ? { id: opciones.centroCostoId } : licitacionCodigo ? await buscarCentroCostoPorLicitacion(licitacionCodigo).catch(() => null) : null;
 
+  const relProyecto = centroCosto && 'relProyectoId' in centroCosto ? centroCosto.relProyectoId : null;
+  const folioPr = licitacionCodigo ? await folioProyectoPorLicitacion(licitacionCodigo, relProyecto).catch(() => null) : null;
+
   // El nombre de la forma de pago (Obuma lo guarda como texto; con el ID la OC queda mostrando solo un número).
   const formaPagoNombre = (await listarFormasPago().catch(() => [])).find(f => f.id === opciones.formaPagoId)?.nombre ?? null;
 
@@ -663,7 +666,10 @@ export async function crearOrdenCompraParaProveedor(
     proveedorDireccion: ficha.direccion, proveedorComuna: ficha.comuna,
     proveedorEmail: ficha.email, proveedorTelefono: ficha.telefono,
     fecha, formaPagoId: opciones.formaPagoId, formaPagoNombre,
-    referencia: licitacionCodigo || `negocio-${negocioId}`,
+    // «ID 345-4-LE26 PR-200»: el código de la licitación y, si el proyecto ya existe en Obuma, su número PR.
+    referencia: licitacionCodigo
+      ? [licitacionCodigo, folioPr ? `PR-${folioPr}` : null].filter(Boolean).join(' ')
+      : `negocio-${negocioId}`,
     // «inventario» es lo que activa el botón Inventario en la pantalla de Obuma; el texto de la licitación va como observación.
     // Una OC solo de combustible va como «gasto», igual que las hechas a mano en Obuma (4058 y 4076: compra_oc_concepto = gasto).
     ...(cargas.size > 0 && itemsOrden.every(it => cargas.has(it.productoId))

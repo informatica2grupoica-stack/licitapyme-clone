@@ -63,7 +63,8 @@ export async function obtenerDashboardCompras(): Promise<DashboardCompras> {
   const hoy = ahora.slice(0, 10);
 
   // Todas las lecturas son independientes: se piden a la vez (antes ~10 viajes en serie a la base, 22-oct-2026). Las que van con
-  // .catch(() => null) son las que antes estaban en try/catch: si fallan, su indicador queda en 0 y el resto sigue.
+  // Regla del dueño (2026-11-25): solo datos reales. Antes cuatro lecturas tenían .catch(() => null) y, si fallaban, su
+  // indicador salía como 0 que parecía verdad; ahora el error sube y la ruta responde «no se pudo cargar».
   // Resultado económico: el costo real que Compras carga por fin llega a un indicador. Si falla no
   // tumba el resto del dashboard (un negocio con datos raros no debe esconder los cuellos de botella).
   const resultadosP = resultadosParaDashboard().then(resumirResultados)
@@ -75,22 +76,22 @@ export async function obtenerDashboardCompras(): Promise<DashboardCompras> {
     pool.query(
       `SELECT r.fecha_limite, r.prorroga_fecha_limite FROM compras_reloj r JOIN compras_asignacion ca ON ca.negocio_id = r.negocio_id
         WHERE r.fijado_por IS NOT NULL AND r.entrega_con_multa = 0 AND ca.cierre_legado IS NULL`,
-    ).catch(() => null),
+    ),
     // sin reloj de entrega en entornos viejos
     pool.query(
       `SELECT COUNT(*) n FROM compras_asignacion ca
         WHERE ca.cierre_legado IS NULL
           AND NOT EXISTS (SELECT 1 FROM compras_reloj r WHERE r.negocio_id = ca.negocio_id AND r.fijado_por IS NOT NULL)`,
-    ).catch(() => null),
+    ),
     // migration-94 pendiente: sigue en 0
-    pool.query(`SELECT COUNT(*) n FROM compras_incidencia WHERE estado = 'ABIERTA'`).catch(() => null),
+    pool.query(`SELECT COUNT(*) n FROM compras_incidencia WHERE estado = 'ABIERTA'`),
     pool.query(`SELECT COUNT(*) n FROM compras_asignacion WHERE asignado_a IS NULL AND cierre_legado IS NULL`),
     // Cierre legado (migration-107, backlog histórico marcado a mano) — cuántos ya se cerraron
     // "rápido" (sin pasar por el flujo completo de Entrega/Fracaso) y con qué resultado. Columna nueva: si falla, se queda en 0.
     pool.query(
       `SELECT SUM(cierre_legado = 'ENTREGADA') entregadas, SUM(cierre_legado = 'NO_REALIZADA') no_realizadas
          FROM compras_asignacion WHERE cierre_legado IS NOT NULL`,
-    ).catch(() => null),
+    ),
     pool.query(`SELECT SUM(oc_numero IS NOT NULL) con_oc, SUM(oc_numero IS NULL) sin_oc FROM compras_asignacion WHERE cierre_legado IS NULL`),
     // Ganados por mes — de dónde vienen los negocios que hoy están en Compras, mes a mes real
     // (ganado_at, no cuándo entraron al sistema). Últimos 12 meses con datos.
@@ -119,15 +120,15 @@ export async function obtenerDashboardCompras(): Promise<DashboardCompras> {
     ),
   ]);
 
-  const relojesVencidos = relojRes ? (relojRes[0] as any[]).filter(r => {
+  const relojesVencidos = (relojRes[0] as any[]).filter(r => {
     const limite = r.prorroga_fecha_limite || r.fecha_limite;
     return limite && String(limite).slice(0, 10) < hoy;
-  }).length : 0;
-  const relojesSinFijar = sinFijarRes ? Number(sinFijarRes[0][0]?.n || 0) : 0;
-  const incidenciasAbiertas = incRes ? Number(incRes[0][0]?.n || 0) : 0;
+  }).length;
+  const relojesSinFijar = Number(sinFijarRes[0][0]?.n || 0);
+  const incidenciasAbiertas = Number(incRes[0][0]?.n || 0);
   const sinAsignar = Number(sinAsigRow?.n || 0);
-  const clRow = clRes?.[0]?.[0];
-  const cierreLegado = clRes ? { entregadas: Number(clRow?.entregadas || 0), noRealizadas: Number(clRow?.no_realizadas || 0) } : { entregadas: 0, noRealizadas: 0 };
+  const clRow = clRes[0][0];
+  const cierreLegado = { entregadas: Number(clRow?.entregadas || 0), noRealizadas: Number(clRow?.no_realizadas || 0) };
   const ordenesCompra = { conOc: Number(ocRow?.con_oc || 0), sinOc: Number(ocRow?.sin_oc || 0) };
   const ganadosPorMes: GanadoPorMes[] = (gpmRows as any[]).map(r => ({ mes: r.mes, n: Number(r.n) }));
   const horasAsignacion: number[] = [];

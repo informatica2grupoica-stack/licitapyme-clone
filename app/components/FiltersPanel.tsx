@@ -13,6 +13,8 @@ interface FilterValues {
   montoMax: string;
   fechaDesde: string;
   fechaHasta: string;
+  publDesde: string;
+  publHasta: string;
   organismo: string;
   region: string;
   tipoOrden: string;
@@ -60,16 +62,17 @@ export function FiltersPanel({ filters, onChange, onClear, onApply }: FiltersPan
   const [isOpen, setIsOpen] = useState(true);
 
   const hasActiveFilters =
-    filters.estado.length > 0 || filters.tipo.length > 0 ||
+    (filters.estado.length !== 1 || filters.estado[0] !== '5') || filters.tipo.length > 0 ||
     filters.montoMin || filters.montoMax ||
-    filters.fechaDesde || filters.fechaHasta ||
+    filters.fechaDesde || filters.fechaHasta || filters.publDesde || filters.publHasta ||
     filters.organismo || filters.region || filters.tipoOrden;
 
   const activeCount = [
-    filters.estado.length > 0,
+    filters.estado.length !== 1 || filters.estado[0] !== '5',
     filters.tipo.length > 0,
     !!(filters.montoMin || filters.montoMax),
     !!(filters.fechaDesde || filters.fechaHasta),
+    !!(filters.publDesde || filters.publHasta),
     !!filters.organismo,
     !!filters.region,
     !!filters.tipoOrden,
@@ -219,6 +222,26 @@ export function FiltersPanel({ filters, onChange, onClear, onApply }: FiltersPan
                 onChange={e => onChange({ ...filters, fechaHasta: e.target.value })}
                 className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-1 focus:ring-teal-500 focus:border-teal-500"
                 placeholder="Hasta"
+              />
+            </div>
+          </Section>
+
+          {/* Fecha de publicación */}
+          <Section title="Fecha de publicación">
+            <div className="space-y-2">
+              <input
+                type="date"
+                aria-label="Publicada desde"
+                value={filters.publDesde}
+                onChange={e => onChange({ ...filters, publDesde: e.target.value })}
+                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-1 focus:ring-teal-500 focus:border-teal-500"
+              />
+              <input
+                type="date"
+                aria-label="Publicada hasta"
+                value={filters.publHasta}
+                onChange={e => onChange({ ...filters, publHasta: e.target.value })}
+                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-1 focus:ring-teal-500 focus:border-teal-500"
               />
             </div>
           </Section>

@@ -17,18 +17,23 @@ interface Filters {
   montoMax: string;
   fechaDesde: string;
   fechaHasta: string;
+  publDesde: string;
+  publHasta: string;
   organismo: string;
   region: string;
   tipoOrden: string;
 }
 
+// Como en Mercado Público: por defecto se buscan las Publicadas; el resto de estados se marcan a mano.
 const FILTERS_DEFAULT: Filters = {
-  estado: [],
+  estado: ['5'],
   tipo: [],
   montoMin: '',
   montoMax: '',
   fechaDesde: '',
   fechaHasta: '',
+  publDesde: '',
+  publHasta: '',
   organismo: '',
   region: '',
   tipoOrden: '',
@@ -66,6 +71,15 @@ function HomeContent() {
     prevFiltersRef.current = JSON.stringify(FILTERS_DEFAULT);
   }, []);
 
+  // Al activar/desactivar «solo favoritos» se vuelve a buscar con el valor ya actualizado.
+  const favRef = useRef(showFavoritesOnly);
+  useEffect(() => {
+    if (favRef.current === showFavoritesOnly) return;
+    favRef.current = showFavoritesOnly;
+    if (hasSearched) executeSearch(lastQuery, 1);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showFavoritesOnly]);
+
   // Auto-aplica filtros cuando cambian (solo si ya se realizó al menos una búsqueda)
   useEffect(() => {
     const serialized = JSON.stringify(filters);
@@ -97,15 +111,19 @@ function HomeContent() {
         consulta: query,
         pagina: page,
         resultados_por_pagina: 20,
-        filtro_estado: filters.estado.length > 0 ? filters.estado as any : undefined,
+        // Un favorito se muestra sea cual sea su estado.
+        filtro_estado: !showFavoritesOnly && filters.estado.length > 0 ? filters.estado as any : undefined,
         filtro_tipo: filters.tipo?.length > 0 ? filters.tipo : undefined,
         filtro_monto_min: filters.montoMin ? parseInt(filters.montoMin) : undefined,
         filtro_monto_max: filters.montoMax ? parseInt(filters.montoMax) : undefined,
         filtro_fecha_cierre_desde: filters.fechaDesde || undefined,
         filtro_fecha_cierre_hasta: filters.fechaHasta || undefined,
+        filtro_fecha_publicacion_desde: filters.publDesde || undefined,
+        filtro_fecha_publicacion_hasta: filters.publHasta || undefined,
         filtro_organismos: filters.organismo ? [filters.organismo] : undefined,
         filtro_regiones: filters.region ? [filters.region] : undefined,
         tipo_orden: (filters.tipoOrden || undefined) as any,
+        filtro_codigos: showFavoritesOnly ? Array.from(favoriteCodes) : undefined,
       };
 
       const res = await fetch('/api/search', {
@@ -116,14 +134,10 @@ function HomeContent() {
 
       if (!res.ok) throw new Error('Error en la búsqueda');
       const data = await res.json();
-      let resultados: Oportunidad[] = data.resultados || [];
-
-      if (showFavoritesOnly && favoriteCodes.size > 0) {
-        resultados = resultados.filter(r => favoriteCodes.has(r.codigo));
-      }
+      const resultados: Oportunidad[] = data.resultados || [];
 
       setOpportunities(resultados);
-      setTotalResults(showFavoritesOnly ? resultados.length : (data.meta?.total_resultados || 0));
+      setTotalResults(data.meta?.total_resultados || 0);
       setTotalPages(data.meta?.total_paginas || 1);
       setCurrentPage(page);
       setDataSource(data.meta?.fuente_datos || '');
@@ -177,9 +191,7 @@ function HomeContent() {
     if (lastQuery) executeSearch(lastQuery, currentPage);
   };
 
-  const hasActiveFilters = Object.values(filters).some(v =>
-    Array.isArray(v) ? v.length > 0 : v !== ''
-  );
+  const hasActiveFilters = JSON.stringify(filters) !== JSON.stringify(FILTERS_DEFAULT);
 
   // No-admin: no renderizar el buscador (el efecto de arriba ya redirige a /negocios).
   if (!cargandoSesion && usuario && !usuario.permisos?.buscador_licitaciones) {
@@ -246,10 +258,7 @@ function HomeContent() {
             {/* Favoritos toggle */}
             <div className="bg-white dark:bg-zinc-900 rounded-xl border border-slate-200 dark:border-zinc-800 shadow-sm p-4">
               <button
-                onClick={() => {
-                  setShowFavoritesOnly(!showFavoritesOnly);
-                  if (lastQuery) executeSearch(lastQuery, 1);
-                }}
+                onClick={() => setShowFavoritesOnly(v => !v)}
                 className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl font-semibold text-[13px] transition-all ${
                   showFavoritesOnly
                     ? 'bg-amber-500 text-white shadow-sm'

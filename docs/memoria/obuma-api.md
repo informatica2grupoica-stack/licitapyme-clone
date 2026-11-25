@@ -2,6 +2,11 @@
 
 **Antes de tocar cualquier llamada a Obuma, lee `docs/obuma/GUIA-API.md`** (spec oficial completa en `docs/obuma/openapi-v1.0.yaml`, índice en `docs/obuma/indice-endpoints.txt`). Todo se entrega por `app/lib/obuma.ts` (capa HTTP) y `app/lib/obuma-compras.ts` (cron).
 
+## 2026-11-25 — Hallazgos nuevos (probados en vivo)
+- **`pg-bancos.list.json` SÍ existe** (id → nombre, código SBIF, RUT): `proveedor_banco_cuenta` es el ID del banco. Antes se creía que no había catálogo.
+- **No hay endpoints para crear/renombrar centros de costo ni proyectos** (`contabilidadCentrosDeCostos` y `ext-proyectos` solo `list`/`findById`). El número PR en el nombre del centro lo escribe quien lo crea en Obuma.
+- **`proveedores.update.json` no borra lo que no se manda** (ficha 158108 igual antes y después, con banco/cuenta fuera del payload). Banco, N° y tipo de cuenta siguen sin guardarse al escribir. Correo para Obuma: `docs/obuma/CORREO-soporte-proveedores-banco.md`. Detalle en `compras.md` (2026-11-25).
+
 ## 2026-11-24 (noche) — Checkpoint en el cron de Obuma (sin desplegar)
 **Qué cambia (`app/lib/obuma-compras.ts`):** el cron ya no pide ítems ni facturas de cada OC en cada corrida. Compara la fila del listado con lo guardado (estado, neto/total/IVA, enlace de factura, referencia, observación, centro de costo, proveedor); si no cambió y ya tiene ítems, RUT y facturas, la salta (0 llamadas). La revisión de notas de crédito (baja `compras.list` entero, ~17 llamadas) corre como máximo cada 6 h en el cron (temporizador en memoria: un reinicio la vuelve a permitir). El botón «Sincronizar con Obuma ahora» (`soloCodigo`) NO usa checkpoint y refresca todo. El resumen trae `sinMovimiento`.
 **Pendiente:** desplegar y mirar `sinMovimiento` y el contador por método tras un día; si hace falta ahorrar más, usar `id_dcto_desde` para el barrido del listado.

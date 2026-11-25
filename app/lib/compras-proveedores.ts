@@ -13,7 +13,7 @@ import { normRut } from '@/app/lib/adjudicacion';
 import { problemaDeProveedor, rutPlanoProveedor } from '@/app/lib/compras-proveedores-validar';
 import {
   proveedoresObumaCompleto, proveedorPorRut, proveedorPorId, mapaFormasPagoCompleto, listarComprasOcItems,
-  comprasOcCompleto, type ObumaProveedor,
+  comprasOcCompleto, mapaBancosObuma, type ObumaProveedor,
 } from '@/app/lib/obuma';
 
 // BUG REAL (14-sep-2026, reproducido dos veces: primero rompió el listado completo de proveedores,
@@ -38,6 +38,10 @@ export interface Proveedor {
   // Licitank y un usuario puede corregir sin que una sincronización se las borre.
   obumaTieneCuentaBancaria: boolean | null; obumaNumeroCuenta: string | null;
   obumaTipoCuenta: string | null; obumaFormaPago: string | null;
+  /** Nombre del banco que Obuma tiene en la ficha (catálogo `pg-bancos`). */
+  obumaBanco: string | null;
+  /** Hay datos bancarios en Licitank que Obuma todavía no tiene: la API no los guarda, hay que cargarlos a mano en la ficha web de Obuma. */
+  bancoPendienteEnObuma: boolean;
   // Resumen de compras (para listar/filtrar/contar rápido — ver comprasOcCompleto en obuma.ts). El
   // detalle folio a folio sigue yendo en vivo, esto es solo el agregado.
   obumaComprasCantidad: number; obumaComprasMontoTotal: number; obumaUltimaCompraFecha: string | null;
@@ -53,6 +57,8 @@ function filaAProveedor(r: any): Proveedor {
     rutTitular: r.rut_titular, correoPagos: r.correo_pagos, obumaProveedorId: r.obuma_proveedor_id,
     obumaTieneCuentaBancaria: r.obuma_tiene_cuenta_bancaria == null ? null : !!r.obuma_tiene_cuenta_bancaria,
     obumaNumeroCuenta: r.obuma_numero_cuenta, obumaTipoCuenta: r.obuma_tipo_cuenta, obumaFormaPago: r.obuma_forma_pago,
+    obumaBanco: r.obuma_banco ?? null,
+    bancoPendienteEnObuma: !!r.obuma_proveedor_id && !!(r.numero_cuenta || r.banco) && !r.obuma_numero_cuenta,
     obumaComprasCantidad: r.obuma_compras_cantidad ?? 0, obumaComprasMontoTotal: Number(r.obuma_compras_monto_total) || 0,
     obumaUltimaCompraFecha: fechaSqlAIso(r.obuma_ultima_compra_fecha),
     notas: r.notas, activo: !!r.activo, creadoPorNombre: r.creado_por_nombre,
@@ -68,12 +74,16 @@ export interface DatosProveedor {
   rutTitular?: string | null; correoPagos?: string | null; obumaProveedorId?: string | null; notas?: string | null;
   obumaTieneCuentaBancaria?: boolean | null; obumaNumeroCuenta?: string | null;
   obumaTipoCuenta?: string | null; obumaFormaPago?: string | null;
+  obumaBancoId?: string | null; obumaBanco?: string | null;
   obumaComprasCantidad?: number; obumaComprasMontoTotal?: number; obumaUltimaCompraFecha?: string | null;
+  /** Solo en la importación de Obuma: los dados de baja en Obuma entran, pero inactivos. */
+  activo?: boolean;
 }
 
-export async function listarProveedores(filtro?: { q?: string; categoria?: string; soloActivos?: boolean }): Promise<Proveedor[]> {
+/** Por defecto solo los activos: los proveedores dados de baja en Obuma están en la base pero no estorban en las listas. */
+export async function listarProveedores(filtro?: { q?: string; categoria?: string; soloActivos?: boolean; incluirInactivos?: boolean }): Promise<Proveedor[]> {
   const cond: string[] = []; const params: any[] = [];
-  if (filtro?.soloActivos) cond.push('activo = 1');
+  if (filtro?.soloActivos || !filtro?.incluirInactivos) cond.push('activo = 1');
   if (filtro?.categoria) { cond.push('categoria = ?'); params.push(filtro.categoria); }
   if (filtro?.q?.trim()) {
     cond.push('(nombre_empresa LIKE ? OR nombre_fantasia LIKE ? OR rut LIKE ?)');
@@ -119,9 +129,10 @@ export async function crearProveedor(datos: DatosProveedor, actorId: number, act
        (rut, nombre_empresa, nombre_fantasia, categoria, giro, contacto_nombre, correo, telefono, direccion, comuna, region,
         banco, tipo_cuenta, numero_cuenta, titular_cuenta, rut_titular, correo_pagos, obuma_proveedor_id,
         obuma_tiene_cuenta_bancaria, obuma_numero_cuenta, obuma_tipo_cuenta, obuma_forma_pago,
+        obuma_banco_id, obuma_banco, activo,
         obuma_compras_cantidad, obuma_compras_monto_total, obuma_ultima_compra_fecha, notas,
         creado_por, creado_por_nombre, created_at, updated_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     [
       datos.rut?.trim() || null, datos.nombreEmpresa.trim().slice(0, 300), datos.nombreFantasia?.trim() || null,
       datos.categoria?.trim() || null, datos.giro?.trim() || null, datos.contactoNombre?.trim() || null,
@@ -132,6 +143,7 @@ export async function crearProveedor(datos: DatosProveedor, actorId: number, act
       datos.obumaProveedorId?.trim() || null,
       datos.obumaTieneCuentaBancaria == null ? null : (datos.obumaTieneCuentaBancaria ? 1 : 0),
       datos.obumaNumeroCuenta?.trim() || null, datos.obumaTipoCuenta?.trim() || null, datos.obumaFormaPago?.trim() || null,
+      datos.obumaBancoId?.trim() || null, datos.obumaBanco?.trim() || null, datos.activo === false ? 0 : 1,
       datos.obumaComprasCantidad ?? null, datos.obumaComprasMontoTotal ?? null, datos.obumaUltimaCompraFecha || null,
       datos.notas?.trim() || null,
       actorId, actorNombre, ahora, ahora,
@@ -152,6 +164,7 @@ const CAMPOS_ACTUALIZABLES: Record<string, string> = {
   banco: 'banco', tipoCuenta: 'tipo_cuenta', numeroCuenta: 'numero_cuenta', titularCuenta: 'titular_cuenta',
   rutTitular: 'rut_titular', correoPagos: 'correo_pagos', obumaProveedorId: 'obuma_proveedor_id', notas: 'notas',
   obumaNumeroCuenta: 'obuma_numero_cuenta', obumaTipoCuenta: 'obuma_tipo_cuenta', obumaFormaPago: 'obuma_forma_pago',
+  obumaBancoId: 'obuma_banco_id', obumaBanco: 'obuma_banco',
 };
 
 export async function actualizarProveedor(id: number, datos: Partial<DatosProveedor> & { activo?: boolean }): Promise<void> {
@@ -206,9 +219,13 @@ interface ResumenComprasObuma { cantidad: number; montoTotal: number; ultimaFech
 function identidadDesdeObuma(
   remoto: ObumaProveedor, formasPago: Map<string, string>,
   comprasPorProveedor: Map<string, ResumenComprasObuma> = new Map(),
+  bancos: Map<string, string> = new Map(),
 ): DatosProveedor {
   const rutLimpio = limpiarCampoObuma(remoto.proveedor_rut);
   const formaPagoId = limpiarCampoObuma(remoto.proveedor_forma_pago);
+  // `proveedor_banco_cuenta` es el ID del banco (catálogo pg-bancos), NO un 0/1: antes «1» (Banco de Chile) se leía como «tiene cuenta».
+  const bancoId = limpiarCampoObuma(remoto.proveedor_banco_cuenta);
+  const nroCuenta = limpiarCampoObuma(remoto.proveedor_nro_cuenta);
   const obumaId = String(remoto.proveedor_id);
   const resumenCompras = comprasPorProveedor.get(obumaId);
   return {
@@ -226,9 +243,12 @@ function identidadDesdeObuma(
     telefono: (limpiarCampoObuma(remoto.proveedor_telefono) ?? limpiarCampoObuma(remoto.proveedor_celular)) ?? undefined,
     region: limpiarCampoObuma(remoto.proveedor_region) ?? undefined,
     obumaProveedorId: obumaId,
-    obumaTieneCuentaBancaria: String(remoto.proveedor_banco_cuenta) === '1',
-    obumaNumeroCuenta: limpiarCampoObuma(remoto.proveedor_nro_cuenta),
+    obumaTieneCuentaBancaria: !!(bancoId || nroCuenta),
+    obumaBancoId: bancoId,
+    obumaBanco: bancoId ? (bancos.get(bancoId) || null) : null,
+    obumaNumeroCuenta: nroCuenta,
     obumaTipoCuenta: limpiarCampoObuma(remoto.proveedor_tipo_cuenta),
+    activo: String(remoto.proveedor_activo) === '1',
     obumaFormaPago: formaPagoId ? (formasPago.get(formaPagoId) || null) : null,
     obumaComprasCantidad: resumenCompras?.cantidad ?? 0,
     obumaComprasMontoTotal: resumenCompras?.montoTotal ?? 0,
@@ -305,7 +325,9 @@ export async function obtenerOCrearProveedor(nombreEmpresa: string, rut: string 
     try {
       const [remoto, formasPago] = await Promise.all([proveedorPorRut(rut.trim()), mapaFormasPagoCompleto()]);
       if (remoto?.proveedor_razon_social?.trim()) {
-        return crearProveedor(identidadDesdeObuma(remoto, formasPago), actorId, actorNombre);
+        const bancos = await mapaBancosObuma().catch(() => new Map<string, string>());
+        // Se cotizó con él: queda visible aunque Obuma lo tenga dado de baja.
+        return crearProveedor({ ...identidadDesdeObuma(remoto, formasPago, new Map(), bancos), activo: true }, actorId, actorNombre);
       }
     } catch { /* Obuma no disponible ahora — sigue con la ficha mínima de abajo */ }
   } else {
@@ -321,6 +343,31 @@ export async function obtenerOCrearProveedor(nombreEmpresa: string, rut: string 
   // cotizaciones) NO entra al catálogo; la cotización se guarda igual con su nombre, sin ficha. Solo entra con RUT.
   if (!rut?.trim()) return null;
   return crearProveedor({ nombreEmpresa: nombreLimpio, rut }, actorId, actorNombre);
+}
+
+/** Deja en el catálogo de Licitank un proveedor recién creado en Obuma, ya con los datos bancarios que la persona escribió.
+ *  La API de Obuma no guarda banco ni cuenta (probado 09-oct-2026), así que se conservan aquí y la ficha avisa «falta cargar en Obuma». */
+export async function registrarProveedorCreadoEnObuma(
+  d: { rut: string; razonSocial: string; bancoCuenta?: string | null; nroCuenta?: string | null; tipoCuenta?: string | null },
+  actorId: number, actorNombre: string | null,
+): Promise<number | null> {
+  const id = await obtenerOCrearProveedor(d.razonSocial, d.rut, actorId, actorNombre);
+  // Si ya existía en el catálogo sin enlace a Obuma (creado a mano con ese RUT), se enlaza ahora.
+  if (id) {
+    const [[fila]] = await pool.query(`SELECT obuma_proveedor_id FROM compras_proveedor WHERE id = ?`, [id]) as any;
+    if (fila && !fila.obuma_proveedor_id) {
+      const remoto = await proveedorPorRut(d.rut.trim()).catch(() => null);
+      if (remoto?.proveedor_id) await actualizarProveedor(id, { obumaProveedorId: String(remoto.proveedor_id) });
+    }
+  }
+  if (id && (d.bancoCuenta || d.nroCuenta || d.tipoCuenta)) {
+    const bancos = await mapaBancosObuma().catch(() => new Map<string, string>());
+    await actualizarProveedor(id, {
+      banco: d.bancoCuenta ? (bancos.get(d.bancoCuenta) || null) : null,
+      tipoCuenta: d.tipoCuenta || null, numeroCuenta: d.nroCuenta || null,
+    });
+  }
+  return id;
 }
 
 /** Trae el catálogo COMPLETO de Obuma y lo refleja en `compras_proveedor` (pedido explícito del
@@ -355,9 +402,10 @@ const LOTE_ESCRITURA_SYNC = 6; // deja margen bajo el límite del pool para otra
 export async function sincronizarProveedoresObuma(
   actorId: number, actorNombre: string | null,
 ): Promise<{ creados: number; actualizados: number; total: number }> {
-  const [remotos, formasPago, todasLasOc, filasLocales] = await Promise.all([
+  const [remotos, formasPago, bancos, todasLasOc, filasLocales] = await Promise.all([
     proveedoresObumaCompleto(),
     mapaFormasPagoCompleto(),
+    mapaBancosObuma().catch(() => new Map<string, string>()),
     comprasOcCompleto(),
     pool.query(`SELECT id, obuma_proveedor_id, rut FROM compras_proveedor`) as Promise<[any[], any]>,
   ]);
@@ -404,12 +452,10 @@ export async function sincronizarProveedoresObuma(
     if (!p.proveedor_razon_social?.trim()) continue;
     const obumaId = String(p.proveedor_id);
     if (vistoObumaId.has(obumaId)) continue;
-    const identidad = identidadDesdeObuma(p, formasPago, comprasPorProveedor);
+    const identidad = identidadDesdeObuma(p, formasPago, comprasPorProveedor, bancos);
     const rutNorm = identidad.rut ? normRut(identidad.rut) : null;
-    // Un proveedor que Obuma marca inactivo solo se importa si YA lo tenemos (por id o RUT): así se
-    // enlaza y refresca (cotizaciones y OC lo usan) sin traer los ~2.400 inactivos al catálogo.
-    const yaLoTenemos = localPorObumaId.has(obumaId) || (!!rutNorm && localPorRut.has(rutNorm));
-    if (p.proveedor_activo !== '1' && !yaLoTenemos) continue;
+    // Entran TODOS los proveedores de Obuma (pedido del dueño, 25-nov-2026): los dados de baja quedan con activo = 0
+    // y no aparecen en las listas salvo que se pida «mostrar inactivos».
     if (rutNorm && vistoRutNorm.has(rutNorm)) continue;
     vistoObumaId.add(obumaId);
     if (rutNorm) vistoRutNorm.add(rutNorm);
@@ -420,7 +466,7 @@ export async function sincronizarProveedoresObuma(
   for (let i = 0; i < unicos.length; i += LOTE_ESCRITURA_SYNC) {
     const lote = unicos.slice(i, i + LOTE_ESCRITURA_SYNC);
     const resultados = await Promise.all(lote.map(async p => {
-      const identidad = identidadDesdeObuma(p, formasPago, comprasPorProveedor);
+      const identidad = identidadDesdeObuma(p, formasPago, comprasPorProveedor, bancos);
       const obumaId = String(p.proveedor_id);
       const existenteId = localPorObumaId.get(obumaId) ?? (identidad.rut ? localPorRut.get(normRut(identidad.rut)) : undefined);
       if (existenteId) {
@@ -432,6 +478,13 @@ export async function sincronizarProveedoresObuma(
     }));
     for (const r of resultados) r === 'creado' ? creados++ : actualizados++;
   }
+
+  // Un proveedor al que ya se le cotizó o emitió una OC desde Licitank se queda visible aunque Obuma lo tenga dado de baja.
+  await pool.query(
+    `UPDATE compras_proveedor SET activo = 1
+      WHERE activo = 0 AND (id IN (SELECT DISTINCT proveedor_id FROM compras_cotizacion WHERE proveedor_id IS NOT NULL)
+                         OR id IN (SELECT DISTINCT proveedor_id FROM compras_orden_compra_obuma WHERE proveedor_id IS NOT NULL))`,
+  );
 
   const totalActivos = creados + actualizados;
   await registrarEvento({

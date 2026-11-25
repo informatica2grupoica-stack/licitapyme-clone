@@ -30,7 +30,7 @@ interface DashData {
     pipeline: { etapa: string; n: number }[];
     montoPipeline: number;
     porDia: { dia: string; n: number }[];
-    porPerfil: { id: number; nombre: string | null; email: string; total: number; monto: number; descartadas: number; pipeline: { etapa: string; n: number }[] }[];
+    porPerfil: { id: number; nombre: string | null; email: string; activo?: boolean; total: number; monto: number; descartadas: number; pipeline: { etapa: string; n: number }[] }[];
   };
   usuario: {
     asignadas: number; montoAsignadas: number;
@@ -278,7 +278,7 @@ function VistaAdmin({ data }: { data: DashData }) {
             nota: 'Al abrir el radar con este filtro puede mostrar unas pocas más: el radar también lista las que Mercado Público marcó «Revocada».',
           }} />} />
         <Indicador rotulo="Usuarios activos" valor={a.usuarios.activos} href="/admin/usuarios"
-          detalle={`${fmtN(a.usuarios.total)} en total · +${a.usuarios.nuevosSemana} esta semana`}
+          detalle={`${fmtN(a.usuarios.total - a.usuarios.activos)} desactivados (su historial se conserva) · +${a.usuarios.nuevosSemana} esta semana`}
           info={<MetricInfo spec={{
             mide: 'Cuántas cuentas del equipo están activas hoy.',
             calculo: 'Cuenta de usuarios con activo = TRUE. El subtítulo suma el total de cuentas (activas o no) y cuántas se crearon en los últimos 7 días.',
@@ -428,6 +428,7 @@ function VistaAdmin({ data }: { data: DashData }) {
                       <span className="min-w-0 flex-1">
                         <span className="flex flex-wrap items-baseline gap-x-3">
                           <span className="truncate text-[13px] font-medium text-tinta dark:text-slate-100">{p.nombre || p.email}</span>
+                          {p.activo === false && <span className="rounded bg-slate-100 px-1.5 text-[11px] font-medium text-tinta-2 dark:bg-slate-800 dark:text-slate-400">Desactivado</span>}
                           {p.descartadas > 0 && <span className="text-xs text-tinta-2 dark:text-slate-400">{fmtN(p.descartadas)} descartadas</span>}
                         </span>
                         {!etapa && <MiniFlujo pipeline={p.pipeline} />}

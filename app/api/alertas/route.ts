@@ -2,6 +2,7 @@
 // Listar y marcar como leídas las alertas de licitaciones encontradas
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
+import { completarUbicacion } from '@/app/lib/licitacion-ubicacion';
 import { permisosDeUsuario } from '@/app/lib/api-auth';
 import { ahoraChileSQL } from '@/app/lib/tz';
 import { clienteDeHeader, usaViabilidadDeICA } from '@/app/lib/tenant';
@@ -172,7 +173,7 @@ export async function GET(request: NextRequest) {
       pool.query(`SELECT licitacion_codigo, fecha_adjudicacion FROM adjudicacion_cache WHERE es_adjudicada = 1 AND fecha_adjudicacion IS NOT NULL`),
     ]);
 
-    const lista = rows as any[];
+    const lista = await completarUbicacion(rows as any[]);
     const mapAsig = new Map<string, any>();
     if (asigRes.status === 'fulfilled') {
       for (const r of ((asigRes.value as any)[0] as any[])) mapAsig.set(r.licitacion_codigo, r);

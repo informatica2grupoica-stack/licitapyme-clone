@@ -7,6 +7,7 @@ import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
 import { verificarProveedorEnObuma, crearProveedorEnObumaExplicito, datosProveedorDesdeBody, guardarRutDeProveedorYVerificar } from '@/app/lib/compras-oc-obuma';
+import { registrarProveedorCreadoEnObuma } from '@/app/lib/compras-proveedores';
 import { puedeOperarCompras } from '@/app/api/compras/[negocioId]/route';
 
 export const runtime = 'nodejs';
@@ -57,7 +58,10 @@ async function __POST(request: NextRequest, { params }: Params) {
   if ('error' in auth) return auth.error;
 
   try {
-    const resultado = await crearProveedorEnObumaExplicito(datosProveedorDesdeBody(await request.json()));
+    const datos = datosProveedorDesdeBody(await request.json());
+    const resultado = await crearProveedorEnObumaExplicito(datos);
+    // También queda en el catálogo de Licitank, con sus datos bancarios (Obuma no los guarda).
+    await registrarProveedorCreadoEnObuma(datos, auth.userId, request.headers.get('x-user-nombre')).catch(e => console.error('[orden-compra-obuma/proveedor] catálogo local', String(e)));
     return NextResponse.json({ success: true, ...resultado });
   } catch (error: any) {
     console.error('[orden-compra-obuma/proveedor][POST]', String(error));

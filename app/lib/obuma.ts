@@ -647,6 +647,18 @@ export async function listarMonedasExtranjerasObuma(): Promise<ObumaMoneda[]> {
   return datos;
 }
 
+/** Catálogo de bancos de Obuma (`pg-bancos.list.json`, verificado en vivo 25-nov-2026: 1 = BANCO DE CHILE, 2 = BANCO INTERNACIONAL…).
+ *  `proveedor_banco_cuenta` de un proveedor es el ID de este catálogo. Casi fijo: se guarda 1 hora. */
+let cacheBancos: { en: number; mapa: Map<string, string> } | null = null;
+export async function mapaBancosObuma(): Promise<Map<string, string>> {
+  if (cacheBancos && Date.now() - cacheBancos.en < 3_600_000) return cacheBancos.mapa;
+  const r = await llamar<ObumaListado<any>>(BASE_V1, '/pg-bancos.list.json', { limit: 500 });
+  const mapa = new Map<string, string>();
+  for (const b of r.data || []) mapa.set(String(b.pg_banco_id), String(b.pg_banco_nombre || '').trim());
+  cacheBancos = { en: Date.now(), mapa };
+  return mapa;
+}
+
 // `proveedor_forma_pago` en la ficha de un proveedor es un ID numérico (ej. "2824"), no el nombre —
 // para mostrarlo hay que resolverlo contra el catálogo COMPLETO de formas de pago (sin el filtro
 // usar_en_compras=1 de arriba: la forma de pago propia de un proveedor puede ser cualquiera de las
@@ -709,6 +721,21 @@ export async function buscarCentroCostoPorLicitacion(licitacionCodigo: string): 
   // (ccc_id más alto) — mejor esfuerzo, no hay forma de saber cuál es "el correcto" sin más datos.
   const elegido = activos.sort((a, b) => Number(b.id) - Number(a.id))[0];
   return { id: elegido.id, nombre: elegido.nombre, relProyectoId: elegido.relProyectoId };
+}
+
+/** Folio (número PR) del Proyecto de Obuma de una licitación, para escribirlo en la referencia de la OC («ID 345-4-LE26 PR-200»).
+ *  Primero por el proyecto del centro de costo (`rel_proyecto_id`); si no hay, por el código en la Referencia/nombre del proyecto.
+ *  `null` si el proyecto todavía no existe en Obuma. */
+export async function folioProyectoPorLicitacion(licitacionCodigo: string, relProyectoId?: string | null): Promise<string | null> {
+  const { datos } = await proyectosExtCompleto().catch(() => ({ datos: [] as ObumaProyectoExt[] }));
+  let p = relProyectoId ? datos.find(x => x.proyecto_id === relProyectoId) : undefined;
+  if (!p) {
+    const esc = licitacionCodigo.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const re = new RegExp(`(?<![0-9-])${esc}(?![0-9A-Za-z-])`, 'i');
+    p = datos.filter(x => re.test(x.proyecto_referencia || '') || re.test(x.proyecto_nombre || '')).sort((a, b) => Number(b.proyecto_id) - Number(a.proyecto_id))[0];
+  }
+  const folio = Number(p?.proyecto_folio);
+  return folio > 0 ? String(folio) : null;
 }
 
 /** Cruce v1-only para "gastos del proyecto" sin esperar el acceso a v2.0 (Proyectos): cada centro
@@ -1208,6 +1235,55 @@ export async function crearProveedorObuma(datos: DatosCrearProveedorObuma): Prom
   // Probado 09-oct-2026 (creación y proveedores.update.json): Obuma responde OK pero NO guarda banco, N° y tipo de
   // cuenta, tipo de despacho ni cuenta corriente; hay que completarlos a mano en la ficha web.
   return { proveedorId: String(proveedorId), noGuardados: discrepancias };
+}
+
+/** Campos de contacto de un proveedor que Licitank puede corregir en Obuma (`proveedores.update.json`, campos documentados). */
+export interface CambiosProveedorObuma {
+  contacto?: string | null; telefono?: string | null; celular?: string | null; email?: string | null;
+  direccion?: string | null; comuna?: string | null; region?: string | null; giro?: string | null;
+}
+const CLAVES_UPDATE_PROVEEDOR: Record<keyof CambiosProveedorObuma, string> = {
+  contacto: 'proveedor_contacto', telefono: 'proveedor_telefono', celular: 'proveedor_celular', email: 'proveedor_email',
+  direccion: 'proveedor_direccion', comuna: 'proveedor_comuna', region: 'proveedor_region', giro: 'proveedor_giro_comercial',
+};
+// Campos que NO se tocan: si la lectura posterior los ve distintos, se avisa (Obuma podría vaciar lo que no se manda).
+const CLAVES_INTACTAS_PROVEEDOR = ['proveedor_forma_pago', 'proveedor_banco_cuenta', 'proveedor_nro_cuenta', 'proveedor_tipo_cuenta', 'proveedor_centro_costo', 'proveedor_razon_social', 'proveedor_rut'];
+
+/** Escritura real en Obuma: corrige datos de contacto de un proveedor YA existente. Se manda la ficha actual con los cambios encima
+ *  (no solo los campos tocados) y se relee: devuelve qué quedó guardado y qué campos Obuma no respetó. Nunca toca banco ni cuenta
+ *  (la API los ignora, probado 09-oct-2026). Solo la dispara un clic de la persona. */
+export async function actualizarProveedorObuma(
+  proveedorId: string, cambios: CambiosProveedorObuma,
+): Promise<{ guardados: string[]; noGuardados: string[]; alterados: string[] }> {
+  const antes = await proveedorPorId(proveedorId);
+  if (!antes) throw new Error('Obuma no encontró ese proveedor.');
+  const a: Record<string, unknown> = antes;
+  const payload: Record<string, unknown> = {
+    proveedor_id: proveedorId,
+    proveedor_razon_social: antes.proveedor_razon_social,
+    proveedor_giro_comercial: a.proveedor_giro_comercial ?? '', proveedor_direccion: a.proveedor_direccion ?? '',
+    proveedor_comuna: a.proveedor_comuna ?? '', proveedor_region: a.proveedor_region ?? '', proveedor_pais: a.proveedor_pais ?? '',
+    proveedor_contacto: a.proveedor_contacto ?? '', proveedor_telefono: a.proveedor_telefono ?? '', proveedor_celular: a.proveedor_celular ?? '',
+    proveedor_email: a.proveedor_email ?? '', proveedor_website: a.proveedor_website ?? '', proveedor_observacion: a.proveedor_observacion ?? '',
+    proveedor_es_supermercado: a.proveedor_es_supermercado ?? '0',
+  };
+  if (a.cuenta_contable != null) payload.cuenta_contable = a.cuenta_contable;
+  const pedidos: Record<string, string> = {};
+  for (const [k, clave] of Object.entries(CLAVES_UPDATE_PROVEEDOR)) {
+    const v = cambios[k as keyof CambiosProveedorObuma];
+    if (v === undefined || v === null || !String(v).trim()) continue;   // nunca se vacía un dato de Obuma desde Licitank
+    payload[clave] = String(v).trim(); pedidos[clave] = String(v).trim();
+  }
+  if (!Object.keys(pedidos).length) throw new Error('No hay datos de contacto para enviar a Obuma.');
+  if (process.env.OBUMA_SIMULAR === '1') { console.warn('[obuma][SIMULADO] proveedores.update', JSON.stringify(payload).slice(0, 500)); return { guardados: Object.keys(pedidos), noGuardados: [], alterados: [] }; }
+  await llamarPost<any>(BASE_V1, '/proveedores.update.json', payload);
+  const despues = await proveedorPorId(proveedorId);
+  if (!despues) throw new Error('Obuma respondió OK pero no se pudo releer el proveedor para confirmarlo.');
+  const d: Record<string, unknown> = despues;
+  const guardados: string[] = [], noGuardados: string[] = [];
+  for (const [clave, v] of Object.entries(pedidos)) (String(d[clave] ?? '').trim() === v ? guardados : noGuardados).push(clave);
+  const alterados = CLAVES_INTACTAS_PROVEEDOR.filter(c => String(d[c] ?? '') !== String(a[c] ?? ''));
+  return { guardados, noGuardados, alterados };
 }
 
 // ── Guía de despacho (DTE 52) — 13-nov-2026 ─────────────────────────────────

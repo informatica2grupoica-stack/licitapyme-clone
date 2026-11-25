@@ -39,6 +39,7 @@ interface LicitacionPuente {
   licitacion_estado: string | null;
   licitacion_tipo: string | null;
   licitacion_region: string | null;
+  licitacion_comuna?: string | null;
   categoria_nombre: string | null;
   viabilidad_semaforo: string | null;
   agregado_en?: string;
@@ -387,8 +388,8 @@ export default function PuentePage() {
                             )}
                             <span className="inline-flex items-center gap-1"><DollarSign size={14} stroke={1.75} /> <span className="tabular-nums">{fmtMonto(l.licitacion_monto)}</span></span>
                             <span className="inline-flex items-center gap-1"><Calendar size={14} stroke={1.75} /> {fmtFecha(l.licitacion_cierre)}</span>
-                            {l.licitacion_region && (
-                              <span className="inline-flex items-center gap-1 truncate max-w-[160px]"><MapPin size={14} stroke={1.75} /> {l.licitacion_region}</span>
+                            {(l.licitacion_comuna || l.licitacion_region) && (
+                              <span className="inline-flex items-center gap-1 truncate max-w-[220px]"><MapPin size={14} stroke={1.75} /> {[l.licitacion_comuna, l.licitacion_region].filter(Boolean).join(', ')}</span>
                             )}
                           </div>
                         </div>

@@ -18,10 +18,10 @@ import { Encabezado, Esqueleto, TarjetaCargando, Vacio } from '@/app/components/
 import { IconChevronDown as ChevronDown, IconSearch as Search, IconX as X, IconUsersGroup as UsersGroup } from '@tabler/icons-react';
 import dayjs from 'dayjs';
 import {
-  calcularCompetencia, universoResuelto, type NegocioComp, type AdjComp, type Competidor, type PorEmpresa,
+  calcularCompetencia, calcularMercado, universoResuelto, type NegocioComp, type AdjComp, type Competidor, type PorEmpresa,
 } from '@/app/lib/competencia-core';
 
-type Pestana = 'resumen' | 'competidores';
+type Pestana = 'resumen' | 'competidores' | 'mercado';
 type Orden = 'licitaciones' | 'monto';
 
 const SERIE = ['#0d9488', '#475569', '#d97706', '#0891b2', '#ea580c', '#db2777'];
@@ -163,7 +163,15 @@ export default function CompetenciaPage() {
     return () => { cancelado = true; };
   }, [version, reintento]);
 
-  const { resumen, competidores, porEmpresa } = useMemo(() => calcularCompetencia(negocios, adj), [negocios, adj]);
+  // Ámbito: «Global» (todas nuestras empresas) o una sola empresa con la que se postuló.
+  const [empresa, setEmpresa] = useState('');
+  const empresasNuestras = useMemo(() => calcularCompetencia(negocios, adj).porEmpresa.map(e => e.empresa), [negocios, adj]);
+  const negociosAmbito = useMemo(
+    () => empresa ? negocios.filter(n => (n.empresa_nombre || 'Sin empresa') === empresa) : negocios, [negocios, empresa]);
+  const { resumen, competidores, porEmpresa } = useMemo(() => calcularCompetencia(negociosAmbito, adj), [negociosAmbito, adj]);
+  const { organismos, productos } = useMemo(() => calcularMercado(negociosAmbito, adj), [negociosAmbito, adj]);
+  const [verOrg, setVerOrg] = useState(false);
+  const [verProd, setVerProd] = useState(false);
 
   const porMonto = useMemo(() => [...competidores].sort((a, b) => b.monto - a.monto), [competidores]);
   const top = porMonto.slice(0, 6);
@@ -211,8 +219,15 @@ export default function CompetenciaPage() {
             texto="Cuando Mercado Público publique el resultado de tus postuladas, aquí verás quién se las llevó." />
         ) : (
           <>
+            {empresasNuestras.length > 1 && (
+              <div className="mb-3 flex flex-wrap items-center gap-2">
+                <span className="text-xs text-tinta-2 dark:text-slate-400">Ver</span>
+                <Pestanas id="ambito-competencia" valor={empresa} onCambio={setEmpresa}
+                  opciones={[{ valor: '', etiqueta: 'Global' }, ...empresasNuestras.map(e => ({ valor: e, etiqueta: e }))]} />
+              </div>
+            )}
             <div className="mb-5"><Pestanas id="competencia" valor={pestana} onCambio={setPestana}
-              opciones={[{ valor: 'resumen', etiqueta: 'Resumen' }, { valor: 'competidores', etiqueta: 'Competidores', contador: competidores.length }]} /></div>
+              opciones={[{ valor: 'resumen', etiqueta: 'Resumen' }, { valor: 'competidores', etiqueta: 'Competidores', contador: competidores.length }, { valor: 'mercado', etiqueta: 'Mercado' }]} /></div>
 
             {pestana === 'resumen' && (
               <>
@@ -264,8 +279,71 @@ export default function CompetenciaPage() {
                   </div>
                 </div>
 
-                {porEmpresa.length > 0 && <div className="mt-3"><EfectividadPorEmpresa filas={porEmpresa} /></div>}
+                {!empresa && porEmpresa.length > 0 && <div className="mt-3"><EfectividadPorEmpresa filas={porEmpresa} /></div>}
               </>
+            )}
+
+            {pestana === 'mercado' && (
+              <div className="grid gap-3 @4xl:grid-cols-2">
+                <div className={TARJETA}>
+                  <h3 className="text-[15px] font-semibold text-tinta dark:text-slate-100">Organismos donde postulamos</h3>
+                  <p className="mt-0.5 mb-2 text-xs text-tinta-2 dark:text-slate-400">Cuántas ganamos y perdimos en cada comprador, y cuánta plata se llevaron otros. Oferentes = mediana por licitación.</p>
+                  {organismos.length === 0 ? <p className="py-6 text-center text-sm text-tinta-2 dark:text-slate-400">Sin licitaciones resueltas.</p> : (
+                    <ul className="divide-y divide-linea dark:divide-slate-800">
+                      {(verOrg ? organismos : organismos.slice(0, 12)).map(o => (
+                        <li key={o.organismo} className="flex items-start justify-between gap-3 py-2">
+                          <div className="min-w-0">
+                            <p className="truncate text-[13px] font-medium text-tinta dark:text-slate-100" title={o.organismo}>{o.organismo}</p>
+                            <p className="text-xs tabular-nums text-tinta-2 dark:text-slate-400">
+                              {o.ganadas} ganadas · {o.perdidas} perdidas · {fmtPct(o.efectividad)} efectividad{o.oferentesMediana != null ? ` · ${o.oferentesMediana} oferentes` : ''}
+                            </p>
+                          </div>
+                          <span className="flex-shrink-0 text-right text-xs tabular-nums text-tinta-2 dark:text-slate-400">
+                            {o.montoPerdido > 0 ? <>otros se llevaron <span className="block text-[13px] font-semibold text-tinta dark:text-slate-50">{fmtMM(o.montoPerdido)}</span></> : '—'}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {organismos.length > 12 && (
+                    <div className="mt-2 flex items-center justify-between gap-2 border-t border-linea pt-2 text-xs text-tinta-2 dark:border-slate-800 dark:text-slate-400">
+                      <span className="tabular-nums">{verOrg ? organismos.length : 12} de {organismos.length} organismos</span>
+                      <Boton tamano="sm" variante="fantasma" onClick={() => setVerOrg(v => !v)}>{verOrg ? 'Ver menos' : `Ver los ${organismos.length}`}</Boton>
+                    </div>
+                  )}
+                </div>
+
+                <div className={TARJETA}>
+                  <h3 className="text-[15px] font-semibold text-tinta dark:text-slate-100">Qué productos se llevaron otros</h3>
+                  <p className="mt-0.5 mb-2 text-xs text-tinta-2 dark:text-slate-400">Líneas de nuestras perdidas, por producto según Mercado Público. Precio = unitario mediano de lo adjudicado, con su rango y los casos de donde sale.</p>
+                  {productos.length === 0 ? <p className="py-6 text-center text-sm text-tinta-2 dark:text-slate-400">Ninguna perdida trae el detalle por línea.</p> : (
+                    <ul className="divide-y divide-linea dark:divide-slate-800">
+                      {(verProd ? productos : productos.slice(0, 12)).map(p => (
+                        <li key={p.producto} className="flex items-start justify-between gap-3 py-2">
+                          <div className="min-w-0">
+                            <p className="truncate text-[13px] font-medium text-tinta dark:text-slate-100" title={p.producto}>{p.producto}</p>
+                            <p className="truncate text-xs text-tinta-2 dark:text-slate-400" title={p.topProveedores.map(t => t.nombre).join(', ')}>
+                              {p.lineas} línea{p.lineas !== 1 ? 's' : ''} en {p.licitaciones} licitación{p.licitaciones !== 1 ? 'es' : ''} · lo ganó {p.topProveedores.map(t => t.nombre).join(', ')}
+                            </p>
+                          </div>
+                          <div className="flex-shrink-0 text-right">
+                            <p className="text-[13px] font-semibold tabular-nums text-tinta dark:text-slate-50">{fmtMM(p.monto)}</p>
+                            <p className="text-xs tabular-nums text-tinta-2 dark:text-slate-400">
+                              {p.precioMediano != null ? `${fmtCLP(p.precioMediano)} c/u` : 'sin precio'}{p.precioMin != null && p.precioMax != null && p.precioMin !== p.precioMax ? ` (${fmtCLP(p.precioMin)}–${fmtCLP(p.precioMax)})` : ''}
+                            </p>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {productos.length > 12 && (
+                    <div className="mt-2 flex items-center justify-between gap-2 border-t border-linea pt-2 text-xs text-tinta-2 dark:border-slate-800 dark:text-slate-400">
+                      <span className="tabular-nums">{verProd ? productos.length : 12} de {productos.length} productos</span>
+                      <Boton tamano="sm" variante="fantasma" onClick={() => setVerProd(v => !v)}>{verProd ? 'Ver menos' : `Ver los ${productos.length}`}</Boton>
+                    </div>
+                  )}
+                </div>
+              </div>
             )}
 
             {pestana === 'competidores' && (

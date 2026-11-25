@@ -65,6 +65,7 @@ export default function AnalizadasPage() {
 
   const [lics, setLics] = useState<Analizada[]>([]);
   const [cargando, setCargando] = useState(true);
+  const [errorCarga, setErrorCarga] = useState<string | null>(null);
   const [q, setQ] = useState('');
   const [fSemaforo, setFSemaforo]   = useState<string[]>([]);
   const [fResultado, setFResultado] = useState<string[]>([]);
@@ -75,9 +76,10 @@ export default function AnalizadasPage() {
   const limpiar = () => { setFSemaforo([]); setFResultado([]); setFModalidad([]); setFOwner([]); };
 
   const cargar = useCallback(() => {
+    setErrorCarga(null);
     fetch('/api/analizadas').then(r => r.json())
-      .then(d => { if (d.success) setLics(d.licitaciones || []); })
-      .catch(() => { /* noop */ })
+      .then(d => { if (d.success) setLics(d.licitaciones || []); else setErrorCarga(d.error || 'No se pudo cargar la lista.'); })
+      .catch(() => setErrorCarga('No se pudo cargar la lista.'))
       .finally(() => setCargando(false));
   }, []);
 
@@ -199,6 +201,11 @@ export default function AnalizadasPage() {
 
         {cargando ? (
           <div className="space-y-2">{[1, 2, 3, 4].map(i => <Esqueleto key={i} className="h-24 rounded-xl" />)}</div>
+        ) : errorCarga ? (
+          <Vacio icono={<Sparkles size={28} stroke={1.75} />}
+            titulo="No se pudo cargar la lista"
+            texto={errorCarga}
+            accion={<Boton tamano="sm" onClick={() => { setCargando(true); cargar(); }}>Reintentar</Boton>} />
         ) : filtradas.length === 0 ? (
           <Vacio icono={<Sparkles size={28} stroke={1.75} />}
             titulo={hayFiltro || q ? 'Sin resultados' : 'Aún no hay licitaciones analizadas'}

@@ -17,6 +17,10 @@ import { ticketMpPropio } from '@/app/lib/integraciones-cliente';
 
 const API_BASE = 'https://api.mercadopublico.cl/servicios/v1/publico';
 
+/** Respuesta cruda de la API por licitación normalizada (WeakMap: no se serializa ni retiene memoria de más). */
+const RESPUESTA_CRUDA = new WeakMap<object, unknown>();
+export function respuestaCrudaDe(lic: object): unknown | undefined { return RESPUESTA_CRUDA.get(lic); }
+
 // ── GOBERNADOR DE CUOTA DIARIA (mismo patrón que compras_agente_uso_diario, migration-115) ──
 // Caso real 2026-09-15: el ticket agotó sus 10.000 consultas/día por primera vez — los crons de
 // 5 min (estados-asignadas + procesar-postuladas) venían creciendo con el volumen de negocios/
@@ -413,6 +417,12 @@ export class MercadoPublicoClient {
   // =============================================
 
   normalizar(item: LicitacionAPI, fechaPublicacionFallback?: string): Licitacion {
+    const lic = this.normalizarSinRaw(item, fechaPublicacionFallback);
+    RESPUESTA_CRUDA.set(lic, item); // para guardarla completa en licitaciones_cache.raw_json (no viaja en el JSON de las rutas)
+    return lic;
+  }
+
+  private normalizarSinRaw(item: LicitacionAPI, fechaPublicacionFallback?: string): Licitacion {
     const comprador = item.Comprador;
     const fechas = item.Fechas;
     const estado = String(item.CodigoEstado || 5);

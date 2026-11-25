@@ -59,7 +59,8 @@ export async function GET(request: NextRequest) {
 
     const q = request.nextUrl.searchParams.get('q') || undefined;
     const categoria = request.nextUrl.searchParams.get('categoria') || undefined;
-    const proveedores = await listarProveedores({ q, categoria });
+    const incluirInactivos = request.nextUrl.searchParams.get('inactivos') === '1';
+    const proveedores = await listarProveedores({ q, categoria, incluirInactivos });
     return NextResponse.json({ success: true, proveedores });
   } catch (error) {
     console.error('[compras/proveedores][GET]', String(error));

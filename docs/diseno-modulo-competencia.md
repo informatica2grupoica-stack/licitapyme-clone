@@ -30,6 +30,12 @@ va filtrado por empresa-cliente. Módulo activable por plan (`app/lib/modulos.ts
 Fase 1 (Resumen + Competidores) PROGRAMADA en `app/competencia/page.tsx` y `app/lib/competencia-core.ts`; sin ver en
 navegador ni cruzar con la BD. Ver `docs/memoria/ui.md`.
 
+## Actualización 2026-11-25 — Global / por empresa y 3 pestañas (tsc y tests OK; cifras cruzadas con la BD real; SIN ver en navegador ni desplegar)
+**Pedido del dueño:** dividir la competencia por empresa y global, con 3 pestañas y «todo de la competencia».
+**Cómo quedó:** selector «Ver: Global | <cada empresa con que postulamos>» (solo si hay más de una) y pestañas **Resumen · Competidores · Mercado**. «Mercado» = organismos donde postulamos (ganadas/perdidas/efectividad, plata que se llevaron otros, oferentes) y productos que se llevaron otros (líneas, monto, precio unitario mediano y rango, quién los ganó). Cálculo en `calcularMercado` (`competencia-core.ts`), todo del acta de MP de nuestras licitaciones resueltas; nada inventado.
+**Cruce con la BD (solo lectura):** Global 283 resueltas, 75 ganadas / 208 perdidas (26,5 %), 215 competidores, $7.867 MM a terceros; Claro 203 (23,6 %), Comercial MP 78 (34,6 %). Top competidor global: Fernando Alberto Veloso Oliva (11 licitaciones).
+**Límites:** 52 de 335 negocios resueltos no tienen organismo guardado (15 %; solo 9 se rescatan del caché), salen como «Sin organismo». El mercado completo (lo que NO postulamos) sigue pendiente de la importación OCDS; Precios (nuestra oferta vs ganador) sigue sin hacer.
+
 ## Para seguir desde otra cuenta (traspaso 2026-11-23)
 
 Archivos de esta tarea (sin commit; el dueño sube a git): `app/competencia/page.tsx`, `app/lib/competencia-core.ts`,

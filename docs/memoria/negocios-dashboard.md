@@ -2,6 +2,27 @@
 
 Traspasado desde la memoria personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-11-25 — Usuarios desactivados: NO borrarlos (tsc ok; sin ver en navegador; sin desplegar)
+**Pregunta del dueño:** hay muchas cuentas que ya no están (desactivadas, no borradas); ¿borrarlas mancha el análisis?
+**Hallazgo (BD real, solo lectura):** 14 desactivadas tienen 778 de los 1.649 negocios activos. `negocios.asignado_a` es `ON DELETE CASCADE` (migration-3; también favoritos, alertas, análisis y comentarios): **borrar un usuario borra sus negocios** y el dashboard perdería casi la mitad del historial. Regla: desactivar sí, borrar no.
+**Cómo quedó:** el dashboard sigue contando su historial (es real); en «Seguimiento por perfil» llevan la etiqueta «Desactivado» y la tarjeta de usuarios dice «N desactivados (su historial se conserva)».
+**Regla del dueño (misma tarde): el dashboard solo muestra datos reales, NUNCA inventados.** Antes, si una consulta fallaba, `q()` devolvía `[]` y la pantalla mostraba un 0 que parecía verdad; ahora el error sube y sale «no se pudo cargar» (`api/dashboard` y `api/dashboard/analitica`). «Últimos accesos» lista solo cuentas activas. Las consultas se corrieron contra la BD real (solo lectura) y todas funcionan: radar 710 activas, 109 sin asignar, 57 con viabilidad, prefiltro 272/63/375, 1.624 negocios activos. La pantalla no tiene cifras fijas ni de ejemplo.
+**Decisión:** las cuentas desactivadas NO se borran.
+**Pendiente:** si se quiere borrar de verdad, primero reasignar sus negocios a un usuario «Histórico» o cambiar la FK a SET NULL (migración, con OK del dueño).
+
+## 2026-11-25 — Radar y Puente muestran comuna, organismo y presupuesto (tsc ok; SIN probar con datos ni en navegador; migration-206 APLICADA en producción el 2026-11-25; sin desplegar)
+**Pedido del dueño:** que cada licitación diga de dónde es (si es de Angol, «Angol») y muestre el presupuesto; el asesor mandó una captura del radar donde casi ninguna fila traía comprador ni monto.
+**Causa:** las alertas nacen del listado de Mercado Público, que no trae organismo/región/monto (solo el detalle); `corregirCamposDesdeDetalle` solo corrige la fecha. La comuna (`ComunaUnidad`) no se guardaba en ninguna tabla.
+**Cómo quedó:** `app/lib/licitacion-ubicacion.ts` completa organismo, región, monto y comuna desde `licitaciones_cache` en `/api/alertas` y `/api/puente` (solo rellena lo vacío); el caché guarda la comuna aparte y sin romper si falta la columna (`migration-206-licitaciones-comuna.sql`); fila del radar: «Organismo · Comuna» + «Sin presupuesto» si no hay monto; Puente: comuna, región bajo el nombre.
+**Ajuste (misma tarde):** en el Puente 4 de 6 códigos NO estaban en el caché (sin organismo ni monto): ahora el GET del puente trae hasta 12 faltantes del detalle de MP y los guarda; sin monto publicado usa el presupuesto neto de las bases (`viabilidad_licitacion.nivel_presupuesto_neto`).
+**Pendiente:** desplegar; la comuna solo llega a licitaciones que se vuelvan a enriquecer (las ya cacheadas la traen vacía hasta entonces); las que no están en el caché siguen sin esos datos.
+
+## 2026-11-25 — Buscador sin límites, como Mercado Público (tsc ok; SIN probar en navegador ni con datos; sin desplegar)
+**Decisión del dueño:** el buscador tiene que ser igual al de Mercado Público, sin limitaciones; sale del menú lateral (queda la caja «Buscar licitaciones ⌘K» de arriba, que lleva a `/`); todos los filtros deben funcionar. Caso: 2495-17-B226 llegaba por la API y el buscador no la encontraba.
+**Causa:** (1) el detector de código exigía letras+2 dígitos y «B226» (privada B2 + año 26) no calzaba; (2) el universo era solo `estado=activas` y los filtros de región, organismo y monto se aplicaban sobre el listado crudo de la API, que no trae esos campos (daban 0 resultados); Cerradas/Adjudicadas no existían.
+**Cómo quedó:** `app/lib/busqueda-sin-limites.ts` busca en TODO `licitaciones_cache` con los filtros en SQL (estado, tipo, región, organismo, monto, fecha de cierre y de publicación — inclusive el día final); la API en vivo solo dice qué sigue Publicada (si no responde, se busca solo en el caché). Código completo → API y, si falla, caché; código parcial («2495-17») → LIKE. Por defecto el estado es Publicada (como MP); desmarcarlo busca en todos.
+**Pendiente:** probar con datos reales (túnel SSH 3307 cerrado en esta sesión); las abiertas recién publicadas que el caché no tiene solo se encuentran por título y sin filtros de región/organismo/monto; el caché de una licitación cerrada hace días puede traer estado atrasado.
+
 ## 2026-11-24 — «Entregas» sale del menú; el acuse de proyecto ganado se queda (tsc ok; visto en navegador; SIN desplegar)
 **Decisión del dueño:** el menú «Entregas» (acuse de recibo de proyectos ganados, F.1: tablas `entrega_proyecto`/`entrega_acuse`) casi no se usaba (55 acuses pendientes, más de la mitad de cuentas de prueba) y su resumen ya está en la ficha de Compras. NO es la entrega física al cliente (eso es «Entrega y cierre» en Compras, `compras_entrega`).
 **Cómo quedó:** sin ítem ni badge en `AppLayout`; el acuse sigue llegando solo por `EntregaPendienteModal` (bloqueante, ya existía; no hizo falta franja en el Dashboard ni chip en la ficha). La página `/entregas` se conserva porque el modal manda a «Ver el detalle»: ahora se llama «Acuses de recibo de proyectos ganados» y se entra desde el modal o desde el botón «Acuses de recibo» de Ganadas/Perdidas (solo admin) para ver quién falta.
@@ -63,3 +84,6 @@ es válida (ver viabilidad.md, «Completar cada línea»).
 
 ## 2026-11-19 — Reasignar responsable no se aplicaba (GestionAside.tsx; tsc sin errores propios, sin ver en navegador)
 Causa: el menú `Desplegable` se cerraba con el mousedown sobre una opción del `<Select>` (su lista va en un portal fuera del menú), así que el clic nunca llegaba y no salía ni error. Arreglo: `Desplegable` ignora mousedown dentro de `[role="listbox"]`. Los permisos (solo admin) no cambiaron. Pendiente: probar con un negocio real y desplegar.
+
+## 2026-11-25 — Fila de lista del Radar ordenada (visto en navegador a 1568 px, modo claro; sin ver oscuro ni 800 px)
+Las columnas se movían fila a fila (la zona de estados tenía ancho variable) y salía un «0» suelto (`tiene_documentos && …` con 0). Ahora: código | título + «Organismo · Comuna/Región» | monto (w-32) | estados en columna fija de 250 px (viabilidad/prefiltro arriba; Docs/Asignada/Puente abajo) | botones. Sin desplegar.

@@ -42,7 +42,7 @@ export interface CandidatoGlobal {
 }
 
 /** Escapa los comodines de LIKE para que la consulta del usuario sea literal. */
-function escaparLike(s: string): string {
+export function escaparLike(s: string): string {
   return s.replace(/[\\%_]/g, m => '\\' + m);
 }
 
@@ -54,11 +54,11 @@ function escaparLike(s: string): string {
  * ("materiales" → "material") cubre las cuatro reglas de `tokenEnCampo`:
  * exacto, mismo radical, prefijo y substring — todas contienen el radical.
  */
-function radicalParaSQL(token: string): string {
+export function radicalParaSQL(token: string): string {
   return escaparLike(stemLite(token));
 }
 
-interface FilaCache {
+export interface FilaCache {
   codigo: string;
   nombre: string | null;
   descripcion: string | null;
@@ -72,7 +72,7 @@ interface FilaCache {
   items_json: string | null;
 }
 
-function parsearItems(raw: string | null): LicitacionItem[] {
+export function parsearItems(raw: string | null): LicitacionItem[] {
   if (!raw) return [];
   try {
     const arr = JSON.parse(raw);
@@ -91,7 +91,7 @@ function parsearItems(raw: string | null): LicitacionItem[] {
   }
 }
 
-function filaALicitacion(row: FilaCache, items: LicitacionItem[]): Licitacion {
+export function filaALicitacion(row: FilaCache, items: LicitacionItem[]): Licitacion {
   return {
     Codigo: row.codigo,
     Nombre: row.nombre || '',

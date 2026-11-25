@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useState, useEffect, useLayoutEffect, useCallback, useRef } from 'react';
-import { IconLayoutDashboard as LayoutDashboard, IconSearch as Search, IconUsers as Users, IconLogout as LogOut, IconUser as User, IconMenu as MenuIcon, IconX as X, IconRadar as Radar, IconChevronRight as ChevronRight, IconBriefcase as Briefcase, IconBell as Bell, IconTag as Tag, IconStack2 as Layers, IconHistory as History, IconSettings as Settings, IconCommand as Command, IconBan as Ban, IconActivity as Activity, IconSend as Send, IconBuilding as Building2, IconTrophy as Trophy, IconLayoutSidebarLeftCollapse as PanelLeftClose, IconLayoutSidebarLeftExpand as PanelLeftOpen, IconClipboardCheck as ClipboardCheck, IconShoppingCart as ShoppingCart, IconLibrary as Library, IconStar as Star, IconFolderOpen as FolderOpen, IconReceipt as Receipt, IconFileInvoice as FileInvoice,IconArrowsShuffle as Shuffle, IconSun as Sun, IconMoon as Moon, IconTruck as Truck, IconFolders as Folders, IconBug as Bug, IconCoin as Coin, IconBrain as Brain, IconLock as Lock, IconBrandWhatsapp as Whatsapp, IconChartDots3 as ChartDots } from '@tabler/icons-react';
+import { IconLayoutDashboard as LayoutDashboard, IconSearch as Search, IconUsers as Users, IconLogout as LogOut, IconUser as User, IconMenu as MenuIcon, IconX as X, IconRadar as Radar, IconChevronRight as ChevronRight, IconBriefcase as Briefcase, IconBell as Bell, IconTag as Tag, IconStack2 as Layers, IconHistory as History, IconSettings as Settings, IconCommand as Command, IconBan as Ban, IconActivity as Activity, IconSend as Send, IconBuilding as Building2, IconTrophy as Trophy, IconLayoutSidebarLeftCollapse as PanelLeftClose, IconLayoutSidebarLeftExpand as PanelLeftOpen, IconClipboardCheck as ClipboardCheck, IconShoppingCart as ShoppingCart, IconLibrary as Library, IconStar as Star, IconFolderOpen as FolderOpen, IconReceipt as Receipt, IconFileInvoice as FileInvoice,IconArrowsShuffle as Shuffle, IconSun as Sun, IconMoon as Moon, IconTruck as Truck, IconFolders as Folders, IconBug as Bug, IconCoin as Coin, IconBrain as Brain, IconLock as Lock, IconBrandWhatsapp as Whatsapp, IconChartDots3 as ChartDots, IconBuildingStore as BuildingStore, IconBuildingSkyscraper as BuildingSkyscraper, IconBuildingCommunity as BuildingCommunity } from '@tabler/icons-react';
 import { LicitankIcon } from '@/app/components/LicitankLogo';
 import { Tooltip } from '@/app/components/ui/Tooltip';
 import { suscribirRealtime } from '@/app/lib/use-realtime';
@@ -80,7 +80,7 @@ const NAV_GROUPS: NavGroup[] = [
       // categoría, datos bancarios) — se puebla solo al registrar cotizaciones en el Auditor de
       // Compras (spec §8.4, trazabilidad del proveedor local) y alimenta directo la emisión real de
       // la OC a Obuma. Nada que ver con Fleteros (a quién le pagamos el FLETE, no el producto).
-      { label: 'Proveedores', href: '/compras/proveedores', icon: <Building2 size={17} /> },
+      { label: 'Proveedores', href: '/compras/proveedores', icon: <BuildingStore size={17} /> },
       // Fleteros (spec §13.3): catálogo de transporte/flete — mismo círculo de acceso que Compras,
       // concepto distinto a Proveedores (arriba). No cuelga de una licitación puntual.
       { label: 'Fleteros', href: '/logistica/fleteros', icon: <Truck size={17} />, adminOnly: true },
@@ -90,7 +90,6 @@ const NAV_GROUPS: NavGroup[] = [
     label: 'OPORTUNIDADES',
     items: [
       { label: 'Radar',      href: '/radar',      icon: <Radar size={17} />, adminOnly: true },
-      { label: 'Buscador',   href: '/',          icon: <Search size={17} />, exact: true, adminOnly: true },
       // Puente: la bandeja de reparto. La ve el admin y quien tenga el permiso `repartir_puente`
       // (el asesor), igual criterio que Aprobaciones — reparte trabajo sin ser administrador.
       { label: 'Puente',     href: '/puente',     icon: <Shuffle size={17} />, adminOnly: true },
@@ -107,13 +106,12 @@ const NAV_GROUPS: NavGroup[] = [
       // Memoria (F.3): visible para todo perfil interno — orienta el trabajo de cualquiera que
       // cotice o postule, no solo del admin. Cargar experiencia sí es admin (lo bloquea la API).
       { label: 'Memoria', href: '/memoria', icon: <Library size={17} /> },
-      { label: 'Historial', href: '/alertas', icon: <History size={17} />, adminOnly: true },
     ],
   },
   {
     label: 'MI EMPRESA',
     items: [
-      { label: 'Perfil de mi empresa', href: '/mi-empresa', icon: <Building2 size={17} />, adminOnly: true },
+      { label: 'Perfil de mi empresa', href: '/mi-empresa', icon: <BuildingSkyscraper size={17} />, adminOnly: true },
       { label: 'Empresas',       href: '/empresas',        icon: <Building2 size={17} />, adminOnly: true },
       { label: 'Mi equipo',      href: '/equipo',          icon: <Users size={17} />, adminOnly: true },
       { label: 'Líneas negocio', href: '/admin/etiquetas', icon: <Tag size={17} />, adminOnly: true },
@@ -126,7 +124,9 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { label: 'Usuarios',       href: '/admin/usuarios',  icon: <Users size={17} />, adminOnly: true },
       { label: 'Avisos por WhatsApp', href: '/admin/whatsapp', icon: <Whatsapp size={17} />, adminOnly: true },
-      { label: 'Empresas-cliente', href: '/admin/clientes', icon: <Building2 size={17} />, adminOnly: true },
+      { label: 'Empresas-cliente', href: '/admin/clientes', icon: <BuildingCommunity size={17} />, adminOnly: true },
+      // Historial de actividad (quién hizo qué): es auditoría del sistema, no análisis de licitaciones — movido desde ANÁLISIS el 2026-11-25.
+      { label: 'Historial', href: '/alertas', icon: <History size={17} />, adminOnly: true },
       // Reportes del botón flotante "Reportar error" (components/ReportarErrorBoton) de todos los perfiles.
       { label: 'Errores reportados', href: '/admin/errores', icon: <Bug size={17} />, adminOnly: true },
       // Cuánto gasta cada perfil en IA (viabilidad, consultas, auditor…): tabla ia_uso, ver app/lib/ia-uso.ts.
@@ -284,6 +284,12 @@ let colapsadoCache: boolean | null = null;
 // Cada página monta su propio AppLayout, así que el menú se recrea al navegar y su scroll
 // volvía arriba. Se recuerda aquí (el módulo sobrevive a la navegación) y se restaura al montar.
 let scrollNavCache = 0;
+// Grupos del menú plegados (2026-11-25, «re-organiza todo ese menú»: eran 7 grupos y ~30 ítems y había que hacer scroll).
+// Por defecto quedan abiertos los del día a día y plegados los de consulta/configuración; el grupo de la página actual
+// siempre se ve. Se recuerda en localStorage y, como el menú se remonta al navegar, también en el módulo (sin parpadeo).
+const CLAVE_GRUPOS = 'licitank_nav_grupos_cerrados';
+const GRUPOS_CERRADOS_INICIO = ['ANÁLISIS', 'MI EMPRESA', 'ADMINISTRACIÓN', 'SOPORTE'];
+let gruposCerradosCache: string[] | null = null;
 
 function Sidebar({ mobileOpen, onCloseMobile }: { mobileOpen: boolean; onCloseMobile: () => void }) {
   const navScrollRef = useRef<HTMLDivElement>(null);
@@ -318,6 +324,22 @@ function Sidebar({ mobileOpen, onCloseMobile }: { mobileOpen: boolean; onCloseMo
     const next = !v;
     colapsadoCache = next;   // para que el próximo montaje ya nazca bien
     try { localStorage.setItem(CLAVE_COLAPSO, next ? '1' : '0'); } catch { /* no bloquear por storage */ }
+    return next;
+  });
+
+  const [cerrados, setCerrados] = useState<string[]>(() => gruposCerradosCache ?? GRUPOS_CERRADOS_INICIO);
+  useEffect(() => {
+    if (gruposCerradosCache !== null) return;
+    try {
+      const g = localStorage.getItem(CLAVE_GRUPOS);
+      gruposCerradosCache = g ? (JSON.parse(g) as string[]) : GRUPOS_CERRADOS_INICIO;
+    } catch { gruposCerradosCache = GRUPOS_CERRADOS_INICIO; }
+    setCerrados(gruposCerradosCache);
+  }, []);
+  const plegar = (label: string) => setCerrados(prev => {
+    const next = prev.includes(label) ? prev.filter(x => x !== label) : [...prev, label];
+    gruposCerradosCache = next;
+    try { localStorage.setItem(CLAVE_GRUPOS, JSON.stringify(next)); } catch { /* no bloquear por storage */ }
     return next;
   });
 
@@ -504,13 +526,23 @@ function Sidebar({ mobileOpen, onCloseMobile }: { mobileOpen: boolean; onCloseMo
         <div ref={navScrollRef} onScroll={e => { scrollNavCache = e.currentTarget.scrollTop; }}
           className="flex-1 overflow-y-auto scrollbar-thin">
           <nav className={`pb-2 space-y-5 ${trans} ${angosto ? 'px-3 lg:px-2' : 'px-3'}`}>
-            {visibleGroups.map(group => (
+            {visibleGroups.map(group => {
+              // El grupo de la página actual nunca se pliega; con el menú angosto (solo iconos) se ven todos.
+              const abierto = angosto || !cerrados.includes(group.label) || group.items.some(isActive);
+              const alertas = group.items.reduce((s, i) => s + (typeof i.badge === 'number' ? i.badge : 0), 0);
+              return (
               <div key={group.label}>
                 {/* Colapsado, el título del grupo cede su sitio a un separador: la agrupación
                     se sigue leyendo sin gastar los 76px de ancho en texto. */}
-                <p className={`px-2 mb-1.5 text-[11px] font-medium text-slate-500
-                  ${angosto ? 'lg:hidden' : ''}`}>{group.label.charAt(0) + group.label.slice(1).toLowerCase()}</p>
+                <button type="button" onClick={() => plegar(group.label)} aria-expanded={abierto}
+                  className={`mb-1.5 flex w-full items-center gap-1 rounded-md px-2 py-0.5 text-left text-[11px] font-medium text-slate-500 transition-colors hover:text-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/60
+                  ${angosto ? 'lg:hidden' : ''}`}>
+                  <ChevronRight size={12} className={`flex-shrink-0 transition-transform duration-150 ${abierto ? 'rotate-90' : ''}`} />
+                  <span className="flex-1">{group.label.charAt(0) + group.label.slice(1).toLowerCase()}</span>
+                  {!abierto && alertas > 0 && <span className="rounded bg-red-500 px-1.5 py-0.5 text-[10px] font-semibold text-white">{alertas}</span>}
+                </button>
                 {angosto && <div className="hidden lg:block h-px bg-white/[0.07] mx-2 mb-2" />}
+                <div className="colapsable" data-abierto={abierto ? '1' : '0'}><div className="colapsable-inner" inert={!abierto}>
                 <div className="space-y-0.5">
                   {group.items.map(item => {
                     const active = isActive(item);
@@ -563,8 +595,10 @@ function Sidebar({ mobileOpen, onCloseMobile }: { mobileOpen: boolean; onCloseMo
                     );
                   })}
                 </div>
+                </div></div>
               </div>
-            ))}
+              );
+            })}
           </nav>
         </div>
 
@@ -600,6 +634,13 @@ function NotificacionesBell() {
   const [eventos, setEventos] = useState<Noti[]>([]);
   const [noLeidas, setNoLeidas] = useState(0);
   const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onEsc = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    window.addEventListener('keydown', onEsc);
+    return () => window.removeEventListener('keydown', onEsc);
+  }, [open]);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -659,7 +700,7 @@ function NotificacionesBell() {
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full mt-2 w-[350px] bg-white dark:bg-[#1c1f26] border border-slate-200 dark:border-white/[0.08] rounded-xl shadow-flotante z-50 overflow-hidden">
+        <div className="fixed inset-x-4 top-14 mt-2 sm:absolute sm:inset-x-auto sm:right-0 sm:top-full sm:w-[350px] bg-white dark:bg-[#1c1f26] border border-slate-200 dark:border-white/[0.08] rounded-xl shadow-flotante z-50 overflow-hidden">
           <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 dark:border-white/[0.07]">
             <p className="text-[13px] font-semibold text-slate-800 dark:text-slate-100">Notificaciones</p>
             <Link href="/alertas" onClick={() => setOpen(false)} className="text-[12px] font-semibold text-teal-600 hover:text-teal-700 dark:text-teal-400 dark:hover:text-teal-300">
@@ -722,7 +763,7 @@ function TopBar({ breadcrumb, onOpenMobile }: { breadcrumb?: BreadcrumbItem[]; o
   const nombre = usuario?.nombre?.split(' ')[0] || usuario?.email?.split('@')[0] || '';
 
   return (
-    <header className="sticky top-0 z-30 bg-white/85 dark:bg-[#14161c]/85 backdrop-blur-md border-b border-slate-200/70 dark:border-white/[0.07] px-4 sm:px-6 h-14 flex items-center gap-3 flex-shrink-0 transition-colors">
+    <header className="sticky top-0 z-40 bg-white/85 dark:bg-[#14161c]/85 backdrop-blur-md border-b border-slate-200/70 dark:border-white/[0.07] px-4 sm:px-6 h-14 flex items-center gap-3 flex-shrink-0 transition-colors">
       <button
         onClick={onOpenMobile}
         className="lg:hidden p-2 rounded-lg text-slate-500 hover:text-slate-700 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-slate-100 dark:hover:bg-white/[0.08] transition-colors"

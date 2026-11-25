@@ -11,6 +11,7 @@
 import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
+import { completarUbicacion } from '@/app/lib/licitacion-ubicacion';
 import { getAuthedUser, tienePermiso } from '@/app/lib/api-auth';
 import { cargaDeEquipo } from '@/app/lib/carga-perfiles';
 import { registrarActividad } from '@/app/lib/actividad';
@@ -74,7 +75,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: true, licitaciones: [], perfiles: [], _migrationPending: true });
     }
 
-    const licitaciones = ((licRes.value as any)[0] || []) as any[];
+    const licitaciones = await completarUbicacion(((licRes.value as any)[0] || []) as any[], 12);
     const usuarios = usuRes.status === 'fulfilled' ? (((usuRes.value as any)[0] || []) as any[]).filter(recibeLicitaciones) : [];
     const carga = cargaRes.status === 'fulfilled' ? cargaRes.value : [];
     const mapCarga = new Map(carga.map(c => [c.usuario_id, c]));
