@@ -5,6 +5,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { permisosCrudosDeUsuario } from '@/app/lib/api-auth';
 import { listarProveedores, crearProveedor, validarProveedorObuma, problemaAlGuardarProveedor } from '@/app/lib/compras-proveedores';
 import { historicoProveedorPorRut } from '@/app/lib/compras-aprendizaje';
+import { esRutGenericoExtranjero } from '@/app/lib/rut-generico';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -43,6 +44,8 @@ export async function GET(request: NextRequest) {
     // listado normal, mismo criterio que `?rutObuma=` en fleteros.
     const historicoRut = request.nextUrl.searchParams.get('historicoRut');
     if (historicoRut) {
+      // El RUT genérico de extranjeros no identifica a nadie: su «histórico» sería el de otro proveedor.
+      if (esRutGenericoExtranjero(historicoRut)) return NextResponse.json({ success: true, historico: null });
       const historico = await historicoProveedorPorRut(historicoRut);
       return NextResponse.json({ success: true, historico });
     }

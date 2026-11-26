@@ -187,8 +187,10 @@ export function AuditorComprasCard({ negocioId, puedeOperar, soloLectura = false
     { estado: 'idle' } | { estado: 'cargando' } |
     {
       estado: 'listo';
-      validacion: 'en_catalogo' | 'en_obuma_no_catalogo' | 'no_existe_en_obuma';
+      validacion: 'en_catalogo' | 'en_obuma_no_catalogo' | 'no_existe_en_obuma' | 'rut_generico';
       nombreEmpresa: string | null;
+      /** Solo con RUT genérico (55.555.555-5): los proveedores de Obuma con ese RUT, para elegir uno. */
+      candidatos?: Array<{ obumaId: string; nombre: string; activo: boolean }>;
       historico: { razonSocial: string; ultimaOcFolio: string | null; ultimaOcFecha: string | null } | null;
     }
   >({ estado: 'idle' });
@@ -382,7 +384,7 @@ export function AuditorComprasCard({ negocioId, puedeOperar, soloLectura = false
       const [dVal, dHist] = await Promise.all([rVal.json(), rHist.json()]);
       if (!dVal.success) throw new Error(dVal.error || 'No se pudo validar');
       setHistoricoProveedor({
-        estado: 'listo', validacion: dVal.validacion.estado, nombreEmpresa: dVal.validacion.nombreEmpresa,
+        estado: 'listo', validacion: dVal.validacion.estado, nombreEmpresa: dVal.validacion.nombreEmpresa, candidatos: dVal.validacion.candidatos,
         historico: dHist.success && dHist.historico ? {
           razonSocial: dHist.historico.razonSocial, ultimaOcFolio: dHist.historico.ultimaOcFolio, ultimaOcFecha: dHist.historico.ultimaOcFecha,
         } : null,
@@ -984,6 +986,19 @@ export function AuditorComprasCard({ negocioId, puedeOperar, soloLectura = false
                 documento lo autocompleta solo (ver leerArchivo). Tres estados posibles. */}
             {historicoProveedor.estado === 'cargando' && (
               <p className="text-xs text-tinta-3 flex items-center gap-1"><Loader2 size={10} className="animate-spin" /> Validando el RUT contra Obuma…</p>
+            )}
+            {historicoProveedor.estado === 'listo' && historicoProveedor.validacion === 'rut_generico' && (
+              <div className="text-xs text-tinta-2 bg-slate-50 border border-linea rounded-lg px-2 py-2 space-y-1.5">
+                <p className="flex items-center gap-1"><Link2 size={11} /> RUT genérico de proveedores extranjeros: elige cuál es en Obuma.</p>
+                {(historicoProveedor.candidatos ?? []).length === 0
+                  ? <p className="text-amber-700">No encontré proveedores con este RUT en Obuma: escribe el nombre a mano.</p>
+                  : <select value={(historicoProveedor.candidatos ?? []).find(c => c.nombre === form.proveedorNombre.replace(/\s+/g, ' ').trim())?.obumaId ?? ''}
+                      onChange={e => { const c = (historicoProveedor.candidatos ?? []).find(x => x.obumaId === e.target.value); if (c) setForm(f => ({ ...f, proveedorNombre: c.nombre })); }}
+                      className="w-full h-9 text-sm text-tinta border border-linea rounded-lg px-2 bg-white outline-none focus:border-marca focus:ring-2 focus:ring-marca/20">
+                      <option value="">Elige el proveedor ({(historicoProveedor.candidatos ?? []).length} con este RUT)…</option>
+                      {(historicoProveedor.candidatos ?? []).map(c => <option key={c.obumaId} value={c.obumaId}>{c.nombre}{c.activo ? '' : ' (inactivo)'}</option>)}
+                    </select>}
+              </div>
             )}
             {historicoProveedor.estado === 'listo' && historicoProveedor.validacion === 'en_catalogo' && (
               <p className="text-xs text-exito bg-emerald-50/60 border border-emerald-200 rounded-lg px-2 py-1 flex items-center gap-1">

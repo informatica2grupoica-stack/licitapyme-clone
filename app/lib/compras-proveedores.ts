@@ -258,10 +258,23 @@ function identidadDesdeObuma(
 }
 
 export interface ValidacionProveedorObuma {
-  estado: 'en_catalogo' | 'en_obuma_no_catalogo' | 'no_existe_en_obuma';
+  /** 'rut_generico' = 55.555.555-5 (todos los extranjeros): no identifica a nadie, se elige de `candidatos`. */
+  estado: 'en_catalogo' | 'en_obuma_no_catalogo' | 'no_existe_en_obuma' | 'rut_generico';
   nombreEmpresa: string | null;
   obumaProveedorId: string | null;
   proveedorLocalId: number | null;
+  candidatos?: Array<{ obumaId: string; nombre: string; activo: boolean }>;
+}
+
+/** Todos los proveedores de Obuma que comparten el RUT genérico de extranjeros (del espejo, sin llamar a Obuma): activos primero, luego por nombre. */
+export async function proveedoresConRutGenerico(): Promise<Array<{ obumaId: string; nombre: string; activo: boolean }>> {
+  const [rows] = await pool.query(
+    `SELECT obuma_id, contraparte_nombre, estado FROM obuma_registro
+     WHERE entidad = 'proveedor' AND REPLACE(REPLACE(UPPER(contraparte_rut), '.', ''), '-', '') = '555555555'
+       AND contraparte_nombre IS NOT NULL AND TRIM(contraparte_nombre) <> ''
+     ORDER BY (estado = 'ACTIVO') DESC, contraparte_nombre`,
+  ) as any;
+  return (rows as any[]).map(r => ({ obumaId: String(r.obuma_id), nombre: String(r.contraparte_nombre).replace(/\s+/g, ' ').trim(), activo: r.estado === 'ACTIVO' }));
 }
 
 /** Pedido explícito del usuario (14-sep-2026, tras registrar una cotización con un proveedor
@@ -276,7 +289,7 @@ export interface ValidacionProveedorObuma {
  *     nunca se crea automático, ver crearProveedorObuma en obuma.ts). */
 export async function validarProveedorObuma(rut: string): Promise<ValidacionProveedorObuma> {
   // RUT genérico de extranjeros: no dice quién es (devolvería siempre al primero, p. ej. «OMAR MARTIN»). Se identifica por nombre al guardar.
-  if (esRutGenericoExtranjero(rut)) return { estado: 'no_existe_en_obuma', nombreEmpresa: null, obumaProveedorId: null, proveedorLocalId: null };
+  if (esRutGenericoExtranjero(rut)) return { estado: 'rut_generico', nombreEmpresa: null, obumaProveedorId: null, proveedorLocalId: null, candidatos: await proveedoresConRutGenerico().catch(() => []) };
   const rutNorm = normRut(rut);
   const [filas] = await pool.query(
     `SELECT id, nombre_empresa, obuma_proveedor_id FROM compras_proveedor
