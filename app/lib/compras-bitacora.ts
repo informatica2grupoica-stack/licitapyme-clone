@@ -6,6 +6,8 @@ import { registrarEvento } from '@/app/lib/historial';
 import pool from '@/app/lib/db';
 import { publicarCambio } from '@/app/lib/sse-bus';
 import { debePasarAEnProceso, estaCancelada } from '@/app/lib/compras-estado';
+import { avisarAvanceAOtrosEncargados } from '@/app/lib/compras-avisos';
+import { categoriaDeAvance } from '@/app/lib/compras-avance-aviso-core';
 
 type Cuerpo = Record<string, any> | null;
 
@@ -100,6 +102,10 @@ async function anotar(request: Request, metodo: string, negocioIdEnRuta: number 
     actorId: userId, actorNombre: nombre, mensaje: `${nombre || 'Alguien'}: ${texto}.`,
     metadata: { negocio_id: negocioId, metodo, ruta },
   });
+  // Si fue un avance importante, el otro encargado se entera en su campana (compras-avisos.ts; nunca frena la acción).
+  const esTarea = tareaId != null && negocioIdEnRuta == null;
+  const categoria = categoriaDeAvance(metodo, ruta.replace(/^\/api\/compras\/\d+\/?/, '').replace(/\/$/, ''), cuerpo, esTarea);
+  if (categoria) await avisarAvanceAOtrosEncargados(negocioId, categoria, texto, { id: userId, nombre });
 }
 
 // Rutas que NO se bloquean aunque la licitación siga «Abierta»: asignar encargado, cambiar el estado y lo que corre solo.

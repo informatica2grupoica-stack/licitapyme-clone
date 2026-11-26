@@ -66,7 +66,7 @@ export interface ResumenComparativo {
   lineasSinPlan: { ocFolio: string; proveedor: string | null; producto: string; sku: string | null; cantidad: number | null; neto: number | null }[];
   porOc: FilaPorOc[];
   /** Gastos extra del negocio (módulo «Gastos extra»: flete cobrado aparte, puesta en marcha…). Solo los en CLP suman. */
-  gastosExtra: { id: number; categoria: string; descripcion: string; monto: number; moneda: string; fecha: string | null; origen: 'licitank' | 'obuma' }[];
+  gastosExtra: { id: number; categoria: string; descripcion: string; monto: number; moneda: string; fecha: string | null; origen: 'licitank' | 'obuma'; /** Folio de la OC de Obuma que ya contiene este gasto: se muestra pero NO suma al costo (ya está en las OC). */ enOc?: string }[];
   totales: { venta: number; /** Lo que paga el cliente: su OC de Mercado Público (neto) o, si no hay, la suma del costeo. */ ventaGanada: number; costeo: number; plan: number; obumaOc: number; facturado: number; gastosExtra: number; margenRealNeto: number; margenRealPct: number | null };
   avisos: string[];
 }
@@ -194,10 +194,12 @@ export async function resumenComparativoCompra(negocioId: number): Promise<Resum
   const obumaOc = sum(porOc.map(o => o.obumaNeto));
   const facturado = sum(porOc.map(o => o.facturadoNeto));
   const gastosExtra: ResumenComparativo['gastosExtra'] = [
-    ...gastosRows.map(g => ({ id: g.id, categoria: g.categoriaEtiqueta || 'Sin categoría', descripcion: g.descripcion, monto: g.monto, moneda: g.moneda, fecha: g.fechaGasto, origen: 'licitank' as const })),
+    ...gastosRows.map(g => ({ id: g.id, categoria: g.categoriaEtiqueta || 'Sin categoría', descripcion: g.descripcion, monto: g.monto, moneda: g.moneda, fecha: g.fechaGasto, origen: 'licitank' as const,
+      // Gasto enlazado a una OC de Obuma que ya cuenta en `obumaOc` (combustible, transporte): se muestra, no se suma otra vez (margen de 2736-44-LE26 bajaba $225.070).
+      ...(g.ocObumaFolio && porOc.some(o => !o.ocPropia && o.ocFolio === g.ocObumaFolio) ? { enOc: g.ocObumaFolio } : {}) })),
     ...ocGarantia.map(o => ({ id: -Number(o.compraOcId), categoria: 'Garantía de fiel cumplimiento', descripcion: `OC ${o.folio || o.compraOcId} · ${o.proveedorRazonSocial || 'Obuma'} (exenta de IVA)`, monto: netoDeCompra(o), moneda: 'CLP', fecha: o.fechaIngreso ? new Date(o.fechaIngreso as unknown as string).toISOString().slice(0, 10) : null, origen: 'obuma' as const })),
   ];
-  const gastosExtraClp = gastosExtra.filter(g => g.moneda === 'CLP').reduce((s, g) => s + g.monto, 0);
+  const gastosExtraClp = gastosExtra.filter(g => g.moneda === 'CLP' && !g.enOc).reduce((s, g) => s + g.monto, 0);
   const costoReal = obumaOc + gastosExtraClp;
   // La venta por producto sale del costeo; lo que de verdad paga el cliente es su OC de Mercado Público. El margen real se calcula
   // sobre esa OC cuando existe (el mismo número que usa la aprobación del margen), no sobre la suma del costeo.

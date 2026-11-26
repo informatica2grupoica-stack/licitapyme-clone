@@ -26,7 +26,7 @@ interface Resumen {
   filas: Fila[];
   lineasSinPlan: { ocFolio: string; proveedor: string | null; producto: string; sku: string | null; cantidad: number | null; neto: number | null }[];
   porOc: PorOc[];
-  gastosExtra: { id: number; categoria: string; descripcion: string; monto: number; moneda: string; fecha: string | null; origen: 'licitank' | 'obuma' }[];
+  gastosExtra: { id: number; categoria: string; descripcion: string; monto: number; moneda: string; fecha: string | null; origen: 'licitank' | 'obuma'; enOc?: string }[];
   totales: { venta: number; ventaGanada?: number; costeo: number; plan: number; obumaOc: number; facturado: number; gastosExtra: number; margenRealNeto: number; margenRealPct: number | null };
   avisos: string[];
 }
@@ -293,7 +293,7 @@ export function ResumenComparativoCard({ negocioId }: { negocioId: number }) {
                     <td className="px-3 py-2 font-semibold text-tinta whitespace-nowrap dark:text-slate-100">{g.categoria}</td>
                     <td className="px-3 py-2">{g.descripcion}{g.origen === 'obuma' && <span className="ml-2 text-[11px] font-medium text-tinta-3"><Estado color="#0891b2">desde Obuma</Estado></span>}</td>
                     <td className="px-3 py-2 whitespace-nowrap tabular-nums">{g.fecha ? g.fecha.split('-').reverse().join('-') : '—'}</td>
-                    <td className="px-3 py-2 text-right tabular-nums font-semibold text-tinta dark:text-slate-100">{g.moneda === 'CLP' ? fmt(g.monto) : <span className="text-alerta">{g.monto} {g.moneda} (no suma)</span>}</td>
+                    <td className="px-3 py-2 text-right tabular-nums font-semibold text-tinta dark:text-slate-100">{g.enOc ? <span className="text-tinta-3 font-medium">{fmt(g.monto)} <span className="text-[11px]">(ya está en la OC {g.enOc}: no suma)</span></span> : g.moneda === 'CLP' ? fmt(g.monto) : <span className="text-alerta">{g.monto} {g.moneda} (no suma)</span>}</td>
                   </tr>
                 ))}
               </tbody>
