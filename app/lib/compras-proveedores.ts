@@ -10,6 +10,7 @@ import pool from '@/app/lib/db';
 import { ahoraChileSQL } from '@/app/lib/tz';
 import { registrarEvento } from '@/app/lib/historial';
 import { normRut } from '@/app/lib/adjudicacion';
+import { esRutGenericoExtranjero } from '@/app/lib/rut-generico';
 import { problemaDeProveedor, rutPlanoProveedor } from '@/app/lib/compras-proveedores-validar';
 import {
   proveedoresObumaCompleto, proveedorPorRut, proveedorPorId, mapaFormasPagoCompleto, listarComprasOcItems,
@@ -274,6 +275,8 @@ export interface ValidacionProveedorObuma {
  *   - 'no_existe_en_obuma': Obuma no tiene este RUT — se creará una ficha SOLO en Licitank (Obuma
  *     nunca se crea automático, ver crearProveedorObuma en obuma.ts). */
 export async function validarProveedorObuma(rut: string): Promise<ValidacionProveedorObuma> {
+  // RUT genérico de extranjeros: no dice quién es (devolvería siempre al primero, p. ej. «OMAR MARTIN»). Se identifica por nombre al guardar.
+  if (esRutGenericoExtranjero(rut)) return { estado: 'no_existe_en_obuma', nombreEmpresa: null, obumaProveedorId: null, proveedorLocalId: null };
   const rutNorm = normRut(rut);
   const [filas] = await pool.query(
     `SELECT id, nombre_empresa, obuma_proveedor_id FROM compras_proveedor
@@ -309,7 +312,8 @@ export async function validarProveedorObuma(rut: string): Promise<ValidacionProv
  *  cuota agotada), sigue el camino de siempre: ficha mínima con lo tipeado a mano. */
 export async function obtenerOCrearProveedor(nombreEmpresa: string, rut: string | null, actorId: number, actorNombre: string | null): Promise<number | null> {
   const nombreLimpio = nombreEmpresa.trim();
-  if (rut?.trim()) {
+  // El RUT genérico de extranjeros (55.555.555-5) lo comparten todos: se identifica por NOMBRE, nunca por RUT.
+  if (rut?.trim() && !esRutGenericoExtranjero(rut)) {
     // BUG REAL (10-sep-2026, auditoría estática): comparar el RUT tal cual llegó ("76.123.456-7"
     // vs "76123456-7", la misma empresa tipeada distinto en dos cotizaciones) hacía que el lookup
     // nunca calzara y creara un proveedor DUPLICADO — justo lo que este comentario de arriba dice
@@ -338,6 +342,17 @@ export async function obtenerOCrearProveedor(nombreEmpresa: string, rut: string 
     const [rows] = await pool.query(`SELECT id, nombre_empresa FROM compras_proveedor`) as any;
     const match = (rows as any[]).find(r => normNombreProveedor(r.nombre_empresa) === nombreNorm);
     if (match) return match.id;
+    // Extranjero con RUT genérico y sin ficha propia: si Obuma ya lo tiene con ese nombre, la ficha nace enlazada a SU id (no al de otro).
+    if (rut?.trim()) {
+      try {
+        const [remotos, formasPago] = await Promise.all([proveedoresObumaCompleto(), mapaFormasPagoCompleto()]);
+        const remoto = remotos.find(p => esRutGenericoExtranjero(p.proveedor_rut) && normNombreProveedor(p.proveedor_razon_social || '') === nombreNorm);
+        if (remoto) {
+          const bancos = await mapaBancosObuma().catch(() => new Map<string, string>());
+          return crearProveedor({ ...identidadDesdeObuma(remoto, formasPago, new Map(), bancos), activo: true }, actorId, actorNombre);
+        }
+      } catch { /* Obuma no disponible ahora — sigue con la ficha mínima de abajo */ }
+    }
   }
   // Regla del dueño (24-nov-2026): un proveedor sin RUT (los «(por completar) archivo.pdf» y nombres sueltos de
   // cotizaciones) NO entra al catálogo; la cotización se guarda igual con su nombre, sin ficha. Solo entra con RUT.
@@ -439,7 +454,7 @@ export async function sincronizarProveedoresObuma(
   const localPorRut = new Map<string, number>();
   for (const f of filas) {
     if (f.obuma_proveedor_id) localPorObumaId.set(String(f.obuma_proveedor_id), f.id);
-    if (f.rut) localPorRut.set(normRut(f.rut), f.id);
+    if (f.rut && !esRutGenericoExtranjero(f.rut)) localPorRut.set(normRut(f.rut), f.id);
   }
 
   // Obuma a veces repite el mismo proveedor_id (o el mismo RUT bajo dos ids) en el listado — sin
@@ -453,7 +468,7 @@ export async function sincronizarProveedoresObuma(
     const obumaId = String(p.proveedor_id);
     if (vistoObumaId.has(obumaId)) continue;
     const identidad = identidadDesdeObuma(p, formasPago, comprasPorProveedor, bancos);
-    const rutNorm = identidad.rut ? normRut(identidad.rut) : null;
+    const rutNorm = identidad.rut && !esRutGenericoExtranjero(identidad.rut) ? normRut(identidad.rut) : null;
     // Entran TODOS los proveedores de Obuma (pedido del dueño, 25-nov-2026): los dados de baja quedan con activo = 0
     // y no aparecen en las listas salvo que se pida «mostrar inactivos».
     if (rutNorm && vistoRutNorm.has(rutNorm)) continue;
@@ -468,7 +483,7 @@ export async function sincronizarProveedoresObuma(
     const resultados = await Promise.all(lote.map(async p => {
       const identidad = identidadDesdeObuma(p, formasPago, comprasPorProveedor, bancos);
       const obumaId = String(p.proveedor_id);
-      const existenteId = localPorObumaId.get(obumaId) ?? (identidad.rut ? localPorRut.get(normRut(identidad.rut)) : undefined);
+      const existenteId = localPorObumaId.get(obumaId) ?? (identidad.rut && !esRutGenericoExtranjero(identidad.rut) ? localPorRut.get(normRut(identidad.rut)) : undefined);
       if (existenteId) {
         await actualizarProveedor(existenteId, identidad);
         return 'actualizado' as const;

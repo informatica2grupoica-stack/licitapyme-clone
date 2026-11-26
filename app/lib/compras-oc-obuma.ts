@@ -16,12 +16,13 @@ import { listarAprobacionesLinea } from '@/app/lib/compras-aprobacion-lineas';
 import { listarProductosCompra, sincronizarTareaOcProveedores } from '@/app/lib/compras';
 import { productosConCompraRapidaAprobada, listarComprasRapidas, type CompraRapida } from '@/app/lib/compras-compra-rapida';
 import {
-  crearOrdenCompraObuma, descripcionesProductosObuma, modificarOrdenCompraObuma, leerOcObuma, type CambiosOcObuma, proveedorPorId, listarFormasPago, centrosDeCostoCompleto, proveedorPorRut, crearProveedorObuma, buscarCentroCostoPorLicitacion, folioProyectoPorLicitacion,
+  crearOrdenCompraObuma, descripcionesProductosObuma, modificarOrdenCompraObuma, leerOcObuma, type CambiosOcObuma, proveedorPorId, listarFormasPago, centrosDeCostoCompleto, proveedorPorRut, crearProveedorObuma, proveedoresObumaCompleto, buscarCentroCostoPorLicitacion, folioProyectoPorLicitacion,
   listarComprasOc, listarComprasOcItems, mapaFormasPagoCompleto, listarMonedasExtranjerasObuma, type ObumaFormaPago, type DatosCrearProveedorObuma,
 } from '@/app/lib/obuma';
 import { METODOS_DESPACHO_OBUMA } from '@/app/lib/obuma-despacho';
 import { comprasObumaDeLicitacion, netoDeCompra, type FacturaObuma } from '@/app/lib/obuma-compras';
 import { rutNormalizado } from '@/app/lib/ordenes-compra';
+import { esRutGenericoExtranjero } from '@/app/lib/rut-generico';
 import { listarOcPropias } from '@/app/lib/compras-oc-propia';
 import { cargasDeProductos } from '@/app/lib/compras-combustible';
 import { calcularCarga, lineasOcCombustible } from '@/app/lib/compras-combustible-core';
@@ -200,8 +201,8 @@ export async function proveedoresParaOrdenCompra(negocioId: number, { buscarDupl
   // escribían el nombre distinto (4061 de 4152-22-LE26: «TRANSPORTES Y» vs «TRANSPORTES  Y»).
   const ocsLicitankPorProveedor = new Map<string, OcLicitank[]>();
   const clavesProveedor = (rut: string | null | undefined, nombre: string | null | undefined): string[] => {
-    const r = rutNormalizado(rut);
-    return [...(r ? [`rut:${r}`] : []), `nom:${nombreComparable(nombre)}`];
+    const r = esRutGenericoExtranjero(rut) ? null : rutNormalizado(rut);
+    return [...(r ? [`rut:${r}`] : []),`nom:${nombreComparable(nombre)}`];
   };
   const ocsPropiasDe = (g: { proveedorRut?: string | null; proveedorNombre: string }): OcLicitank[] => {
     const vistas = new Set<string>();
@@ -629,9 +630,20 @@ export async function crearOrdenCompraParaProveedor(
   // verificarProveedorEnObuma/crearProveedorEnObumaExplicito). Acá solo se comprueba, no se crea.
   // Proveedor extranjero sin RUT chileno (ej. Ningbo): si ya está en Obuma se busca por su id de Obuma y se emite con la ficha que Obuma tiene.
   let ficha: FichaProveedorObuma | null;
-  if (grupo.proveedorRut?.trim()) ficha = await verificarProveedorEnObuma(grupo.proveedorRut);
-  else if (grupo.proveedorObumaId) {
-    const p = await proveedorPorId(grupo.proveedorObumaId).catch(() => null);
+  // RUT genérico de extranjeros (55.555.555-5): Obuma devuelve siempre el primero de la lista (otro proveedor), así que se busca por su id
+  // de Obuma o, si no está enlazado, por el NOMBRE entre los que comparten ese RUT.
+  const rutGenerico = esRutGenericoExtranjero(grupo.proveedorRut);
+  let obumaIdExtranjero = grupo.proveedorObumaId;
+  if (rutGenerico && !obumaIdExtranjero) {
+    const igual = (await proveedoresObumaCompleto().catch(() => [])).filter(p => esRutGenericoExtranjero(p.proveedor_rut) && nombreComparable(p.proveedor_razon_social) === nombreComparable(grupo.proveedorNombre));
+    if (igual.length === 1) obumaIdExtranjero = String(igual[0].proveedor_id);
+    else throw new Error(igual.length > 1
+      ? `Hay ${igual.length} proveedores «${grupo.proveedorNombre}» en Obuma con el RUT genérico: enlaza el correcto en Proveedores antes de emitir la orden.`
+      : `«${grupo.proveedorNombre}» no está en Obuma con el RUT genérico 55.555.555-5: créalo primero en Obuma (o enlázalo en Proveedores) para emitir la orden.`);
+  }
+  if (grupo.proveedorRut?.trim() && !rutGenerico) ficha = await verificarProveedorEnObuma(grupo.proveedorRut);
+  else if (obumaIdExtranjero) {
+    const p = await proveedorPorId(obumaIdExtranjero).catch(() => null);
     ficha = p ? {
       proveedorId: p.proveedor_id, rut: p.proveedor_rut || '', razonSocial: p.proveedor_razon_social,
       direccion: p.proveedor_direccion || null, comuna: p.proveedor_comuna || null,
