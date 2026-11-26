@@ -8,7 +8,7 @@
 // la creación real, una orden por proveedor del escenario elegido (pedido explícito del usuario).
 // El resto de los hitos (pago, anticipo, factura, carpeta, provisión) siguen siendo checklist
 // manual — esos de verdad no tienen todavía un endpoint de creación confirmado.
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useToast } from '@/app/components/ui/toast';
 import { parsearMontoCL } from '@/app/lib/numeros';
 import { useCompras } from '@/app/compras/[negocioId]/ComprasContext';
@@ -83,7 +83,17 @@ const tcNumero = (s: string) => Number(s.trim().replace(',', '.'));
 type EstadoProveedorObuma = 'idle' | 'cargando' | 'existe' | 'no_existe' | 'sin_rut';
 
 
-export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { negocioId: number; puedeOperar: boolean; parte?: 'todo' | 'oc' | 'hitos' }) {
+const normNombre = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9 ]/g, ' ').replace(/s+/g, ' ').trim();
+const normRut = (s: string | null | undefined) => String(s ?? '').replace(/[^0-9kK]/g, '').toLowerCase();
+/** El proveedor del grupo con OC propia: por RUT, o por sus dos primeras palabras del nombre (la fila puede venir sin RUT). */
+function esProveedorOcultado(p: { proveedorNombre: string; proveedorRut: string | null }, o: { nombre: string; rut: string } | null | undefined): boolean {
+  if (!o) return false;
+  if (normRut(p.proveedorRut) && normRut(p.proveedorRut) === normRut(o.rut)) return true;
+  const raiz = normNombre(o.nombre).split(' ').slice(0, 2).join(' ');
+  return raiz.length > 5 && normNombre(p.proveedorNombre).startsWith(raiz);
+}
+
+export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo', ocultarProveedor = null }: { negocioId: number; puedeOperar: boolean; parte?: 'todo' | 'oc' | 'hitos'; /** Proveedor del grupo cuya compra va por OC propia (Comercial MP → Inversiones Claro): no se ofrece emitirle OC por Obuma. */ ocultarProveedor?: { nombre: string; rut: string } | null }) {
   const toast = useToast();
   const { recargar: recargarCompartido } = useCompras();
   const [visible, setVisible] = useState(false);
@@ -114,7 +124,9 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
   // hacer la conversión a con IVA para que tengamos todo eso visible"). Mismo factor 1.19 que usa
   // el resto del proyecto (ver IVA en costeo-comparativo.ts) — se guarda solo el NETO en la base
   // (como ya se hacía), el "con IVA" es siempre calculado, nunca un campo aparte que se desincronice.
-  const [proveedoresOC, setProveedoresOC] = useState<ProveedorOC[]>([]);
+  const [proveedoresOCTodos, setProveedoresOC] = useState<ProveedorOC[]>([]);
+  // Se filtra al dibujar (no al cargar): el proveedor a ocultar llega después, cuando la tarjeta de OC propia termina de cargar.
+  const proveedoresOC = useMemo(() => proveedoresOCTodos.filter(p => !esProveedorOcultado(p, ocultarProveedor)), [proveedoresOCTodos, ocultarProveedor]);
   // Pagos por OC con comprobante (pedido del dueño, 21-oct-2026) y las OC de Obuma con su factura.
   const [pagosOc, setPagosOc] = useState<PagoOc[]>([]);
   const [ocsObuma, setOcsObuma] = useState<OcObuma[]>([]);

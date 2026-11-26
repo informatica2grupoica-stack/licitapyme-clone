@@ -30,7 +30,7 @@ interface Datos { habilitada: boolean; empresa?: Empresa; proveedor?: Proveedor 
 const campo = 'mt-0.5 w-full text-[13px] font-normal text-zinc-900 dark:text-slate-100 bg-white dark:bg-slate-900 border border-zinc-200 dark:border-slate-700 rounded-lg px-2.5 py-2 outline-none focus:ring-1 focus:ring-teal-500';
 const rotulo = 'block text-[11.5px] font-medium text-zinc-600 dark:text-slate-400';
 
-export function OcPropiaCard({ negocioId, puedeOperar, onHabilitada }: { negocioId: number; puedeOperar: boolean; onHabilitada?: (habilitada: boolean) => void }) {
+export function OcPropiaCard({ negocioId, puedeOperar, onHabilitada }: { negocioId: number; puedeOperar: boolean; onHabilitada?: (habilitada: boolean, proveedor?: { nombre: string; rut: string } | null) => void }) {
   const toast = useToast();
   const [datos, setDatos] = useState<Datos | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -45,7 +45,7 @@ export function OcPropiaCard({ negocioId, puedeOperar, onHabilitada }: { negocio
       const r = await fetch(`/api/compras/${negocioId}/oc-propia`);
       const d = await r.json();
       if (!r.ok) { setError(d.error || 'No se pudieron cargar las órdenes de compra.'); onHabilitada?.(false); return; }
-      setError(null); setDatos(d); onHabilitada?.(!!d.habilitada);
+      setError(null); setDatos(d); onHabilitada?.(!!d.habilitada, d.proveedor ? { nombre: d.proveedor.nombre, rut: d.proveedor.rut } : null);
     } catch { setError('No se pudieron cargar las órdenes de compra.'); onHabilitada?.(false); }
   }, [negocioId, onHabilitada]);
   useEffect(() => { void cargar(); }, [cargar]);

@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
 import { sincronizarComprasObuma } from '@/app/lib/obuma-compras';
 import { sincronizarTrasCambioDeOc } from '@/app/lib/compras-oc-obuma';
+import { listarProyectosObuma } from '@/app/lib/compras-proyectos-obuma';
 import { puedeOperarCompras } from '@/app/api/compras/[negocioId]/route';
 
 export const runtime = 'nodejs';
@@ -27,6 +28,9 @@ async function __POST(request: NextRequest, { params }: Params) {
     const resumen = await sincronizarComprasObuma({ paginas: 5, soloCodigo: asignacion.licitacionCodigo });
     // Siempre, aunque no haya cambiado nada en Obuma: deja este negocio al día (Comprado, tarea de OC, folios del reparto, margen).
     await sincronizarTrasCambioDeOc(id);
+    // El cuadre con el proyecto de Obuma lee una copia guardada (se renueva sola cada 30 min): si no se renueva aquí, tras corregir
+    // algo en Obuma el Resumen seguía mostrando las OC viejas (2446-240-LE26, 26-nov-2026). Si Obuma falla, queda la copia anterior.
+    try { await listarProyectosObuma(true); } catch (e) { console.warn('[compras/sincronizar-obuma] no se pudo renovar la copia de proyectos:', String(e).slice(0, 150)); }
     return NextResponse.json({ success: true, resumen });
   } catch (error: any) {
     console.error('[compras/sincronizar-obuma][POST]', String(error));

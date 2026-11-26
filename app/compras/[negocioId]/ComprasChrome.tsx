@@ -8,7 +8,7 @@
 // local — no `<Link>`, no rutas por submódulo. Costeo y Auditoría van JUNTAS otra vez (se habían
 // separado por pedido propio del usuario y luego pidió deshacerlo: "yo no pedí eso").
 import DocumentosCompraCard from './DocumentosCompraCard';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { useToast } from '@/app/components/ui/toast';
 import { ModalElegirEncargado } from './ModalElegirEncargado';
@@ -104,7 +104,9 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
   const hayPostventa = useHayPostventa(negocioId);
   // El paso «Gestionar documentos» solo existe si la empresa del negocio tiene plantillas (hoy Comercial MP).
   const [hayGestionDocs, setHayGestionDocs] = useState(false);
-  const [ocPropiaHabilitada, setOcPropiaHabilitada] = useState<boolean | null>(null);   // null = aún no se sabe; true = el negocio emite OC propia (no va por Obuma)
+  const [ocPropiaProveedor, setOcPropiaProveedor] = useState<{ nombre: string; rut: string } | null>(null);
+  const [ocPropiaHabilitada, setOcPropiaHabilitada] = useState<boolean | null>(null);
+  const alCargarOcPropia = useCallback((h: boolean, prov?: { nombre: string; rut: string } | null) => { setOcPropiaHabilitada(h); setOcPropiaProveedor(prov ?? null); }, []);   // null = aún no se sabe; true = el negocio emite OC propia (no va por Obuma)
   useEffect(() => { fetch(`/api/compras/${negocioId}/documentos-generados`).then(r => r.json()).then(d => setHayGestionDocs(!!d?.habilitado)).catch(() => {}); }, [negocioId]);
   // Otras tarjetas pueden mandar al encargado a otro paso (ej. «Ir a crear proveedor» desde una compra directa).
   useEffect(() => {
@@ -949,10 +951,10 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
                     <div className="space-y-6">
                       <section className="space-y-2">
                         <p className="text-[13px] font-semibold text-tinta dark:text-slate-100"><span className="inline-flex w-5 h-5 mr-1.5 rounded-full bg-teal-600 text-white text-[11px] items-center justify-center">1</span>Emite las órdenes de compra a los proveedores</p>
-                        {/* Si el negocio es de una empresa sin Obuma (Comercial MP) la OC es la propia: la tarjeta de Obuma pedía el RUT de un proveedor que no existe allá. */}
-                        {ocPropiaHabilitada === false && <RepartoAdminCard negocioId={negocioId} puedeOperar={puedeOperar || esAdministracion} parte="oc" />}
+                        {/* Comercial MP: las OC de Obuma de otros proveedores se siguen mostrando; solo se saca la fila de Inversiones Claro, que va por OC propia. */}
+                        <RepartoAdminCard negocioId={negocioId} puedeOperar={puedeOperar || esAdministracion} parte="oc" ocultarProveedor={ocPropiaProveedor} />
                         {/* OC que emite una empresa del grupo sin Obuma (Comercial MP → Inversiones Claro); no se muestra si el negocio va por Obuma. */}
-                        <OcPropiaCard negocioId={negocioId} puedeOperar={puedeOperar || esAdministracion} onHabilitada={setOcPropiaHabilitada} />
+                        <OcPropiaCard negocioId={negocioId} puedeOperar={puedeOperar || esAdministracion} onHabilitada={alCargarOcPropia} />
                       </section>
                       <section className="space-y-2">
                         <p className="text-[13px] font-semibold text-tinta dark:text-slate-100"><span className="inline-flex w-5 h-5 mr-1.5 rounded-full bg-teal-600 text-white text-[11px] items-center justify-center">2</span>Avance: pagos, facturas y proyecto en Obuma</p>
