@@ -17,6 +17,8 @@ export const netoDeDocumento = (d: DocumentoDelProyecto) => Math.round(d.neto ??
 export function asociarNotasAOc(
   documentos: DocumentoDelProyecto[],
   ocs: { folio: string; proveedor: string | null; facturasNeto: number[]; ocPropia?: boolean }[],
+  /** Facturas de Obuma sin OC en este negocio: una nota de crédito de igual neto y proveedor anula ESA y no le resta nada a ninguna OC. */
+  facturasSueltas: { proveedor: string | null; neto: number }[] = [],
 ): Map<string, NotaDeOc[]> {
   const salida = new Map<string, NotaDeOc[]>();
   const notas = documentos.filter(d => d.proveedorNombre && (d.tipo === '61' || d.tipo === '56'));
@@ -25,6 +27,12 @@ export function asociarNotasAOc(
   const ocsDelProveedor = new Map<string, number>();
   for (const o of conFactura) ocsDelProveedor.set(nombreSimple(o.proveedor), (ocsDelProveedor.get(nombreSimple(o.proveedor)) ?? 0) + 1);
   const usada = new Set<string>();
+  const sueltas = facturasSueltas.map(f => ({ ...f, usada: false }));
+  for (const d of notas) {
+    if (d.tipo !== '61') continue;
+    const s = sueltas.find(x => !x.usada && nombreSimple(x.proveedor) === nombreSimple(d.proveedorNombre) && Math.abs(x.neto - Math.abs(netoDeDocumento(d))) <= 2);
+    if (s) { s.usada = true; usada.add(`${d.tipo}|${d.folio}|${d.proveedorNombre}`); }
+  }
   for (const o of conFactura) {
     const unica = ocsDelProveedor.get(nombreSimple(o.proveedor)) === 1;
     for (const d of notas) {

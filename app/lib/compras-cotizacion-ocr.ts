@@ -17,7 +17,7 @@ import { crearChatIA as crearChatIABase } from '@/app/lib/gemini';
 import { conModuloIA } from '@/app/lib/ia-uso';
 const crearChatIA = conModuloIA('compras', crearChatIABase);
 import { parseJsonIA } from '@/app/lib/json-ia';
-import { normalizarLineas, tablaDeLineas, proveedorDesdeTexto, esEmpresaPropia, numeroDeTexto, descuentoPctDelTexto, descuentoMontoDelTexto, descuentoGlobalPorAplicar, type LineaCotizacion } from '@/app/lib/compras-cotizacion-lineas';
+import { juntarMilesConEspacio, normalizarLineas, tablaDeLineas, proveedorDesdeTexto, esEmpresaPropia, numeroDeTexto, descuentoPctDelTexto, descuentoMontoDelTexto, descuentoGlobalPorAplicar, type LineaCotizacion } from '@/app/lib/compras-cotizacion-lineas';
 import { empresasPropias } from '@/app/lib/auditor-compras-datos';
 import { conCupo } from '@/app/lib/cupo-ia';
 import { ivaIncluidoDelTexto, vigenciaDelTexto, incluyeFleteDelTexto, minimoDeVentaDelTexto, precioONull, textoLegible } from '@/app/lib/compras-cotizacion-lectura';
@@ -312,7 +312,7 @@ export async function extraerDatosCotizacionDeDocumento(
     }
   }
   if (!texto || texto.trim().length < 20) return null; // nada legible: no hay de dónde extraer
-  texto = juntarMontosPartidos(texto);
+  texto = juntarMilesConEspacio(juntarMontosPartidos(texto));
 
   try {
     const propias = await empresasPropias();

@@ -226,7 +226,9 @@ async function calcularProyectosObuma(forzar = false): Promise<{ proyectos: Proy
       }
     }
 
-    const netoOc = (oc: Record<string, unknown>) => (Number(oc.compra_oc_neto) || 0) + (Number(oc.compra_oc_exento) || 0);
+    // Costo de la OC = neto + exento + impuestos adicionales (impuesto específico del combustible: Obuma lo deja fuera de neto y exento,
+    // solo en `compra_oc_impuestos_adicionales`; OC 4088–4093 de 2736-44-LE26). Es lo mismo que total − IVA.
+    const netoOc = (oc: Record<string, unknown>) => (Number(oc.compra_oc_neto) || 0) + (Number(oc.compra_oc_exento) || 0) + (Number(oc.compra_oc_impuestos_adicionales) || 0);
     const estadoOc = (oc: Record<string, unknown>) => String(oc.compra_oc_estado || '').toUpperCase();
     const resumirOc = (arr: typeof ocsDelGrupo): ResumenOcProyecto => ({
       cantidad: arr.length, neto: arr.reduce((s, o) => s + netoOc(o), 0), total: arr.reduce((s, o) => s + (Number(o.compra_oc_total) || 0), 0),

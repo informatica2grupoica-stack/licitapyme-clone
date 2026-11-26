@@ -44,6 +44,8 @@ const dormir = (ms: number) => new Promise(r => setTimeout(r, ms));
 export interface FacturaObuma {
   tipoDcto: string; folioDte: string; dteId: string;
   total: number | null; fecha: string | null;
+  /** IVA que dice la factura (dte_total_iva). Las guardadas antes de leerlo no lo traen. */
+  iva?: number | null;
   proveedorRazonSocial: string | null; proveedorRut: string | null;
   s3Link: string | null;   // XML real de la factura, descarga directa (link público de Obuma)
   /** La factura tiene una nota de crédito que la anula completa en Obuma (compra_anulada / compra_notacredito = 1): no hay nada que pagar. */
@@ -253,7 +255,7 @@ export async function sincronizarComprasObuma(
         if (dte) {
           facturas.push({
             tipoDcto, folioDte, dteId: dte.dte_id,
-            total: num(dte.dte_total), fecha: dte.dte_fecha || null,
+            total: num(dte.dte_total), iva: dte.dte_total_iva != null && dte.dte_total_iva !== '' ? num(dte.dte_total_iva) : null, fecha: dte.dte_fecha || null,
             proveedorRazonSocial: dte.dte_razonsocial_emisor || null, proveedorRut: dte.dte_rut_emisor || null,
             s3Link: dte.s3_link || null, relCompraId: dte.rel_compra_id && dte.rel_compra_id !== '0' ? String(dte.rel_compra_id) : null,
           });

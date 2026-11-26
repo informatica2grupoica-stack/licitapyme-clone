@@ -2,7 +2,7 @@
 // Correr con: npx tsx --test app/lib/__tests__/compras-combustible.test.mts
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { avisosCarga, calcularCarga, cuadraConFactura, lineasOcCombustible, normalizarPatente, totalesOc, validarCarga, type CargaCombustible } from '../compras-combustible-core';
+import { avisosCarga, calcularCarga, cuadraConFactura, lineasOcCombustible, normalizarPatente, parsearLitros, totalesOc, validarCarga, type CargaCombustible } from '../compras-combustible-core';
 
 const c4058: CargaCombustible = { tipo: 'DIESEL', litros: 40, netoAfecto: 35810, impuestoEspecifico: 7537, patente: 'ab-cd12' };
 
@@ -56,4 +56,19 @@ test('avisos: un neto por litro muy distinto al habitual se avisa; con pocas car
   assert.equal(avisosCarga({ ...c4058, impuestoEspecifico: 20000 }, prev).length, 1);
   assert.deepEqual(avisosCarga({ ...c4058, netoAfecto: 80000 }, prev.slice(0, 1)), []);
   assert.deepEqual(avisosCarga({ ...c4058, tipo: 'PARAFINA', netoAfecto: 80000 }, prev), []);
+});
+
+test('aviso de litros mal digitados aun sin historial (36,19 L escrito 3619: $9 por litro)', () => {
+  const c: CargaCombustible = { tipo: 'GASOLINA_93', litros: 3619, netoAfecto: 34318, impuestoEspecifico: 17138 };
+  assert.equal(avisosCarga(c, []).length, 1);
+  assert.deepEqual(avisosCarga({ ...c, litros: 36.19 }, []), []);
+});
+
+test('litros: coma decimal, punto decimal en cargas chicas y miles de verdad', () => {
+  assert.equal(parsearLitros('25,757'), 25.757);
+  assert.equal(parsearLitros('36.19'), 36.19);
+  assert.equal(parsearLitros('25.757'), 25.757);
+  assert.equal(parsearLitros('1.250,5'), 1250.5);
+  assert.equal(parsearLitros('1.250.000'), 1250000);
+  assert.equal(parsearLitros('120'), 120);
 });

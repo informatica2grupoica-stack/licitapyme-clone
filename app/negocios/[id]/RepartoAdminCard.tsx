@@ -325,6 +325,7 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo crear');
       toast.success('Orden de compra creada en Obuma', `Folio ${data.folio ?? data.obumaCompraOcId} — ${data.monedaCodigo && data.monedaCodigo !== 'CLP' ? `${data.monedaCodigo} ${fmtMoneda(data.totalMoneda)} (≈ ${fmtCLP(data.total)})` : fmtCLP(data.total)}`);
+      if (data.advertencia) toast.error('Revisa el proveedor de la OC en Obuma', data.advertencia);
       setOcAbierta(null);
       await cargar();
     } catch (e: any) {

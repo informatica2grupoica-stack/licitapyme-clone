@@ -24,6 +24,7 @@ import { comprasObumaDeLicitacion, netoDeCompra, type FacturaObuma } from '@/app
 import { rutNormalizado } from '@/app/lib/ordenes-compra';
 import { esRutGenericoExtranjero } from '@/app/lib/rut-generico';
 import { listarOcPropias } from '@/app/lib/compras-oc-propia';
+import { netoDeFactura } from '@/app/lib/obuma-factura-neto';
 import { cargasDeProductos } from '@/app/lib/compras-combustible';
 import { calcularCarga, lineasOcCombustible } from '@/app/lib/compras-combustible-core';
 
@@ -552,7 +553,7 @@ export async function crearOrdenCompraParaProveedor(
     internacional?: boolean; monedaId?: string | null; tipoCambio?: number | null;
   },
   actorId: number, actorNombre: string | null,
-): Promise<{ obumaCompraOcId: string; folio: string | null; total: number; monedaCodigo: string; totalMoneda: number }> {
+): Promise<{ obumaCompraOcId: string; folio: string | null; total: number; monedaCodigo: string; totalMoneda: number; advertencia: string | null }> {
   // Control de gasto (pedido explícito del usuario): dinero de verdad sale recién cuando se crea la
   // OC en Obuma, así que ese es el punto de mayor riesgo — se exigen AMBAS compuertas aprobadas, no
   // solo la de compra. La spec (§11.1) solo pide la Compuerta 1 para arrancar "el proceso documental
@@ -758,7 +759,21 @@ export async function crearOrdenCompraParaProveedor(
   }, actorId, actorNombre);
   await sincronizarTrasCambioDeOc(negocioId);
 
-  return { obumaCompraOcId: creada.compraOcId, folio: creada.folio, total: totalClp, monedaCodigo: moneda?.codigo ?? 'CLP', totalMoneda: creada.total };
+  // Con el RUT genérico Obuma elige el proveedor por RUT (la API no recibe id) y toma el primero de la lista: se relee la OC y, si quedó con
+  // otro proveedor (caso OC 4109: Omar en vez de Xiamen), se avisa para corregirlo a mano en Obuma.
+  let advertencia: string | null = null;
+  if (rutGenerico && obumaIdExtranjero) {
+    const real = await leerOcObuma(creada.compraOcId).catch(() => null);
+    if (real?.proveedorId && real.proveedorId !== String(obumaIdExtranjero)) {
+      advertencia = `Obuma asignó la OC ${creada.folio ?? creada.compraOcId} a otro proveedor (id ${real.proveedorId}) porque el RUT 55.555.555-5 lo comparten todos los extranjeros. Cámbiala a «${nombreReal}» directo en Obuma.`;
+      await registrarEvento({
+        tipo: 'COMPRAS_OC_PROVEEDOR_DISTINTO', licitacionCodigo, actorId, actorNombre, mensaje: advertencia,
+        metadata: { negocio_id: negocioId, obuma_compra_oc_id: creada.compraOcId, proveedor_esperado: String(obumaIdExtranjero), proveedor_en_obuma: real.proveedorId },
+      }).catch(() => {});
+    }
+  }
+
+  return { obumaCompraOcId: creada.compraOcId, folio: creada.folio, total: totalClp, monedaCodigo: moneda?.codigo ?? 'CLP', totalMoneda: creada.total, advertencia };
 }
 
 /** Lo que hoy tiene una OC (emitida desde Licitank en este negocio) en Obuma, para armar el formulario de «Modificar OC». */
@@ -1005,14 +1020,14 @@ export interface ResumenGastosCompra {
   comprasCruzadas: { cantidad: number; total: number; neto: number };
   // Las OC reales que YA existen en Obuma para esta licitación (hechas directo, no por Licitank),
   // con los SKU (código comercial) de sus líneas — para mostrarlas aparte de las que emite Licitank.
-  ocsObuma: { din: string[]; compraOcId: string; excluidoNeto: number; folio: string; proveedor: string | null; estado: string | null; fecha: string | null; neto: number; total: number; skus: string[]; lineas: { lineaId: string | null; cantidadNegocio: number | null; producto: string; sku: string | null; cantidad: number | null; precio: number | null; subtotal: number | null }[] }[];
+  ocsObuma: { din: string[]; compraOcId: string; excluidoNeto: number; folio: string; proveedor: string | null; rut?: string | null; estado: string | null; fecha: string | null; neto: number; total: number; skus: string[]; lineas: { lineaId: string | null; cantidadNegocio: number | null; producto: string; sku: string | null; cantidad: number | null; precio: number | null; subtotal: number | null }[] }[];
   // OC propias (Comercial MP: se emiten en Licitank, no pasan por Obuma), sin anuladas. También son gasto (979: las vacuolavadoras, $10,5M, quedaban fuera).
   ocsPropias: { folio: string; proveedor: string; estado: string; fecha: string; neto: number; total: number; /** Parte de una OC interna (empresa del grupo) que es solo respaldo: no suma al costo. */ respaldoInternoNeto?: number; lineas: { producto: string; sku: string | null; cantidad: number | null; precio: number | null; subtotal: number | null }[] }[];
   /** Gasto real NETO: lo de Obuma sin anuladas (si Obuma aún no trae nada, lo emitido por Licitank) + las OC propias. */
   gastadoNeto: number | null;
   facturas: {
     cantidad: number; total: number;
-    detalle: { dteId: string; folio: string; proveedor: string | null; total: number | null; fecha: string | null; xmlUrl: string | null; ocFolio: string | null }[];
+    detalle: { dteId: string; folio: string; proveedor: string | null; total: number | null; /** Neto real: total − IVA (con impuesto específico, total ÷ 1,19 no sirve). */ neto?: number | null; fecha: string | null; xmlUrl: string | null; ocFolio: string | null }[];
     descartadas: { dteId: string; folio: string; proveedor: string | null; total: number | null; fecha: string | null; xmlUrl: string | null; motivo: string }[];
   };
   montoCosteado: number | null;
@@ -1098,7 +1113,7 @@ export async function resumenGastosCompra(negocioId: number, montoCosteado: numb
     comprasCruzadas: { cantidad: cruzadas.length, total: totalCruzadas, neto: Math.round(netoCruzadas) },
     ocsObuma: cruzadas.map(c => ({
       din: c.din, compraOcId: c.compraOcId, excluidoNeto: c.excluidoNeto,
-      folio: c.folio || c.compraOcId, proveedor: c.proveedorRazonSocial, estado: c.estado, fecha: c.fechaIngreso,
+      folio: c.folio || c.compraOcId, proveedor: c.proveedorRazonSocial, rut: c.proveedorRut, estado: c.estado, fecha: c.fechaIngreso,
       neto: netoDeCompra(c), total: Math.round(c.total || 0),
       skus: [...new Set(c.items.map(i => i.codigoComercial).filter((x): x is string => !!x))],
       lineas: c.items.map(i => ({
@@ -1116,7 +1131,11 @@ export async function resumenGastosCompra(negocioId: number, montoCosteado: numb
     facturas: {
       cantidad: facturas.length + facturasPropias.length, total: totalFacturas,
       detalle: [
-        ...facturas.map(f => ({ dteId: f.dteId, folio: f.folioDte, proveedor: f.proveedorRazonSocial, total: f.total, fecha: f.fecha, xmlUrl: f.s3Link, ocFolio: ocDeFactura.get(String(f.dteId || `${f.tipoDcto}#${f.folioDte}`)) ?? null })),
+        ...facturas.map(f => {
+          const ocFolio = ocDeFactura.get(String(f.dteId || `${f.tipoDcto}#${f.folioDte}`)) ?? null;
+          const oc = cruzadas.find(c => (c.folio || c.compraOcId) === ocFolio);
+          return { dteId: f.dteId, folio: f.folioDte, proveedor: f.proveedorRazonSocial, total: f.total, neto: netoDeFactura(f, oc), fecha: f.fecha, xmlUrl: f.s3Link, ocFolio };
+        }),
         ...facturasPropias,
       ],
       descartadas,

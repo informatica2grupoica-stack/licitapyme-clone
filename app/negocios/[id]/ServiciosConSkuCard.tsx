@@ -10,7 +10,7 @@ import { useToast } from '@/app/components/ui/toast';
 import { useCompras } from '@/app/compras/[negocioId]/ComprasContext';
 import { IconPlus as Plus, IconLoader2 as Loader2, IconTruck as Truck, IconTool as Tool, IconBarcode as Barcode, IconGasStation as Fuel } from '@tabler/icons-react';
 import { rutValido, formatearRut } from './FletesCompra';
-import { TIPOS_COMBUSTIBLE, calcularCarga, cuadraConFactura, etiquetaCombustible, validarCarga, type CargaCombustible, type TipoCombustible } from '@/app/lib/compras-combustible-core';
+import { TIPOS_COMBUSTIBLE, calcularCarga, cuadraConFactura, etiquetaCombustible, parsearLitros, validarCarga, type CargaCombustible, type TipoCombustible } from '@/app/lib/compras-combustible-core';
 
 type Tipo = 'FLETE' | 'ADICIONAL' | 'COMBUSTIBLE';
 interface Servicio { id: number; descripcion: string; cantidad: number | null; esServicio: boolean; servicioTipo: Tipo | null; subestado: string }
@@ -26,7 +26,7 @@ const ETIQUETA: Record<Tipo, string> = { FLETE: 'Flete', ADICIONAL: 'Adicional',
 /** La carga que dicen los campos del formulario (litros con coma decimal; neto e impuesto en pesos enteros). */
 const cargaDelForm = (f: Form): CargaCombustible => {
   const n = (t: string) => Number(String(t).replace(/[^\d,.-]/g, '').replace(/\./g, '').replace(',', '.'));
-  return { tipo: f.comb as TipoCombustible, litros: n(f.litros), netoAfecto: n(f.netoComb), impuestoEspecifico: f.impuesto.trim() ? n(f.impuesto) : 0, patente: f.patente.trim() || null };
+  return { tipo: f.comb as TipoCombustible, litros: parsearLitros(f.litros), netoAfecto: n(f.netoComb), impuestoEspecifico: f.impuesto.trim() ? n(f.impuesto) : 0, patente: f.patente.trim() || null };
 };
 
 export function ServiciosConSkuCard({ negocioId, puedeOperar }: { negocioId: number; puedeOperar: boolean }) {

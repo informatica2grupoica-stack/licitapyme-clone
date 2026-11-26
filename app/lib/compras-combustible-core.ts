@@ -34,6 +34,16 @@ export interface CargaCombustible {
 
 export const TASA_IVA = 0.19;
 
+/** Litros como los escribe el equipo. La coma es decimal («25,757»); un punto suelto con 1 o 2 cifras enteras también («36.19», «25.757»:
+ *  una carga de camioneta no pasa de 99 L), porque con el punto quitado se guardaban ×100 / ×1.000 (OC 4088–4093 de 2736-44-LE26).
+ *  Con miles de verdad («1.250,5» o «1.250.000») el punto se quita como siempre. */
+export function parsearLitros(texto: string): number {
+  const t = String(texto).replace(/[^\d,.]/g, '');
+  const puntos = (t.match(/\./g) ?? []).length;
+  if (!t.includes(',') && puntos === 1 && /^\d{1,2}\.\d+$/.test(t)) return Number(t);
+  return Number(t.replace(/\./g, '').replace(',', '.'));
+}
+
 /** Patente chilena sin puntos ni guiones, en mayúsculas («ABCD12», «AB1234»). */
 export function normalizarPatente(p: string | null | undefined): string | null {
   const s = String(p ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
@@ -108,10 +118,13 @@ const mediana = (xs: number[]) => { const s = [...xs].sort((a, b) => a - b); con
 
 /** Avisos (no bloquean): precio por litro o impuesto por litro muy lejos de lo que ya se cargó del mismo combustible. Detecta digitación mala. */
 export function avisosCarga(c: CargaCombustible, previas: Array<{ tipo: string; litros: number; netoAfecto: number; impuestoEspecifico: number }>): string[] {
-  const mismas = previas.filter(p => p.tipo === c.tipo && p.litros > 0);
-  if (mismas.length < 2) return [];
   const avisos: string[] = [];
   const act = calcularCarga(c);
+  // Sin historial también se nota un error de digitación: «25.757» (coma de miles) se leía como 25.757 L en vez de 25,757 L (OC 4088–4093 de 2736-44-LE26).
+  if (c.litros > 0 && (act.precioLitroNeto < 100 || act.precioLitroNeto > 5000))
+    avisos.push(`El neto por litro ($${Math.round(act.precioLitroNeto).toLocaleString('es-CL')}) no es creíble: revisa los litros (los decimales van con coma, 25,757) y el neto.`);
+  const mismas = previas.filter(p => p.tipo === c.tipo && p.litros > 0);
+  if (mismas.length < 2) return avisos;
   const medPrecio = mediana(mismas.map(p => p.netoAfecto / p.litros));
   if (medPrecio > 0 && Math.abs(act.precioLitroNeto - medPrecio) / medPrecio > 0.25)
     avisos.push(`El neto por litro ($${Math.round(act.precioLitroNeto).toLocaleString('es-CL')}) se aleja más de 25 % de lo habitual en ${etiquetaCombustible(c.tipo)} ($${Math.round(medPrecio).toLocaleString('es-CL')}). Revisa litros y neto.`);

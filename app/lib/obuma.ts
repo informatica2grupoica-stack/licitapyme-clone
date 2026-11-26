@@ -249,6 +249,8 @@ export interface ObumaDte {
   dte_rut_emisor: string;
   dte_razonsocial_emisor: string;
   dte_total: string;
+  /** IVA de la factura: total − IVA es el costo real (con impuesto específico del combustible, total ÷ 1,19 no sirve). */
+  dte_total_iva?: string;
   rel_compra_id: string;
   rel_proveedor_id: string;
   s3_link: string;   // XML de la factura, descarga directa

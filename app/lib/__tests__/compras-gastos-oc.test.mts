@@ -53,3 +53,30 @@ test('consolidado 387: transporte con OC suma una vez y el contraste con Obuma q
   assert.equal(con.obuma!.diferenciaPct, 0);                   // con el gasto enlazado, costeo y Obuma calzan
   assert.ok((sin.obuma!.diferenciaPct as number) > 15);        // sin enlazar, Obuma parecía +16 %
 });
+
+// ── OC de combustible: UN gasto por su costo completo (neto + impuesto específico) ───────────────────────────────────────────────
+test('OC de combustible como la 4058 (línea afecta + línea exenta): un solo gasto de 43.347', () => {
+  const oc: OcObumaParaGasto = { folio: '4058', proveedor: 'JP', estado: 'FACTURADA', fecha: '2026-11-20', netoOc: 43347, lineas: [
+    { descripcion: 'COMBUSTIBLE INTERNO', subtotal: 35_810 }, { descripcion: 'impuesto específico', subtotal: 7_537 } ] };
+  const r = ocsDisponiblesParaGasto([oc], [], []);
+  assert.equal(r.length, 1);
+  assert.equal(r[0].monto, 43_347);
+});
+
+test('OC de combustible hecha a mano (línea del impuesto en $0, monto en «impuestos adicionales», OC 4093): costo = total − IVA, 51.456', () => {
+  const oc: OcObumaParaGasto = { folio: '4093', proveedor: 'LONCOMILLA', estado: 'FACTURADA', fecha: '2026-11-23', netoOc: 51_456, lineas: [
+    { descripcion: 'COMBUSTIBLE INTERNO', subtotal: 34_318 }, { descripcion: 'Impuesto especifico gasolina', subtotal: 0 } ] };
+  const r = ocsDisponiblesParaGasto([oc], [], []);
+  assert.deepEqual(r.map(x => x.monto), [51_456]);
+});
+
+test('una vez anotado el gasto, la OC de combustible no se vuelve a ofrecer; anulada tampoco', () => {
+  const oc: OcObumaParaGasto = { folio: '4058', proveedor: 'JP', estado: 'FACTURADA', fecha: null, netoOc: 43347, lineas: [{ descripcion: 'COMBUSTIBLE INTERNO', subtotal: 35_810 }, { descripcion: 'impuesto específico', subtotal: 7_537 }] };
+  assert.equal(ocsDisponiblesParaGasto([oc], [], [{ ocObumaFolio: '4058', monto: 43_347 }]).length, 0);
+  assert.equal(ocsDisponiblesParaGasto([{ ...oc, estado: 'ANULADA' }], [], []).length, 0);
+});
+
+test('una OC con combustible Y otros productos NO se junta: sigue como antes', () => {
+  const oc: OcObumaParaGasto = { folio: '9', proveedor: 'X', estado: 'FACTURADA', fecha: null, netoOc: 100000, lineas: [{ descripcion: 'COMBUSTIBLE INTERNO', subtotal: 40_000 }, { descripcion: 'Transporte a obra', subtotal: 60_000 }] };
+  assert.deepEqual(ocsDisponiblesParaGasto([oc], [], []).map(x => x.monto), [60_000]);
+});

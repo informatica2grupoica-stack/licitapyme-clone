@@ -82,6 +82,13 @@ export function numerosDelTexto(texto: string): number[] {
   return out;
 }
 
+/** 26-nov (727202-72-LP26, GGH 232.462): el PDF digital imprime «115 .966 CLP» con un espacio antes del punto de miles y la IA no
+ *  lo leyó como número (la sierra sable Makita quedó sin precio). Se junta solo un grupo de 1-3 dígitos + espacio + «.ddd» que no
+ *  sigue a otro dígito, punto o coma («5 .500» sí; «1.234 .567» y «12,5 .300» no). */
+export function juntarMilesConEspacio(texto: string): string {
+  return String(texto || '').replace(/(?<![\d.,])(\d{1,3})[ \t  ]+(\.\d{3})(?!\d)/g, '$1$2');
+}
+
 /** ¿El número aparece en el documento (con tolerancia de redondeo de ±1 peso o ±0,5 %)? */
 export function numeroApareceEnTexto(n: number | null | undefined, texto: string): boolean {
   if (n == null || !Number.isFinite(n) || n <= 0) return false;

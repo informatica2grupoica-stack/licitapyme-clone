@@ -9,7 +9,7 @@
 import pool from '@/app/lib/db';
 import { ahoraChileSQL } from '@/app/lib/tz';
 import { registrarEvento } from '@/app/lib/historial';
-import { comprasObumaDeLicitacion } from '@/app/lib/obuma-compras';
+import { comprasObumaDeLicitacion, netoDeCompra } from '@/app/lib/obuma-compras';
 import { ocsDisponiblesParaGasto, type OcDisponibleParaGasto } from '@/app/lib/compras-gastos-oc';
 import { obtenerTipoCambio } from '@/app/lib/tipo-cambio';
 import { validarMontoCLP } from '@/app/lib/numeros';
@@ -57,7 +57,7 @@ export async function listarOcsDisponiblesParaGasto(negocioId: number): Promise<
   return ocsDisponiblesParaGasto(
     compras.map(c => ({
       folio: c.folio || c.compraOcId, proveedor: c.proveedorRazonSocial, estado: c.estado, fecha: c.fechaIngreso,
-      lineas: c.items.map(i => ({ descripcion: i.descripcion, subtotal: i.subtotal })),
+      lineas: c.items.map(i => ({ descripcion: i.descripcion, subtotal: i.subtotal })), netoOc: netoDeCompra(c),
     })),
     (propias as any[]).map(p => ({ folio: p.obuma_folio, fleteMonto: Number(p.flete_monto) || 0 })),
     vinculados.map(g => ({ ocObumaFolio: g.ocObumaFolio, monto: g.monto })),

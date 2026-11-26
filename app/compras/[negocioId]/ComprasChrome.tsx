@@ -56,13 +56,15 @@ import { FranjaCompra } from './FranjaCompra';
 import { siguientePaso, type SiguientePaso } from '@/app/lib/compras-siguiente-paso';
 import { useCompras, fmtCLP, fmtFecha, type OrdenCompra } from './ComprasContext';
 import { CoencargadosCompras } from './CoencargadosCompras';
+import { AvanceComprasCard } from './AvanceComprasCard';
+import { useNovedadesCompras } from './useNovedadesCompras';
 import { ResumenObumaModal } from './ResumenObumaModal';
 import { IconBolt as ObumaIcon, IconShoppingCart as ShoppingCart, IconLoader2 as Loader2, IconUserPlus as UserPlus, IconClock as Clock, IconAlertTriangle as AlertTriangle, IconChevronDown as ChevronDown, IconChevronUp as ChevronUp, IconCurrencyDollar as DollarSign, IconFileAlert as FileWarning, IconBuilding as Building2, IconFileText as FileText, IconDeviceFloppy as Save, IconClipboardList as ClipboardList, IconRefresh as RefreshCw, IconBolt as Zap, IconExternalLink as ExternalLink, IconArrowUpRight as ArrowUpRight, IconCalculator as Calculator, IconClipboardCheck as ClipboardCheck, IconPackage as Package, IconTruck as Truck, IconHistory as History, IconGauge as Gauge, IconWallet as Wallet, IconCalendarTime as CalendarTime, IconHourglassHigh as Hourglass, IconMail as Mail, IconPhone as Phone, IconUserCircle as UserCircle, IconCheck as Check, IconArrowRight as ArrowRight, IconTarget as Target, IconFilePlus as FilePlus } from '@tabler/icons-react';
 
 // Gantt SALIÓ del stepper (pedido explícito, 17-sep-2026: "es aparte de todo ese flujo y es lo
 // primero que se debe ver") — ahora es una tarjeta propia, arriba de todo, no una pestaña más.
 // Documentos entró en su lugar como pestaña (antes era tarjeta fija, ocupaba mucho espacio arriba).
-type Fase = 'tareas' | 'costeo' | 'aprobacion' | 'compra' | 'entrega' | 'gestion' | 'obuma' | 'documentos' | 'actividad';
+type Fase = 'tareas' | 'costeo' | 'aprobacion' | 'compra' | 'entrega' | 'gestion' | 'obuma' | 'documentos' | 'actividad' | 'avance';
 const FASES: { key: Fase; label: string; icon: typeof ClipboardList; descripcion: string; secundaria?: boolean }[] = [
   { key: 'tareas', label: 'Tareas', icon: ClipboardList, descripcion: 'Lo primero: las tareas del proyecto con su plazo. El plazo de entrega y las incidencias están siempre a la vista en la franja de arriba.' },
   { key: 'costeo', label: 'Costeo y auditoría', icon: Calculator, descripcion: 'Aquí se cotiza: verifica el costo de cada producto, carga las cotizaciones de los proveedores y compara para elegir la mejor compra.' },
@@ -70,6 +72,8 @@ const FASES: { key: Fase; label: string; icon: typeof ClipboardList; descripcion
   { key: 'compra', label: 'Compra y logística', icon: Package, descripcion: 'Lo que pasa después de aprobar: cómo se retira la mercadería, órdenes de compra a proveedores y facturas, importación si corresponde y los gastos del proyecto.' },
   { key: 'entrega', label: 'Entrega y cierre', icon: Truck, descripcion: 'Plazo de entrega, incidencias, entrega al cliente, acta firmada, costo real final, postventa y cierre del proyecto.' },
   { key: 'gestion', label: 'Gestionar documentos', icon: FilePlus, descripcion: 'Certificados, actas y otros documentos hechos desde plantillas: los datos de la licitación se llenan solos.' },
+  { key: 'avance', label: 'Avance', icon: Gauge, descripcion: 'Cómo va la licitación producto por producto: cotizaciones, proveedor elegido, aprobación, SKU y orden de compra, con quién lo hizo y qué falta.', secundaria: true },
+  // «Obuma» ya no es un botón (no servía para nada): el paso sigue existiendo para los enlaces que llevan a crear proveedor / SKU / OC.
   { key: 'obuma', label: 'Obuma', icon: ObumaIcon, descripcion: 'Un solo lugar para lo que se crea en Obuma: primero el proveedor, después el SKU de cada producto y por último las órdenes de compra.', secundaria: true },
   { key: 'documentos', label: 'Documentos', icon: FileText, descripcion: 'Bases y acta de la licitación, más la revisión automática del agente sobre este negocio.', secundaria: true },
   { key: 'actividad', label: 'Actividad', icon: History, descripcion: 'Línea de tiempo del proyecto: qué se hizo día a día, desde que se ganó hasta ahora.', secundaria: true },
@@ -88,8 +92,10 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
   const [faseElegida, setFaseActiva] = useState<Fase>('tareas');
   // El Auditor de Compras no ve Tareas ni Costeo: arranca (y cae) en Aprobación y SKU.
   const faseActiva: Fase = soloDesdeAprobacion && (faseElegida === 'tareas' || faseElegida === 'costeo') ? 'aprobacion' : faseElegida;
-  // El botón «Obuma» abre un resumen de lo creado en Obuma desde Licitank (ya no lleva a otra pantalla).
+  // El botón «Obuma» se quitó (26-nov-2026): en su lugar va «Avance». El resumen de Obuma sigue en el código pero ya no se abre desde un botón.
   const [resumenObumaAbierto, setResumenObumaAbierto] = useState(false);
+  // Lo que la otra persona hizo desde la última visita: insignia en el botón «Avance» y bloque dentro del panel.
+  const { novedades, marcarVistas } = useNovedadesCompras(negocioId);
   const hayPostventa = useHayPostventa(negocioId);
   // El paso «Gestionar documentos» solo existe si la empresa del negocio tiene plantillas (hoy Comercial MP).
   const [hayGestionDocs, setHayGestionDocs] = useState(false);
@@ -109,7 +115,7 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
   useEffect(() => {
     const q = new URLSearchParams(window.location.search);
     const fase = q.get('fase');
-    if (fase && ['tareas', 'costeo', 'aprobacion', 'compra', 'entrega', 'gestion', 'obuma', 'documentos', 'actividad'].includes(fase)) {
+    if (fase && ['tareas', 'costeo', 'aprobacion', 'compra', 'entrega', 'gestion', 'obuma', 'documentos', 'actividad', 'avance'].includes(fase)) {
       irAFase(fase as Fase);
       const pid = Number(q.get('producto'));
       if (q.get('pestana') || pid) enfocarProducto(q.get('pestana'), pid > 0 ? pid : null);
@@ -873,13 +879,15 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
               </div>
             </div>
             <div className="flex items-center gap-1.5 pt-1">
-              {FASES.filter(f => f.secundaria).map(f => {
+              {FASES.filter(f => f.secundaria && f.key !== 'obuma').map(f => {
                 const Icon = f.icon; const activa = faseActiva === f.key;
+                const nuevas = f.key === 'avance' ? novedades.length : 0;
                 return (
-                  <button key={f.key} onClick={() => (f.key === 'obuma' ? setResumenObumaAbierto(true) : setFaseActiva(f.key))} aria-current={activa ? 'page' : undefined}
-                    title={f.key === 'obuma' ? 'Ver lo que ya se creó en Obuma desde Licitank' : undefined}
+                  <button key={f.key} onClick={() => setFaseActiva(f.key)} aria-current={activa ? 'page' : undefined}
+                    title={nuevas > 0 ? `${nuevas} movimiento${nuevas === 1 ? '' : 's'} de otra persona desde tu última visita` : undefined}
                     className={`inline-flex items-center gap-1.5 text-[12.5px] font-semibold px-3 py-1.5 rounded-lg border transition-colors ${activa ? 'bg-teal-600 border-teal-600 text-white' : 'bg-white dark:bg-slate-900 border-linea dark:border-slate-800 text-tinta-2 dark:text-slate-400 hover:border-teal-300 hover:text-teal-700'}`}>
                     <Icon size={14} /> {f.label}
+                    {nuevas > 0 && <span className={`text-[10.5px] font-semibold min-w-[18px] h-[18px] px-1 rounded-full inline-flex items-center justify-center ${activa ? 'bg-white text-teal-700' : 'bg-amber-400 text-white'}`}>{nuevas}</span>}
                   </button>
                 );
               })}
@@ -920,6 +928,7 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
                 <AprobacionesCompraCard negocioId={negocioId} puedeOperar={puedeOperar} parte="todo" />
               </div>
             )}
+            {faseActiva === 'avance' && <AvanceComprasCard negocioId={negocioId} novedades={novedades} onVistas={marcarVistas} version={tareas.filter(t => t.estado === 'HECHA').length + novedades.length} />}
             {faseActiva === 'obuma' && <ObumaHubCard negocioId={negocioId} puedeOperar={puedeOperar} esAdministracion={esAdministracion} />}
             {faseActiva === 'compra' && (
               <Pestanas id="compra" inicial="pasos" pestanas={[

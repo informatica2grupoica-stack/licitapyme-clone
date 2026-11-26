@@ -9,6 +9,7 @@ import { resumenGastosCompra } from '@/app/lib/compras-oc-obuma';
 import { emparejarPlanConObuma } from '@/app/lib/compras-sku-obuma';
 import { netoDeCompra, esOcDeGarantia } from '@/app/lib/obuma-compras';
 import { listarProyectosObuma } from '@/app/lib/compras-proyectos-obuma';
+import { facturasSueltasDeProveedores } from '@/app/lib/obuma-facturas-sueltas';
 import { asociarNotasAOc, type NotaDeOc } from '@/app/lib/compras-notas-factura';
 import { listarGastos } from '@/app/lib/compras-gastos';
 import { listarOcPropias } from '@/app/lib/compras-oc-propia';
@@ -155,7 +156,7 @@ export async function resumenComparativoCompra(negocioId: number): Promise<Resum
       ocFolio: folio, proveedor: oc.proveedorRazonSocial, estado: oc.estado,
       planNeto: planPorOc.has(folio) ? r0(planPorOc.get(folio)!) : null,
       obumaNeto: netoDeCompra(oc),
-      facturadoNeto: r0(fs.reduce((s, f) => s + (f.total || 0), 0) / 1.19), facturas: fs.length, din: oc.din,
+      facturadoNeto: r0(fs.reduce((s, f) => s + (f.neto ?? (f.total || 0) / 1.19), 0)), facturas: fs.length, din: oc.din,
     };
   });
   // OC interna (empresa del grupo) por productos que ya tienen OC externa: se muestra, pero su respaldo no suma al costo ni al facturado.
@@ -176,8 +177,8 @@ export async function resumenComparativoCompra(negocioId: number): Promise<Resum
     const documentos = proyectos.find(p => p.negociosCoincidentes.some(n => n.negocioId === negocioId))?.documentos ?? [];
     const notasPorOc = asociarNotasAOc(documentos, porOc.map(o => ({
       folio: o.ocFolio, proveedor: o.proveedor, ocPropia: o.ocPropia,
-      facturasNeto: gastos.facturas.detalle.filter(f => f.ocFolio === o.ocFolio).map(f => r0((f.total || 0) / 1.19)),
-    })));
+      facturasNeto: gastos.facturas.detalle.filter(f => f.ocFolio === o.ocFolio).map(f => r0(f.neto ?? (f.total || 0) / 1.19)),
+    })), await facturasSueltasDeProveedores(emp.ocs.map(oc => ({ proveedor: oc.proveedorRazonSocial, rut: oc.proveedorRut, facturasFolios: oc.facturas.map(f => f.folioDte) }))));
     for (const o of porOc) {
       const notas = notasPorOc.get(o.ocFolio);
       if (!notas?.length) continue;

@@ -175,7 +175,7 @@ export async function auditoriaCompra(negocioId: number): Promise<AuditoriaCompr
   for (const o of res.porOc) {
     const g = grupoDeOc.get(String(o.ocFolio)) ?? grupo(o.proveedor);
     const facs: FacturaAuditoria[] = gastos.facturas.detalle.filter(f => f.ocFolio === o.ocFolio)
-      .map(f => ({ folio: `${f.folio}`, fecha: fechaISO(f.fecha), neto: r0((f.total || 0) / 1.19), enlazada: true, tipo: '33' }));
+      .map(f => ({ folio: `${f.folio}`, fecha: fechaISO(f.fecha), neto: r0(f.neto ?? (f.total || 0) / 1.19), enlazada: true, tipo: '33' }));
     if (o.ocPropia && o.facturas > 0 && !facs.length) facs.push({ folio: null, fecha: null, neto: o.facturadoNeto, enlazada: true });
     // Notas de crédito/débito de esta OC: las asocia el Comparativo (misma regla, un solo lugar) y ya vienen sumadas en o.facturadoNeto.
     const notas = o.notas ?? [];

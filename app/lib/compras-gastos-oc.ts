@@ -8,10 +8,16 @@
 /** Líneas de una OC que son gasto y no producto. */
 export const ES_LINEA_DE_GASTO = /transporte|flete|despacho|armado|palletiz|instalaci[oó]n/i;
 
+/** Línea de combustible y línea de su impuesto específico (el impuesto se mira primero: «Impuesto especifico gasolina» dice las dos cosas). */
+export const ES_LINEA_IMPUESTO_ESPECIFICO = /impuesto\s+espec[ií]fico/i;
+export const ES_LINEA_COMBUSTIBLE = /combustible|gasolina|di[eé]sel|petr[oó]leo|parafina/i;
+
 export interface LineaOcParaGasto { descripcion: string; subtotal: number | null }
 export interface OcObumaParaGasto {
   folio: string; proveedor: string | null; estado: string | null; fecha: string | null;
   lineas: LineaOcParaGasto[];
+  /** Costo neto de toda la OC (total − IVA: incluye el impuesto específico, esté como línea exenta o en «impuestos adicionales»). */
+  netoOc?: number | null;
 }
 export interface OcPropiaConFlete { folio: string | null; fleteMonto: number }
 export interface GastoVinculado { ocObumaFolio: string | null; monto: number }
@@ -34,6 +40,16 @@ export function ocsDisponiblesParaGasto(
   const out: OcDisponibleParaGasto[] = [];
   for (const oc of ocs) {
     if (/anulad/i.test(oc.estado || '')) continue;
+    // OC de combustible (hecha como la 4058: línea afecta + línea «IMPUESTO ESPECIFICO» exenta; o a mano con el impuesto en «impuestos adicionales»):
+    // es UN gasto por su costo completo (neto + impuesto), no dos líneas sueltas.
+    const esImp = (l: LineaOcParaGasto) => ES_LINEA_IMPUESTO_ESPECIFICO.test(l.descripcion);
+    const esComb = (l: LineaOcParaGasto) => !esImp(l) && ES_LINEA_COMBUSTIBLE.test(l.descripcion);
+    if (oc.lineas.some(esComb) && oc.lineas.every(l => esComb(l) || esImp(l))) {
+      const monto = Math.round(oc.netoOc ?? oc.lineas.reduce((s, l) => s + (l.subtotal ?? 0), 0));
+      const k = `${folioClave(oc.folio)}|${monto}`;
+      if (monto > 0 && !yaVinculado.has(k)) out.push({ folio: folioClave(oc.folio), proveedor: oc.proveedor, fecha: oc.fecha, descripcion: 'Combustible + impuesto específico', monto });
+      continue;
+    }
     for (const l of oc.lineas) {
       const monto = Math.round(l.subtotal ?? 0);
       if (!(monto > 0) || !ES_LINEA_DE_GASTO.test(l.descripcion)) continue;

@@ -41,10 +41,14 @@ export async function GET(request: NextRequest, { params }: Params) {
       const { asociarNotasAOc } = await import('@/app/lib/compras-notas-factura');
       const { proyectos } = await listarProyectosObuma();
       const documentos = proyectos.find(p => p.negociosCoincidentes.some(n => n.negocioId === id))?.documentos ?? [];
+      const { facturasSueltasDeProveedores } = await import('@/app/lib/obuma-facturas-sueltas');
+      const sueltas = await facturasSueltasDeProveedores(resumen.ocsObuma.map((o: any) => ({
+        proveedor: o.proveedor, rut: o.rut ?? null, facturasFolios: resumen.facturas.detalle.filter((f: any) => f.ocFolio === o.folio).map((f: any) => String(f.folio)),
+      })));
       const porOc = asociarNotasAOc(documentos, resumen.ocsObuma.map((o: any) => ({
         folio: o.folio, proveedor: o.proveedor,
-        facturasNeto: resumen.facturas.detalle.filter((f: any) => f.ocFolio === o.folio).map((f: any) => Math.round((f.total || 0) / 1.19)),
-      })));
+        facturasNeto: resumen.facturas.detalle.filter((f: any) => f.ocFolio === o.folio).map((f: any) => Math.round(f.neto ?? (f.total || 0) / 1.19)),
+      })), sueltas);
       const notas = [...porOc.entries()].flatMap(([ocFolio, ns]) => ns.map(n => ({ ocFolio, ...n })));
       resumen.facturas.notas = notas;
       resumen.facturas.totalConNotas = resumen.facturas.total + notas.reduce((s, n) => s + n.total, 0);

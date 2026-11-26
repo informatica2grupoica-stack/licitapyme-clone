@@ -289,3 +289,13 @@ test('Emesa 51636: número partido en dos filas aparece en el documento y los pr
   assert.equal(r.cuadra, true);
   assert.equal(r.base, 'bruto', 'las líneas suman el TOTAL EFECTIVO (con IVA)');
 });
+
+// 26-nov (727202-72-LP26, GGH 232.462): «115 .966 CLP» (espacio antes del punto de miles) dejaba la sierra sable Makita sin precio.
+test('GGH 232.462: «115 .966» se junta como 115.966 y no se tocan otros números', async () => {
+  const { juntarMilesConEspacio } = await import('../compras-cotizacion-lineas');
+  const t = 'DJR183Z | SIERRA SABLE 18V MAKITA ‖ UNIDAD | 1,00 | 5 | 115 .966 CLP | 115 .966';
+  const j = juntarMilesConEspacio(t);
+  assert.equal(j, 'DJR183Z | SIERRA SABLE 18V MAKITA ‖ UNIDAD | 1,00 | 5 | 115.966 CLP | 115.966');
+  assert.equal(numeroApareceEnTexto(115966, j), true);
+  assert.equal(juntarMilesConEspacio('1.234 .567 y 12,5 .300 y 2 unidades .500 m'), '1.234 .567 y 12,5 .300 y 2 unidades .500 m');
+});
