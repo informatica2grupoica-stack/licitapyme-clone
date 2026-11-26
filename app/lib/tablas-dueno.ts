@@ -44,6 +44,7 @@ export const CLASE_TABLA: Record<string, ClaseTabla> = Object.fromEntries([
   ...lista('SISTEMA', [
     'clientes', 'login_intentos', 'mp_api_uso_diario', 'pipeline_fallos', 'documentos_descarga_cola', 'documentos_scraping_log',
     'migracion_174_hora_chile',
+    'cliente_solicitud',           // solicitudes de alta de /registro (migration-210): antes de aprobarse no tienen empresa
   ]),
   ...lista('DERIVADA', [
     'reportes_error_adjuntos',      // → reportes_error (cliente_id)

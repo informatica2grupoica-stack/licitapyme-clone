@@ -381,6 +381,9 @@ export default function ClientesPage() {
   const [selId, setSelId] = useState<number | null>(null);
   const [tab, setTab] = useState<Tab>('plan');
   const [nuevoAbierto, setNuevoAbierto] = useState(false);
+  // Solicitudes de alta pendientes (formulario público /registro): se avisan en el botón del encabezado.
+  const [pendientesAlta, setPendientesAlta] = useState(0);
+  useEffect(() => { fetch('/api/admin/solicitudes').then(r => r.json()).then(d => setPendientesAlta(Number(d.pendientes) || 0)).catch(() => {}); }, []);
   const [nuevo, setNuevo] = useState(nuevoVacio);
   const [creando, setCreando] = useState(false);
 
@@ -452,7 +455,7 @@ export default function ClientesPage() {
         <Encabezado
           titulo={`Empresas-cliente · ${clientesReales.length}`}
           descripcion="Cada empresa usa el mismo LICITANK. Haz clic en una para ver y cambiar su plan, usuarios y límites."
-          acciones={<Boton variante="primario" onClick={() => setNuevoAbierto(true)}>Nueva empresa</Boton>}
+          acciones={<div className="flex items-center gap-2"><a href="/admin/solicitudes" className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50">Solicitudes de alta{pendientesAlta > 0 ? ` (${pendientesAlta})` : ''}</a><Boton variante="primario" onClick={() => setNuevoAbierto(true)}>Nueva empresa</Boton></div>}
         />
 
         <div className="flex flex-wrap items-center gap-3">

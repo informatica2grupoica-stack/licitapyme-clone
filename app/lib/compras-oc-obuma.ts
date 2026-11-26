@@ -549,6 +549,8 @@ export async function crearOrdenCompraParaProveedor(
   negocioId: number, proveedorNombre: string,
   opciones: {
     formaPagoId: string; incluirFlete: boolean; fleteMonto: number | null; confirmarPeseADuplicado?: boolean; productoIds?: number[]; centroCostoId?: string; fechaEntrega: string; metodoDespacho: string;
+    /** «Inventario / Gasto / Activo» de Obuma. Si no viene: inventario (combustible: gasto). */
+    concepto?: 'inventario' | 'gasto' | 'activo';
     /** OC internacional: moneda de Obuma (ID de pg-monedas) y tipo de cambio (CLP por 1 unidad). Los montos de Licitank (pesos) se convierten. */
     internacional?: boolean; monedaId?: string | null; tipoCambio?: number | null;
   },
@@ -685,7 +687,9 @@ export async function crearOrdenCompraParaProveedor(
       : `negocio-${negocioId}`,
     // «inventario» es lo que activa el botón Inventario en la pantalla de Obuma; el texto de la licitación va como observación.
     // Una OC solo de combustible va como «gasto», igual que las hechas a mano en Obuma (4058 y 4076: compra_oc_concepto = gasto).
-    ...(cargas.size > 0 && itemsOrden.every(it => cargas.has(it.productoId))
+    ...(opciones.concepto
+      ? { concepto: opciones.concepto }   // lo eligió la persona en la pantalla
+      : cargas.size > 0 && itemsOrden.every(it => cargas.has(it.productoId))
       ? { concepto: 'gasto' }   // probado con la OC 4082: queda «gasto»; la cuenta de cabecera (oc_concepto_gasto) Obuma la ignora por API, queda la del producto
       : { concepto: 'inventario' }),
     observacion: `Compra para licitación ${licitacionCodigo || negocioId}`,

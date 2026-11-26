@@ -3,6 +3,10 @@
 Pantalla principal: `/compras/[negocioId]` (`ComprasChrome.tsx`). Traspasado desde la memoria
 personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-11-26 (6) — 727202-72-LP26 (1356): Koslan y Pedrollo revisadas y corregidas en producción (a mano; sin cambio de código)
+- Las 4 Koslan (#473–476) se leyeron bien (suman igual que el PDF); el fallo era el pareo. «Corregir pareo» (corrida directa, glm-5.2, ~$0,11) no asignó nada nuevo (62 cotizaciones «no se tocaron», son de una persona), así que se corrigió a mano con OK del dueño: #476 producto 740 (Panelli 6" 30HP) llevaba 2 motores en vez de 1 ($4.948.648 → $3.048.280); #476→811 quitada (4SR6m/13 no es la 4SR 12M-9); #474 (dosificadora Aqua HC151+ M80, $171.884) asignada a 724 BETA 5, 754 SB 1008 y 801 BETA 4 como «inferior negociable» (verificar 8 l/h a 10 bar).
+- Pendiente: #475 generadores desfasados (GH3800E en el de 6000 W, GH6000E en el de 7,5 kW; diésel LDG8000S-JM sin asignar); #476 combinaciones 6SR+6PD sin asignar (15HP y 20HP salen más baratas que las Franklin; equivalencia la decide el equipo); Aqua M70 $173.375 sin asignar. Hoffens #406 es transporte: se omite (decisión del dueño). 28 de 126 precios DEFINIDO del Excel no están en el sistema (Hoffens USD, PQWT USD, links, CGC, Cosmoplas AKL800, Barraca, Emesa esmeril).
+
 ## 2026-11-26 (5) — Acta de entrega editable como el modelo de Quintero (tsc ok; PDF y pantalla sin ver; sin desplegar, sin migración)
 - Pedido: el acta de Gestionar documentos debe dejar poner todo lo del acta de Quintero (guía 1922). Ahora son campos editables: organismo (caja del título; entra el de la licitación), ID de licitación (entra el del negocio), y la recepción conforme opcional (nombre, RUT, observaciones, cargo, fecha); vacíos quedan las rayas para firmar. Tabla con 13 filas mínimo como el modelo (detalle en 2 líneas = «| | | segunda línea»).
 - Actas ya hechas sin esos valores salen con organismo e ID de la licitación (fallback en `armarHtml`). La plantilla base se reescribe sola en la BD al abrir Gestionar documentos.

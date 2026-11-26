@@ -11,6 +11,8 @@ import pool from '@/app/lib/db';
 import { getAuthedUser } from '@/app/lib/api-auth';
 import { olvidarFichaCliente, CLIENTE_ICA } from '@/app/lib/tenant';
 import { encolarEvaluacion, leerEvaluacion, rutsDeCliente, rutValido, formatearRut } from '@/app/lib/evaluar-empresa-rut';
+import { exigirAdminLicitank } from '@/app/lib/admin-licitank';
+import { crearEmpresaCliente, ErrorAlta } from '@/app/lib/crear-empresa-cliente';
 import { guardarOpciones } from '@/app/lib/opciones-empresa';
 import { guardarConfigEmpresa } from '@/app/lib/cv/viabilidad-empresa';
 import { normalizarConfigEmpresa } from '@/app/lib/cv/viabilidad-empresa-core';
@@ -21,17 +23,6 @@ import { TODOS_LOS_MODULOS, MODULOS_ACTIVABLES, MODULOS_DEL_PLAN, PLANES, modulo
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-
-/** Superusuario o admin de Grupo ICA (cliente 1). Rol y cliente salen de la BD, nunca del navegador. */
-async function exigirAdminLicitank(req: NextRequest) {
-  const u = await getAuthedUser(req);
-  if (!u) return { error: NextResponse.json({ error: 'No autenticado' }, { status: 401 }) };
-  const [rows] = await pool.query('SELECT es_superadmin, rol FROM usuarios WHERE id = ? AND cliente_id = ? AND activo = TRUE LIMIT 1', [u.id, CLIENTE_ICA]);
-  const f = (rows as Array<{ es_superadmin: number; rol: string }>)[0];
-  if (!f || !(f.es_superadmin || f.rol === 'admin'))
-    return { error: NextResponse.json({ error: 'Solo los administradores de LICITANK' }, { status: 403 }) };
-  return { u, superadmin: !!f.es_superadmin };
-}
 
 const planValido = (v: unknown): v is Plan => (PLANES as string[]).includes(String(v));
 
@@ -168,38 +159,17 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: true });
   }
 
-  const nombre = String(b.nombre || '').trim(), rutCrudo = String(b.rut || '').trim();
-  if (rutCrudo && !rutValido(rutCrudo)) return NextResponse.json({ error: 'El RUT no es válido (revisa el dígito verificador)' }, { status: 400 });
-  const rut = rutCrudo ? formatearRut(rutCrudo) : '';
-  const email = String(b.adminEmail || '').toLowerCase().trim(), adminNombre = String(b.adminNombre || '').trim();
-  const clave = String(b.clave || '');
-  if (!nombre || !email || clave.length < 8) return NextResponse.json({ error: 'Faltan nombre, correo del admin o clave (mínimo 8 caracteres)' }, { status: 400 });
-  const plan: Plan = planValido(b.plan) ? b.plan : 'BASICO';
-  // `clientes.modulos` guarda solo los ADICIONALES: lo del plan ya viene con el plan
-  const modulos = (Array.isArray(b.modulos) ? b.modulos : []).filter((m: string) => (MODULOS_ACTIVABLES as string[]).includes(m) && !(MODULOS_DEL_PLAN[plan] as string[]).includes(m));
-  const [dup] = await pool.query('SELECT 1 FROM usuarios WHERE email = ? LIMIT 1', [email]);
-  if ((dup as unknown[]).length) return NextResponse.json({ error: 'Ese correo ya existe' }, { status: 409 });
-
-  const [r] = await pool.query(
-    `INSERT INTO clientes (nombre, rut, plan, max_usuarios, estado, modulos, vence_at, contacto_nombre, contacto_email, activo)
-     VALUES (?, ?, ?, ?, 'ACTIVO', ?, ?, ?, ?, 1)`,
-    [nombre, rut || null, plan, Number(b.maxUsuarios) || 1, JSON.stringify(modulos), b.venceAt || null, adminNombre || null, email]);
-  const clienteId = (r as { insertId: number }).insertId;
-  // Perfil admin de la empresa: admin DENTRO de su empresa (proxy.ts le impide salir de ella). Permisos solo de los módulos contratados.
-  const permisos = { acceso_radar: true, ver_otros_negocios: true, exportar: true, repartir_puente: true };
-  await pool.query(
-    `INSERT INTO usuarios (email, password_hash, nombre, empresa, rol, activo, cliente_id, permisos) VALUES (?, ?, ?, ?, 'admin', 1, ?, ?)`,
-    [email, await bcrypt.hash(clave, 10), adminNombre || nombre, nombre, clienteId, JSON.stringify(permisos)]);
-  await bitacora(clienteId, g.u!.id, 'crear', { nombre, plan, adicionales: modulos, admin: email });
-  // Con RUT: su razón social queda creada (la usan postular, anexos y el cruce de OC; el código de proveedor de MP se le guarda
-  // al evaluar) y la evaluación entra a la cola (minutos; sobrevive a un deploy) para sugerirle palabras clave y perfil.
-  if (rut) {
-    await pool.query('INSERT INTO empresas (razon_social, rut, cliente_id, activo) VALUES (?, ?, ?, TRUE)', [nombre, rut, clienteId])
-      // sin migration-189 el RUT es único en TODA la plataforma: si ya lo usa otra empresa no se crea (la evaluación usa igual clientes.rut)
-      .catch(e => console.warn('[clientes] razón social no creada:', String(e).slice(0, 160)));
-    await encolarEvaluacion(clienteId);
+  try {
+    // Una sola copia de la lógica de alta (la comparte la aprobación de solicitudes de /registro).
+    const clienteId = await crearEmpresaCliente({
+      nombre: b.nombre, rut: b.rut, adminEmail: b.adminEmail, adminNombre: b.adminNombre, clave: b.clave,
+      plan: b.plan, modulos: b.modulos, maxUsuarios: b.maxUsuarios, venceAt: b.venceAt,
+    }, g.u!.id);
+    return NextResponse.json({ success: true, id: clienteId });
+  } catch (e) {
+    if (e instanceof ErrorAlta) return NextResponse.json({ error: e.message }, { status: e.status });
+    throw e;
   }
-  return NextResponse.json({ success: true, id: clienteId });
 }
 
 export async function PATCH(req: NextRequest) {

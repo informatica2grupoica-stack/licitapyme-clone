@@ -109,6 +109,7 @@ async function __POST(request: NextRequest, { params }: Params) {
       centroCostoId: /^\d+$/.test(String(body.centroCostoId ?? '')) ? String(body.centroCostoId) : undefined,
       fechaEntrega: String(body.fechaEntrega || '').trim(), metodoDespacho: String(body.metodoDespacho || '').trim(),
       productoIds: Array.isArray(body.productoIds) ? body.productoIds.map(Number).filter((n: number) => Number.isInteger(n) && n > 0) : undefined,
+      concepto: ['inventario', 'gasto', 'activo'].includes(body.concepto) ? body.concepto : undefined,
       internacional: !!body.internacional,
       monedaId: body.internacional ? String(body.monedaId ?? '').trim() || null : null,
       // Tipo de cambio con decimales («943,52» o «943.52»).

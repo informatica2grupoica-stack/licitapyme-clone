@@ -15,6 +15,8 @@ const RUTAS_PUBLICAS = [
   '/privacidad',                // política de privacidad (Ley 21.719): pública
   '/terminos',                  // términos y condiciones: públicos
   '/login',
+  '/registro',                 // solicitud de alta de una empresa (pública; un admin de LICITANK la aprueba)
+  '/api/registro',              // POST público: deja una solicitud PENDIENTE, sin cuenta ni gasto
   '/recuperar',               // solicitar recuperación de contraseña
   '/restablecer',               // fijar la contraseña nueva con el token del correo
   '/api/health',                // healthcheck de Docker y deploy.sh: solo ok/db, sin datos

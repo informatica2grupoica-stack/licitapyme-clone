@@ -153,6 +153,7 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo', ocult
   // Obuma los pide en la OC; sin ellos había que editarla a mano después (OC 4005).
   const [fechaEntrega, setFechaEntrega] = useState('');
   const [metodoDespacho, setMetodoDespacho] = useState('');
+  const [conceptoOc, setConceptoOc] = useState<'inventario' | 'gasto' | 'activo'>('inventario');
   const [incluirFlete, setIncluirFlete] = useState(false);
   const [fleteMonto, setFleteMonto] = useState('');
   // OC nacional (pesos, con IVA) o internacional (moneda extranjera, exenta). Se precarga internacional si la cotización vino en otra moneda.
@@ -329,7 +330,7 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo', ocult
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           proveedorNombre, formaPagoId, incluirFlete, fleteMonto: incluirFlete ? fleteMonto : null, productoIds, centroCostoId: centroElegido || undefined,
-          fechaEntrega, metodoDespacho,
+          fechaEntrega, metodoDespacho, concepto: conceptoOc,
           internacional: ocInternacional, monedaId: ocInternacional ? monedaOcId : undefined, tipoCambio: ocInternacional ? tipoCambioOc : undefined,
           confirmarPeseADuplicado: hayDuplicado ? confirmadoPeseADuplicado : undefined,
         }),
@@ -975,6 +976,15 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo', ocult
                         </label>
                       </div>
 
+                      <label className="block text-[10.5px] text-zinc-500">Concepto de la orden (como en Obuma)
+                        <select value={conceptoOc} onChange={e => setConceptoOc(e.target.value as 'inventario' | 'gasto' | 'activo')} data-testid="oc-concepto"
+                          className="mt-0.5 w-full text-[11.5px] text-zinc-800 border border-zinc-200 rounded-lg px-2 py-1 outline-none focus:ring-1 focus:ring-teal-500 bg-white">
+                          <option value="inventario">Inventario</option>
+                          <option value="gasto">Gasto</option>
+                          <option value="activo">Activo</option>
+                        </select>
+                      </label>
+
                       <label className="flex items-center gap-2 text-[11px] text-zinc-700">
                         <input type="checkbox" checked={incluirFlete} onChange={e => setIncluirFlete(e.target.checked)} className="accent-teal-600" />
                         <span className="flex items-center gap-1"><Truck size={11} /> Incluir flete/despacho en esta orden</span>
@@ -987,7 +997,7 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo', ocult
                       <div className="bg-white border border-teal-100 rounded-lg px-2.5 py-2 space-y-1">
                         <p className="text-[10px] font-semibold text-teal-600">Esto es lo que se va a mandar a Obuma</p>
                         <p className="text-[11px] text-zinc-700"><span className="text-zinc-400">Proveedor: </span><b>{p.proveedorNombre}</b>{p.proveedorRut && ` (${p.proveedorRut})`}</p>
-                        <p className="text-[11px] text-zinc-700"><span className="text-zinc-400">Tipo: </span>{ocInternacional ? `Internacional (${monedasObuma.find(m => m.id === monedaOcId)?.codigo ?? 'falta moneda'})` : 'Nacional'} · Inventario</p>
+                        <p className="text-[11px] text-zinc-700"><span className="text-zinc-400">Tipo: </span>{ocInternacional ? `Internacional (${monedasObuma.find(m => m.id === monedaOcId)?.codigo ?? 'falta moneda'})` : 'Nacional'} · {conceptoOc.charAt(0).toUpperCase() + conceptoOc.slice(1)}</p>
                         <p className="text-[11px] text-zinc-700"><span className="text-zinc-400">Entrega: </span>{fechaEntrega ? fechaEntrega.split('-').reverse().join('-') : <span className="text-rose-500">falta fecha</span>} · {metodoDespacho || <span className="text-rose-500">falta método de despacho</span>}</p>
                         <p className="text-[11px] text-zinc-700">
                           <span className="text-zinc-400">Centro de costo: </span>
