@@ -70,6 +70,7 @@ Hoy el correo (SMTP), Obuma, WhatsApp (Evolution) y las llaves de IA son **una s
 - Lo legal lo valida un abogado: no lo inventes, déjalo anotado.
 
 ## Cómo probarlo
+- **Antes de cada deploy:** `npx tsx scripts/chequear-aislamiento.mts --produccion` (túnel SSH 3307 abierto). Es de solo lectura y falla si aparece una tabla sin dueño y sin clasificar, o una ruta abierta que toque datos privados de ICA. Si la BD local está arriba, sirve también sin la opción.
 - Con la BD local Docker (puerto 3308, ver `docs/memoria/infra.md`) y un usuario del cliente 2: la pantalla nueva no muestra nada de ICA, un id de ICA en la URL responde 404 y la acción no escribe en filas de ICA.
 - Busca en tu cambio: `rg -n "76\.902|78\.388|Inversiones Claro|Comercial MP|Grupo ICA|grupoica|sociedadcomercialmp" <archivos>`. Cada resultado tiene que estar justificado (respaldo de ICA comentado) o salir de la base.
 

@@ -164,6 +164,10 @@ function LoginContent() {
             >
               {cargando ? 'Iniciando sesión…' : 'Iniciar sesión'}
             </button>
+            <p className="pt-2 text-center text-[12.5px] text-slate-400">
+              ¿Tu empresa aún no tiene cuenta?{' '}
+              <Link href="/registro" className="text-teal-300 transition-colors hover:text-teal-200">Solicita tu acceso</Link>
+            </p>
           </form>
         </motion.div>
       </main>

@@ -2,22 +2,39 @@
 //    npx tsx scripts/chequear-aislamiento.mts            → informe; sale con error (1) si hay algo que corregir
 //    npx tsx scripts/chequear-aislamiento.mts --avisos   → además lista, una por una, las rutas con aviso
 //    npx tsx scripts/chequear-aislamiento.mts --simular=auditor,anexos   → trata esos módulos como si ya estuvieran abiertos y lista lo que los bloquea
+//    npx tsx scripts/chequear-aislamiento.mts --produccion   → lee el ESQUEMA de la base de producción (túnel SSH 3307, DB_* de .env.local) en vez de la local.
+//         Es de SOLO LECTURA por construcción: cualquier consulta que no sea SELECT/SHOW lanza un error. Usar cuando la BD local (Docker) está apagada.
 //
 // 1) ESQUEMA  Toda tabla tiene dueño (cliente_id / negocio_id / empresa_id / usuario_id) o está clasificada en app/lib/tablas-dueno.ts.
 //             Una tabla nueva sin dueño y sin clasificar HACE FALLAR el chequeo (así nadie agrega datos de negocio sin separar por empresa).
 // 2) MÓDULOS  Ninguna ruta de un módulo ya abierto a otras empresas toca una tabla PRIVADA_ICA (si es de ICA, la ruta debe nombrar CLIENTE_ICA).
 // 2b) DOCS    Una ruta abierta que escribe en documentos_cache debe guardar bajo el espacio de la empresa (codigoAlmacenDocs).
 // 3) RUTAS    Aviso (no falla): ruta de módulo abierto que toca una tabla con dueño y no muestra ningún filtro de empresa en todo el archivo.
-Object.assign(process.env, { DB_HOST: '127.0.0.1', DB_PORT: '3308', DB_USER: 'licitank', DB_PASSWORD: 'licitank_local', DB_NAME: 'licitank_dev' });
 import { readdirSync, readFileSync, statSync } from 'node:fs';
+const PRODUCCION = process.argv.includes('--produccion');
+if (PRODUCCION) {
+  for (const l of readFileSync('.env.local', 'utf8').split(/\r?\n/)) { const m = /^(DB_[A-Z]+)=(.*)$/.exec(l); if (m) process.env[m[1]] = m[2].split('#')[0].trim(); }
+} else {
+  Object.assign(process.env, { DB_HOST: '127.0.0.1', DB_PORT: '3308', DB_USER: 'licitank', DB_PASSWORD: 'licitank_local', DB_NAME: 'licitank_dev' });
+}
 import { join } from 'node:path';
 const { default: pool } = await import('../app/lib/db');
 const { CLASE_TABLA } = await import('../app/lib/tablas-dueno');
 const { moduloDeRuta, MODULOS_ACTIVABLES } = await import('../app/lib/modulos');
 const { handlersSinGuardia } = await import('./lib/aislamiento-handlers');
 
+if (PRODUCCION) {
+  // Solo lectura por construcción: se envuelve el pool y cualquier sentencia que no sea SELECT/SHOW se rechaza ANTES de salir hacia la base.
+  const original = (pool as any).query.bind(pool);
+  (pool as any).query = (sql: unknown, ...resto: unknown[]) => {
+    const texto = typeof sql === 'string' ? sql : String((sql as { sql?: string })?.sql ?? '');
+    if (!/^\s*(SELECT|SHOW)\b/i.test(texto)) throw new Error('modo --produccion es de solo lectura: ' + texto.slice(0, 60));
+    return original(sql, ...resto);
+  };
+  console.log('\n  Base: PRODUCCIÓN (solo lectura)');
+}
 const [[h]] = await pool.query('SELECT DATABASE() d') as any;
-if (h.d !== 'licitank_dev') throw new Error('no es la BD local');
+if (!PRODUCCION && h.d !== 'licitank_dev') throw new Error('no es la BD local');
 let errores = 0;
 const falla = (t: string) => { errores++; console.log('  ✘', t); };
 const ok = (t: string) => console.log('  ✔', t);

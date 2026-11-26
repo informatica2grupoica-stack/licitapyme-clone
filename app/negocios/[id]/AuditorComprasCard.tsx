@@ -23,6 +23,7 @@ import { CompraDirectaPanel,type InicialDirecta } from './CompraDirectaPanel';
 import { ListaCotizaciones, agregarLineaComoAdicional } from './ListaCotizaciones';
 import { CoberturaCotizaciones } from './CoberturaCotizaciones';
 import { EquivalenciasPareo } from './EquivalenciasPareo';
+import { PorDecidirPareo } from './PorDecidirPareo';
 import type { LinksCosteo } from './LinksProducto';
 import { useLinksLeidos } from './LinksLeidos';
 import { useFichasCompras, tecnicoPorCelda, TecnicoDeCelda } from './FichasEnCotizacion';
@@ -1256,6 +1257,7 @@ export function AuditorComprasCard({ negocioId, puedeOperar, soloLectura = false
             <p className="text-xs text-tinta-3">Después de leer cada cotización, el sistema reparte sus líneas entre los productos mirando todas juntas. Si quedó mal, vuelve a repartir. No toca lo que asignaste a mano ni lo ya aprobado o comprado.</p>
           </div>
         )}
+        {puedeOperar && cotizaciones.length > 0 && <PorDecidirPareo negocioId={negocioId} onCambio={async () => { await cargar(); recargarCompartido(); }} />}
         {puedeOperar && cotizaciones.length > 0 && <EquivalenciasPareo negocioId={negocioId} />}
         <ListaCotizaciones negocioId={negocioId} onCambio={async () => { await cargar(); recargarCompartido(); }} cotizaciones={cotizaciones} productos={productos} origenLabel={ORIGEN_LABEL} puedeOperar={puedeOperar} homologandoId={homologando}
           avisosPorCotizacion={Object.fromEntries(cotizaciones.map(c => [c.id, auditorias.filter(a => a.cotizacionId === c.id).reduce((n, a) => n + a.revisiones.filter(r => r.resultado === 'NO_CUMPLE' && r.criterio !== 'Precio vs. lo costeado').length, 0)]))}

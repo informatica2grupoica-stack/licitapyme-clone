@@ -114,6 +114,8 @@ export async function drenarCola(): Promise<{ enviados: number; pendientes: numb
   let enviados = 0;
   try {
     if (!whatsappConfigurado()) return { enviados, pendientes: 0, motivo: 'WhatsApp no configurado' };
+    // Un aviso que lleva más de 48 h sin salir (p. ej. una empresa que aún no vinculó su número) ya no sirve: se descarta para que, al vincular, no le llegue todo viejo de golpe.
+    await pool.query(`UPDATE whatsapp_cola SET estado = 'error', error = 'vencido: más de 48 h sin enviar' WHERE estado = 'pendiente' AND creado_at < ? - INTERVAL 48 HOUR`, [ahoraChileSQL()]);
     const [cl] = await pool.query(`SELECT DISTINCT cliente_id FROM whatsapp_cola WHERE estado = 'pendiente'`) as any[];
     for (const { cliente_id } of cl as Array<{ cliente_id: number }>) {
       const inst = instanciaEmisor(Number(cliente_id));

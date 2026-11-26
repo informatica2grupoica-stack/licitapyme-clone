@@ -8,6 +8,8 @@ import { rutValido, formatearRut } from '@/app/lib/evaluar-empresa-rut';
 import { crearEmpresaCliente, ErrorAlta, type DatosAltaEmpresa } from '@/app/lib/crear-empresa-cliente';
 import { claveTemporal } from '@/app/lib/equipo-permisos';
 import { validarSolicitud, decidirGuardado, limpiarTexto } from '@/app/lib/solicitud-alta-core';
+import { registrarEvento } from '@/app/lib/historial';
+import { CLIENTE_ICA } from '@/app/lib/tenant';
 
 export const MENSAJE_RECIBIDA = 'Recibimos tu solicitud. Un integrante de LICITANK te contactará al correo o teléfono que indicaste.';
 
@@ -39,10 +41,28 @@ export async function registrarSolicitud(raw: unknown, ip: string): Promise<{ ok
       `INSERT INTO cliente_solicitud (razon_social, rut, contacto_nombre, contacto_email, contacto_telefono, mensaje, estado, ip, created_at)
        VALUES (?, ?, ?, ?, ?, ?, 'PENDIENTE', ?, ?)`,
       [d.razonSocial, d.rut, d.contactoNombre, d.contactoEmail, d.contactoTelefono, d.mensaje, ip.slice(0, 64), ahoraChileSQL()]);
+    await avisarSolicitudNueva(d.razonSocial, d.rut);
     return { ok: true };
   } catch (e) {
     console.error('[registro] no se pudo guardar la solicitud:', String(e).slice(0, 200));
     return { ok: false, error: 'No pudimos registrar tu solicitud en este momento. Intenta de nuevo en unos minutos.' };
+  }
+}
+
+/** Aviso en la campana de los admin de LICITANK (Grupo ICA). Mejor esfuerzo: si falla, la solicitud ya quedó guardada y se ve igual en /admin/solicitudes. */
+async function avisarSolicitudNueva(razonSocial: string, rut: string): Promise<void> {
+  try {
+    const [admins] = await pool.query(
+      `SELECT id FROM usuarios WHERE activo = TRUE AND COALESCE(cliente_id, 1) = ? AND (rol = 'admin' OR es_superadmin = 1)`, [CLIENTE_ICA]) as any;
+    for (const a of admins as Array<{ id: number }>) {
+      await registrarEvento({
+        tipo: 'SOLICITUD_ALTA', usuarioId: Number(a.id), actorNombre: 'Formulario /registro',
+        mensaje: `Nueva solicitud de alta: ${razonSocial} (RUT ${rut}). Revísala en Empresas-cliente › Solicitudes de alta.`,
+        metadata: { url: '/admin/solicitudes' },
+      });
+    }
+  } catch (e) {
+    console.warn('[registro] no se pudo avisar a los admin:', String(e).slice(0, 160));
   }
 }
 
