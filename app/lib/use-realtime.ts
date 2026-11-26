@@ -15,7 +15,7 @@
 import { useEffect, useRef } from 'react';
 
 export type EventoRealtime =
-  | { tipo: 'cambio' }                       // difusión: alguien movió el pipeline / llegó dato de MP
+  | { tipo: 'cambio'; negocioId?: number; actorId?: number }   // difusión: alguien movió el pipeline / llegó dato de MP
   | { tipo: 'notificacion'; datos: any };    // campana personal del usuario
 
 type Oyente = (ev: EventoRealtime) => void;
@@ -30,7 +30,11 @@ function emitir(ev: EventoRealtime) {
 function abrir() {
   if (fuente || typeof window === 'undefined') return;
   fuente = new EventSource('/api/historial/stream');
-  fuente.addEventListener('cambio', () => emitir({ tipo: 'cambio' }));
+  fuente.addEventListener('cambio', (ev: MessageEvent) => {
+    let d: any = null;
+    try { d = JSON.parse(ev.data); } catch { /* sin detalle: igual es un cambio */ }
+    emitir({ tipo: 'cambio', negocioId: typeof d?.negocioId === 'number' ? d.negocioId : undefined, actorId: typeof d?.actorId === 'number' ? d.actorId : undefined });
+  });
   fuente.addEventListener('notificacion', (ev: MessageEvent) => {
     try { emitir({ tipo: 'notificacion', datos: JSON.parse(ev.data) }); } catch { /* payload raro */ }
   });

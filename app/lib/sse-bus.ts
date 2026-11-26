@@ -40,9 +40,11 @@ export function publicar(userId: number, evento: unknown): void {
  * todos los roles, así que no puede llevar datos de licitaciones. Cada cliente recarga su
  * propio endpoint, que ya filtra por permisos.
  */
-export function publicarCambio(tipo: string): void {
+export function publicarCambio(tipo: string, meta?: { negocioId?: number; actorId?: number }): void {
   g.__sseVersionCambios = (g.__sseVersionCambios ?? 0) + 1; // invalida cachés de tableros (ver versionCambios)
-  const payload = `event: cambio\ndata: ${JSON.stringify({ tipo, at: Date.now() })}\n\n`;
+  // negocioId/actorId son solo números (no datos de la licitación): permiten que la ficha abierta de ESE negocio avise
+  // «otra persona hizo cambios» sin que se entere quien los hizo.
+  const payload = `event: cambio\ndata: ${JSON.stringify({ tipo, at: Date.now(), negocioId: meta?.negocioId, actorId: meta?.actorId })}\n\n`;
   for (const set of clientes.values()) {
     for (const fn of set) { try { fn(payload); } catch { /* conexión muerta: se limpia al abort */ } }
   }

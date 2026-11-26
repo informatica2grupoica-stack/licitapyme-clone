@@ -5,6 +5,8 @@ import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { AppLayout }  from '@/app/components/AppLayout';
 import { useToast }   from '@/app/components/ui/toast';
+import { Banner } from '@/app/components/ui/Banner';
+import { useCambiosAjenos } from '@/app/lib/use-cambios-ajenos';
 import { useSession, tieneModulo } from '@/app/lib/session-context';
 import { ModuloBloqueadoPanel } from '@/app/components/ModuloBloqueadoPanel';
 import { ViabilidadIAPanel as ViabilidadIAPanelCliente } from '@/app/components/cv/viabilidad/ViabilidadIAPanel';
@@ -568,6 +570,11 @@ function DetalleContent() {
 
   useEffect(() => { cargar(); }, [cargar]);
 
+  // Trabajo en equipo: si otra persona cambia este negocio, se avisa y «Actualizar» vuelve a pedir todo.
+  const vivo = useCambiosAjenos(Number(id));
+  const [refrescoKey, setRefrescoKey] = useState(0);
+  const actualizarTodo = async () => { await cargar(); setRefrescoKey(k => k + 1); vivo.limpiar(); };
+
   // Cargar datos completos de MP
   useEffect(() => {
     if (!negocio?.licitacion_codigo) return;
@@ -878,7 +885,12 @@ function DetalleContent() {
           {/* Sin max-w: cada módulo ocupa todo el ancho disponible entre los dos sidebars (pedido
               del usuario, 28-sep-2026) — el propio grid/flex de cada sección se encarga de
               reacomodarse en pantallas chicas, así que no rompe el responsive. */}
-          <div className="p-5 sm:p-7 w-full">
+          <div key={refrescoKey} className="p-5 sm:p-7 w-full">
+            {vivo.hay && (
+              <div className="mb-4">
+                <Banner variante="warning" accion={{ label: 'Actualizar', onClick: actualizarTodo }}>Otra persona hizo cambios en este negocio. Actualiza para ver lo último.</Banner>
+              </div>
+            )}
             {/* Encabezado (skill licitank-ui): código y estados como texto con punto, título grande. */}
             <header className="mb-6">
               <Link href="/negocios" className="lg:hidden mb-3 inline-flex items-center gap-1 text-[13px] text-tinta-2 hover:text-tinta">

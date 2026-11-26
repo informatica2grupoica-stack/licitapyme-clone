@@ -58,6 +58,7 @@ import { useCompras, fmtCLP, fmtFecha, type OrdenCompra } from './ComprasContext
 import { CoencargadosCompras } from './CoencargadosCompras';
 import { AvanceComprasCard } from './AvanceComprasCard';
 import { useNovedadesCompras } from './useNovedadesCompras';
+import { useCambiosAjenos } from '@/app/lib/use-cambios-ajenos';
 import { ResumenObumaModal } from './ResumenObumaModal';
 import { IconBolt as ObumaIcon, IconShoppingCart as ShoppingCart, IconLoader2 as Loader2, IconUserPlus as UserPlus, IconClock as Clock, IconAlertTriangle as AlertTriangle, IconChevronDown as ChevronDown, IconChevronUp as ChevronUp, IconCurrencyDollar as DollarSign, IconFileAlert as FileWarning, IconBuilding as Building2, IconFileText as FileText, IconDeviceFloppy as Save, IconClipboardList as ClipboardList, IconRefresh as RefreshCw, IconBolt as Zap, IconExternalLink as ExternalLink, IconArrowUpRight as ArrowUpRight, IconCalculator as Calculator, IconClipboardCheck as ClipboardCheck, IconPackage as Package, IconTruck as Truck, IconHistory as History, IconGauge as Gauge, IconWallet as Wallet, IconCalendarTime as CalendarTime, IconHourglassHigh as Hourglass, IconMail as Mail, IconPhone as Phone, IconUserCircle as UserCircle, IconCheck as Check, IconArrowRight as ArrowRight, IconTarget as Target, IconFilePlus as FilePlus } from '@tabler/icons-react';
 
@@ -95,7 +96,11 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
   // El botón «Obuma» se quitó (26-nov-2026): en su lugar va «Avance». El resumen de Obuma sigue en el código pero ya no se abre desde un botón.
   const [resumenObumaAbierto, setResumenObumaAbierto] = useState(false);
   // Lo que la otra persona hizo desde la última visita: insignia en el botón «Avance» y bloque dentro del panel.
-  const { novedades, marcarVistas } = useNovedadesCompras(negocioId);
+  const { novedades, marcarVistas, cambiosAjenos, datosAlDia } = useNovedadesCompras(negocioId);
+  // Cada tarjeta pide sus datos al abrirse: si otra persona cambia algo se avisa y «Actualizar» vuelve a pedirlos todos.
+  const [refrescoKey, setRefrescoKey] = useState(0);
+  const vivo = useCambiosAjenos(negocioId);
+  const actualizarTodo = async () => { await recargar(); setRefrescoKey(k => k + 1); datosAlDia(); vivo.limpiar(); };
   const hayPostventa = useHayPostventa(negocioId);
   // El paso «Gestionar documentos» solo existe si la empresa del negocio tiene plantillas (hoy Comercial MP).
   const [hayGestionDocs, setHayGestionDocs] = useState(false);
@@ -897,7 +902,12 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
             <h3 className="text-[14px] font-semibold tracking-tight text-tinta dark:text-slate-100">{FASES.find(f => f.key === faseActiva)?.label}</h3>
             <p className="text-[12.5px] text-tinta-2 dark:text-slate-400">{FASES.find(f => f.key === faseActiva)?.descripcion}</p>
           </div>
-          <div className="p-3 sm:p-4 space-y-3">
+          <div key={refrescoKey} className="p-3 sm:p-4 space-y-3">
+            {(cambiosAjenos.length > 0 || vivo.hay) && (
+              <Banner variante="warning" accion={{ label: 'Actualizar', onClick: actualizarTodo }}>
+                {cambiosAjenos[0]?.actor ?? 'Otra persona'} hizo cambios en esta licitación. Actualiza para ver lo último.
+              </Banner>
+            )}
             {faseActiva === 'tareas' && (
               <div className="space-y-3">
                 <Seccion titulo="Lista de tareas" ayuda="Lo que hay que hacer, cada una con su plazo. Ciérralas a medida que avances." badge={pendientesN ? `${pendientesN} pendiente${pendientesN === 1 ? '' : 's'}` : 'Al día'} tono={(resumenFases?.tareas.vencidas ?? 0) > 0 ? 'alerta' : pendientesN > 0 ? 'pendiente' : 'ok'} defaultAbierta>

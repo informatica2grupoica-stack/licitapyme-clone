@@ -7,6 +7,7 @@ import { sesionRevocada } from '@/app/lib/sesiones-revocadas';
 import { fichaCliente, negocioEsDeCliente } from '@/app/lib/tenant';
 import { rutaPermitida, moduloDeRuta } from '@/app/lib/modulos';
 import { permisosDeUsuario, type Permiso } from '@/app/lib/api-auth';
+import { publicarCambio } from '@/app/lib/sse-bus';
 
 // Rutas que NO requieren autenticación
 const RUTAS_PUBLICAS = [
@@ -188,6 +189,16 @@ export async function proxy(request: NextRequest) {
   // Se fija desde el JWT verificado (solo Latin-1: Headers.set revienta con otros caracteres).
   if (usuario.nombre && /^[ -ÿ]+$/.test(usuario.nombre)) requestHeaders.set('x-user-nombre', usuario.nombre);
   else requestHeaders.delete('x-user-nombre');
+
+  // Trabajo en equipo: si alguien modifica algo bajo /api/negocios/<id>/…, las fichas abiertas de ese negocio avisan
+  // «hubo cambios». Hay decenas de rutas de escritura; en vez de tocar cada una se avisa desde aquí, con un pequeño
+  // retraso para que el guardado ya esté hecho. Un aviso de más solo muestra el botón «Actualizar».
+  const ruta = pathname.match(/^\/api\/negocios\/(\d+)\//);
+  if (ruta && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(request.method)) {
+    const negocioId = Number(ruta[1]);
+    const actorId = usuario.id;
+    setTimeout(() => { try { publicarCambio('negocio_ficha', { negocioId, actorId }); } catch { /* sin aviso */ } }, 2500);
+  }
 
   return NextResponse.next({ request: { headers: requestHeaders } });
 }

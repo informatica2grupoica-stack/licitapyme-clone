@@ -149,10 +149,12 @@ export function conBitacoraCompras<F extends (...args: any[]) => Promise<Respons
     if (bloqueo) return bloqueo;
     const respuesta = await handler(request, ctx);
     if (respuesta && respuesta.status < 400) {
-      publicarCambio('compras');   // las bandejas abiertas (Aprobaciones, campana) se refrescan solas al pedir o decidir algo
       void (async () => {
         const p = await Promise.resolve(ctx?.params).catch(() => null);
         const negocioId = p?.negocioId != null ? parseInt(p.negocioId) : null;
+        // Las bandejas abiertas (Aprobaciones, campana) se refrescan solas; con el negocio y quien actuó, la ficha de los demás avisa «hubo cambios».
+        const actor = parseInt(request.headers.get('x-user-id') || '');
+        publicarCambio('compras', { negocioId: Number.isFinite(negocioId as number) ? (negocioId as number) : undefined, actorId: Number.isFinite(actor) ? actor : undefined });
         const tareaId = p?.tareaId != null ? parseInt(p.tareaId) : null;
         await anotar(request, metodo, Number.isFinite(negocioId as number) ? negocioId : null, Number.isFinite(tareaId as number) ? tareaId : null, cuerpo);
       })().catch(e => console.error('[compras-bitacora]', String(e).slice(0, 200)));

@@ -17,6 +17,8 @@ export function useNovedadesCompras(negocioId: number) {
   const [eventos, setEventos] = useState<EventoNovedad[]>([]);
   const [visto, setVisto] = useState<string | null>(null);
   const ultimo = useRef<string | null>(null);
+  // Marca de lo que esta pantalla ya cargó: lo que otra persona haga después significa que lo mostrado quedó desfasado.
+  const [cargadoHasta, setCargadoHasta] = useState<string | null | undefined>(undefined);
   const usuarioId = usuario?.id ?? null;
   const nombre = usuario?.nombre ?? null;
 
@@ -28,6 +30,7 @@ export function useNovedadesCompras(negocioId: number) {
       const evs: EventoNovedad[] = data.eventos || [];
       setEventos(evs);
       ultimo.current = evs.reduce<string | null>((m, e) => (!m || e.creadoAt > m ? e.creadoAt : m), null);
+      setCargadoHasta(prev => (prev === undefined ? ultimo.current : prev));
       // Primera vez en esta licitación: todo lo anterior cuenta como visto, para no llenar de «novedades» viejas.
       if (usuarioId != null && leer(clave(negocioId, usuarioId)) == null && ultimo.current) { guardar(clave(negocioId, usuarioId), ultimo.current); setVisto(ultimo.current); }
     } catch { /* sin red: se reintenta en el próximo ciclo */ }
@@ -36,7 +39,7 @@ export function useNovedadesCompras(negocioId: number) {
   useEffect(() => { if (usuarioId != null) setVisto(leer(clave(negocioId, usuarioId))); }, [negocioId, usuarioId]);
   useEffect(() => {
     cargar();
-    const t = setInterval(() => { if (document.visibilityState === 'visible') cargar(); }, 60_000);
+    const t = setInterval(() => { if (document.visibilityState === 'visible') cargar(); }, 30_000);
     const alVolver = () => { if (document.visibilityState === 'visible') cargar(); };
     document.addEventListener('visibilitychange', alVolver);
     return () => { clearInterval(t); document.removeEventListener('visibilitychange', alVolver); };
@@ -49,5 +52,8 @@ export function useNovedadesCompras(negocioId: number) {
     setVisto(ultimo.current);
   }, [negocioId, usuarioId]);
 
-  return { novedades, marcarVistas, recargarNovedades: cargar };
+  // Cambios hechos por OTRA persona después de que esta pantalla cargó sus datos (hay que recargar para verlos).
+  const cambiosAjenos = cargadoHasta === undefined ? [] : eventos.filter(e => !!e.actor && e.actor !== nombre && e.creadoAt > (cargadoHasta ?? ''));
+  const datosAlDia = useCallback(() => { setCargadoHasta(ultimo.current); }, []);
+  return { novedades, marcarVistas, recargarNovedades: cargar, cambiosAjenos, datosAlDia };
 }
