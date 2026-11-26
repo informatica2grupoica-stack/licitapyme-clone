@@ -112,8 +112,8 @@ export async function GET(request: NextRequest) {
   } catch (error: any) {
     // Tabla aún no creada (migración 18 pendiente) → responder vacío, sin romper la página.
     if (error?.code === 'ER_NO_SUCH_TABLE') {
-      const [usuarios] = await pool.query(`SELECT id, nombre, email FROM usuarios WHERE activo = TRUE ORDER BY nombre ASC`);
-      return NextResponse.json({ success: true, actividad: [], usuarios, migracionPendiente: true });
+      // Multiempresa: antes devolvía TODOS los usuarios activos de todas las empresas. Sin saber la empresa en este punto, no se lista a nadie.
+      return NextResponse.json({ success: true, actividad: [], usuarios: [], migracionPendiente: true });
     }
     return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo completar la operación.') }, { status: 500 });
   }

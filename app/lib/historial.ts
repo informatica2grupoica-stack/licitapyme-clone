@@ -5,6 +5,7 @@ import pool from '@/app/lib/db';
 import { publicar } from '@/app/lib/sse-bus';
 import { enviarPushAUsuario } from '@/app/lib/push';
 import { ahoraChileSQL } from '@/app/lib/tz';
+import { avisoPuedeEntregarse } from '@/app/lib/aviso-frontera';
 
 export interface EventoHistorial {
   tipo: string;                       // ASIGNACION, REASIGNACION, DESCARTE, CAMBIO_ETAPA, ...
@@ -26,6 +27,14 @@ export async function registrarEvento(e: EventoHistorial): Promise<number | null
       const [cu] = await pool.query('SELECT id, cliente_id FROM usuarios WHERE id IN (?, ?)', [e.usuarioId, e.actorId]);
       const emp = new Map((cu as Array<{ id: number; cliente_id: number }>).map(r => [Number(r.id), Number(r.cliente_id)]));
       if (emp.size === 2 && emp.get(Number(e.usuarioId)) !== emp.get(Number(e.actorId))) return null;
+    }
+    // Frontera entre empresas (aviso-frontera.ts): última barrera, falla cerrado. Aplica a todo aviso con destinatario.
+    if (e.usuarioId) {
+      const d = await avisoPuedeEntregarse(e.tipo, Number(e.usuarioId), e.licitacionCodigo);
+      if (!d.entregar) {
+        console.warn(`[historial] aviso ${e.tipo} NO entregado al usuario ${e.usuarioId}: ${d.motivo}`);
+        return null;
+      }
     }
     // created_at EXPLÍCITO en hora de pared de Chile: el DEFAULT CURRENT_TIMESTAMP lo pone
     // el servidor MySQL de Bluehost (UTC-6), 2h atrás de Chile — mismo bug que actividad_usuario.
