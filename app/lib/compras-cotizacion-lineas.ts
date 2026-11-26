@@ -72,6 +72,12 @@ export function numerosDelTexto(texto: string): number[] {
   for (const m of String(texto || '').matchAll(/\d[\d.,]*\d|\d/g)) {
     const n = numeroDeTexto(m[0]);
     if (n != null) out.push(n);
+    // 25-nov (727202-72-LP26, Emesa 51636): una celda angosta parte el número en dos filas («1.750.00» y abajo «0» = 1.750.000).
+    // Un último grupo de SOLO 2 dígitos tras puntos de miles es un número cortado: se aceptan sus 10 cierres posibles
+    // (el control compara con tolerancia, así que lo que importa es que exista el candidato).
+    if (/^\d{1,3}(?:\.\d{3})+\.\d{2}$/.test(m[0])) {
+      for (let d = 0; d <= 9; d++) { const c = numeroDeTexto(m[0] + d); if (c != null) out.push(c); }
+    }
   }
   return out;
 }

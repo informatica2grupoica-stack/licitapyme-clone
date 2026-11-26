@@ -263,3 +263,29 @@ test('Q12: precio por pack de 10 → 300 unidades a $5.900 (el total no cambia)'
   assert.equal(r.lineas[0].precioUnitario, 5900);
   assert.equal(r.lineas[0].total, 1770000);
 });
+
+// 25-nov (727202-72-LP26, Emesa 51636): el PDF parte «1.750.000» en «1.750.00» y «0» en la fila de abajo; el control
+// «el precio no aparece en el documento» descartaba el precio del Bosch y de la hidrolavadora, y sin todas las líneas con total
+// no se podía comprobar que los precios traen IVA (suman el TOTAL EFECTIVO = neto × 1,19).
+test('Emesa 51636: número partido en dos filas aparece en el documento y los precios con IVA se reconocen', () => {
+  const texto = readFileSync(new URL('./fixtures/cotizaciones/emesa-51636.txt', import.meta.url), 'utf8');
+  assert.equal(numeroApareceEnTexto(1662500, texto), true, 'Bosch GSH 16-28, efectivo');
+  assert.equal(numeroApareceEnTexto(2365500, texto), true, 'Hidrolavadora Kaiman-R, efectivo');
+  assert.equal(numeroApareceEnTexto(1750000, texto), true, 'Bosch GSH 16-28, tarjetas');
+  assert.equal(numeroApareceEnTexto(1662600 * 3, texto), false, 'un número que no está sigue sin aparecer');
+  const L = (descripcion: string, cantidad: number, p: number) => ({ descripcion, cantidad, precioUnitario: p, total: cantidad * p });
+  const lineas = [
+    L('Rotomartillo Ronix', 3, 56050), L('Sierra Sable Einhell', 3, 71250), L('Martillo Demoledor Bosch GSH 16-28', 2, 1662500),
+    L('Sierra Sable Bosch', 1, 304000), L('Esmeril Angular Bosch', 1, 304000), L('Llave de Impacto Ronix', 1, 256500),
+    L('Martillo Demoledor Xcort', 1, 104500), L('Martillo Demoledor Ronix', 1, 118750), L('Rotomartillo Makita', 1, 209000),
+    L('Llave Stilson Truper', 1, 22325), L('Llave Francesa Truper', 1, 9500), L('Linterna Einhell', 1, 20900),
+    L('Tijera de Poda Truper', 1, 16055), L('Placa Compactadora SDS', 1, 565250), L('Unidad Motriz SDS', 1, 156750),
+    L('Sonda Vibratoria SDS', 1, 128250), L('Hidrolavadora Fasa Kaiman-R', 1, 2365500), L('Pala OKB', 4, 7125),
+    L('Cono Señalizacion', 4, 9025), L('Chuzo Truper', 1, 33202.5), L('Cortador de Tubo', 1, 14155),
+    L('Esmeril Angular Ronix', 1, 33250), L('Pico Loro Truper', 1, 6555), L('Llave Francesa Crownman', 1, 4655),
+  ];
+  const r = normalizarLineas(lineas, texto, 7096301);
+  assert.equal(r.lineas.filter(l => l.precioUnitario == null).length, 0, 'ninguna línea se queda sin precio');
+  assert.equal(r.cuadra, true);
+  assert.equal(r.base, 'bruto', 'las líneas suman el TOTAL EFECTIVO (con IVA)');
+});
