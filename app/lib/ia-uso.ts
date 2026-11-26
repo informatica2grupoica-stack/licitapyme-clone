@@ -11,7 +11,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 
 export type ModuloIA =
-  | 'viabilidad' | 'consultas' | 'auditor' | 'anexos' | 'compras' | 'costeo' | 'prefiltro' | 'otros';
+  | 'viabilidad' | 'consultas' | 'auditor' | 'anexos' | 'compras' | 'costeo' | 'prefiltro' | 'ocr' | 'otros';
 
 export const MODULOS_IA: Record<ModuloIA, string> = {
   viabilidad: 'Viabilidad',
@@ -21,6 +21,7 @@ export const MODULOS_IA: Record<ModuloIA, string> = {
   compras: 'Compras',
   costeo: 'Costeo y precios',
   prefiltro: 'Prefiltro / clasificación',
+  ocr: 'OCR (lectura de documentos escaneados)',
   otros: 'Otros',
 };
 
@@ -61,13 +62,15 @@ function proveedorDe(modelo: string): string {
 
 let avisoTabla = false;
 /** Guarda una llamada al modelo. Nunca lanza ni bloquea a quien la llama. */
-export function registrarUsoIA(d: { modelo: string; respaldo: boolean; tokensIn: number; tokensOut: number; costoUSD: number; ms: number }): void {
+export function registrarUsoIA(d: { modelo: string; respaldo: boolean; tokensIn: number; tokensOut: number; costoUSD: number; ms: number;
+  /** Etiqueta «modulo.funcion» que manda sobre la del contexto (p. ej. 'ocr.glm'): el OCR no pasa por crearChatIA y no tiene módulo propio en el contexto. */
+  etiqueta?: string }): void {
   const ctx = als.getStore();
   void (async () => {
     try {
       const [{ default: pool }, { ahoraChileSQL }, { clienteActual }, u] = await Promise.all([import('@/app/lib/db'), import('@/app/lib/tz'), import('@/app/lib/medidor-cliente'), usuarioActual()]);
       const clienteId = await clienteActual(u.id); // multiempresa: de qué empresa-cliente es el gasto (medidor-cliente.ts)
-      const resto = [u.id, u.nombre, `${ctx?.modulo ?? 'otros'}${ctx?.funcion ? `.${ctx.funcion}` : ''}`.slice(0, 40), ctx?.licitacion ?? null, proveedorDe(d.modelo), d.modelo, d.respaldo ? 1 : 0,
+      const resto = [u.id, u.nombre, (d.etiqueta ?? `${ctx?.modulo ?? 'otros'}${ctx?.funcion ? `.${ctx.funcion}` : ''}`).slice(0, 40), ctx?.licitacion ?? null, proveedorDe(d.modelo), d.modelo, d.respaldo ? 1 : 0,
         Math.round(d.tokensIn), Math.round(d.tokensOut), d.costoUSD.toFixed(6), Math.round(d.ms)];
       const columnas = 'usuario_id, usuario_nombre, modulo, licitacion_codigo, proveedor, modelo, respaldo, tokens_in, tokens_out, costo_usd, duracion_ms';
       try {

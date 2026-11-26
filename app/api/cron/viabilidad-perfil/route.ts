@@ -73,6 +73,7 @@ async function pendientes(limit?: number, incluirVencidas = false): Promise<stri
        FROM negocios n
        JOIN usuarios u ON u.id = n.asignado_a
       WHERE n.activo = TRUE
+        AND COALESCE(n.cliente_id, 1) = 1  -- multiempresa: la viabilidad de oficio usa el motor y la tabla de Grupo ICA; un negocio de otra empresa no puede dispararla (ni cobrársela a ICA)
         AND n.estado_pipeline NOT IN (${ESTADOS_RESUELTOS})
         ${GATE_PERMISO}
         AND EXISTS (

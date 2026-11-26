@@ -21,6 +21,8 @@
 // ABSOLUTA para que el chat y las citas puedan referenciar la página, igual que hacía el
 // OCR anterior.
 
+import { registrarUsoIA } from '@/app/lib/ia-uso';
+
 const ZAI_URL   = 'https://api.z.ai/api/paas/v4/layout_parsing';
 const ZAI_MODEL = 'glm-ocr';
 
@@ -235,6 +237,7 @@ async function glmLayoutParsing(
   for (let intento = 0; intento < ESPERAS.length; intento++) {
     if (intento > 0) await sleep(ESPERAS[intento]);
 
+    const t0 = Date.now();
     const res = await fetch(ZAI_URL, {
       method: 'POST',
       headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
@@ -254,6 +257,9 @@ async function glmLayoutParsing(
       const precIn = Number(process.env.GLM_OCR_PRICE_IN_USD_PER_M ?? 0.03);  // GLM-OCR Z.AI: $0.03/M
       const precOut = Number(process.env.GLM_OCR_PRICE_OUT_USD_PER_M ?? 0.03); // GLM-OCR Z.AI: $0.03/M
       const costo = (inTok / 1e6) * precIn + (outTok / 1e6) * precOut;
+      // Multiempresa: el gasto del OCR queda en ia_uso (módulo «ocr»), atribuido a la empresa de quien lo pidió (petición o conCliente) o a ICA/sistema si lo lanza un cron.
+      // Solo se MIDE: el tope por empresa no corta el OCR, porque el texto se comparte entre empresas y un OCR fallido por el tope de una dejaría ilegible el documento de todas.
+      registrarUsoIA({ modelo: ZAI_MODEL, respaldo: false, tokensIn: inTok, tokensOut: outTok, costoUSD: costo, ms: Date.now() - t0, etiqueta: 'ocr.glm' });
       console.log(`[glm-ocr] 💰 págs=${numPags} · in=${inTok} out=${outTok} tot=${totTok} tok · ~$${costo.toFixed(4)} USD`);
       return String(data?.md_results ?? '');
     }

@@ -883,11 +883,19 @@ async function transcribirPdfFileAPI(buffer: Buffer, startPageAbs: number): Prom
     for (let intento = 0; intento < ESPERAS.length; intento++) {
       if (intento > 0) await sleep(ESPERAS[intento]);
       const modelo = MODELOS[intento] || 'gemini-flash-latest';
+      const t0 = Date.now();
       const res = await fetch(`${BASE}/v1beta/models/${modelo}:generateContent?key=${apiKey}`,
         { method: 'POST', headers: { 'Content-Type': 'application/json' }, body, signal: AbortSignal.timeout(180_000) });
       if (res.ok) {
         const data = await res.json();
         const texto = String(data.candidates?.[0]?.content?.parts?.[0]?.text ?? '');
+        // Multiempresa: el OCR de respaldo con Gemini también queda medido en ia_uso (módulo «ocr»); solo se mide, no se topa (ver zai-ocr.ts).
+        {
+          const um = data.usageMetadata ?? {};
+          const inTok = Number(um.promptTokenCount ?? 0), outTok = Number(um.candidatesTokenCount ?? 0) + Number(um.thoughtsTokenCount ?? 0);
+          const { precIn, precOut } = tarifaModelo(modelo);
+          registrarUsoIA({ modelo, respaldo: true, tokensIn: inTok, tokensOut: outTok, costoUSD: (inTok / 1e6) * precIn + (outTok / 1e6) * precOut, ms: Date.now() - t0, etiqueta: 'ocr.gemini' });
+        }
         console.log(`[gemini-fileapi] transcrito desde pág ${startPageAbs}: ${texto.length} chars (${modelo})`);
         return texto;
       }
