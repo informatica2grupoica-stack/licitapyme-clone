@@ -3,6 +3,13 @@
 Pantalla principal: `/compras/[negocioId]` (`ComprasChrome.tsx`). Traspasado desde la memoria
 personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-11-26 (4) — Cotización de Inversiones Claro con logo, lista para repetir (`scripts/cotizacion-claro.mts`; PDF visto en el navegador; sin desplegar, sin migración, no escribe en la BD)
+- Pedido del dueño: cotización de Inversiones Claro ARZ SpA a Comercial MP por la vacuolavadora DB51 de 2446-240-LE26 (negocio 979), **$2.000.000 neto** y que quede a mano para repetirla. Interpreté el monto como **precio unitario neto** × 3 unidades = $6.000.000 neto, IVA $1.140.000, total $7.140.000 (corregir si era el total).
+- Cómo repetirla: con el túnel 3307, `npx tsx --env-file=.env.local scripts/cotizacion-claro.mts --desc "…" --cant N --neto PRECIO_UNITARIO [--folio] [--validez] [--emisor RUT] [--cliente RUT]`. Usa el mismo PDF de la OC (`generarPdfOc` con `titulo`/`frase`/`rotuloPie`), el logo `public/oc-claro/logo.png` y los datos de la tabla `empresas`. Salida en `docs/cotizaciones/` (este caso: `COT-2446-240-LE26-vacuolavadora.pdf`, folio COT-2446-240-LE26-01).
+- Texto que puse yo, a confirmar: «validez 30 días corridos» y «IVA 19 % se suma al facturar». Sin firma (la plantilla deja las líneas).
+- Ojo: la OC propia MP-2026-0001 a Inversiones Claro es de **3 × $3.500.000**; esta cotización a $2.000.000 no calza con ella (entre relacionadas el precio debe ser de mercado, art. 64 CT). Decidir cuál rige antes de usarla como respaldo.
+- Pendiente: una pantalla en Compras para emitirla y guardarla en el negocio (hoy es script).
+
 ## 2026-11-26 (3) — «Avance» de la licitación reemplaza al botón «Obuma» (tsc y 7 pruebas OK; pantalla SIN ver: pide login; sin desplegar, sin migración)
 - Pedido del dueño: las dos asistentes de una licitación (los ítems NO se reparten, las dos trabajan todos) deben ver por producto qué se hizo, quién y qué falta, y enterarse de lo que hizo la otra. El botón «Obuma» bajo el flujo «no servía para nada».
 - Hecho: botón **Avance** en su lugar (el paso `obuma` sigue existiendo para los enlaces «crear proveedor/SKU/OC», solo sin botón; `ResumenObumaModal` queda en el código sin botón que lo abra). Panel: barra «X de Y pasos», chips de aprobación de compra y margen, tabla por producto (Cotizaciones, Proveedor elegido, Aprobación, SKU, OC, Falta) con quién y cuándo en cada celda, filtro «Solo lo que falta», y «Desde tu última visita».
