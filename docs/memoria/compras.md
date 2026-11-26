@@ -3,6 +3,10 @@
 Pantalla principal: `/compras/[negocioId]` (`ComprasChrome.tsx`). Traspasado desde la memoria
 personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-11-26 (5) — Acta de entrega editable como el modelo de Quintero (tsc ok; PDF y pantalla sin ver; sin desplegar, sin migración)
+- Pedido: el acta de Gestionar documentos debe dejar poner todo lo del acta de Quintero (guía 1922). Ahora son campos editables: organismo (caja del título; entra el de la licitación), ID de licitación (entra el del negocio), y la recepción conforme opcional (nombre, RUT, observaciones, cargo, fecha); vacíos quedan las rayas para firmar. Tabla con 13 filas mínimo como el modelo (detalle en 2 líneas = «| | | segunda línea»).
+- Actas ya hechas sin esos valores salen con organismo e ID de la licitación (fallback en `armarHtml`). La plantilla base se reescribe sola en la BD al abrir Gestionar documentos.
+
 ## 2026-11-26 (4) — Cotización de Inversiones Claro con logo, lista para repetir (`scripts/cotizacion-claro.mts`; PDF visto en el navegador; sin desplegar, sin migración, no escribe en la BD)
 - Pedido del dueño: cotización de Inversiones Claro ARZ SpA a Comercial MP por la vacuolavadora DB51 de 2446-240-LE26 (negocio 979), **$2.000.000 neto** y que quede a mano para repetirla. Interpreté el monto como **precio unitario neto** × 3 unidades = $6.000.000 neto, IVA $1.140.000, total $7.140.000 (corregir si era el total).
 - Cómo repetirla: con el túnel 3307, `npx tsx --env-file=.env.local scripts/cotizacion-claro.mts --desc "…" --cant N --neto PRECIO_UNITARIO [--folio] [--validez] [--emisor RUT] [--cliente RUT]`. Usa el mismo PDF de la OC (`generarPdfOc` con `titulo`/`frase`/`rotuloPie`), el logo `public/oc-claro/logo.png` y los datos de la tabla `empresas`. Salida en `docs/cotizaciones/` (este caso: `COT-2446-240-LE26-vacuolavadora.pdf`, folio COT-2446-240-LE26-01).

@@ -77,27 +77,34 @@ const ACTA_ENTREGA: Omit<Plantilla, 'id'> = {
     { clave: 'logo_centro', etiqueta: 'Logo del centro (opcional)', donde: 'Arriba al centro, sobre el nombre de la empresa.', tipo: 'logo', valorPorDefecto: '' },
     { clave: 'logo_der', etiqueta: 'Logo de la derecha', donde: 'Arriba a la derecha.', tipo: 'logo', valorPorDefecto: 'empresa' },
     { clave: 'oc', etiqueta: 'Licitación OC', donde: 'Sale arriba a la izquierda, bajo «Licitación OC».', tipo: 'texto', ayuda: 'Ej.: 2415-283-SE26' },
+    { clave: 'organismo_acta', etiqueta: 'Organismo / comprador', donde: 'Primera caja bajo el título «ACTA DE ENTREGA». Entra el de la licitación; se puede cambiar.', tipo: 'texto', ayuda: 'Ej.: I Municipalidad de Quintero' },
     { clave: 'unidad_compra', etiqueta: 'Unidad de compra', donde: 'Segunda caja bajo el título «ACTA DE ENTREGA».', tipo: 'texto', ayuda: 'Ej.: IMUNI Concepción Adquisiciones' },
     { clave: 'fecha', etiqueta: 'Fecha del acta', donde: 'Sale arriba a la derecha.', tipo: 'fecha' },
     { clave: 'categoria', etiqueta: 'Tipo de artículos', donde: 'Título sobre la tabla.', tipo: 'texto', ayuda: 'Ej.: Materiales de construcción' },
-    { clave: 'items', etiqueta: 'Artículos entregados (uno por línea)', donde: 'Cada línea es una fila: código | cantidad | formato | detalle. La columna «Recibido Sí/No» queda en blanco.', tipo: 'tabla', columnas: ['Items', 'Cantidad', 'Formato', 'Detalle producto', 'Recibido Sí/No'], filasMin: 5, ayuda: '60264231353 | 500 | SACOS | CEMENTO 25KG SECADO RÁPIDO' },
+    { clave: 'items', etiqueta: 'Artículos entregados (uno por línea)', donde: 'Cada línea es una fila: código | cantidad | formato | detalle. La columna «Recibido Sí/No» queda en blanco.', tipo: 'tabla', columnas: ['Items', 'Cantidad', 'Formato', 'Detalle producto', 'Recibido Sí/No'], filasMin: 13, ayuda: '60264231353 | 500 | SACOS | CEMENTO 25KG SECADO RÁPIDO  (si el detalle sigue en otra línea: «| | | segunda línea del detalle»)' },
     { clave: 'guia_despacho', etiqueta: 'Guía de despacho N°', donde: 'Va bajo la tabla.', tipo: 'texto', ayuda: 'Ej.: 1910-1911' },
+    { clave: 'id_licitacion', etiqueta: 'ID de licitación', donde: 'Va bajo la guía de despacho. Entra el de la licitación; se puede cambiar.', tipo: 'texto', ayuda: 'Ej.: 1202333-67-LE26' },
     { clave: 'pendiente', etiqueta: 'Pendiente de entrega (opcional)', donde: 'Va bajo el ID de licitación.', tipo: 'texto' },
+    { clave: 'rec_nombre', etiqueta: 'Recepción conforme: nombre (opcional)', donde: 'Línea «NOMBRE». Si lo dejas vacío queda la raya para que quien recibe lo escriba.', tipo: 'texto' },
+    { clave: 'rec_rut', etiqueta: 'Recepción conforme: RUT (opcional)', donde: 'Línea «Rut».', tipo: 'texto' },
+    { clave: 'rec_observaciones', etiqueta: 'Observaciones (opcional)', donde: 'Línea «OBSERVACIONES».', tipo: 'texto' },
+    { clave: 'rec_cargo', etiqueta: 'Recepción conforme: cargo (opcional)', donde: 'Línea «Cargo».', tipo: 'texto' },
+    { clave: 'rec_fecha', etiqueta: 'Fecha de recepción (opcional)', donde: 'Después de «Fecha Recepcion:». Vacío = queda ____/____/____ para escribirla a mano.', tipo: 'texto', ayuda: 'Ej.: 20/11/2026' },
   ],
   cuerpoHtml: `<div class="acta">
 <div class="cab2"><div>{{logo_izq}}</div><div class="cen">{{logo_centro}}{{empresa}} {{rut_empresa}}</div><div>{{logo_der}}</div></div>
 <div class="bloque1"><div class="izq"><u>Licitación OC</u>{{oc}}<br>Unidad de Compra</div>
-<div class="med"><div class="tit">Acta de entrega</div><div class="caja">{{organismo}}</div><div class="caja">{{unidad_compra}}</div></div>
-<div class="der">{{fecha_larga}}</div></div>
+<div class="med"><div class="tit">Acta de entrega</div><div class="caja">{{organismo_acta}}</div><div class="caja">{{unidad_compra}}</div></div>
+<div class="der">{{fecha_corta}}</div></div>
 <div class="sec">A. &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Descripción Artículos :</div>
 <div class="cat">{{categoria}}</div>
 {{items}}
-<div class="datos"><div><b class="k">Guía Despacho N° &nbsp;:</b><span class="val">{{guia_despacho}}</span></div><div><b class="k">ID de Licitación &nbsp;&nbsp;&nbsp;:</b><span class="val">{{licitacion_codigo}}</span></div><div><b class="k">Pendiente de Entrega:</b><span class="val">{{pendiente}}</span></div></div>
+<div class="datos"><div><b class="k">Guía Despacho N° &nbsp;:</b><span class="val">{{guia_despacho}}</span></div><div><b class="k">ID de Licitación &nbsp;&nbsp;&nbsp;:</b><span class="val">{{id_licitacion}}</span></div><div><b class="k">Pendiente de Entrega:</b><span class="val">{{pendiente}}</span></div></div>
 <div class="rec"><div style="color:#444">RECEPCIÓN CONFORME:</div>
-<div class="fila"><span class="k">NOMBRE</span><span class="raya"></span></div>
-<div class="fila"><span class="k">Rut</span><span class="raya" style="max-width:200px"></span></div>
-<div class="fila"><span class="k">OBSERVACIONES:</span><span class="raya"></span></div>
-<div class="fila"><span class="k">Cargo</span><span class="raya" style="max-width:260px"></span><span class="fr">Fecha Recepcion: ____/____/____</span></div></div>
+<div class="fila"><span class="k">NOMBRE</span><span class="raya">{{rec_nombre}}</span></div>
+<div class="fila"><span class="k">Rut</span><span class="raya" style="max-width:200px">{{rec_rut}}</span></div>
+<div class="fila"><span class="k">OBSERVACIONES:</span><span class="raya">{{rec_observaciones}}</span></div>
+<div class="fila"><span class="k">Cargo</span><span class="raya" style="max-width:260px">{{rec_cargo}}</span><span class="fr">Fecha Recepcion: {{rec_fecha}}</span></div></div>
 </div>`,
 };
 const PLANTILLAS_BASE = [CERTIFICADO_CAPACITACION, ACTA_ENTREGA];

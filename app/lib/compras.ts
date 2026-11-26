@@ -645,7 +645,8 @@ export async function destinatariosAperturaCompras(asignadoOriginal: number | nu
   const ids = new Set<number>();
   if (asignadoOriginal) ids.add(Number(asignadoOriginal));
   try {
-    const [rows] = await pool.query(`SELECT id, rol FROM usuarios WHERE activo = TRUE`) as any;
+    // Compras es solo de Grupo ICA (cliente 1): los avisos no pueden llegar a usuarios de otras empresas-cliente.
+    const [rows] = await pool.query(`SELECT id, rol FROM usuarios WHERE activo = TRUE AND COALESCE(cliente_id, 1) = 1`) as any;
     for (const u of rows as any[]) {
       if (u.rol === 'admin') { ids.add(Number(u.id)); continue; }
       if (u.rol === 'externo') continue;
@@ -738,7 +739,8 @@ export interface CandidatoEncargado { id: number; nombre: string | null; carga: 
 /** Candidatos a Encargado de Compras: admin + cualquiera con el permiso `compras`, con su carga actual. */
 export async function candidatosEncargado(): Promise<CandidatoEncargado[]> {
   // Los permisos vienen en la misma lectura (misma regla que permisosDeUsuario): antes se pedían usuario por usuario, en serie (~1,2 s, 22-oct-2026).
-  const [rows] = await pool.query(`SELECT id, nombre, rol, permisos FROM usuarios WHERE activo = TRUE`) as any;
+  // Compras es solo de Grupo ICA (cliente 1).
+  const [rows] = await pool.query(`SELECT id, nombre, rol, permisos FROM usuarios WHERE activo = TRUE AND COALESCE(cliente_id, 1) = 1`) as any;
   const candidatos: Array<{ id: number; nombre: string | null }> = [];
   const adminsSinMarca: Array<{ id: number; nombre: string | null }> = [];
   for (const u of rows as any[]) {

@@ -112,7 +112,7 @@ export async function notificarJefesVentas(
   try {
     const soloYo = process.env.NODE_ENV !== 'production' || /^(1|true)$/i.test(process.env.COMPRAS_AVISOS_SOLO_YO || '');
     const destinatarios = new Map<number, { nombre: string | null; email: string | null }>();
-    const [users]: any = await pool.query(`SELECT id, nombre, email, rol, permisos FROM usuarios WHERE activo = TRUE`);
+    const [users]: any = await pool.query(`SELECT id, nombre, email, rol, permisos FROM usuarios WHERE activo = TRUE AND COALESCE(cliente_id, 1) = 1`);   // Compras es solo de ICA
     for (const u of users) {
       let p: any = {};
       try { p = u.permisos ? (typeof u.permisos === 'string' ? JSON.parse(u.permisos) : u.permisos) : {}; } catch { /* permisos ilegibles: no es jefe */ }

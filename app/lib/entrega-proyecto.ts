@@ -22,6 +22,7 @@ import pool from '@/app/lib/db';
 import { ahoraChileSQL } from '@/app/lib/tz';
 import { registrarEvento } from '@/app/lib/historial';
 import { permisosDeUsuario } from '@/app/lib/api-auth';
+import { CLIENTE_ICA, clienteDeNegocio } from '@/app/lib/tenant';
 import { aplicarReadjudicacion } from '@/app/lib/adjudicacion';
 import type { PaqueteTraspaso } from '@/app/lib/congelamiento';
 
@@ -264,12 +265,14 @@ export async function construirResumenEjecutivo(
  * Se resuelve por PERMISO y no por una lista fija para que agregar a alguien al circuito de
  * entrega sea otorgarle un permiso en el panel de usuarios, no editar código.
  */
-export async function involucradosEnEntrega(asignadoA: number | null): Promise<number[]> {
+export async function involucradosEnEntrega(asignadoA: number | null, clienteId: number = CLIENTE_ICA): Promise<number[]> {
   const ids = new Set<number>();
   if (asignadoA) ids.add(Number(asignadoA));
   try {
+    // Multiempresa: solo la gente de la empresa dueña del negocio. Antes tomaba a los admin de TODAS las empresas: un proyecto
+    // ganado de ICA le llegaba a los admin de otras empresas-cliente y su acuse pendiente impedía cerrar la entrega.
     const [rows] = await pool.query(
-      `SELECT id, rol, permisos FROM usuarios WHERE activo = TRUE`,
+      `SELECT id, rol, permisos FROM usuarios WHERE activo = TRUE AND COALESCE(cliente_id, 1) = ?`, [clienteId],
     ) as any;
     for (const u of rows as any[]) {
       if (u.rol === 'admin') { ids.add(Number(u.id)); continue; }
@@ -313,7 +316,7 @@ export async function abrirEntregaSiCorresponde(
     if (!r?.affectedRows) return false; // otra corrida la abrió primero
 
     // Registrar a quién le toca acusar recibo.
-    const involucrados = await involucradosEnEntrega(asignadoA);
+    const involucrados = await involucradosEnEntrega(asignadoA, await clienteDeNegocio(negocioId));
     for (const uid of involucrados) {
       try {
         await pool.query(

@@ -80,10 +80,13 @@ export function fechaLarga(iso: string): string {
 export function armarHtml(p: Plantilla, valores: Record<string, string>, ctx: ContextoDocumento, personas: PersonaDoc[], vista = false): string {
   // vista = vista previa del formulario: cada dato escrito se marca de color y lo que falta aparece como [etiqueta], para ver dónde queda.
   const marca = (txt: string, etiqueta: string) => vista ? (txt ? `<span class="v">${txt}</span>` : `<span class="v vacio">[${esc(etiqueta)}]</span>`) : txt;
+  // Actas hechas antes de que el organismo y el ID fueran editables no los guardaron: vuelven a salir con los de la licitación.
+  valores = { ...valores }; if (valores.organismo_acta === undefined) valores.organismo_acta = ctx.organismo; if (valores.id_licitacion === undefined) valores.id_licitacion = ctx.licitacionCodigo;
   const hojas = (p.porPersona ? personas : [{ nombre: '', rut: '' }]).map(per => {
     const base: Record<string, string> = {
       empresa: ctx.empresa, rut_empresa: ctx.rutEmpresa, licitacion_codigo: ctx.licitacionCodigo, licitacion_nombre: ctx.licitacionNombre, organismo: ctx.organismo,
       unidad_de: valores.unidad?.trim() ? ' de ' + valores.unidad.trim() : '', representante: ctx.representante || '', representante_cargo: ctx.representanteCargo || '', nombre: per.nombre, rut: per.rut, fecha_larga: fechaLarga(valores.fecha || ctx.hoy),
+      fecha_corta: (/^(\d{4})-(\d{2})-(\d{2})/.exec(valores.fecha || ctx.hoy) || []).slice(1).reverse().join('/'),
     };
     return (p.layout ? htmlLayout(p.layout) : p.cuerpoHtml).replace(/\{\{(\w+)\}\}/g, (_m, k: string) => {
       // Imágenes de la empresa (data URI armado por el servidor): único HTML que no se escapa.
@@ -110,6 +113,7 @@ export function armarHtml(p: Plantilla, valores: Record<string, string>, ctx: Co
         return li ? (vista ? `<div class="v bloque"><ul>${li}</ul></div>` : `<ul>${li}</ul>`) : marca('', etiqueta);
       }
       if (k === 'unidad_de') return v ? marca(esc(v), etiqueta) : '';
+      if (k === 'rec_fecha' && !v && !vista) return '____/____/____'; // sin fecha escrita, queda para llenar a mano
       return marca(esc(v), etiqueta);
     });
   });
@@ -133,11 +137,11 @@ export function armarHtml(p: Plantilla, valores: Record<string, string>, ctx: Co
   .acta{height:100%;display:flex;flex-direction:column;font-family:Arial,Helvetica,sans-serif;font-size:12.5px;line-height:1.5;color:#1a1a1a;padding:8px 6px}
   .acta .cab2{display:flex;justify-content:space-between;align-items:flex-start} .acta .cab2 img{height:56px;display:block;mix-blend-mode:multiply} .acta .cab2 .cen{text-align:center;font-weight:700;font-size:13px;padding-top:2px;text-transform:uppercase}
   .acta .bloque1{display:flex;gap:18px;margin-top:26px;align-items:flex-start} .acta .izq{width:150px;text-align:center;font-size:13.5px;line-height:1.45;padding-top:14px} .acta .izq u{display:block;margin-bottom:2px}
-  .acta .med{flex:1;text-align:center} .acta .med .tit{font-weight:700;text-decoration:underline;font-size:14px;text-transform:uppercase} .acta .med .caja{border:1px dotted #777;font-style:italic;font-weight:700;padding:3px 8px;margin-top:3px;min-height:20px;text-transform:uppercase} .acta .der{width:90px;text-align:right;padding-top:30px;font-size:13px}
+  .acta .med{flex:1;text-align:center} .acta .med .tit{font-weight:700;text-decoration:underline;font-size:14px;text-transform:uppercase} .acta .med .caja{border:1px dotted #777;font-style:italic;font-weight:700;padding:3px 8px;margin-top:3px;min-height:20px;text-transform:uppercase} .acta .der{width:90px;white-space:nowrap;font-weight:700;text-align:right;padding-top:30px;font-size:13px}
   .acta .sec{margin-top:22px;font-size:13.5px} .acta .cat{text-align:center;font-weight:700;margin-top:4px;text-transform:uppercase}
   .tabla{width:100%;border-collapse:collapse;margin-top:2px;font-size:12px;border:2px solid #222} .tabla th,.tabla td{border:1.5px solid #222;padding:4px 6px;text-align:center;height:20px} .tabla th{font-weight:400;font-size:13px} .tabla td:nth-child(4){text-align:left}
   .acta .datos{margin:20px 0 0 130px;font-size:11.5px} .acta .datos div{display:flex;margin:5px 0} .acta .datos b.k{font-weight:400;width:160px} .acta .datos .val{font-size:13px;font-weight:700}
-  .acta .rec{margin:34px 0 0 130px;font-size:11.5px} .acta .rec .fila{display:flex;align-items:flex-end;margin-top:32px} .acta .rec .fila .k{width:160px;padding-bottom:2px} .acta .rec .fila .raya{flex:1;border-bottom:1px solid #222;height:24px;max-width:430px} .acta .rec .fila .fr{margin-left:28px;white-space:nowrap;font-size:12.5px}
+  .acta .rec{margin:34px 0 0 130px;font-size:11.5px} .acta .rec .fila{display:flex;align-items:flex-end;margin-top:32px} .acta .rec .fila .k{width:160px;padding-bottom:2px} .acta .rec .fila .raya{flex:1;border-bottom:1px solid #222;height:24px;max-width:430px} .acta .rec .fila .raya{line-height:22px;padding-left:4px;font-weight:700;font-size:12.5px;overflow:hidden;white-space:nowrap} .acta .rec .fila .fr{margin-left:28px;white-space:nowrap;font-size:12.5px}
   .hoja.lay{height:296.6mm;width:210mm;position:relative;overflow:hidden}
   .el{position:absolute;box-sizing:border-box;overflow:hidden;line-height:1.35;word-wrap:break-word} .logoel img{width:100%;height:100%;object-fit:contain;display:block;object-position:left center} .el.firmael{overflow:visible;text-align:center;font-size:12px;line-height:1.4;color:#555} .firmael b{color:#2b2b2b;font-size:13px} .firmael .fw{width:100%;max-width:250px} .firmael .linea{width:100%;max-width:250px}
   .v{background:#fff3b0;border-radius:3px;padding:0 2px;box-decoration-break:clone}.bloque{display:block;padding:2px 6px}.vacio{background:#eceff1;color:#78909c;font-style:normal;font-weight:400;letter-spacing:0;text-transform:none}

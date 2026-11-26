@@ -54,6 +54,7 @@ export function GestionDocumentosCard({ negocioId }: { negocioId: number }) {
     for (const c of p.campos) v[c.clave] = c.tipo === 'fecha' ? (ctx?.hoy || '') : (c.valorPorDefecto || '');
     // Lo que ya sabemos de la licitación entra escrito (editable), para que no se vea todo vacío.
     if (ctx) { if ('nombre_licitacion' in v) v.nombre_licitacion = ctx.licitacionNombre; if ('unidad' in v) v.unidad = ctx.organismo;
+      if ('organismo_acta' in v) v.organismo_acta = ctx.organismo; if ('id_licitacion' in v) v.id_licitacion = ctx.licitacionCodigo;
       // Acta de entrega: los artículos (SKU, cantidad, detalle) y la guía de despacho ya registrados en Compras entran escritos, editables.
       if (ctx.entregaSugerida) { if ('items' in v && !v.items) v.items = ctx.entregaSugerida.items; if ('guia_despacho' in v && !v.guia_despacho) v.guia_despacho = ctx.entregaSugerida.guiaDespacho; } }
     setValores(v); setPersonas([{ nombre: '', rut: '' }]); setElegida(p);
@@ -196,7 +197,7 @@ export function GestionDocumentosCard({ negocioId }: { negocioId: number }) {
           <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,430px)]">
             <div className="space-y-5 min-w-0">
               <p className="text-[12.5px] text-zinc-600 rounded-lg bg-zinc-50 border border-zinc-200 px-3 py-2">
-                <b>Ya viene llenado solo:</b> empresa, logo, firma, timbre y representante ({ctx.empresa}) y el código de la licitación ({ctx.licitacionCodigo}).
+                <b>Ya viene llenado solo:</b> empresa, logo, firma, timbre y representante ({ctx.empresa}) y el código de la licitación ({ctx.licitacionCodigo}); en el acta, el organismo y el ID de licitación también se pueden cambiar.
               </p>
               <div className="space-y-4">
                 {elegida.campos.map((c, i) => (
