@@ -4,20 +4,13 @@
 //   DELETE → ?tipo=mp_ticket|correo — vuelve a lo compartido (ticket con tope del plan; correo: no se envía a su nombre).
 // Solo el admin de la empresa. Grupo ICA usa las cuentas del .env del servidor (no aplica).
 import { NextRequest, NextResponse } from 'next/server';
-import { getAuthedUser } from '@/app/lib/api-auth';
-import { CLIENTE_ICA } from '@/app/lib/tenant';
+import { adminDeCliente as adminDeClienteBase } from '@/app/lib/admin-empresa';
 import { guardarIntegracion, borrarIntegracion, resumenIntegraciones, probarTicketMp, crearTransporteSmtp, type TipoIntegracion, type CorreoSmtp } from '@/app/lib/integraciones-cliente';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-async function adminDeCliente(req: NextRequest) {
-  const u = await getAuthedUser(req);
-  if (!u?.clienteId) return { error: NextResponse.json({ error: 'No autenticado' }, { status: 401 }) };
-  if (u.clienteId === CLIENTE_ICA) return { error: NextResponse.json({ error: 'Grupo ICA usa las cuentas del servidor' }, { status: 400 }) };
-  if (u.rol !== 'admin') return { error: NextResponse.json({ error: 'Solo el admin de la empresa puede ver o cambiar sus cuentas' }, { status: 403 }) };
-  return { u: { ...u, clienteId: u.clienteId } };
-}
+const adminDeCliente = (req: NextRequest) => adminDeClienteBase(req, 'Solo el admin de la empresa puede ver o cambiar sus cuentas');
 
 export async function GET(req: NextRequest) {
   const g = await adminDeCliente(req);

@@ -206,14 +206,31 @@ test('plan B por grupos: las líneas conservan su código global (antes se cruza
   const llamarIA = async (_s: string, user: string) => {
     const lins = [...user.matchAll(/^(L\d+) \|/gm)].map(m => m[1]);
     llamadas.push(lins);
-    return { content: JSON.stringify({ asignaciones: [{ producto: 'P1', linea: lins[0], cantidad: 1, confianza: 'alta' }] }), finishReason: 'stop' };
+    // Cada tanda trae solo sus candidatos con códigos locales: se asigna al primer producto del rubro de la línea.
+    const prod = [...user.matchAll(/^(P\d+) \| (.*?) \|/gm)].find(m => (lins[0] === 'L1' ? /Bomba/ : /Tubería/).test(m[2]))?.[1] ?? 'P1';
+    return { content: JSON.stringify({ asignaciones: [{ producto: prod, linea: lins[0], cantidad: 1, confianza: 'alta' }] }), finishReason: 'stop' };
   };
   const r = await parearNegocio({ productos, cotizaciones: [c1, c2], llamarIA, topeEntrada: 1 });
   assert.ok(llamadas.length >= 2, 'tenía que partir en grupos');
   const delTubo = llamadas.find(l => l.includes('L2'))!;
   assert.equal(delTubo[0], 'L2');
   assert.ok(r.asignaciones.some(a => a.linea === 'L2'), 'la línea L2 que nombró la IA tiene que quedar asignada como L2');
-  assert.ok(!r.asignaciones.some(a => a.linea === 'L3'), 'L3 no se nombró: no se cruza con L2');
+  // L3 no la nombró la IA en su tanda: se vuelve a preguntar SOLA (y ahí sí queda asignada, con su propio código).
+  assert.ok(llamadas.some(l => l.length === 1 && l[0] === 'L3'), 'la línea que la IA no nombró se pregunta de nuevo sola');
+});
+
+test('tandas: con más líneas que una tanda se pregunta por cotización, solo con candidatos, y lo que la IA nunca nombra se informa (sinRespuesta)', async () => {
+  const c1 = cot(1, 'Koslan', Array.from({ length: 10 }, (_, i) => [`Bomba dosificadora Aqua modelo ${i + 1}`, 1, 100000 + i] as [string, number, number]));
+  const productos = Array.from({ length: 10 }, (_, i) => P(300 + i, `Dosificadora de cloro ProMinent modelo ${i + 1}.`, 1));
+  const llamadas: string[][] = [];
+  const llamarIA = async (_s: string, user: string) => {
+    const lins = [...user.matchAll(/^(L\d+) \|/gm)].map(m => m[1]);
+    llamadas.push(lins);
+    return { content: JSON.stringify({ asignaciones: [], sobrantes: [] }), finishReason: 'stop' };
+  };
+  const r = await parearNegocio({ productos, cotizaciones: [c1], llamarIA, lineasPorTanda: 4 });
+  assert.ok(llamadas.slice(0, 3).every(l => l.length <= 4), 'ninguna tanda pasa de 4 líneas');
+  assert.equal(r.sinRespuesta.length, 10, 'las 10 líneas nunca nombradas quedan informadas');
 });
 
 

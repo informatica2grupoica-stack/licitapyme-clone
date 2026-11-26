@@ -412,16 +412,53 @@ export function gruposDePareo(productos: ProductoPareo[], lineas: LineaPareo[]):
   return [...grupos.values()].map(g => ({ productos: productos.filter(p => g.ids.has(p.id)), lineas: g.lineas }));
 }
 
-export interface EntradaPareo { productos: ProductoPareo[]; cotizaciones: CotizacionPareo[]; llamarIA: LlamarIA; equivalencias?: EquivalenciaFamilia[]; topeEntrada?: number }
+export interface EntradaPareo { productos: ProductoPareo[]; cotizaciones: CotizacionPareo[]; llamarIA: LlamarIA; equivalencias?: EquivalenciaFamilia[]; topeEntrada?: number; lineasPorTanda?: number; concurrencia?: number }
 
-/** Pareo global de un negocio: una llamada si cabe; si no, una por grupo. Devuelve lo validado por el código. */
-export async function parearNegocio(e: EntradaPareo): Promise<ResultadoPareo & { llamadas: number; entradaChars: number }> {
+// ── Tandas ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+// Con 141 productos y ~55 cotizaciones una sola llamada pide una respuesta de 20–24 mil tokens: se corta, tarda 3–4 min y la IA se salta filas distintas
+// en cada corrida (1356, Koslan: 0 de 2 dosificadoras y 0 de 14 Pedrollo asignadas, sin que el código descartara nada). Por eso, si hay más de una tanda de
+// líneas, se pregunta POR COTIZACIÓN, en trozos de pocas líneas y solo con los productos que se le parecen. Cada tanda es una respuesta corta que no se cansa;
+// el código junta todo y sigue decidiendo igual (un principal por producto, el resto alternativas). Una línea que la IA no nombra en ninguna parte se
+// vuelve a preguntar sola, y si aun así queda sin respuesta se informa (sinRespuesta), no se pierde en silencio.
+export const LINEAS_POR_TANDA = 8;
+export const CONCURRENCIA_TANDAS = 4;
+
+/** Tandas: líneas de UNA cotización (en el orden del documento, de a `porTanda`) con los productos candidatos de esas líneas. */
+export function tandasDePareo(productos: ProductoPareo[], lineas: LineaPareo[], porTanda = LINEAS_POR_TANDA): Array<{ productos: ProductoPareo[]; lineas: LineaPareo[] }> {
+  const para = productos.map(p => ({ id: p.id, descripcion: p.descripcion, cantidad: p.cantidad }));
+  const porCot = new Map<number, LineaPareo[]>();
+  for (const l of lineas) porCot.set(l.cotizacionId, [...(porCot.get(l.cotizacionId) ?? []), l]);
+  const out: Array<{ productos: ProductoPareo[]; lineas: LineaPareo[] }> = [];
+  for (const ls of porCot.values()) {
+    for (let i = 0; i < ls.length; i += porTanda) {
+      const trozo = ls.slice(i, i + porTanda);
+      const ids = productosCandidatos(trozo.map(l => l.linea), para, { porLinea: 20, minimo: 8 });
+      const prods = productos.filter(p => ids.has(p.id));
+      if (prods.length > 0) out.push({ productos: prods, lineas: trozo });   // sin candidatos = líneas sin precio (títulos, totales): no hay qué preguntar
+    }
+  }
+  return out;
+}
+
+async function enParalelo<T>(tareas: Array<() => Promise<T>>, concurrencia: number): Promise<T[]> {
+  const out: T[] = new Array(tareas.length);
+  let sig = 0;
+  await Promise.all(Array.from({ length: Math.max(1, Math.min(concurrencia, tareas.length)) }, async () => {
+    while (sig < tareas.length) { const i = sig++; out[i] = await tareas[i](); }
+  }));
+  return out;
+}
+
+/** Pareo global de un negocio: una llamada si cabe; si no, tandas por cotización con reintento de lo que la IA no nombró. Devuelve lo validado por el código. */
+export async function parearNegocio(e: EntradaPareo): Promise<ResultadoPareo & { llamadas: number; entradaChars: number; sinRespuesta: string[] }> {
   const equivalencias = e.equivalencias ?? [];
   const lineas = lineasDelNegocio(e.cotizaciones);
   const entrada = armarEntrada(e.productos, lineas, e.cotizaciones, equivalencias);
   const tope = e.topeEntrada ?? TOPE_ENTRADA;
+  const porTanda = e.lineasPorTanda ?? LINEAS_POR_TANDA;
   let llamadas = 0;
-  const pedir = async (prods: ProductoPareo[], lins: LineaPareo[]) => {
+  type Resp = { asignaciones: any[]; alternativas: any[]; sobrantes: any[]; cargosAparte: any[]; cortada?: boolean };
+  const pedir = async (prods: ProductoPareo[], lins: LineaPareo[]): Promise<Resp> => {
     llamadas++;
     // Los códigos P/L son LOCALES a la entrada: se traducen de vuelta a los globales.
     const user = armarEntrada(prods, lins, e.cotizaciones, equivalencias);
@@ -434,16 +471,39 @@ export async function parearNegocio(e: EntradaPareo): Promise<ResultadoPareo & {
     const tr = (arr: any) => (Array.isArray(arr) ? arr.map((x: any) => ({ ...x, producto: x?.producto != null ? pMap(x.producto) : undefined, linea: x?.linea != null ? lMap(x.linea) : undefined })) : []);
     return { asignaciones: tr(j.asignaciones), alternativas: tr(j.alternativas), sobrantes: tr(j.sobrantes), cargosAparte: tr(j.cargosAparte), cortada: r.finishReason === 'length' || !Array.isArray(j.asignaciones) };
   };
-  const juntar = (rs: any[]) => ({ asignaciones: rs.flatMap(r => r.asignaciones), alternativas: rs.flatMap(r => r.alternativas), sobrantes: rs.flatMap(r => r.sobrantes), cargosAparte: rs.flatMap(r => r.cargosAparte) });
-  let respuesta: any;
-  if (entrada.length <= tope) {
+  const juntar = (rs: Resp[]): Resp => ({ asignaciones: rs.flatMap(r => r.asignaciones), alternativas: rs.flatMap(r => r.alternativas), sobrantes: rs.flatMap(r => r.sobrantes), cargosAparte: rs.flatMap(r => r.cargosAparte) });
+  /** Una tanda; si la respuesta se corta, se parte a la mitad hasta que cabe. */
+  const tanda = async (prods: ProductoPareo[], lins: LineaPareo[]): Promise<Resp> => {
+    const r = await pedir(prods, lins);
+    if (!r.cortada || lins.length <= 1) return r;
+    const m = Math.ceil(lins.length / 2);
+    return juntar([await tanda(prods, lins.slice(0, m)), await tanda(prods, lins.slice(m))]);
+  };
+  const nombradas = (r: Resp) => new Set([...r.asignaciones, ...r.alternativas, ...r.sobrantes, ...r.cargosAparte].map((x: any) => String(x?.linea ?? '').trim().toUpperCase()));
+
+  let respuesta: Resp;
+  let sinRespuesta: string[] = [];
+  if (lineas.length <= porTanda && entrada.length <= tope) {
     const r = await pedir(e.productos, lineas);
     respuesta = r.cortada && lineas.length > 1 ? juntar(await Promise.all(gruposDePareo(e.productos, lineas).map(g => pedir(g.productos, g.lineas)))) : r;
   } else {
-    respuesta = juntar(await Promise.all(gruposDePareo(e.productos, lineas).map(g => pedir(g.productos, g.lineas))));
+    const tandas = tandasDePareo(e.productos, lineas, porTanda);
+    const conc = e.concurrencia ?? CONCURRENCIA_TANDAS;
+    const rs = await enParalelo(tandas.map(t => () => tanda(t.productos, t.lineas)), conc);
+    // Lo que la IA no nombró en ninguna parte se pregunta de nuevo, de a pocas y solas.
+    const faltan: Array<{ productos: ProductoPareo[]; lineas: LineaPareo[] }> = [];
+    tandas.forEach((t, i) => {
+      const dichas = nombradas(rs[i]);
+      const f = t.lineas.filter(l => !l.esFlete && l.precioNeto != null && l.precioNeto > 0 && !dichas.has(l.codigo.toUpperCase()));
+      for (let k = 0; k < f.length; k += 3) faltan.push({ productos: t.productos, lineas: f.slice(k, k + 3) });
+    });
+    const rs2 = await enParalelo(faltan.map(t => () => tanda(t.productos, t.lineas)), conc);
+    const dichas2 = nombradas(juntar(rs2));
+    sinRespuesta = faltan.flatMap(t => t.lineas).map(l => l.codigo).filter(c => !dichas2.has(c.toUpperCase()));
+    respuesta = juntar([...rs, ...rs2]);
   }
   const v = validarPareoGlobal({ productos: e.productos, lineas, cotizaciones: e.cotizaciones, equivalencias }, respuesta);
-  return { ...v, llamadas, entradaChars: entrada.length };
+  return { ...v, llamadas, entradaChars: entrada.length, sinRespuesta };
 }
 
 // ─── Plan de escritura (puro: decide QUÉ cambia en las asignaciones guardadas; la capa de BD solo lo ejecuta) ──────────────────────────

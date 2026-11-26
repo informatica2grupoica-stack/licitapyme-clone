@@ -5,6 +5,7 @@
 import { AppLayout } from '@/app/components/AppLayout';
 import { ConfigurarEmpresa } from '@/app/components/ConfigurarEmpresa';
 import { IntegracionesEmpresa } from '@/app/components/IntegracionesEmpresa';
+import { ExportarDatosEmpresa } from '@/app/components/ExportarDatosEmpresa';
 import { EtapasEmpresa } from '@/app/components/EtapasEmpresa';
 import { AprobacionesEmpresa } from '@/app/components/AprobacionesAuditor';
 import { CriteriosViabilidadEmpresa } from '@/app/components/CriteriosViabilidad';
@@ -22,6 +23,7 @@ export default function MiEmpresaPage() {
         <EtapasEmpresa />
         <AprobacionesEmpresa />
         <IntegracionesEmpresa />
+        <ExportarDatosEmpresa />
       </div>
     </AppLayout>
   );

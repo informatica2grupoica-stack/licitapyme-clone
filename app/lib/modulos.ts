@@ -57,7 +57,9 @@ export const NOMBRE_MODULO: Record<Modulo, string> = {
  *  (p. ej. `reglas_ia`) no se le concede a un cliente. `ver_otros_negocios`/`exportar` van con Negocios. */
 export const PERMISOS_DEL_MODULO: Record<Modulo, string[]> = {
   radar:      ['acceso_radar', 'repartir_puente', 'alertas_anexos'],
-  negocios:   ['ver_otros_negocios', 'exportar'],
+  // ver_descartadas / ver_historial / config_empresa: Descartadas, Historial y Empresas son del plan Básico. Sin ellos esas pantallas expulsaban
+  // (Descartadas → /negocios) o decían «solo para administradores» al admin de una empresa-cliente (2026-11-26). Sus APIs ya filtran por empresa.
+  negocios:   ['ver_otros_negocios', 'exportar', 'ver_descartadas', 'ver_historial', 'config_empresa'],
   viabilidad: ['comentar_viabilidad', 'viabilidad_automatica'],
   resultado:  [],
   ia_chat:    ['chat_licitacion', 'chat_global'],

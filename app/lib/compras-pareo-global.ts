@@ -20,7 +20,7 @@ import { reparacionesDeUnidad, parearNegocio, planificarEscrituraPareo, type Cot
 
 const crearChatIA = conModuloIA('compras', crearChatIABase);
 
-export interface ResumenPareo { ejecutado: boolean; motivo?: string; asignados: number; quitados: number; sinRespaldo: number; saltados: number; llamadas: number; sinCuadrar: string[] }
+export interface ResumenPareo { ejecutado: boolean; motivo?: string; asignados: number; quitados: number; sinRespaldo: number; saltados: number; llamadas: number; sinCuadrar: string[]; sinRespuestaIA?: string[] }
 
 async function ejecutar(negocioId: number, actor?: { id: number; nombre: string | null }, quitar = false): Promise<ResumenPareo> {
   const vacio = (motivo: string): ResumenPareo => ({ ejecutado: false, motivo, asignados: 0, quitados: 0, sinRespaldo: 0, saltados: 0, llamadas: 0, sinCuadrar: [] });
@@ -113,9 +113,9 @@ async function ejecutar(negocioId: number, actor?: { id: number; nombre: string 
     tipo: 'COMPRAS_PAREO_GLOBAL', licitacionCodigo: (await pool.query('SELECT licitacion_codigo FROM negocios WHERE id = ? LIMIT 1', [negocioId]).then(([r]: any) => r?.[0]?.licitacion_codigo).catch(() => null)) ?? undefined,
     actorId: actor?.id, actorNombre: actor?.nombre ?? undefined,
     mensaje: `Pareo global de ${cotizaciones.length} cotización(es): ${plan.escribir.length} asignación(es) escritas, ${reparaciones.length} precios de unidad corregidos, ${plan.quitar.length} quitadas, ${plan.saltados.length} no se tocaron.`,
-    metadata: { negocio_id: negocioId, escritas: plan.escribir.length, reparadas: reparaciones.length, quitadas: plan.quitar.length, saltadas: plan.saltados.length, llamadas: R.llamadas, sin_cuadrar: sinCuadrar },
+    metadata: { negocio_id: negocioId, escritas: plan.escribir.length, reparadas: reparaciones.length, quitadas: plan.quitar.length, saltadas: plan.saltados.length, llamadas: R.llamadas, sin_cuadrar: sinCuadrar, sin_respuesta_ia: R.sinRespuesta },
   } as any).catch(() => {});
-  return { ejecutado: true, asignados: plan.escribir.length, quitados: plan.quitar.length, sinRespaldo: plan.sinRespaldo.length, saltados: plan.saltados.length, llamadas: R.llamadas, sinCuadrar };
+  return { ejecutado: true, asignados: plan.escribir.length, quitados: plan.quitar.length, sinRespaldo: plan.sinRespaldo.length, saltados: plan.saltados.length, llamadas: R.llamadas, sinCuadrar, sinRespuestaIA: R.sinRespuesta };
 }
 
 // Un negocio a la vez; varias subidas seguidas se juntan en una sola corrida (espera corta) y, si llega otra durante la corrida, se repite una vez.

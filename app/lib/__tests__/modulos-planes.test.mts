@@ -1,7 +1,7 @@
 // Planes Básico / Pro (2026-11-18): qué módulos usa de verdad una empresa-cliente y qué ve en los menús.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { modulosDeCliente, normalizarPlan, MODULOS_ACTIVABLES, rutaPermitida } from '../modulos';
+import { modulosDeCliente, normalizarPlan, MODULOS_ACTIVABLES, rutaPermitida, permisosPermitidos } from '../modulos';
 
 test('plan viejo o vacío cuenta como Básico', () => {
   for (const p of ['BASE', 'EQUIPO', '', null, undefined, 'basico']) assert.equal(normalizarPlan(p), 'BASICO');
@@ -49,4 +49,12 @@ test('el servidor niega a un Básico las rutas de lo que no contrató', () => {
   assert.equal(rutaPermitida('/api/ordenes-compra/listado', 2, basico).ok, true);
   assert.equal(rutaPermitida('/compras', 2, basico).ok, false);
   assert.equal(rutaPermitida('/api/cv/viabilidad-ia/123', 2, modulosDeCliente('PRO', null)).ok, true);
+});
+
+// 2026-11-26: Descartadas es del plan Básico; la página se expulsaba a /negocios porque el permiso ver_descartadas no pertenecía a ningún módulo.
+test('un cliente del plan Básico y del Pro puede tener los permisos de Descartadas, Historial y Empresas', () => {
+  for (const plan of ['BASICO', 'PRO'] as const) {
+    const p = permisosPermitidos(modulosDeCliente(plan, null));
+    for (const k of ['ver_descartadas', 'ver_historial', 'config_empresa']) assert.ok(p.has(k), `${plan} debe permitir ${k}`);
+  }
 });
