@@ -613,6 +613,8 @@ function semaforoDelNegocio(negocio: any, items: any[]) {
     bloqueantesPendientes: resumen.bloqueantesPendientes,
     itemsNoCumpleSinResolver, itemsPendientesProveedor,
     bloqueTecnicoAprobado, bloqueComercialAprobado, horasRestantes,
+    // Compras y Postulación no se venden a las empresas-cliente (no están en MODULOS_ACTIVABLES): sus textos no las mencionan.
+    sinComprasNiAnexos: (negocio.cliente_id ?? CLIENTE_ICA) !== CLIENTE_ICA,
   });
 
   return { semaforo, causales, horasRestantes };

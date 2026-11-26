@@ -354,7 +354,8 @@ function Sidebar({ mobileOpen, onCloseMobile }: { mobileOpen: boolean; onCloseMo
 
   // Badge de "Aprobaciones": solo se consulta si el usuario puede ver la bandeja (admin o
   // permiso aprobar_comercial) — para todos los demás ni siquiera se hace el fetch.
-  const puedeAprobar = usuario?.rol === 'admin' || !!usuario?.permisos?.aprobar_comercial;
+  // La bandeja es del módulo Compras: una empresa sin él no la consulta (daba 403 en cada pantalla).
+  const puedeAprobar = (usuario?.rol === 'admin' || !!usuario?.permisos?.aprobar_comercial) && tieneModulo(usuario, 'compras');
   const [totalAprobacionesPendientes, setTotalAprobacionesPendientes] = useState(0);
   useEffect(() => {
     if (!puedeAprobar) return;
@@ -389,7 +390,8 @@ function Sidebar({ mobileOpen, onCloseMobile }: { mobileOpen: boolean; onCloseMo
 
   // Badge de "Errores reportados": reportes abiertos/en revisión. Solo admin (la bandeja lo es).
   // Se recarga cuando llega la notificación del reporte nuevo (tipo REPORTE_ERROR).
-  const esAdminNav = usuario?.rol === 'admin';
+  // La bandeja de errores es de LICITANK (ICA): para una empresa-cliente la API responde 403, así que ni se consulta.
+  const esAdminNav = usuario?.rol === 'admin' && (usuario.clienteId == null || usuario.clienteId === 1);
   const [totalErrores, setTotalErrores] = useState(0);
   useEffect(() => {
     if (!esAdminNav) return;

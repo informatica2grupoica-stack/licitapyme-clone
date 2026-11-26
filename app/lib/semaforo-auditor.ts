@@ -40,6 +40,8 @@ export interface EntradaCausales {
   itemsPendientesProveedor: number;
   bloqueTecnicoAprobado: boolean;    // true también cuando el bloque no tiene ítems (nada que aprobar)
   bloqueComercialAprobado: boolean;
+  /** true en las empresas-cliente sin Compras ni Postulación (plan Básico/Pro): los textos no mandan a /aprobaciones ni a Pre-postulación. */
+  sinComprasNiAnexos?: boolean;
   horasRestantes: number | null;     // el causal de cierre inminente se decide por esto, NO por el color final del semáforo (que puede ser rojo por otro motivo, ej. bloqueantes, aunque falten días para el cierre)
 }
 
@@ -50,7 +52,9 @@ export function causalesDeBloqueo(a: EntradaCausales): CausalBloqueo[] {
   if (a.bloqueantesPendientes > 0) causales.push({
     codigo: 'ADMISIBILIDAD_DURA_PENDIENTE',
     descripcion: `${a.bloqueantesPendientes} punto(s) de admisibilidad dura sin aprobar`,
-    rutaDesbloqueo: 'Cárgalos y apruébalos en la pestaña Checklist del negocio (Comercial y Alertas de cumplimiento). Los anexos administrativos se aprueban aparte, en Pre-postulación › Anexos a generar.',
+    rutaDesbloqueo: a.sinComprasNiAnexos
+      ? 'Cárgalos y apruébalos en la pestaña Checklist del negocio (Comercial y Alertas de cumplimiento).'
+      : 'Cárgalos y apruébalos en la pestaña Checklist del negocio (Comercial y Alertas de cumplimiento). Los anexos administrativos se aprueban aparte, en Pre-postulación › Anexos a generar.',
   });
   if (a.itemsNoCumpleSinResolver > 0) causales.push({
     codigo: 'NO_CUMPLE_SIN_RESOLVER',
@@ -65,12 +69,12 @@ export function causalesDeBloqueo(a: EntradaCausales): CausalBloqueo[] {
   if (!a.bloqueTecnicoAprobado) causales.push({
     codigo: 'BLOQUE_TECNICO_SIN_APROBAR',
     descripcion: 'El bloque técnico no tiene aprobación vigente del asesor',
-    rutaDesbloqueo: 'Esperar a que el asesor apruebe el bloque técnico en /aprobaciones.',
+    rutaDesbloqueo: a.sinComprasNiAnexos ? 'Esperar a que el asesor apruebe el bloque técnico.' : 'Esperar a que el asesor apruebe el bloque técnico en /aprobaciones.',
   });
   if (!a.bloqueComercialAprobado) causales.push({
     codigo: 'BLOQUE_COMERCIAL_SIN_APROBAR',
     descripcion: 'El bloque comercial no tiene aprobación vigente del asesor',
-    rutaDesbloqueo: 'Esperar a que el asesor apruebe el bloque comercial en /aprobaciones.',
+    rutaDesbloqueo: a.sinComprasNiAnexos ? 'Esperar a que el asesor apruebe el bloque comercial.' : 'Esperar a que el asesor apruebe el bloque comercial en /aprobaciones.',
   });
   if (a.horasRestantes != null && a.horasRestantes < 24) causales.push({
     codigo: 'CIERRE_INMINENTE',

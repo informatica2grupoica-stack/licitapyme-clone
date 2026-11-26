@@ -23,7 +23,7 @@ import { Select } from '@/app/components/ui/Select';
 import { Modal } from '@/app/components/ui/Modal';
 import { pedirJson, ultimoJson } from '@/app/lib/pedir-json';
 import { useRealtime } from '@/app/lib/use-realtime';
-import { useSession } from '@/app/lib/session-context';
+import { useSession, tieneModulo } from '@/app/lib/session-context';
 import { DocumentViewerModal, type VisorDoc } from '@/app/components/DocumentViewerModal';
 import { AnexoRellenoModal, type AnexoDoc } from '@/app/components/AnexoRellenoModal';
 import { etiquetasDistinguibles, type DecisionGeneracion, type DocumentoCandidato } from '@/app/lib/auditor-generacion';
@@ -486,7 +486,7 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
         )}
         {vista === 'checklist' && (
           <p className="mt-3 text-xs text-slate-500">
-            Aquí se cuentan el bloque Comercial y las Alertas de cumplimiento. Los anexos administrativos se generan y se aprueban en la pestaña <b className="font-medium text-slate-700">Pre-postulación</b>, sección «Anexos a generar».
+            Aquí se cuentan el bloque Comercial y las Alertas de cumplimiento.{tieneModulo(usuario ?? null, 'anexos') && <> Los anexos administrativos se generan y se aprueban en la pestaña <b className="font-medium text-slate-700">Pre-postulación</b>, sección «Anexos a generar».</>}
           </p>
         )}
       </div>

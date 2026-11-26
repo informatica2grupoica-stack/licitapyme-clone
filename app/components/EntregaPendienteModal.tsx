@@ -15,7 +15,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { IconTrophy as Trophy, IconLoader2 as Loader2, IconArrowRight as ArrowRight } from '@tabler/icons-react';
-import { useSession } from '@/app/lib/session-context';
+import { useSession, tieneModulo } from '@/app/lib/session-context';
 import { suscribirRealtime } from '@/app/lib/use-realtime';
 import { useToast } from '@/app/components/ui/toast';
 
@@ -35,7 +35,7 @@ export function EntregaPendienteModal() {
   const [enviando, setEnviando] = useState(false);
 
   const cargar = useCallback(async () => {
-    if (!usuario || usuario.rol === 'externo') return;
+    if (!usuario || usuario.rol === 'externo' || !tieneModulo(usuario, 'entregas')) return;
     try {
       const res = await fetch('/api/entregas?pendientes=1');
       const data = await res.json();

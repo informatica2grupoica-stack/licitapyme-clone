@@ -280,3 +280,18 @@ test('CIERRE_INMINENTE: distingue "ya venció" de "quedan menos de 24 horas"', (
   assert.equal(causalDe(48), undefined);
   assert.equal(causalDe(null), undefined);
 });
+
+// Multiempresa: una empresa-cliente (sin Compras ni Postulación) no debe ver rutas a /aprobaciones ni a Pre-postulación.
+test('causales: sinComprasNiAnexos quita las rutas a /aprobaciones y Pre-postulación; ICA conserva el texto', () => {
+  const base = {
+    bloqueantesPendientes: 2, itemsNoCumpleSinResolver: 0, itemsPendientesProveedor: 0,
+    bloqueTecnicoAprobado: false, bloqueComercialAprobado: false, horasRestantes: null,
+  };
+  const textos = (c: ReturnType<typeof causalesDeBloqueo>) => c.map(x => x.rutaDesbloqueo).join(' | ');
+  const ica = textos(causalesDeBloqueo(base));
+  assert.match(ica, /\/aprobaciones/);
+  assert.match(ica, /Pre-postulación/);
+  const cliente = causalesDeBloqueo({ ...base, sinComprasNiAnexos: true });
+  assert.equal(cliente.length, 3);
+  assert.doesNotMatch(textos(cliente), /aprobaciones|Pre-postulación/);
+});

@@ -10,7 +10,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { IconBan as Ban } from '@tabler/icons-react';
-import { useSession } from '@/app/lib/session-context';
+import { useSession, tieneModulo } from '@/app/lib/session-context';
 import { suscribirRealtime } from '@/app/lib/use-realtime';
 import { useToast } from '@/app/components/ui/toast';
 import { Boton } from '@/app/components/ui/kit/Boton';
@@ -35,7 +35,7 @@ export function ModalFundamentoCancelacion() {
   const [error, setError] = useState<string | null>(null);
 
   const cargar = useCallback(async () => {
-    if (!usuario || usuario.rol === 'externo') return;
+    if (!usuario || usuario.rol === 'externo' || !tieneModulo(usuario, 'compras')) return;
     try {
       const r = await fetch('/api/compras/oc-canceladas');
       const d = await r.json();

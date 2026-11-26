@@ -5,6 +5,7 @@
 // Cada opción guarda su propia corrida en auditor_verificacion_tecnica con version_prompt = 'v3.0' (las filas v2.0 anteriores ya no se usan).
 import pool from '@/app/lib/db';
 import { ahoraChileSQL } from '@/app/lib/tz';
+import { codigoDocsDeNegocio } from '@/app/lib/tenant';
 import { crearChatIA as crearChatIABase, MODELO_KIMI } from '@/app/lib/gemini';
 import { conModuloIA } from '@/app/lib/ia-uso';
 const crearChatIA = conModuloIA('auditor', crearChatIABase, 'comparador');
@@ -210,7 +211,10 @@ export async function agregarRespaldoCelda(negocioId: number, opcionId: number, 
   if (!url && !quitar) {
     throw new Error('Adjunta una captura (imagen) de dónde sacaste el dato: una nota sola ya no basta para complementar.');
   } else if (!url.startsWith('nota:')) {
-    const [docs] = await pool.query(`SELECT 1 FROM documentos_cache WHERE documento_url_local = ? AND subcategoria = 'respaldos_auditor' LIMIT 1`, [url]) as any;
+    // Multiempresa: el respaldo tiene que estar subido en el espacio de documentos de ESTE negocio (no el de otra empresa).
+    const [ns] = await pool.query(`SELECT licitacion_codigo FROM negocios WHERE id = ? LIMIT 1`, [negocioId]) as any;
+    const codigoDocs = await codigoDocsDeNegocio(negocioId, String((ns as any[])[0]?.licitacion_codigo ?? ''));
+    const [docs] = await pool.query(`SELECT 1 FROM documentos_cache WHERE licitacion_codigo = ? AND documento_url_local = ? AND subcategoria = 'respaldos_auditor' LIMIT 1`, [codigoDocs, url]) as any;
     if (!(docs as any[]).length) throw new Error('Ese archivo no es un respaldo subido en esta licitación.');
   }
   await pool.query(`INSERT INTO auditor_evento (negocio_id, opcion_id, tipo, emisor, detalle, creado_at) VALUES (?, ?, 'respaldo_celda', 'asistente', ?, ?)`,

@@ -9,7 +9,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { IconClipboardCheck as ClipboardCheck, IconX as X } from '@tabler/icons-react';
-import { useSession } from '@/app/lib/session-context';
+import { useSession, tieneModulo } from '@/app/lib/session-context';
 import { suscribirRealtime } from '@/app/lib/use-realtime';
 import { pedirResumenAprobaciones } from '@/app/lib/aprobaciones-resumen';
 
@@ -21,7 +21,7 @@ export function AprobacionPendienteModal() {
   const [totalPendientes, setTotalPendientes] = useState(0);
   const [visible, setVisible] = useState(false);
 
-  const puedeAprobar = usuario?.rol === 'admin' || !!usuario?.permisos?.aprobar_comercial;
+  const puedeAprobar = (usuario?.rol === 'admin' || !!usuario?.permisos?.aprobar_comercial) && tieneModulo(usuario ?? null, 'compras');
 
   const cargar = useCallback(async () => {
     if (!usuario || !puedeAprobar) return;
