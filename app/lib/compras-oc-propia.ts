@@ -325,3 +325,28 @@ export async function anularOcPropia(negocioId: number, ocId: number, motivo: st
   });
   return leerOc(negocioId, ocId);
 }
+
+export interface DatosCotizacionProveedor { descripcion: string; cantidad: number; precioNeto: number; validezDias?: number; folio?: string | null }
+
+/**
+ * Cotización que el proveedor habitual de la empresa del negocio (Inversiones Claro) le hace a Comercial MP: mismo PDF de la OC con el
+ * logo del proveedor. No se guarda (sin migración): se arma al pedirla. null = el negocio no es de una empresa que emite OC propias.
+ */
+export async function documentoCotizacionProveedor(negocioId: number, licitacionCodigo: string, d: DatosCotizacionProveedor): Promise<{ doc: OcDocumento; logo: string | undefined } | null> {
+  const emisor = await emisorOcPropia(negocioId);
+  if (!emisor?.proveedor) return null;
+  const p = emisor.proveedor, e = emisor.empresa;
+  const subtotal = redondear(d.cantidad * d.precioNeto), iva = redondear(subtotal * IVA_OC_PROPIA);
+  const validez = d.validezDias && d.validezDias > 0 ? Math.round(d.validezDias) : 30;
+  const doc: OcDocumento = {
+    folio: d.folio?.trim() || `COT-${licitacionCodigo}`, fecha: new Date().toISOString().slice(0, 10), estado: null,
+    emisor: { razonSocial: p.nombre.toUpperCase(), rut: p.rut, giro: p.giro || '', direccion: p.direccion || '', telefono: p.telefono || '', email: p.email || '' },
+    proveedor: { nombre: e.razonSocial, rut: e.rut, giro: e.giro || null, direccion: e.direccion || null, comuna: null, telefono: e.telefono || null, email: e.email || null, contacto: null },
+    fechaEntrega: null, direccionEnvioFactura: null, direccionDespacho: null, metodoDespacho: null, formaPago: null, centroCosto: null, referencia: null,
+    items: [{ codigo: null, descripcion: d.descripcion, cantidad: d.cantidad, precio: d.precioNeto, descuento: 0, subtotal, imagenUrl: null }],
+    subtotal, descuentoPorcentaje: 0, descuento: 0, neto: subtotal, iva, total: subtotal + iva,
+    condiciones: `Valores netos en pesos chilenos; el IVA (19%) se suma al facturar.\nValidez de la cotizacion: ${validez} dias corridos desde su fecha.`,
+    generadoPor: null,
+  };
+  return { doc, logo: logoDeEmpresaPorRut(p.rut) ?? undefined };
+}

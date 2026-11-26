@@ -15,7 +15,7 @@ import { sincronizarTrasCambioDeOc } from '@/app/lib/compras-oc-obuma';
 import { cargarOcPropiaAlCosteo } from '@/app/lib/compras-compra-a-costeo';
 import {
   emisorOcPropia, listarOcPropias, productosParaOcPropia, crearOcPropia, documentoOcPropia,
-  registrarFacturaOcPropia, revisarFacturaXmlOcPropia, quitarFacturaOcPropia, anularOcPropia, type DatosOcPropia,
+  documentoCotizacionProveedor, registrarFacturaOcPropia, revisarFacturaXmlOcPropia, quitarFacturaOcPropia, anularOcPropia, type DatosOcPropia,
 } from '@/app/lib/compras-oc-propia';
 
 export const runtime = 'nodejs';
@@ -40,7 +40,19 @@ export async function GET(request: NextRequest, { params }: Params) {
   try {
     const a = await acceso(request, (await params).negocioId);
     if ('error' in a) return a.error;
-    const pdfId = parseInt(request.nextUrl.searchParams.get('pdf') || '');
+    const q = request.nextUrl.searchParams;
+    // Cotización de Inversiones Claro a Comercial MP (no se guarda): ?cotizacion=1&desc=&cant=&neto=&validez=&folio=
+    if (q.get('cotizacion')) {
+      const cant = Number(q.get('cant')), neto = Number(q.get('neto')), desc = (q.get('desc') || '').trim().slice(0, 300);
+      if (!desc || !(cant > 0) || !(neto > 0)) return NextResponse.json({ error: 'Falta la descripción, la cantidad o el precio.' }, { status: 400 });
+      const c = await documentoCotizacionProveedor(a.id, a.asignacion.licitacionCodigo, { descripcion: desc, cantidad: cant, precioNeto: neto, validezDias: Number(q.get('validez')) || undefined, folio: (q.get('folio') || '').slice(0, 40) });
+      if (!c) return NextResponse.json({ error: 'Este negocio no emite cotizaciones propias.' }, { status: 404 });
+      const bytes = await generarPdfOc(c.doc, { logo: c.logo, firma: null, titulo: 'COTIZACION', frase: 'Ponemos a su disposicion la siguiente cotizacion: ', rotuloPie: 'COTIZACION' });
+      return new NextResponse(Buffer.from(bytes), {
+        headers: { 'Content-Type': 'application/pdf', 'Content-Disposition': `inline; filename="cotizacion-${c.doc.folio}.pdf"`, 'Cache-Control': 'no-store' },
+      });
+    }
+    const pdfId = parseInt(q.get('pdf') || '');
     if (pdfId) {
       const { doc, logo } = await documentoOcPropia(a.id, pdfId);
       const bytes = await generarPdfOc(doc, { logo, firma: null });

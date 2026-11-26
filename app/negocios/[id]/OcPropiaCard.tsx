@@ -30,7 +30,7 @@ interface Datos { habilitada: boolean; empresa?: Empresa; proveedor?: Proveedor 
 const campo = 'mt-0.5 w-full text-[13px] font-normal text-zinc-900 dark:text-slate-100 bg-white dark:bg-slate-900 border border-zinc-200 dark:border-slate-700 rounded-lg px-2.5 py-2 outline-none focus:ring-1 focus:ring-teal-500';
 const rotulo = 'block text-[11.5px] font-medium text-zinc-600 dark:text-slate-400';
 
-export function OcPropiaCard({ negocioId, puedeOperar }: { negocioId: number; puedeOperar: boolean }) {
+export function OcPropiaCard({ negocioId, puedeOperar, onHabilitada }: { negocioId: number; puedeOperar: boolean; onHabilitada?: (habilitada: boolean) => void }) {
   const toast = useToast();
   const [datos, setDatos] = useState<Datos | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -38,15 +38,16 @@ export function OcPropiaCard({ negocioId, puedeOperar }: { negocioId: number; pu
   const [facturaDe, setFacturaDe] = useState<Oc | null>(null);
   const [anularDe, setAnularDe] = useState<Oc | null>(null);
   const [enviarDe, setEnviarDe] = useState<Oc | null>(null);
+  const [cotizar, setCotizar] = useState(false);
 
   const cargar = useCallback(async () => {
     try {
       const r = await fetch(`/api/compras/${negocioId}/oc-propia`);
       const d = await r.json();
-      if (!r.ok) { setError(d.error || 'No se pudieron cargar las órdenes de compra.'); return; }
-      setError(null); setDatos(d);
-    } catch { setError('No se pudieron cargar las órdenes de compra.'); }
-  }, [negocioId]);
+      if (!r.ok) { setError(d.error || 'No se pudieron cargar las órdenes de compra.'); onHabilitada?.(false); return; }
+      setError(null); setDatos(d); onHabilitada?.(!!d.habilitada);
+    } catch { setError('No se pudieron cargar las órdenes de compra.'); onHabilitada?.(false); }
+  }, [negocioId, onHabilitada]);
   useEffect(() => { void cargar(); }, [cargar]);
 
   const accion = async (body: Record<string, unknown>, ok: string) => {
@@ -68,6 +69,7 @@ export function OcPropiaCard({ negocioId, puedeOperar }: { negocioId: number; pu
           <p className="text-[15px] font-semibold tracking-tight text-tinta dark:text-slate-100">Órdenes de compra de {datos.empresa.razonSocial}</p>
           <p className="text-xs text-tinta-3 mt-0.5">{datos.empresa.razonSocial} no está en Obuma: su orden de compra a {datos.proveedor?.nombre ?? 'Inversiones Claro'} se emite aquí, y la factura se sube a mano para emparejarla.</p>
         </div>
+        {puedeOperar && <Boton icono={<FileInvoice size={16} />} onClick={() => setCotizar(true)} data-testid="oc-propia-cotizacion">Cotización de {datos.proveedor?.nombre.replace(/s+(ARZs+)?SpA$/i, '') ?? 'Inversiones Claro'}</Boton>}
         {puedeOperar && <Boton variante="primario" icono={<Plus size={16} />} onClick={() => setNueva(true)}>Nueva OC de {datos.empresa.razonSocial.replace(/\s+SpA$/i, '')}</Boton>}
       </div>
 
@@ -108,6 +110,7 @@ export function OcPropiaCard({ negocioId, puedeOperar }: { negocioId: number; pu
         <ModalNuevaOc negocioId={negocioId} empresa={datos.empresa} proveedorInicial={datos.proveedor ?? null} productos={datos.productos}
           onCerrar={() => setNueva(false)} onCreada={async folio => { setNueva(false); toast.success(`Orden de compra ${folio} emitida`); await cargar(); }} />
       )}
+      {cotizar && <ModalCotizacion negocioId={negocioId} empresa={datos.empresa} proveedor={datos.proveedor ?? null} productos={datos.productos ?? []} onCerrar={() => setCotizar(false)} />}
       {facturaDe && <ModalFactura negocioId={negocioId} oc={facturaDe} onCerrar={() => setFacturaDe(null)} onListo={async () => { setFacturaDe(null); toast.success('Factura emparejada'); await cargar(); }} />}
       {enviarDe && <EnviarOcModal negocioId={negocioId} ocPropiaId={enviarDe.id} onCerrar={() => setEnviarDe(null)} />}
       {anularDe && <ModalAnular oc={anularDe} onCerrar={() => setAnularDe(null)} onAnular={async motivo => { await accion({ accion: 'anular', ocId: anularDe.id, motivo }, `Orden de compra ${anularDe.folio} anulada`); setAnularDe(null); }} />}
@@ -240,6 +243,44 @@ function ModalNuevaOc({ negocioId, empresa, proveedorInicial, productos, onCerra
             <textarea value={condiciones} onChange={e => setCondiciones(e.target.value)} rows={2} className={campo} />
           </label>
         </section>
+      </div>
+    </Modal>
+  );
+}
+
+function ModalCotizacion({ negocioId, empresa, proveedor, productos, onCerrar }: { negocioId: number; empresa: Empresa; proveedor: Proveedor | null; productos: ProductoOc[]; onCerrar: () => void }) {
+  const [desc, setDesc] = useState(productos[0]?.descripcion ?? '');
+  const [cant, setCant] = useState(String(productos[0]?.cantidad ?? 1));
+  const [neto, setNeto] = useState('');
+  const [validez, setValidez] = useState('30');
+  const [folio, setFolio] = useState('');
+  const falta = !desc.trim() ? 'Falta la descripción' : !(numero(cant) > 0) ? 'Falta la cantidad' : !(numero(neto) > 0) ? 'Falta el precio neto' : null;
+  const total = numero(cant) * numero(neto);
+  const elegir = (id: string) => { const p = productos.find(x => String(x.productoId) === id); if (p) { setDesc(p.descripcion); setCant(String(p.cantidad)); } };
+  const url = `/api/compras/${negocioId}/oc-propia?${new URLSearchParams({ cotizacion: '1', desc, cant: String(numero(cant)), neto: String(numero(neto)), validez: String(numero(validez) || 30), folio })}`;
+  return (
+    <Modal open onClose={onCerrar} size="md" title={`Cotización de ${proveedor?.nombre ?? 'Inversiones Claro'}`} subtitle={`Para ${empresa.razonSocial}, con el logo del proveedor. Solo se genera el PDF: no queda guardada ni cambia compras ni costos.`}
+      footer={<>
+        {falta && <span className="mr-auto text-xs text-amber-700 dark:text-amber-400">{falta}</span>}
+        <Boton variante="fantasma" onClick={onCerrar}>Cerrar</Boton>
+        <Boton variante="primario" disabled={!!falta} onClick={() => window.open(url, '_blank', 'noopener,noreferrer')}>Ver PDF</Boton>
+      </>}>
+      <div className="space-y-3" data-testid="form-cotizacion-propia">
+        {productos.length > 0 && (
+          <label className={rotulo}>Producto del negocio
+            <select onChange={e => elegir(e.target.value)} className={campo} defaultValue={productos[0]?.productoId}>
+              {productos.map(p => <option key={p.productoId} value={p.productoId}>{p.descripcion}</option>)}
+            </select>
+          </label>
+        )}
+        <label className={rotulo}>Descripción en la cotización<textarea value={desc} onChange={e => setDesc(e.target.value)} rows={2} className={campo} /></label>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          <label className={rotulo}>Cantidad<input inputMode="decimal" value={cant} onChange={e => setCant(e.target.value)} className={`${campo} tabular-nums text-right`} /></label>
+          <label className={rotulo}>Precio neto c/u<input inputMode="numeric" value={neto} onChange={e => setNeto(e.target.value)} className={`${campo} tabular-nums text-right`} /></label>
+          <label className={rotulo}>Validez (días)<input inputMode="numeric" value={validez} onChange={e => setValidez(e.target.value)} className={`${campo} tabular-nums text-right`} /></label>
+          <label className={rotulo}>Folio <span className="font-normal text-zinc-400">(opc.)</span><input value={folio} onChange={e => setFolio(e.target.value)} className={campo} /></label>
+        </div>
+        <p className="text-xs text-zinc-500 tabular-nums">Neto {clp(total)} · IVA {clp(total * IVA)} · Total {clp(total * (1 + IVA))}. Entre empresas relacionadas el precio debe ser de mercado.</p>
       </div>
     </Modal>
   );

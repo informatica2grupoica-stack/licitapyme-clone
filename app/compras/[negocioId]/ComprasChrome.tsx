@@ -104,6 +104,7 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
   const hayPostventa = useHayPostventa(negocioId);
   // El paso «Gestionar documentos» solo existe si la empresa del negocio tiene plantillas (hoy Comercial MP).
   const [hayGestionDocs, setHayGestionDocs] = useState(false);
+  const [ocPropiaHabilitada, setOcPropiaHabilitada] = useState<boolean | null>(null);   // null = aún no se sabe; true = el negocio emite OC propia (no va por Obuma)
   useEffect(() => { fetch(`/api/compras/${negocioId}/documentos-generados`).then(r => r.json()).then(d => setHayGestionDocs(!!d?.habilitado)).catch(() => {}); }, [negocioId]);
   // Otras tarjetas pueden mandar al encargado a otro paso (ej. «Ir a crear proveedor» desde una compra directa).
   useEffect(() => {
@@ -948,9 +949,10 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
                     <div className="space-y-6">
                       <section className="space-y-2">
                         <p className="text-[13px] font-semibold text-tinta dark:text-slate-100"><span className="inline-flex w-5 h-5 mr-1.5 rounded-full bg-teal-600 text-white text-[11px] items-center justify-center">1</span>Emite las órdenes de compra a los proveedores</p>
-                        <RepartoAdminCard negocioId={negocioId} puedeOperar={puedeOperar || esAdministracion} parte="oc" />
+                        {/* Si el negocio es de una empresa sin Obuma (Comercial MP) la OC es la propia: la tarjeta de Obuma pedía el RUT de un proveedor que no existe allá. */}
+                        {ocPropiaHabilitada === false && <RepartoAdminCard negocioId={negocioId} puedeOperar={puedeOperar || esAdministracion} parte="oc" />}
                         {/* OC que emite una empresa del grupo sin Obuma (Comercial MP → Inversiones Claro); no se muestra si el negocio va por Obuma. */}
-                        <OcPropiaCard negocioId={negocioId} puedeOperar={puedeOperar || esAdministracion} />
+                        <OcPropiaCard negocioId={negocioId} puedeOperar={puedeOperar || esAdministracion} onHabilitada={setOcPropiaHabilitada} />
                       </section>
                       <section className="space-y-2">
                         <p className="text-[13px] font-semibold text-tinta dark:text-slate-100"><span className="inline-flex w-5 h-5 mr-1.5 rounded-full bg-teal-600 text-white text-[11px] items-center justify-center">2</span>Avance: pagos, facturas y proyecto en Obuma</p>
