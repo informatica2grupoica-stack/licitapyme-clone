@@ -8,9 +8,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
 import pool from '@/app/lib/db';
-import { getAuthedUser } from '@/app/lib/api-auth';
 import { olvidarFichaCliente, CLIENTE_ICA } from '@/app/lib/tenant';
-import { encolarEvaluacion, leerEvaluacion, rutsDeCliente, rutValido, formatearRut } from '@/app/lib/evaluar-empresa-rut';
+import { encolarEvaluacion, leerEvaluacion, rutsDeCliente } from '@/app/lib/evaluar-empresa-rut';
 import { exigirAdminLicitank } from '@/app/lib/admin-licitank';
 import { crearEmpresaCliente, ErrorAlta } from '@/app/lib/crear-empresa-cliente';
 import { guardarOpciones } from '@/app/lib/opciones-empresa';
