@@ -7,9 +7,10 @@ const c = await mysql.createConnection({ host: env.DB_HOST, port: +env.DB_PORT, 
 const aplicar = process.argv.includes('--aplicar');
 // 1) Acuses de entrega de personas que no son de la empresa dueña del negocio (bloquean el cierre de la entrega).
 const SQL_ACUSES = `FROM entrega_acuse ea JOIN usuarios u ON u.id = ea.usuario_id JOIN negocios n ON n.id = ea.negocio_id WHERE COALESCE(u.cliente_id,1) <> COALESCE(n.cliente_id,1)`;
-// 2) Avisos de proyecto ganado / compras enviados a usuarios de otra empresa que la del negocio de ese código.
+// 2) Avisos con código de licitación enviados a usuarios de una empresa que NO tiene un negocio con ese código (misma regla que la barrera
+//    de app/lib/aviso-frontera.ts). Medido el 2026-11-26: solo cae lo cruzado (todos hacia las empresas 2 y 4, 0 de ICA).
 const SQL_EVENTOS = `FROM historial_eventos h JOIN usuarios u ON u.id = h.usuario_id
-  WHERE h.tipo IN ('PROYECTO_GANADO','COMPRAS_PROYECTO_GANADO','COMPRAS_ASIGNADO','COMPRAS_OC_RECIBIDA')
+  WHERE h.licitacion_codigo IS NOT NULL
     AND NOT EXISTS (SELECT 1 FROM negocios n WHERE n.licitacion_codigo = h.licitacion_codigo AND COALESCE(n.cliente_id,1) = COALESCE(u.cliente_id,1))`;
 const [[a]] = await c.query(`SELECT COUNT(*) n ${SQL_ACUSES}`);
 const [[e]] = await c.query(`SELECT COUNT(*) n ${SQL_EVENTOS}`);
