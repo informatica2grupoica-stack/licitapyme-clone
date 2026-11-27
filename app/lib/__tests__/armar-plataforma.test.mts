@@ -40,8 +40,8 @@ test('guardia: ninguna consulta de palabras del radar corre sin el filtro de emp
   }
 });
 
-test('guardia: lo que se arma solo no restringe por región ni por monto', () => {
-  assert.match(readFileSync('app/lib/armar-plataforma.ts', 'utf8'), /guardarPerfil\(clienteId, \{ \.\.\.r\.perfil, regiones: '', monto_min: null, monto_max: null \}\)/);
+test('guardia: lo que se arma solo no restringe por región, monto ni reglas redactadas por la IA', () => {
+  assert.match(readFileSync('app/lib/armar-plataforma.ts', 'utf8'), /guardarPerfil\(clienteId, \{ \.\.\.r\.perfil, regiones: '', monto_min: null, monto_max: null, reglas: '' \}\)/);
 });
 
 test('guardia: la espera de la IA da señales de vida y un intento atrasado no pisa una evaluación lista', () => {

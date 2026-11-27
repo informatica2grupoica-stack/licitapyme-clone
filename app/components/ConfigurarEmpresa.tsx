@@ -11,6 +11,7 @@ interface Resultado {
   compradores: string[]; regiones: string[]; montoTipico: { p10: number | null; p90: number | null };
   sugeridas: string[]; posibles: { rubro: string; palabras: string[] }[]; negativas: string[]; perfil: Partial<Perfil>;
   armado?: { palabras: string[]; negativas: string[]; alertas: number };
+  origen?: string; // 'DESCRIPCION' = salió de lo que la empresa contó, no de ventas
 }
 interface Estado { pendiente: boolean; evaluacion: { estado: string; progreso: string; resultado: Resultado | null } | null; perfil: Perfil | null; palabras: { keyword: string; es_negativa: number }[] }
 
@@ -72,6 +73,21 @@ export function ConfigurarEmpresa({ alGuardar }: { alGuardar?: () => void }) {
   }, [d, res, listo]);
 
   const alternar = (s: Set<string>, set: (x: Set<string>) => void) => (k: string) => { const n = new Set(s); if (n.has(k)) n.delete(k); else n.add(k); set(n); };
+  const [descripcion, setDescripcion] = useState('');
+  const [proponiendo, setProponiendo] = useState(false);
+  const [errorPropuesta, setErrorPropuesta] = useState('');
+  const proponer = async () => {
+    setProponiendo(true); setErrorPropuesta('');
+    try {
+      const r = await fetch('/api/mi-empresa/configuracion/proponer', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ descripcion }) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) { setErrorPropuesta(j.error || 'No se pudo preparar la propuesta'); return; }
+      const nuevo = await fetch('/api/mi-empresa/configuracion').then(x => x.json());
+      if (nuevo?.aplica) { setD(nuevo); setListo(false); } // se vuelven a precargar el perfil y las casillas con la propuesta
+    } catch { setErrorPropuesta('Error de conexión. Intenta nuevamente.'); }
+    finally { setProponiendo(false); }
+  };
+
   const todasPosibles = useMemo(() => (res?.posibles || []).flatMap(g => g.palabras), [res]);
 
   const guardar = async () => {
@@ -91,22 +107,34 @@ export function ConfigurarEmpresa({ alGuardar }: { alGuardar?: () => void }) {
   return (
     <div className="space-y-4">
       <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-        <h2 className="font-medium text-slate-900">Lo que vendiste en Mercado Público</h2>
-        {!ev && <p className="mt-1 text-sm text-slate-500">Tu empresa no tiene RUT registrado, así que no hay historial para sugerirte. Completa el perfil a mano.</p>}
+        <h2 className="font-medium text-slate-900">{res?.origen === 'DESCRIPCION' ? 'Según lo que nos contaste' : 'Lo que vendiste en Mercado Público'}</h2>
+        {!ev && <p className="mt-1 text-sm text-slate-500">Tu empresa no tiene RUT registrado, así que no hay historial para sugerirte.</p>}
         {corriendo(ev?.estado) && <p className="mt-1 text-sm text-slate-600">Estamos revisando tus órdenes de compra y actas de adjudicación por tu RUT. Toma unos minutos; puedes cerrar esta página y volver después. <span className="text-slate-500">{ev.progreso}</span></p>}
-        {ev?.estado === 'ERROR' && <p className="mt-1 text-sm text-red-600">No pudimos leer tu historial: {ev.progreso}. Puedes completar el perfil a mano.</p>}
+        {ev?.estado === 'ERROR' && <p className="mt-1 text-sm text-slate-600">No encontramos historial para sugerirte: {ev.progreso}.</p>}
+        {esAdmin && !res && !corriendo(ev?.estado) && (
+          <div className="mt-3 border-t border-slate-100 pt-3">
+            <label htmlFor="que-vendes" className="block text-sm font-medium text-slate-800">Cuéntanos qué vende tu empresa y armamos tu radar y tu perfil</label>
+            <textarea id="que-vendes" rows={3} maxLength={1500} className={`${campo} mt-1`} value={descripcion} onChange={e => setDescripcion(e.target.value)}
+              placeholder="Ej.: Vendemos materiales de ferretería, cables y herramientas a municipios y colegios. No hacemos obras ni instalaciones." />
+            <div className="mt-2 flex flex-wrap items-center gap-3">
+              <button type="button" disabled={proponiendo || descripcion.trim().length < 30} onClick={proponer}
+                className="rounded-lg bg-teal-700 px-3.5 py-1.5 text-sm font-medium text-white hover:bg-teal-800 disabled:opacity-50">{proponiendo ? 'Preparando… puede tardar un par de minutos' : 'Preparar mi configuración'}</button>
+              {errorPropuesta && <span className="text-xs text-red-600">{errorPropuesta}</span>}
+            </div>
+          </div>
+        )}
         {res && (
           <>
             {d.pendiente && res.armado && <p className="mt-2 rounded-lg bg-teal-50 px-3 py-2 text-sm text-teal-900">Ya dejamos tu plataforma armada con esto: {res.armado.palabras.length} palabras clave, {res.armado.negativas.length} para descartar y tu perfil. Revisa, quita lo que no corresponda y guarda para confirmar.</p>}
             {res.resumen && <p className="mt-1 text-sm text-slate-700">{res.resumen}</p>}
-            <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 border-t border-slate-100 pt-3 sm:grid-cols-4">
+            {res.origen !== 'DESCRIPCION' && <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 border-t border-slate-100 pt-3 sm:grid-cols-4">
               <div><dt className="text-[11px] text-slate-500">Órdenes de compra</dt><dd className="text-sm font-semibold tabular-nums text-slate-800">{res.ordenes}</dd></div>
               <div><dt className="text-[11px] text-slate-500">Actas con líneas ganadas</dt><dd className="text-sm font-semibold tabular-nums text-slate-800">{res.actasConLineasGanadas}</dd></div>
               <div><dt className="text-[11px] text-slate-500">Productos vendidos</dt><dd className="text-sm font-semibold tabular-nums text-slate-800">{res.lineas}</dd></div>
               <div><dt className="text-[11px] text-slate-500">Monto típico por orden</dt><dd className="text-sm font-semibold tabular-nums text-slate-800">{clp(res.montoTipico.p10)} a {clp(res.montoTipico.p90)}</dd></div>
-            </dl>
+            </dl>}
             {res.compradores.length > 0 && <p className="mt-2 text-xs text-slate-600"><span className="text-slate-500">Te compran más: </span>{res.compradores.slice(0, 5).join(' · ')}</p>}
-            <p className="mt-1 text-[11px] text-slate-500">Revisamos los últimos {res.diasRevisados} días.</p>
+            {res.origen !== 'DESCRIPCION' && <p className="mt-1 text-[11px] text-slate-500">Revisamos los últimos {res.diasRevisados} días.</p>}
           </>
         )}
       </section>
@@ -132,7 +160,7 @@ export function ConfigurarEmpresa({ alGuardar }: { alGuardar?: () => void }) {
 
           <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
             <h2 className="font-medium text-slate-900">Perfil de tu empresa</h2>
-            <p className="text-xs text-slate-500">La viabilidad lo usa para decirte si una licitación te conviene.{res ? ' Te lo dejamos propuesto desde tus ventas: corrígelo si algo no calza.' : ''}</p>
+            <p className="text-xs text-slate-500">La viabilidad lo usa para decirte si una licitación te conviene.{res ? ' Te lo dejamos propuesto: corrígelo si algo no calza.' : ''}</p>
             <div className="mt-3 grid gap-3 sm:grid-cols-2">
               <label className="text-[11px] text-slate-500 sm:col-span-2">Qué hace tu empresa<textarea disabled={!esAdmin} rows={2} className={`${campo} mt-0.5`} value={p.descripcion} onChange={e => setP({ ...p, descripcion: e.target.value })} /></label>
               <label className="text-[11px] text-slate-500">Rubros<input disabled={!esAdmin} className={`${campo} mt-0.5`} value={p.rubros} onChange={e => setP({ ...p, rubros: e.target.value })} /></label>

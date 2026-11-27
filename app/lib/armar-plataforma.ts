@@ -37,10 +37,10 @@ export async function armarPlataforma(clienteId: number): Promise<{ hecho: boole
   const [[admin]] = await pool.query(`SELECT id FROM usuarios WHERE cliente_id = ? AND activo = TRUE ORDER BY (rol = 'admin') DESC, id LIMIT 1`, [clienteId]) as any;
   if (!admin) return { hecho: false, motivo: 'La empresa no tiene ningún usuario activo' };
 
-  // Lo automático nunca RESTRINGE: las regiones y los montos del perfil bajan el nivel de las licitaciones que quedan fuera. El monto de
+  // Lo automático nunca RESTRINGE: las «reglas propias» que redacta la IA («postular solo si…») quedan vacías, y las regiones y los montos del perfil bajan el nivel de las licitaciones que quedan fuera. El monto de
   // las órdenes de compra no es el presupuesto de una licitación (prueba real: 4 de 7 alertas superaban el «máximo»). Se muestran como
   // historial en Mi empresa y los fija el admin si quiere.
-  if (r.perfil) await guardarPerfil(clienteId, { ...r.perfil, regiones: '', monto_min: null, monto_max: null });
+  if (r.perfil) await guardarPerfil(clienteId, { ...r.perfil, regiones: '', monto_min: null, monto_max: null, reglas: '' });
   const palabras: string[] = Array.isArray(r.sugeridas) ? r.sugeridas : [];
   const negativas: string[] = (Array.isArray(r.negativas) ? r.negativas : []).filter((k: string) => !palabras.includes(k));
   for (const [keyword, negativa] of [...palabras.map(k => [k, 0] as const), ...negativas.map(k => [k, 1] as const)])

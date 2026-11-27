@@ -90,6 +90,7 @@ export default function RegistroPage() {
               <div>
                 <label htmlFor="reg-msg" className={etiqueta}>¿Qué vendes o a qué licitaciones postulas? <span className="font-normal text-slate-400">(opcional)</span></label>
                 <textarea id="reg-msg" value={f.mensaje} onChange={set('mensaje')} maxLength={500} rows={3} className={campo} />
+                <p className="mt-1 text-[11px] text-slate-500">Si todavía no le vendes al Estado, con esto preparamos tu plataforma.</p>
               </div>
               {/* Campo trampa: invisible para personas; los robots lo llenan y la solicitud se descarta. */}
               <div aria-hidden className="absolute -left-[9999px] h-0 w-0 overflow-hidden">

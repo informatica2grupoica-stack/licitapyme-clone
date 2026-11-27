@@ -151,6 +151,12 @@ Para cada módulo: tablas con dueño → todas sus rutas con chequeo de cliente 
 
 ## Bitácora
 
+## 2026-11-27 (32) — Empresas SIN ventas en Mercado Público: la plataforma se arma con lo que cuentan que venden
+**Qué:** en Mi empresa, sin historial, el admin describe lo que vende y se arma (o se sugiere, si ya tiene configuración propia) el radar y el perfil (`propuesta-descripcion.ts`, `POST /api/mi-empresa/configuracion/proponer`, máx. 5 al día; IA anotada a esa empresa con su tope). Si la evaluación por RUT termina sin ventas y la empresa escribió qué vende al pedir acceso (`cliente_solicitud.mensaje`), se usa eso sola.
+**Regla:** lo automático no restringe: tampoco las «reglas propias» que redacta la IA (probado: escribió «postular solo si el comprador es educacional»).
+**Probado:** IA real con una descripción inventada (31 s, US$0,005, 16 palabras); tsc limpio, 2.100 tests, aislamiento sin bloqueantes (corrido antes del último ajuste de reglas). **No** probado de punta a punta con una empresa ni visto en pantalla.
+**Ojo, a medias en git:** el commit `aac9582` (16:08, no hecho por esta sesión) trae las correcciones (30) y (31) y SOLO PARTE de esto (servidor). Quedaron sin commit: el recuadro en `ConfigurarEmpresa.tsx`, el arreglo de reglas en `armar-plataforma.ts`, el texto de `/registro` y las pruebas. No desplegar `aac9582` solo. No se sabe si está desplegado.
+
 ## 2026-11-27 (31) — Costeo: Link 1 exige un link o un comentario de 5 caracteres (decisión del dueño; en código, SIN subir ni desplegar)
 **Regla:** reemplaza «cualquier texto sirve» (y el pendiente de (30)): `tieneRespaldoLink` acepta un link o un comentario de 5+ caracteres («a», «—», «mail» ya no). Aplica a todos, ICA incluida; el costo real de Compras no se tocó.
 **Afectados al decidir (producción, solo lectura):** 2 costeos de ICA de licitaciones no abiertas y el de la ferretería de prueba; pedirán completar Link 1 la próxima vez que se guarden.
