@@ -3,6 +3,13 @@
 Pantalla principal: `/compras/[negocioId]` (`ComprasChrome.tsx`). Traspasado desde la memoria
 personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-11-27 (5) — Guías de Obuma en «Entrega y cierre» (2736-44-LE26, negocio 1525; tsc OK, pantalla sin ver, sin desplegar, sin migración)
+- Pedido del dueño: traer las guías desde Obuma a Entrega y cierre y mantener también la subida (las dos opciones).
+- `EntregaCard.tsx` muestra la lista `GuiasEmitidas` (la misma de «Gestionar documentos»: PDF, XML, estado SII; solo Inversiones Claro, a las demás no les sale) con el botón «Enlazar N guías a la entrega». Anota los folios en `guia_despacho_numero` (acción `numeros`, máx. 80 caracteres), conserva lo ya escrito y no agrega las anuladas.
+- Regla aplicada: enlazar = N° registrado (cierra «Despacho de la mercadería» y, en entrega total, pasa a «Listo para entrega»). La entrega al cliente la sigue cerrando solo la guía FIRMADA que se sube. Es por botón, no automático.
+- Consulta de solo lectura del 27-nov: 1525 reconoce las guías 1913, 1915, 1918 ($0 neto, revisar en Obuma) y 1919; ninguna anotada todavía.
+- Pendiente: ver en pantalla; la tarjeta «Guía de despacho firmada» con varios archivos solo deja abrir y quitar el último.
+
 ## 2026-11-27 (4) — La OC 4102 se tragaba las 142 piolas (1202333-67-LE26, negocio 708; tsc OK, verificado contra la BD del VPS solo leyendo, pantalla sin ver, sin desplegar)
 - Causa: la línea guardada de la 4102 no tiene `productoId` (reescrita con lo de Obuma) y dos productos comparten el SKU 60264231368 (#931 compra rápida $80.156 y #1027 142 piolas). Con dos candidatos no se reconocía ninguno y la OC «cubría todo» al proveedor.
 - Arreglo (`productoDelSku`, `compras-oc-obuma.ts`): con SKU compartido desempata el monto de la línea. Si el monto tampoco distingue, sigue como antes.

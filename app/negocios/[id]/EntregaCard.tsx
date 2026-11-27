@@ -10,6 +10,7 @@ import { Select } from '@/app/components/ui/Select';
 import { useCompras } from '@/app/compras/[negocioId]/ComprasContext';
 import { DocumentViewerModal, type VisorDoc } from '@/app/components/DocumentViewerModal';
 import { urlInline } from './MiniaturaDoc';
+import { GuiasMiniaturas } from './GuiasMiniaturas';
 import { irAFase } from '@/app/compras/[negocioId]/comprasNavegacion';
 import {
   IconPackage as PackageCheck, IconLoader2 as Loader2, IconCircleCheck as CheckCircle2, IconCircleX as XCircle, IconPlus as Plus, IconX as X, IconTrash as Trash2,
@@ -283,6 +284,10 @@ export function EntregaCard({ negocioId, puedeOperar, puedeVerificar = false }: 
   const comunes = { escaneos, puedeOperar, onSubir: subirEscaneo, onQuitar: quitarEscaneo, onAbrir: setVisor };
 
   return (
+    <>
+    {/* Guías traídas desde Obuma, bajo las órdenes de compra: enlazar anota el N°; la entrega la cierra la guía firmada que se sube abajo */}
+    <GuiasMiniaturas negocioId={negocioId} actuales={entrega.guiaDespachoNumero} puedeOperar={puedeOperar} guardando={guardando}
+      onEnlazar={async numeros => { if (await accion({ accion: 'numeros', guiaDespachoNumero: numeros })) toast.success('Guías enlazadas', `N° ${numeros}. Falta subir la guía firmada.`); }} />
     <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
       <div className="flex items-center justify-between gap-3 px-4 py-2.5 bg-zinc-50 border-b border-zinc-100 flex-wrap">
         <p className="text-[12.5px] font-semibold text-zinc-700 flex items-center gap-1.5">
@@ -376,5 +381,6 @@ export function EntregaCard({ negocioId, puedeOperar, puedeVerificar = false }: 
       </div>
       <DocumentViewerModal doc={visor} onClose={() => setVisor(null)} />
     </div>
+    </>
   );
 }

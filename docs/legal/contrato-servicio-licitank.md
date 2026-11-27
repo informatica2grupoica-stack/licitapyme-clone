@@ -99,10 +99,14 @@ Se rige por la ley chilena. Las partes se someten a los tribunales ordinarios de
 |---|---|---|---|---|
 | [Proveedor del servidor (VPS)] | Alojar la aplicación y la base de datos | Todo lo que el Cliente carga | Chile [verificar] | Siempre |
 | Cloudflare (R2) | Guardar archivos (documentos, PDF, cotizaciones) | Archivos que el Cliente sube | [verificar país] | Siempre |
-| Z.AI (GLM) | Leer documentos y extraer información (OCR e IA) | Texto/imágenes de documentos | Fuera de Chile [verificar] | Según la tarea |
-| Moonshot (Kimi) | Análisis de documentos con IA | Texto de documentos | Fuera de Chile [verificar] | Según la tarea |
-| Google (Gemini) | OCR de respaldo y análisis | Texto/imágenes de documentos | Fuera de Chile [verificar] | Según la tarea |
-| DeepSeek | Análisis con IA | Texto de documentos | Fuera de Chile [verificar] | Según la tarea |
+| Z.AI (GLM) | Leer documentos y extraer información (OCR e IA); chat | Texto/imágenes de documentos; preguntas al chat y la información para responderlas | Fuera de Chile [verificar] | Según la tarea |
+| Moonshot (Kimi) | Análisis de documentos con IA; chat | Texto/imágenes de documentos; preguntas al chat y la información para responderlas | Fuera de Chile [verificar] | Según la tarea |
+| Google (Gemini) | Análisis y lectura de respaldo | Texto/imágenes de documentos | Fuera de Chile [verificar] | Según la tarea |
+| DeepSeek | Análisis de respaldo con IA | Texto de documentos | Fuera de Chile [verificar] | Cuando fallan los anteriores |
+| Serper (resultados de Google) | Buscar productos y precios en internet | Nombres y descripciones de productos | Fuera de Chile [verificar] | Al buscar productos o precios |
+| Microsoft (visor de Office en línea) | Mostrar archivos Word y Excel en pantalla | El archivo que se abre (lo obtiene desde su enlace) | Fuera de Chile [verificar] | Al abrir un Word o Excel en el visor |
+| Upstash | Límites contra abuso y cola de tareas | Identificadores internos | Fuera de Chile [verificar] | Si está configurado |
+| Expo y Google (Firebase) | Avisos en el celular | Identificador del teléfono y texto del aviso | Fuera de Chile [verificar] | Solo con la aplicación móvil |
 | [Proveedor de correo SMTP] | Enviar correos de la plataforma | Correo, nombre, contenido del aviso | [verificar] | Siempre |
 | Obuma | Facturación y órdenes de compra | Datos de proveedores y compras | Chile [verificar] | Solo si el Cliente lo conecta |
 | WhatsApp (conexión no oficial) | Avisos al celular del equipo | Texto del aviso y celular | Fuera de Chile | Solo si el Cliente lo activa |

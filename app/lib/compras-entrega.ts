@@ -133,6 +133,8 @@ export async function registrarVerificacion(negocioId: number, conforme: boolean
 export async function registrarNumeros(negocioId: number, notaVentaNumero: string | null, guiaDespachoNumero: string | null): Promise<void> {
   // QA 13-nov: la guía cerraba «Despacho de la mercadería» sin nada comprado.
   if (guiaDespachoNumero?.trim() && !(await hayCompraRegistrada(negocioId))) throw new Error('Todavía no hay ninguna compra registrada (OC, línea de OC asignada o compra rápida aprobada): no se puede ' + 'registrar la guía de despacho.');
+  // La columna es VARCHAR(80): con varias guías enlazadas se avisa en vez de cortar o fallar con un error genérico.
+  if ((guiaDespachoNumero?.trim().length ?? 0) > 80) throw new Error('Son demasiadas guías para el campo «N° de guía» (máximo 80 caracteres).');
   await asegurarFila(negocioId);
   await pool.query(
     `UPDATE compras_entrega SET nota_venta_numero = COALESCE(?, nota_venta_numero), guia_despacho_numero = COALESCE(?, guia_despacho_numero), updated_at = ? WHERE negocio_id = ?`,

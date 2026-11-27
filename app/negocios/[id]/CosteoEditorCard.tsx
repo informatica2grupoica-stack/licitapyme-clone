@@ -688,16 +688,18 @@ function MenuFiltroColumna({ col, valores, filtro, orden, x, y, onAplicar, onCer
   );
 }
 
-function FilaCuadro({ etiqueta, valor, fondo, fuerte, titulo, tono }: {
+function FilaCuadro({ etiqueta, valor, fondo, fuerte, titulo, tono, compacta }: {
   etiqueta: string; valor: string; fondo?: string; fuerte?: boolean; titulo?: string;
   tono?: 'ok' | 'malo' | 'neutro';
+  compacta?: boolean;
 }) {
+  const py = compacta ? 'py-0' : 'py-[3px]';
   const color = tono === 'malo' ? 'text-rose-700' : tono === 'ok' ? 'text-emerald-700' : 'text-zinc-800';
   return (
     <tr title={titulo}>
-      <td className="px-2 py-[3px] text-[11px] text-zinc-700 text-right whitespace-nowrap"
+      <td className={`px-2 ${py} text-[11px] text-zinc-700 text-right whitespace-nowrap`}
           style={{ border: `1px solid ${GRID_BORDE}`, background: fondo }}>{etiqueta}</td>
-      <td className={`px-2 py-[3px] text-[11.5px] text-right tabular-nums ${fuerte ? 'font-semibold' : 'font-semibold'} ${color}`}
+      <td className={`px-2 ${py} text-[11.5px] text-right tabular-nums ${fuerte ? 'font-semibold' : 'font-semibold'} ${color}`}
           style={{ border: `1px solid ${GRID_BORDE}` }}>{valor}</td>
     </tr>
   );
@@ -780,14 +782,106 @@ function CuadroComparativo({ comp, titulo, fuente, presupuestoManual, onPresupue
   recargoPropio: boolean;                           // ¿es suyo, o heredado del costeo completo?
   itemsConRecargoPropio: number;                    // filas que se venden con SU propio recargo
   onMargenObjetivo: (m: number) => void;            // fijar el margen s/venta → despeja el recargo
-  /** DEBAJO de la planilla en vez de al costado (pantalla completa). Los tres bloques se reparten
-   *  en columnas que se adaptan al ancho, en vez de apilarse en una tira de 268 px: en un notebook
-   *  esa columna lateral se comía la planilla, que es lo que se está editando (pedido del usuario,
-   *  03-sep-2026: "al lado acorta la pantalla, sobre todo en un notebook"). */
+  /** DEBAJO de la planilla (pantalla completa): franja fija y baja, de 3 filas por bloque, para que
+   *  la planilla se lleve el alto en un notebook. Sin esto, la tarjeta apilada del panel. */
   ancho?: boolean;
 }) {
+  if (ancho) {
+    const clp = (n: number | null) => n != null ? fmtCLP(Math.round(n)) : '—';
+    const notaRecargo = `Recargo s/costo ${recargo.toFixed(recargo % 1 === 0 ? 0 : 1).replace('.', ',')}%`
+      + (recargoPropio ? ' · propio de esta hoja' : ' · del costeo completo')
+      + (itemsConRecargoPropio > 0 ? ` · ${itemsConRecargoPropio} ítem(s) con margen propio` : '');
+    const origenTope = fuente === 'linea' ? 'de esta línea, del informe' : fuente === 'global' ? 'global de la licitación'
+      : fuente === 'manual' ? 'escrito a mano' : 'sin tope: escribe el monto con IVA';
+    const borde = { border: `1px solid ${GRID_BORDE}` };
+    const celda = 'px-2 py-0 text-[11px] text-zinc-700 text-right whitespace-nowrap';
+    const cifra = 'px-2 py-0 text-[11.5px] font-semibold text-right tabular-nums whitespace-nowrap';
+    const signo = (mal: boolean | null) => mal == null ? 'text-zinc-800' : mal ? 'text-rose-700' : 'text-emerald-700';
+    return (
+      <div className={`bg-white border border-[#c6c6c6] shadow-sm px-2 py-1 ${apagada ? 'opacity-60' : ''}`} style={{ fontFamily: FUENTE_HOJA }}>
+        <div className="grid gap-x-2 gap-y-1 items-start grid-cols-2 lg:grid-cols-[1fr_1fr_1fr_1.7fr]">
+          <table className="border-collapse w-full">
+            <tbody>
+              <FilaCuadro compacta etiqueta="Total neto venta" valor={clp(comp.ventaNeta)} fondo={CUADRO_AZUL} titulo="Suma de la columna Precio total neto (solo hojas ofertadas)" />
+              <FilaCuadro compacta etiqueta="Venta IVA" valor={clp(comp.ventaIva)} fondo={CUADRO_AZUL} titulo="IVA de la venta" />
+              <FilaCuadro compacta etiqueta="Total venta C/IVA" valor={clp(comp.ventaConIva)} fondo={CUADRO_AZUL} titulo="= Precio total neto × 1,19" />
+            </tbody>
+          </table>
+          <table className="border-collapse w-full">
+            <tbody>
+              <FilaCuadro compacta etiqueta="Tope NETO" valor={comp.presupuestoNeto == null ? 'sin tope' : clp(comp.presupuestoNeto)} fondo={CUADRO_AMARILLO}
+                          titulo={`Presupuesto NETO de esta línea (${origenTope}). Es el que se compara contra el Total neto venta.`} />
+              <tr title="Tope de ESTA línea, CON IVA (así lo publican las bases). El neto se calcula solo: monto / 1,19. Vacío = se usa el presupuesto de la línea que trae el informe.">
+                <td className={celda} style={{ ...borde, background: CUADRO_AMARILLO }}>Tope con IVA</td>
+                <td className="p-0" style={borde}>
+                  <input
+                    inputMode="numeric"
+                    value={presupuestoManual != null ? pesosDeNumero(Math.round(presupuestoManual * IVA)) : ''}
+                    disabled={congelado}
+                    placeholder={fuente !== 'manual' && comp.presupuestoConIva != null ? pesosDeNumero(Math.round(comp.presupuestoConIva)) : 'escríbelo'}
+                    onChange={e => { const { valor } = formatearPesosDigitado(e.target.value); onPresupuesto(valor == null ? null : valor / IVA); }}
+                    className="block w-full min-w-0 bg-[#fffdf3] text-right text-[11.5px] font-semibold text-zinc-700 px-2 outline-none tabular-nums disabled:opacity-60"
+                  />
+                </td>
+              </tr>
+              <FilaCuadro compacta etiqueta="Total costo neto" valor={clp(comp.costoNetoEstimado)} fondo={CUADRO_SALMON} titulo="Suma de la columna Costo total neto — lo que se supuso al cotizar" />
+            </tbody>
+          </table>
+          <table className="border-collapse w-full">
+            <tbody>
+              <FilaCuadro compacta etiqueta="Utilidad total neta" valor={clp(comp.utilidadEstimada)} fondo={CUADRO_VERDE}
+                          tono={comp.utilidadEstimada < 0 ? 'malo' : 'ok'} titulo="= Total neto venta − Total costo neto" />
+              <tr title={`Utilidad SOBRE LA VENTA. Se puede escribir: el recargo sobre el costo se ajusta solo. ${notaRecargo}.`}>
+                <td className={celda} style={borde}>% Margen s/venta</td>
+                <td className="px-2 py-0" style={{ ...borde, background: congelado ? undefined : '#fffdf3' }}>
+                  <CeldaMargenObjetivo valor={comp.margenEstimado} onFijar={onMargenObjetivo} disabled={congelado} />
+                </td>
+              </tr>
+              <FilaCuadro compacta etiqueta="% distancia del tope" valor={fmtPct(comp.distanciaPresupuesto)}
+                          titulo="= 1 − (venta neta / presupuesto neto). Negativo = la oferta se pasó del tope."
+                          tono={comp.distanciaPresupuesto == null ? 'neutro' : comp.distanciaPresupuesto < 0 ? 'malo' : 'ok'} />
+            </tbody>
+          </table>
+          {/* Real: dos pares por fila. La venta no se repite: es la misma del primer bloque. */}
+          <table className="border-collapse w-full">
+            <tbody>
+              <tr title='Se calcula desde la columna "Costo unit. REAL" de la planilla, que se llena a mano cuando llega la factura/OC.'>
+                <td className={celda} style={{ ...borde, background: CUADRO_SALMON }}>Costo REAL</td>
+                <td className={`${cifra} text-zinc-800`} style={borde}>{clp(comp.costoNetoReal)}</td>
+                <td className={celda} style={borde}>Margen REAL</td>
+                <td className={`${cifra} ${comp.margenReal != null && comp.margenReal < 0 ? 'text-rose-700' : 'text-zinc-800'}`} style={borde}>{fmtPct(comp.margenReal)}</td>
+              </tr>
+              <tr>
+                <td className={celda} style={{ ...borde, background: CUADRO_SALMON }}
+                    title="Gastos extra del costeo (flete, horas extra, imprevistos). Ya están dentro del costo real; no suman a la venta.">↳ gastos adic.</td>
+                <td className={`${cifra} text-zinc-800`} style={borde}>{comp.gastosAdicionales > 0 ? clp(comp.gastosAdicionales) : '—'}</td>
+                <td className={celda} style={borde}
+                    title="= (costo real − costo estimado) / costo estimado. Negativo = se compró más barato de lo cotizado.">Variación</td>
+                <td className={`${cifra} ${signo(comp.variacionCosto == null ? null : comp.variacionCosto > 0)}`} style={borde}>{fmtPct(comp.variacionCosto)}</td>
+              </tr>
+              <tr>
+                <td className={celda} style={{ ...borde, background: CUADRO_VERDE }}>Utilidad REAL</td>
+                <td className={`${cifra} ${signo(comp.utilidadReal == null ? null : comp.utilidadReal < 0)}`} style={borde}>{clp(comp.utilidadReal)}</td>
+                <td colSpan={2} className="px-2 py-0 text-[10px] text-zinc-400 text-right" style={borde}>
+                  {comp.filasConCostoReal === 0 ? 'Falta «Costo unit. REAL»'
+                    : comp.realCompleto ? `Completo: ${comp.filasTotales} ítems`
+                      : `Parcial: ${comp.filasConCostoReal} de ${comp.filasTotales} ítems`}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p className="text-[10px] text-zinc-400 leading-tight mt-0.5 px-1 truncate">
+          <span className="font-semibold text-zinc-500">{titulo}</span>{apagada && ' · no se oferta'} · {notaRecargo}
+        </p>
+        {alertasDeDesvio(comp).map(a => (
+          <p key={a.codigo} className="text-[10.5px] font-semibold text-rose-700 leading-tight px-1">⚠ {a.mensaje}</p>
+        ))}
+      </div>
+    );
+  }
   return (
-    <div className={`bg-white border border-[#c6c6c6] shadow-sm p-2.5 ${ancho ? 'space-y-2' : 'space-y-2.5'} ${apagada ? 'opacity-60' : ''}`} style={{ fontFamily: FUENTE_HOJA }}>
+    <div className={`bg-white border border-[#c6c6c6] shadow-sm p-2.5 space-y-2.5 ${apagada ? 'opacity-60' : ''}`} style={{ fontFamily: FUENTE_HOJA }}>
       {/* Un cuadro POR HOJA: cada línea/canasta se compara contra SU tope, nunca las dos juntas
           contra el global (pedido del usuario, 03-sep-2026, con el Excel de 1271359-92-LE26 a la
           vista: ahí cada canasta tiene su propia celda "Presupuesto iva incluido"). */}
@@ -795,11 +889,9 @@ function CuadroComparativo({ comp, titulo, fuente, presupuestoManual, onPresupue
         <span className="truncate">{titulo}</span>
         {apagada && <span className="text-[9.5px] font-semibold text-zinc-400 flex-shrink-0">· no se oferta</span>}
       </p>
-      {/* Al ancho: tres columnas que se adaptan. Angosto: exactamente el apilado de antes — las
-          clases de separación se conservan una por una para no mover ni un pixel de esa vista. */}
-      <div className={ancho ? 'grid gap-x-4 gap-y-2 grid-cols-[repeat(auto-fit,minmax(260px,1fr))] items-start' : 'space-y-2.5'}>
+      <div className="space-y-2.5">
       {/* ── Estimado: lo que sale del costeo ───────────────────────────────────────────────── */}
-      <div className={`${ancho ? 'min-w-0 ' : ''}space-y-2.5`}>
+      <div className="space-y-2.5">
       <table className="border-collapse w-full">
         <tbody>
           {/* Neto arriba, junto al bloque del presupuesto neto, para compararlos de un vistazo
@@ -856,7 +948,7 @@ function CuadroComparativo({ comp, titulo, fuente, presupuestoManual, onPresupue
           del usuario, 04-sep-2026: "el neto es el que nos importa... dale más presencia"). Ahora
           el neto va grande arriba y el con IVA queda como lo que es: la casilla donde se tipea,
           porque así lo publican las bases. */}
-      <div className={`${ancho ? 'min-w-0 ' : ''}space-y-2.5`}>
+      <div className="space-y-2.5">
       <div className="border border-amber-300" style={{ background: CUADRO_AMARILLO }}>
         <div className="px-2 pt-1.5 pb-1">
           <p className="text-[10px] font-semibold text-amber-800/80 leading-none">
@@ -905,7 +997,7 @@ function CuadroComparativo({ comp, titulo, fuente, presupuestoManual, onPresupue
       </div>
 
       {/* ── Real: lo que de verdad costó ───────────────────────────────────────────────────── */}
-      <div className={ancho ? 'min-w-0' : 'pt-1.5 border-t border-dashed border-zinc-300'}>
+      <div className="pt-1.5 border-t border-dashed border-zinc-300">
         <p className="text-[10.5px] font-semibold text-zinc-500 mb-1 px-1"
            title='Lo que se ofertó (Total neto) es un dato fijo. Lo demás de este bloque se calcula desde lo que en verdad pagaste al proveedor — se carga ítem por ítem en la planilla, columna "Costo unit. REAL", cuando llega la factura/OC. Mientras esa columna esté vacía, este bloque no tiene de dónde sacar el costo real y se ve en blanco: no es un error.'>
           COMPARATIVO REAL
@@ -1651,25 +1743,23 @@ export function CosteoEditorCard({
   // ── Cabecera + resumen (siempre visible, dentro o fuera de pantalla completa) ──────────────
   const Cabecera = (
     <div className="bg-white p-4" style={pantallaCompleta ? { borderBottom: `1px solid ${GRID_BORDE}` } : undefined}>
-      {alertaCantidad && (
-        <div role="alert" className="mb-3 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2">
-          <AlertTriangle size={15} className="text-red-600 flex-shrink-0 mt-0.5" />
-          <div className="min-w-0 text-[12px] leading-snug text-red-700">
-            <p className="font-semibold">
-              Se modificó la cantidad de ítems · {alertaCantidad.quien} · {fechaRegistro(alertaCantidad.fecha)}
-            </p>
-            {alertaCantidad.cambios.slice(0, 3).map((c, i) => <p key={i} className="truncate">{c}</p>)}
-            {alertaCantidad.cambios.length > 3 && <p>y {alertaCantidad.cambios.length - 3} más</p>}
-          </div>
-        </div>
-      )}
       <div className="flex items-start justify-between gap-3 flex-wrap mb-1">
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center flex-shrink-0">
             <Calculator size={16} className="text-emerald-600" />
           </div>
           <div>
-            <h2 className="text-[15px] font-semibold text-zinc-900 leading-tight">Costeo · {licitacionCodigo}</h2>
+            <div className="flex items-center gap-2 flex-wrap">
+              <h2 className="text-[15px] font-semibold text-zinc-900 leading-tight">Costeo · {licitacionCodigo}</h2>
+              {alertaCantidad && (
+                // El detalle completo va en el globo; clic abre el registro de cambios.
+                <button type="button" onClick={() => setVerRegistro(true)}
+                  title={`Se modificó la cantidad de ítems · ${alertaCantidad.quien} · ${fechaRegistro(alertaCantidad.fecha)}\n${alertaCantidad.cambios.join('\n')}`}
+                  className="flex items-center gap-1 px-1.5 py-px rounded border border-red-200 bg-red-50 hover:bg-red-100 text-[11px] font-semibold text-red-700 leading-tight">
+                  <AlertTriangle size={11} /> Cantidad de ítems modificada
+                </button>
+              )}
+            </div>
             <p className="text-[11.5px] text-zinc-400">
               {estado.modalidad === 'suma_alzada' ? 'Global (suma alzada)' : estado.modalidad === 'por_linea' ? `Por línea — ${grupos.length} línea(s)` : `Por categoría — ${grupos.length} grupo(s)`}
               {ultimoGuardado && ` · guardado ${ultimoGuardado}`}
@@ -2258,9 +2348,9 @@ export function CosteoEditorCard({
       flot.modo === 'grande' ? (
         <div className="fixed inset-0 z-[100] bg-zinc-100 flex flex-col">
           {Cabecera}
-          <div className="flex-1 min-h-0 p-3 flex flex-col gap-3 overflow-y-auto">
-            {/* La planilla manda: mínimo 65 % del alto; el cuadro comparativo queda debajo y se baja con scroll. */}
-            <div className="flex-1 min-h-[65vh] min-w-0 flex">{Hoja}</div>
+          <div className="flex-1 min-h-0 p-2 flex flex-col gap-2">
+            {/* La planilla toma todo el alto que sobra; el resumen queda fijo debajo. */}
+            <div className="flex-1 min-h-0 min-w-0 flex">{Hoja}</div>
             <div className="flex-shrink-0">{cuadroDeHoja(g, giActivo, true)}</div>
           </div>
         </div>
@@ -2294,8 +2384,8 @@ export function CosteoEditorCard({
             POR ENCIMA del cuadro, porque el contenedor de la hoja no tenía `min-w-0` y un flex
             child con una tabla adentro no se encoge sin eso. Abajo, el mismo cuadro se reparte en
             columnas que se adaptan al ancho disponible y ocupa menos alto que la tira vertical. */}
-        <div className="flex-1 min-h-0 p-3 flex flex-col gap-3 overflow-y-auto">
-          <div className="flex-1 min-h-[65vh] min-w-0 flex">{Hoja}</div>
+        <div className="flex-1 min-h-0 p-2 flex flex-col gap-2">
+          <div className="flex-1 min-h-0 min-w-0 flex">{Hoja}</div>
           {/* El cuadro de la hoja que se está mirando — el de las otras líneas se ve al cambiar de
               pestaña, para no comparar dos topes distintos en el mismo lugar. */}
           <div className="flex-shrink-0">{cuadroDeHoja(g, giActivo, true)}</div>

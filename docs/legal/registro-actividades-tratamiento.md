@@ -30,6 +30,12 @@
 | B7 | Avisos por WhatsApp (opcional) | Celular y nombre del equipo, texto del aviso | Equipo del cliente | Alertas del servicio | Cola en base de datos; sesión del número de la empresa | WhatsApp (conexión no oficial; **fuera de Chile**) |
 | B8 | Exportación y baja de la empresa | Todo lo anterior | Equipo y terceros del cliente | Entregar y borrar los datos del cliente | Archivo de exportación (lo recibe el cliente) | Ninguno |
 
+| B9 | Chat con IA | Preguntas y datos de la empresa necesarios para responder (pueden incluir nombres) | Equipo y contactos del cliente | Responder consultas | Se envía al proveedor de IA | Z.AI, Moonshot y respaldos (**fuera de Chile**) |
+| B10 | Búsqueda de productos y precios | Nombres y descripciones de productos | No son datos personales por sí mismos | Referencias de precio | Se envía al buscador | Serper (**fuera de Chile** [verificar]) |
+| B11 | Ver archivos Word y Excel | El archivo completo (puede traer los datos de B2/B3) | Las mismas | Mostrarlo en pantalla | Microsoft lo obtiene desde su enlace | Microsoft (**fuera de Chile** [verificar]) |
+| B12 | Avisos en el celular (app móvil) | Identificador del teléfono y texto del aviso | Equipo del cliente | Alertas del servicio | `push_tokens` | Expo, Google (**fuera de Chile**) |
+| B13 | Límites contra abuso y cola de tareas | Identificadores internos | Usuarios | Seguridad y operación | Upstash, si está configurado | Upstash (**fuera de Chile** [verificar]) |
+
 ## C. Información pública (no es dato personal tratado como tal)
 Licitaciones, órdenes de compra y adjudicaciones de Mercado Público (`licitaciones_cache`, `adjudicacion_cache`): información pública; pueden incluir nombres de funcionarios o de contactos de organismos. Se conservan como caché; no se purgan hoy.
 

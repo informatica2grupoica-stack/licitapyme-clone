@@ -8,7 +8,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
 import { puedeOperarReparto } from '@/app/api/compras/[negocioId]/reparto/route';
 import {
-  armarGuiaDesdeOcObuma, armarDocumentoGuia, crearGuiaDespachoObuma, datosSugeridosGuia, guiasDelNegocio, negocioEsDeClaro, pdfGuiaDelNegocio, ocsParaGuia, type DatosGuia,
+  armarGuiaDesdeOcObuma, armarDocumentoGuia, crearGuiaDespachoObuma, datosSugeridosGuia, guiasDelNegocio, proyectoDelNegocio, negocioEsDeClaro,pdfGuiaDelNegocio, ocsParaGuia, type DatosGuia,
 } from '@/app/lib/compras-guia-despacho-obuma';
 
 export const runtime = 'nodejs';
@@ -34,7 +34,10 @@ export async function GET(request: NextRequest, { params }: Params) {
     const a = await acceso(request, (await params).negocioId);
     if ('error' in a) return a.error;
     // ?guias=1 → guías ya emitidas en Obuma para este negocio, con PDF y estado SII (consulta aparte: es la más lenta).
-    if (request.nextUrl.searchParams.get('guias') === '1') return NextResponse.json({ success: true, guias: await guiasDelNegocio(a.id) });
+    if (request.nextUrl.searchParams.get('guias') === '1') {
+      const [guias, proyecto] = await Promise.all([guiasDelNegocio(a.id), proyectoDelNegocio(a.id)]);
+      return NextResponse.json({ success: true, guias, proyecto });
+    }
     // ?pdf=<folio> → copia de consulta en PDF armada desde el XML de la guía (se ve sin sesión de Obuma; sin timbre del SII).
     const folioPdf = request.nextUrl.searchParams.get('pdf');
     if (folioPdf) {

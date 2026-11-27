@@ -14,7 +14,7 @@ const ETIQUETAS: Record<string, { etiqueta: string; ayuda: string }> = {
   ver_otros_negocios:      { etiqueta: 'Ver los negocios de otras personas', ayuda: 'Sin esto, solo ve los negocios que tiene asignados.' },
   exportar:                { etiqueta: 'Exportar', ayuda: 'Descargar listados y reportes.' },
   comentar_viabilidad:     { etiqueta: 'Comentar la viabilidad', ayuda: 'Dejar comentarios en el análisis de viabilidad.' },
-  viabilidad_automatica:   { etiqueta: 'Viabilidad automática', ayuda: 'Que las licitaciones que toma se analicen solas.' },
+  // `viabilidad_automatica` no se ofrece: el análisis automático (al asignar y por cron) hoy corre solo para Grupo ICA.
   chat_licitacion:         { etiqueta: 'Chat IA de la licitación', ayuda: 'Preguntarle a la IA sobre una licitación.' },
   chat_global:             { etiqueta: 'Chat IA general', ayuda: 'Preguntarle a la IA sobre todas las licitaciones.' },
   costeo_ver:              { etiqueta: 'Ver el costeo', ayuda: 'Solo lectura.' },

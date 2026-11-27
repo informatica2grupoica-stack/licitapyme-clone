@@ -151,6 +151,18 @@ Para cada módulo: tablas con dueño → todas sus rutas con chequeo de cliente 
 
 ## Bitácora
 
+## 2026-11-27 (21) — `/privacidad` nombra a los proveedores que el código usa (en código, SIN subir ni desplegar)
+**Qué:** la sección 4 nombra Z.AI, Moonshot, Google, DeepSeek, Serper, visor de Office de Microsoft, Upstash, Expo/Firebase, Obuma y WhatsApp (dice que la conexión es no oficial). Mismo listado en el Anexo B del contrato, en el registro de actividades (B9–B13) y en el LEEME del abogado.
+**Regla:** si se agrega un proveedor que reciba datos, actualizar esos cuatro textos. OCR.space no se listó: solo se llama dentro del respaldo Gemini apagado (`GEMINI_HABILITADO=1`); si se prende, hay que listarlo.
+**Verificado:** página vista en local, sin errores de consola. La lista sale del código y de los nombres de variables del `.env.local`; no revisé el `.env` del VPS.
+**Pendiente (abogado/dueño):** validar la lista y la frase «exigimos medidas de seguridad adecuadas» (no verificada); visor de Office (Microsoft descarga el archivo; revisar sus cookies); fecha de vigencia (muestra 2026-11-17) y datos `LEGAL_*`.
+**Multiempresa:** una empresa nueva puede ver a quién se envían sus datos.
+
+## 2026-11-27 (20) — «Viabilidad automática» ya no se ofrece a las empresas-cliente (en código, SIN subir ni desplegar)
+**Qué:** el permiso salía en «Mi equipo» y en los perfiles Administrador/Gestor, pero no hacía nada: el análisis al asignar (`usaViabilidadDeICA`) y el cron son solo de ICA (pendiente (3) de la entrada (13)). Se quitó su etiqueta en `equipo-permisos.ts`. ICA no cambia (usa `/admin/usuarios`). Si se construye la versión por empresa, se vuelve a agregar.
+**Verificado:** tsc limpio; 2072 tests. No visto en pantalla.
+**Multiempresa:** una empresa-cliente ya no ve una opción que no funciona.
+
 ## 2026-11-27 (19) — «Perfil desde el RUT» YA existía; se corrige que dejaba restringidas las regiones (en código, SIN desplegar)
 **Hallazgo:** la propuesta inicial del perfil desde la evaluación por RUT ya está hecha (Fase 2 de 2026-11-18: `evaluar-empresa-rut.ts` deja `resultado.perfil` con descripción, rubros, productos sí/no, monto mín/máx = p10/p90 de lo vendido, y `ConfigurarEmpresa.tsx` se lo muestra al admin, que acepta o edita). La nota «propuesta inicial automática» de la fase 2 de viabilidad estaba desactualizada.
 **Problema que se evitó:** esa propuesta precargaba `regiones` con TODAS las regiones donde alguna vez vendió; desde (18) las regiones bajan el nivel, así que una sola venta en una región habría dejado a las demás como «fuera». **Cambio:** la propuesta deja `regiones` vacío (= todo Chile); el historial va aparte en `resultado.regionesHistorial` y como ejemplo en el campo («Has vendido en: …»), y el campo avisa qué pasa si se llena.

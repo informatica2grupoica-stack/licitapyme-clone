@@ -10,7 +10,7 @@ import { generarPdfGuia, leerXmlGuia } from '@/app/lib/compras-guia-pdf';
 import {
   listarComprasOcItems, listarBodegasObuma, listarSucursalesObuma, listarRegionesComunasObuma, ultimasGuiasObuma,
   crearVentaIntegracionExterna, clientesObumaCompleto, centrosDeCostoCompleto, buscarCentroCostoPorLicitacion,
-  guiasRecientesObuma, pdfYEstadoDte, referenciasGuiasObuma,
+  guiasRecientesObuma, pdfYEstadoDte, referenciasGuiasObuma, folioProyectoPorLicitacion,
 } from '@/app/lib/obuma';
 
 // Precio de cada línea = precio de VENTA neto del costeo/acta (compras_producto.monto_unitario, el mismo que se manda al crear el SKU),
@@ -250,6 +250,15 @@ export async function crearGuiaDespachoObuma(doc: Record<string, unknown>, permi
 export interface GuiaDelNegocio {
   folio: string; fecha: string; neto: number; total: number; anulada: boolean; facturada: boolean;
   pdf: string | null; xml: string | null; pdfPideSesion: boolean; entregadoSii: boolean; aceptadoSii: boolean; enviadoReceptor: boolean; aceptadoReceptor: boolean;
+  centroNombre: string | null; delProyecto: boolean;   // centro de costo con que está cargada y si es el del proyecto de la licitación
+}
+
+/** Número de proyecto (PR) y centro de costo de Obuma de la licitación del negocio. */
+export async function proyectoDelNegocio(negocioId: number): Promise<{ folio: string | null; centro: string | null }> {
+  const codigo = await licitacionDelNegocio(negocioId);
+  const cc = codigo ? await buscarCentroCostoPorLicitacion(codigo).catch(() => null) : null;
+  const ccFull = cc ? (await centrosDeCostoCompleto().catch(() => [])).find(c => c.id === cc.id) : undefined;
+  return { folio: codigo ? await folioProyectoPorLicitacion(codigo, cc?.relProyectoId).catch(() => null) : null, centro: ccFull?.codigo || null };
 }
 
 /** Guías 52 emitidas en Obuma para este negocio (desde LICITANK o a mano), con PDF y estado ante el SII.
@@ -259,6 +268,7 @@ export async function guiasDelNegocio(negocioId: number): Promise<GuiaDelNegocio
   // 2 consultas por guía (cupo diario de 1.500 por endpoint): se limita a las 15 más recientes.
   return Promise.all(propias.map(async g => ({
     folio: g.folio, fecha: g.fecha, neto: g.neto, total: g.total, anulada: g.anulada, facturada: g.facturada,
+    centroNombre: g.centroNombre, delProyecto: g.delProyecto,
     ...(await pdfYEstadoDte(52, g.folio).catch(() => ({ pdf: null, xml: null, pdfPideSesion: false, entregadoSii: false, aceptadoSii: false, enviadoReceptor: false, aceptadoReceptor: false }))),
   })));
 }
@@ -307,7 +317,11 @@ async function guiasPropiasDelNegocio(negocioId: number) {
     || foliosPorReferencia.has(g.folio)
     || reCodigo.test(g.observacion)
     || folios.some(f => new RegExp(`OC Obuma ${f}(?!\\d)`).test(g.observacion));
-  return guias.filter(esDelNegocio);
+  return guias.filter(esDelNegocio).map(g => {
+    const marca = g.centroCosto.trim();
+    const c = marca && marca !== '0' ? centros.find(x => [x.id, x.codigo, x.nombre].includes(marca)) : undefined;
+    return { ...g, delProyecto: marcasCc.has(marca), centroNombre: c?.nombre || (marca && marca !== '0' ? marca : null) };
+  });
 }
 
 // Obuma de Grupo ICA funciona solo con Inversiones Claro (dueño, 13-nov-2026): las guías se ofrecen únicamente en sus negocios.

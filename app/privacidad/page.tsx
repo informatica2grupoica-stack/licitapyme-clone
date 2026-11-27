@@ -54,9 +54,13 @@ export default function PrivacidadPage() {
           'Alojamiento del servidor y de la base de datos, y respaldos.',
           'Almacenamiento de archivos (Cloudflare R2).',
           'Envío de correo electrónico.',
-          'Proveedores de inteligencia artificial que leen documentos para extraer información (por ejemplo Z.AI, Moonshot y otros según la configuración vigente).',
+          'Inteligencia artificial: Z.AI (modelos GLM), Moonshot AI (Kimi), Google (Gemini) y DeepSeek. Según la tarea y la disponibilidad, reciben textos o imágenes de documentos para leerlos y analizarlos, y tus preguntas al chat junto con la información necesaria para responderlas.',
+          'Búsqueda de productos y precios en internet (Serper, sobre resultados de Google): recibe nombres y descripciones de los productos que se buscan.',
+          'Visor de documentos de Office de Microsoft: al abrir en pantalla un archivo de Word o Excel, Microsoft lo obtiene desde su enlace para mostrarlo.',
+          'Servicios de apoyo técnico (Upstash): identificadores internos para limitar abusos y ordenar tareas.',
+          'Avisos en el celular, solo si usas la aplicación móvil: Expo y Google (Firebase) reciben el identificador del teléfono y el texto del aviso.',
           'Obuma, solo si tu empresa conecta su cuenta para órdenes de compra y facturas.',
-          'Un servicio de mensajería de WhatsApp, solo si tu empresa activa los avisos.',
+          'WhatsApp (Meta), solo si tu empresa activa los avisos: se envían desde el número que se vincula por código QR, mediante una conexión no oficial.',
         ]} />
         <p>
           Algunos de estos proveedores pueden procesar datos fuera de Chile. En esos casos exigimos medidas de seguridad adecuadas y enviamos solo

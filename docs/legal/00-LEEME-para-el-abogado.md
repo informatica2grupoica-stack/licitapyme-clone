@@ -33,10 +33,13 @@ Ya existen publicadas, también como borrador: `/privacidad` y `/terminos` (cód
 
 ## Diferencias entre lo publicado y la realidad (para corregir en `/privacidad`)
 
-- La política nombra a Z.AI y Moonshot «y otros»; en la práctica también se usan **Google (Gemini)** y **DeepSeek**. Conviene listarlos.
+- (Corregido el 2026-11-27) La política y el Anexo B ya nombran a Z.AI, Moonshot, Google, DeepSeek, Serper, el visor de Office de Microsoft, Upstash y Expo/Firebase. Falta que el abogado valide la lista y las transferencias fuera de Chile.
+- **Visor de Office:** para mostrar un Word o Excel, Microsoft descarga el archivo desde su enlace público. Decidir si basta con avisarlo o si conviene reemplazar el visor.
+- La política dice que a los proveedores de fuera de Chile se les «exigen medidas de seguridad adecuadas»: **no está verificado** contra las condiciones de cada uno.
+- La política dice que no hay cookies de seguimiento de terceros; revisar qué cookies deja el visor de Office de Microsoft.
 - La política dice que Cloudflare R2 guarda archivos; no dice en qué país. Averiguarlo y escribirlo.
 - Falta el correo real de privacidad y el formulario de derechos (hoy solo un correo).
-- No hay aún aviso de que la conexión de WhatsApp es no oficial (está en el contrato, no en la política).
+- (Corregido el 2026-11-27) La política ya dice que la conexión de WhatsApp es no oficial.
 
 ## Pendientes técnicos que cambian lo legal
 
