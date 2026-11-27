@@ -7,7 +7,7 @@ import { useEffect, useRef, useState } from 'react';
 import { IconLoader2 as Loader2 } from '@tabler/icons-react';
 import { MiniaturaDoc } from './MiniaturaDoc';
 
-interface Guia { folio: string; fecha: string; neto: number; anulada: boolean; xml: string | null; pdf: string | null; centroNombre: string | null; delProyecto: boolean }
+interface Guia { folio: string; fecha: string; neto: number; anulada: boolean; xml: string | null; pdf: string | null; centroNombre: string | null; delProyecto: boolean; esVenta: boolean }
 interface Datos { guias: Guia[]; proyecto: { folio: string | null; centro: string | null } }
 
 // Consultar Obuma tarda unos 20 s: al volver a la pestaña se muestra lo último mientras se actualiza.
@@ -44,6 +44,7 @@ function MiniaturaGuia({ url, guia, enEntrega }: { url: string; guia: Guia; enEn
       <p className={`mt-1 text-[10.5px] leading-snug ${guia.delProyecto ? 'text-teal-700' : 'text-amber-700'}`}>
         {guia.delProyecto ? 'Centro de costo del proyecto' : `Otro centro de costo: ${guia.centroNombre || 'sin centro'}`}
       </p>
+      {!guia.esVenta && <p className="text-[10.5px] font-semibold leading-snug text-zinc-500">No se enlaza: $0 o traslado que no es venta</p>}
       {enEntrega && <p className="text-[10.5px] font-semibold text-teal-800">En la entrega</p>}
     </div>
   );
@@ -72,7 +73,7 @@ export function GuiasMiniaturas({ negocioId, actuales, puedeOperar, guardando, o
   // Lo ya anotado (a mano o leído del escaneo) se conserva: solo se agregan los folios vigentes de Obuma que falten.
   const anotados: string[] = actuales?.match(/\d+/g) ?? [];
   const guias = [...(datos?.guias ?? [])].sort((a, b) => Number(a.folio) - Number(b.folio));
-  const porEnlazar = guias.filter(g => !g.anulada && !anotados.includes(g.folio)).map(g => g.folio);
+  const porEnlazar = guias.filter(g => !g.anulada && g.esVenta && !anotados.includes(g.folio)).map(g => g.folio);
   const proyecto = [datos?.proyecto.folio && `Proyecto PR-${datos.proyecto.folio}`, datos?.proyecto.centro && `centro de costo ${datos.proyecto.centro}`].filter(Boolean).join(' · ');
 
   return (

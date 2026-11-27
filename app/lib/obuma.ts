@@ -1357,6 +1357,7 @@ export async function crearVentaIntegracionExterna(doc: Record<string, unknown>)
 export interface ObumaGuiaEmitida {
   folio: string; idObuma: string; fecha: string; neto: number; total: number;
   centroCosto: string; observacion: string; anulada: boolean; facturada: boolean;
+  tipoTraslado: string;   // 1 = operación constituye venta
 }
 let cacheGuias: { en: number; datos: ObumaGuiaEmitida[] } | null = null;
 /** Guías 52 más recientes (Obuma las entrega de la más nueva a la más vieja). Cacheadas 5 min: el listado no filtra por centro de costo. */
@@ -1371,6 +1372,7 @@ export async function guiasRecientesObuma(paginas = 3, porPagina = 100): Promise
       neto: Math.round(Number(v.venta_neto) || 0), total: Math.round(Number(v.venta_total) || 0),
       centroCosto: String(v.venta_centro_costo ?? ''), observacion: String(v.venta_observacion ?? ''),
       anulada: String(v.venta_guia_anulada) === '1' || String(v.venta_anulada) === '1', facturada: String(v.venta_guia_facturada) === '1',
+      tipoTraslado: String(v.venta_guia_tipo_traslado ?? ''),
     })));
     if ((r.data || []).length < porPagina || page >= (Number(r['data-total-pages']) || 1)) break;
   }

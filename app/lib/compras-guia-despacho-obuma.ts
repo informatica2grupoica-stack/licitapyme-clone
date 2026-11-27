@@ -251,6 +251,7 @@ export interface GuiaDelNegocio {
   folio: string; fecha: string; neto: number; total: number; anulada: boolean; facturada: boolean;
   pdf: string | null; xml: string | null; pdfPideSesion: boolean; entregadoSii: boolean; aceptadoSii: boolean; enviadoReceptor: boolean; aceptadoReceptor: boolean;
   centroNombre: string | null; delProyecto: boolean;   // centro de costo con que está cargada y si es el del proyecto de la licitación
+  esVenta: boolean;   // false = $0 o traslado que no es venta: se muestra, pero no se enlaza a la entrega (guía 1918, de otro proyecto)
 }
 
 /** Número de proyecto (PR) y centro de costo de Obuma de la licitación del negocio. */
@@ -269,6 +270,7 @@ export async function guiasDelNegocio(negocioId: number): Promise<GuiaDelNegocio
   return Promise.all(propias.map(async g => ({
     folio: g.folio, fecha: g.fecha, neto: g.neto, total: g.total, anulada: g.anulada, facturada: g.facturada,
     centroNombre: g.centroNombre, delProyecto: g.delProyecto,
+    esVenta: g.neto > 0 && ['', '0', '1'].includes(g.tipoTraslado),
     ...(await pdfYEstadoDte(52, g.folio).catch(() => ({ pdf: null, xml: null, pdfPideSesion: false, entregadoSii: false, aceptadoSii: false, enviadoReceptor: false, aceptadoReceptor: false }))),
   })));
 }

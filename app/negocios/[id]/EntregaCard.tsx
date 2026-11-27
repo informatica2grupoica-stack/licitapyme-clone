@@ -34,47 +34,56 @@ const esPdf = (n: string) => /\.pdf$/i.test(n);
 const fmtFecha = (s: string) => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s || ''); return m ? `${m[3]}-${m[2]}-${m[1]}` : s; };
 const entrada = 'text-[12px] border border-zinc-200 rounded-lg px-2.5 py-1.5 outline-none focus:ring-1 focus:ring-teal-500 bg-white';
 
-/** Primera página chica del escaneo (PDF) o un ícono (foto). */
+/** Primera página chica del escaneo (PDF o foto). */
 function Mini({ e, titulo, onAbrir }: { e: Escaneo; titulo: string; onAbrir: () => void }) {
   return (
-    <button type="button" onClick={onAbrir} title={`Abrir ${titulo}`} className="relative flex-shrink-0 w-[52px] h-[68px] rounded-md border border-zinc-200 bg-zinc-50 overflow-hidden hover:border-teal-400">
+    <button type="button" onClick={onAbrir} title={`Abrir ${e.archivoNombre}`} className="relative flex-shrink-0 w-[52px] h-[68px] rounded-md border border-zinc-200 bg-zinc-50 overflow-hidden hover:border-teal-400">
       {esPdf(e.archivoNombre)
         ? <iframe src={`${urlInline(e.archivoUrl)}#toolbar=0&navpanes=0&scrollbar=0&view=FitH`} title={titulo} tabIndex={-1} loading="lazy" className="absolute top-0 left-0 border-0 pointer-events-none" style={{ width: 208, height: 272, transform: 'scale(0.25)', transformOrigin: 'top left' }} />
-        : <span className="absolute inset-0 flex items-center justify-center text-zinc-300"><FileText size={20} /></span>}
+        // eslint-disable-next-line @next/next/no-img-element
+        : <img src={urlInline(e.archivoUrl)} alt={e.archivoNombre} loading="lazy" className="absolute inset-0 w-full h-full object-cover" />}
     </button>
   );
 }
 
-/** Un documento de la entrega: miniatura + estado + acciones, en una tarjeta baja. */
+/** Un documento de la entrega: TODOS los archivos subidos (cada uno se abre o se quita) + acciones. Admite varios (p. ej. una guía firmada por despacho). */
 function TarjetaDoc({ titulo, vacio, tipo, escaneos, puedeOperar, subiendo, onSubir, onQuitar, onAbrir, extra }: {
   titulo: string; vacio: string; tipo: Escaneo['tipo']; escaneos: Escaneo[]; puedeOperar: boolean; subiendo: boolean;
   onSubir: (tipo: Escaneo['tipo'], f: File) => void; onQuitar: (id: number) => void; onAbrir: (d: VisorDoc) => void; extra?: React.ReactNode;
 }) {
   const input = useRef<HTMLInputElement>(null);
   const mios = escaneos.filter(e => e.tipo === tipo);
-  const ultimo = mios[mios.length - 1];
   return (
-    <div className={`rounded-xl border p-2.5 flex gap-2.5 min-w-0 ${ultimo ? 'border-emerald-200 bg-emerald-50/30' : 'border-dashed border-zinc-300 bg-zinc-50/50'}`}>
-      {ultimo
-        ? <Mini e={ultimo} titulo={titulo} onAbrir={() => onAbrir({ nombre: ultimo.archivoNombre, url: ultimo.archivoUrl, titulo })} />
-        : <span className="flex-shrink-0 w-[52px] h-[68px] rounded-md border border-dashed border-zinc-300 flex items-center justify-center text-zinc-300"><FileText size={20} /></span>}
-      <div className="min-w-0 flex-1 flex flex-col">
-        <p className="text-[12.5px] font-semibold text-zinc-800 leading-tight">{titulo}</p>
-        <p className="text-[11px] text-zinc-500 leading-snug mt-0.5">
-          {ultimo ? <>Cargada {fmtFecha(ultimo.creadoAt.slice(0, 10))}{mios.length > 1 && ` · ${mios.length} archivos`}</> : vacio}
-        </p>
-        <div className="mt-auto pt-1.5 flex items-center gap-3 flex-wrap">
-          {puedeOperar && (
-            <>
-              <button onClick={() => input.current?.click()} disabled={subiendo} className="text-[11.5px] font-semibold text-teal-700 hover:text-teal-800 disabled:opacity-50 flex items-center gap-1">
-                {subiendo ? <><Loader2 size={12} className="animate-spin" /> Leyendo…</> : <><Upload size={12} /> {ultimo ? 'Subir otro' : 'Subir'}</>}
-              </button>
-              <input ref={input} type="file" accept="application/pdf,image/*" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) onSubir(tipo, f); e.target.value = ''; }} />
-            </>
-          )}
-          {extra}
-          {puedeOperar && ultimo && <button onClick={() => onQuitar(ultimo.id)} title="Quitar" aria-label="Quitar" className="text-zinc-400 hover:text-rose-600 ml-auto"><Trash2 size={13} /></button>}
-        </div>
+    <div className={`rounded-xl border p-2.5 flex flex-col min-w-0 ${mios.length ? 'border-emerald-200 bg-emerald-50/30' : 'border-dashed border-zinc-300 bg-zinc-50/50'}`}>
+      <p className="text-[12.5px] font-semibold text-zinc-800 leading-tight">{titulo}</p>
+      <p className="text-[11px] text-zinc-500 leading-snug mt-0.5">
+        {mios.length ? `${mios.length} ${mios.length === 1 ? 'archivo cargado' : 'archivos cargados'}` : vacio}
+      </p>
+      {mios.length > 0 && (
+        <ul className="mt-2 space-y-1.5">
+          {mios.map(e => (
+            <li key={e.id} className="flex items-center gap-2 min-w-0">
+              <Mini e={e} titulo={titulo} onAbrir={() => onAbrir({ nombre: e.archivoNombre, url: e.archivoUrl, titulo })} />
+              <div className="min-w-0 flex-1">
+                <button type="button" onClick={() => onAbrir({ nombre: e.archivoNombre, url: e.archivoUrl, titulo })} title={e.archivoNombre} className="block max-w-full truncate text-left text-[12px] text-zinc-700 hover:text-teal-700">{e.archivoNombre}</button>
+                <p className="text-[10.5px] text-zinc-400">Cargado {fmtFecha(e.creadoAt.slice(0, 10))}</p>
+              </div>
+              {puedeOperar && <button onClick={() => onQuitar(e.id)} title="Quitar" aria-label={`Quitar ${e.archivoNombre}`} className="flex-shrink-0 text-zinc-400 hover:text-rose-600"><Trash2 size={13} /></button>}
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="mt-auto pt-2 flex items-center gap-3 flex-wrap">
+        {puedeOperar && (
+          <>
+            <button onClick={() => input.current?.click()} disabled={subiendo} className="text-[11.5px] font-semibold text-teal-700 hover:text-teal-800 disabled:opacity-50 flex items-center gap-1">
+              {subiendo ? <><Loader2 size={12} className="animate-spin" /> Leyendo…</> : <><Upload size={12} /> {mios.length ? 'Subir otro' : 'Subir'}</>}
+            </button>
+            <input ref={input} type="file" accept="application/pdf,image/*" multiple className="hidden"
+              onChange={async ev => { const fs = Array.from(ev.target.files || []); ev.target.value = ''; for (const f of fs) await onSubir(tipo, f); }} />
+          </>
+        )}
+        {extra}
       </div>
     </div>
   );
