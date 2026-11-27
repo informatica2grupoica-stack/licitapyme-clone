@@ -13,6 +13,7 @@ import nodemailer, { type Transporter } from 'nodemailer';
 import { LOGO_CID, LOGO_PNG_BASE64 } from './email-logo';
 import { CLIENTE_ICA } from './tenant';
 import { correoDeCliente } from './integraciones-cliente';
+import { nombreEhlo } from './email-dominio';
 
 let _transporter: Transporter | null = null;
 function transporter(): Transporter | null {
@@ -21,7 +22,8 @@ function transporter(): Transporter | null {
     _transporter = nodemailer.createTransport({
       // Nombre con que se presenta al servidor (EHLO). Sin esto nodemailer dice «[127.0.0.1]» y el antispam de salida de Bluehost
       // (fightspamHG) descartaba TODO lo que iba a Gmail, sin rebote (06-nov-2026; con el dominio de la casilla sale «Aceptado»).
-      name: (process.env.SMTP_USER || '').split('@')[1] || undefined,
+      // 2026-11-26: manda el dominio del REMITENTE (SMTP_FROM), no el del usuario SMTP: con Resend/Brevo el usuario no es de nuestro dominio.
+      name: nombreEhlo(process.env.SMTP_FROM, process.env.SMTP_USER),
       host: process.env.SMTP_HOST,
       port: parseInt(process.env.SMTP_PORT || '465', 10),
       secure: process.env.SMTP_SECURE ? process.env.SMTP_SECURE === 'true' : (process.env.SMTP_PORT || '465') === '465',

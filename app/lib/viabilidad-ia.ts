@@ -549,7 +549,8 @@ async function llamarAnalisisDividido(systemPrompt: string, userPrompt: string, 
       if (previo.reparado) reparado = true;
       return { claves: g.claves, valor: previo.valor };
     }
-    for (let intento = 0; intento < 2; intento++) {
+    const MAX_INTENTOS_GRUPO = g.critico ? 3 : 2; // un grupo crítico que falla tumba todo el análisis: un intento más antes de rendirse
+    for (let intento = 0; intento < MAX_INTENTOS_GRUPO; intento++) {
       const t: TrazaLlamada = {};
       const t0 = Date.now();
       try {
@@ -588,7 +589,7 @@ async function llamarAnalisisDividido(systemPrompt: string, userPrompt: string, 
         }
         ultimo = 'respuesta sin ninguna de sus claves';
       } catch (e: any) { ultimo = String(e?.message || e).slice(0, 200); }
-      console.warn(`[viabilidad-ia] grupo "${g.nombre}" falló (intento ${intento + 1}/2): ${ultimo}`);
+      console.warn(`[viabilidad-ia] grupo "${g.nombre}" falló (intento ${intento + 1}/${MAX_INTENTOS_GRUPO}): ${ultimo}`);
     }
     fallidos.push(g.nombre);
     return { claves: g.claves, valor: null, critico: g.critico };
