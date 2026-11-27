@@ -11,6 +11,8 @@ import * as cheerio from 'cheerio';
 import { createHash } from 'node:crypto';
 import pool from '@/app/lib/db';
 import { ahoraChileSQL } from '@/app/lib/tz';
+import { fetchSeguro } from '@/app/lib/url-segura';
+import { abrirProxySeguro, argsConProxy } from '@/app/lib/salida-segura';
 
 export type EstadoLink = 'activo' | 'caido' | 'redirige' | 'login' | 'precio_variable_region';
 
@@ -31,6 +33,23 @@ async function cerrarNavegador(browser: any) {
   await conTope(browser.close(), 5_000).catch(() => { try { browser.process()?.kill('SIGKILL'); } catch { /* ya cerrado */ } });
 }
 const UA ='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36';
+
+/** El ÚNICO navegador del Auditor: abre links que escribió una persona, así que sale solo por el proxy que bloquea direcciones
+ *  internas (SSRF, QA 2026-11-27). El proxy se cierra junto con el navegador. */
+async function lanzarNavegadorSeguro(): Promise<any> {
+  const puppeteerCore = (await import('puppeteer-core')).default;
+  const { addExtra } = await import('puppeteer-extra');
+  const StealthPlugin = (await import('puppeteer-extra-plugin-stealth')).default;
+  const { resolverChromium } = await import('@/app/lib/mp-descarga-browser');
+  const pp: any = addExtra(puppeteerCore as any); pp.use(StealthPlugin());
+  const { executablePath, args } = await resolverChromium();
+  const proxy = await abrirProxySeguro();
+  try {
+    const browser = await pp.launch({ args: [...args, ...argsConProxy(proxy.puerto)], executablePath, headless: true });
+    browser.once('disconnected', proxy.cerrar);
+    return browser;
+  } catch (e) { proxy.cerrar(); throw e; }
+}
 
 export function normalizarUrl(u: string): string {
   const t = u.trim();
@@ -114,7 +133,7 @@ export async function capturarConNavegador(browser: any, url: string): Promise<C
 export async function capturarConFetch(url: string): Promise<Captura> {
   const capturadoAt = ahoraChileSQL();
   try {
-    const pedir = (ua: string) => fetch(url, { headers: { 'User-Agent': ua, 'Accept-Language': 'es-CL,es;q=0.9' }, redirect: 'follow', signal: AbortSignal.timeout(20_000) });
+    const pedir = (ua: string) => fetchSeguro(url, { headers: { 'User-Agent': ua, 'Accept-Language': 'es-CL,es;q=0.9' }, signal: AbortSignal.timeout(20_000) });
     // Algunas tiendas cortan la conexión cuando el UA dice «Chrome» pero la conexión no es de Chrome (vendomarket.cl): se reintenta con uno genérico.
     const res = await pedir(UA).catch(() => pedir('Mozilla/5.0'));
     const html = await res.text();
@@ -139,13 +158,7 @@ export async function capturarLinks(negocioId: number, filaId: string, urls: str
   if (limpias.length === 0) return [];
   let browser: any = null;
   try {
-    const puppeteerCore = (await import('puppeteer-core')).default;
-    const { addExtra } = await import('puppeteer-extra');
-    const StealthPlugin = (await import('puppeteer-extra-plugin-stealth')).default;
-    const { resolverChromium } = await import('@/app/lib/mp-descarga-browser');
-    const pp: any = addExtra(puppeteerCore as any); pp.use(StealthPlugin());
-    const { executablePath, args } = await resolverChromium();
-    browser = await pp.launch({ args, executablePath, headless: true });
+    browser = await lanzarNavegadorSeguro();
   } catch (e) {
     console.warn('[auditor-compras] sin navegador, se usa fetch simple:', String((e as Error).message || e).slice(0, 160));
   }
@@ -184,13 +197,7 @@ export async function visitarLinks(urls: string[]): Promise<Captura[]> {
   if (limpias.length === 0) return [];
   let browser: any = null;
   try {
-    const puppeteerCore = (await import('puppeteer-core')).default;
-    const { addExtra } = await import('puppeteer-extra');
-    const StealthPlugin = (await import('puppeteer-extra-plugin-stealth')).default;
-    const { resolverChromium } = await import('@/app/lib/mp-descarga-browser');
-    const pp: any = addExtra(puppeteerCore as any); pp.use(StealthPlugin());
-    const { executablePath, args } = await resolverChromium();
-    browser = await pp.launch({ args, executablePath, headless: true });
+    browser = await lanzarNavegadorSeguro();
   } catch (e) {
     console.warn('[auditor-captura] sin navegador, se usa fetch simple:', String((e as Error).message || e).slice(0, 160));
   }
@@ -228,13 +235,7 @@ export { urlPublicaSegura } from '@/app/lib/url-segura';
 export async function buscarFichasEnPagina(url: string): Promise<EnlaceFicha[]> {
   let browser: any = null;
   try {
-    const puppeteerCore = (await import('puppeteer-core')).default;
-    const { addExtra } = await import('puppeteer-extra');
-    const StealthPlugin = (await import('puppeteer-extra-plugin-stealth')).default;
-    const { resolverChromium } = await import('@/app/lib/mp-descarga-browser');
-    const pp: any = addExtra(puppeteerCore as any); pp.use(StealthPlugin());
-    const { executablePath, args } = await resolverChromium();
-    browser = await pp.launch({ args, executablePath, headless: true });
+    browser = await lanzarNavegadorSeguro();
     const page = await browser.newPage();
     await page.setUserAgent(UA);
     await page.setExtraHTTPHeaders({ 'Accept-Language': 'es-CL,es;q=0.9' });

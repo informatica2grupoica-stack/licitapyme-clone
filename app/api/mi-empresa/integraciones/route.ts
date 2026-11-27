@@ -40,7 +40,9 @@ export async function PUT(req: NextRequest) {
       if (!/^[a-z0-9.-]+\.[a-z]{2,}$/i.test(c.host) || !c.user || !c.pass || c.port < 1 || c.port > 65535)
         return NextResponse.json({ error: 'Faltan datos del correo: servidor, puerto, usuario y clave.' }, { status: 400 });
       if (/[\r\n]/.test(c.from) || /[\r\n]/.test(c.user)) return NextResponse.json({ error: 'Remitente no válido' }, { status: 400 });
-      const t = crearTransporteSmtp(c);
+      let t: Awaited<ReturnType<typeof crearTransporteSmtp>>;
+      try { t = await crearTransporteSmtp(c); }
+      catch (e) { return NextResponse.json({ error: String((e as Error)?.message ?? e) }, { status: 400 }); }
       try {
         await Promise.race([t.verify(), new Promise((_, rej) => setTimeout(() => rej(new Error('el servidor no respondió en 15 s')), 15_000))]);
       } catch (e) {

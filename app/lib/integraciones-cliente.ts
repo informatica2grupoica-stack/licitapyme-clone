@@ -14,6 +14,7 @@ import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 import nodemailer, { type Transporter } from 'nodemailer';
 import pool from '@/app/lib/db';
 import { clienteActual } from '@/app/lib/medidor-cliente';
+import { destinoSmtpPermitido } from '@/app/lib/salida-segura';
 
 const CLIENTE_ICA = 1;
 export type TipoIntegracion = 'mp_ticket' | 'correo';
@@ -107,12 +108,16 @@ export async function probarTicketMp(ticket: string): Promise<{ ok: boolean; avi
 }
 
 // ── Correo ────────────────────────────────────────────────────────────────────
-const transportes = new Map<number, { t: Transporter; cuenta: CorreoSmtp }>();
+const transportes = new Map<number, { t: Transporter; cuenta: CorreoSmtp; en: number }>();
+const VIDA_TRANSPORTE_MS = 10 * 60_000; // va conectado a una IP fija: se rehace cada tanto por si el proveedor la cambia
 
-export function crearTransporteSmtp(c: CorreoSmtp): Transporter {
+/** El servidor lo escribe una empresa: solo puertos de correo y máquinas públicas, y se conecta a la IP revisada (SSRF, QA 2026-11-27). */
+export async function crearTransporteSmtp(c: CorreoSmtp): Promise<Transporter> {
+  const ip = await destinoSmtpPermitido(c.host, c.port);
   return nodemailer.createTransport({
     name: c.user.split('@')[1] || undefined, // EHLO con el dominio de la cuenta (ver email.ts: sin esto el antispam descarta)
-    host: c.host, port: c.port, secure: c.secure, auth: { user: c.user, pass: c.pass },
+    host: ip, tls: { servername: c.host }, // el certificado se sigue validando contra el NOMBRE
+    port: c.port, secure: c.secure, auth: { user: c.user, pass: c.pass },
     pool: true, maxConnections: 1, maxMessages: 50, rateDelta: 1000, rateLimit: 1,
   });
 }
@@ -120,10 +125,10 @@ export function crearTransporteSmtp(c: CorreoSmtp): Transporter {
 /** Cuenta de correo propia de la empresa (con su transporte), o null si no configuró una. */
 export async function correoDeCliente(clienteId: number): Promise<{ t: Transporter; cuenta: CorreoSmtp } | null> {
   const ya = transportes.get(clienteId);
-  if (ya) return ya;
+  if (ya && Date.now() - ya.en < VIDA_TRANSPORTE_MS) return ya;
   const cuenta = await leer<CorreoSmtp>(clienteId, 'correo');
   if (!cuenta) return null;
-  const v = { t: crearTransporteSmtp(cuenta), cuenta };
+  const v = { t: await crearTransporteSmtp(cuenta), cuenta, en: Date.now() };
   transportes.set(clienteId, v);
   return v;
 }

@@ -151,6 +151,17 @@ Para cada módulo: tablas con dueño → todas sus rutas con chequeo de cliente 
 
 ## Bitácora
 
+## 2026-11-27 (24) — Corregidos S-1 y S-2 del QA: direcciones que escribe una persona (en código, SIN subir ni desplegar)
+**Qué:** el navegador del Auditor sale solo por un filtro local (`app/lib/salida-segura.ts`) que rechaza máquinas internas en cada conexión; la lectura de documentos, la ficha propia y la ficha traída de un link usan `fetchSeguro`. El correo propio de una empresa solo admite puertos 25, 465, 587 y 2525 y servidores públicos, y se conecta a la IP revisada (el certificado se valida contra el nombre).
+**Regla:** todo lo que el servidor abra porque lo escribió una persona usa `fetchSeguro`, el proxy o `destinoSmtpPermitido`. `salida-segura.test.mts` vigila los archivos del Auditor.
+**Verificado (local):** el ataque reproducido ya no llega a lo interno (navegador real); example.com, Sodimac y Easy cargan; TLS a Gmail por IP valida el certificado; tsc limpio, 2.077 tests, aislamiento sin bloqueantes. **No** probado en el VPS.
+**Pendiente:** subir y desplegar; en el VPS probar «agregar link» en el Auditor (que el Chromium del servidor funcione con el filtro: si no arranca, cae a la lectura sin navegador, que lee menos) y, si alguna empresa ya guardó su correo con otro puerto, cambiarlo. Resto de hallazgos del informe (23) sin corregir.
+**Multiempresa:** una empresa-cliente ya no puede usar el Auditor ni su correo para llegar a servicios internos.
+
+## 2026-11-27 (23) — QA completo (sin corregir nada)
+**Hecho:** tipos, 2.072 tests, aislamiento contra producción, cruces de datos (0), 297 APIs sin sesión, privacidad de la exportación (solo lectura) y 7 pantallas públicas.
+**Pendiente:** hay hallazgos de seguridad sin corregir (uno alto); corregirlos antes de dar el plan Pro a una empresa externa. El detalle está en `scripts/scratch/INFORME_QA_2026-11-27.md` (solo en el PC del dueño, a propósito fuera de git). No se probó nada con sesión iniciada ni el servidor de producción.
+
 ## 2026-11-27 (22) — El dueño informa que está DESPLEGADO
 **Qué:** el dueño dijo «ya está desplegado»; vale para las notas «sin desplegar» anteriores de esta bitácora (incluidas (20) y (21)). Los cambios de (20) y (21) están en git (`master` igual a `origin/master`). **No lo verifiqué en el servidor:** el navegador integrado no pudo abrir `app.licitank.cl`.
 **Pendiente:** las pruebas reales en producción (alta completa, QR de WhatsApp, «Descargar mis datos», Radar y Negocios con Comercial MP y con ICA, correo de OC), lo legal y las decisiones del dueño.

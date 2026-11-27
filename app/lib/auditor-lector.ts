@@ -6,7 +6,7 @@
 // Pasos: (1) transcribir el archivo a texto (pdf-parse si tiene capa de texto; si no, GLM-OCR y como
 // respaldo Tesseract local) → (2) una llamada de IA con el prompt del Lector → (3) guardar la salida
 // en auditor_extraccion junto con el texto transcrito (para poder verificar citas después).
-import { fetchConTimeout } from '@/app/lib/fetch-timeout';
+import { fetchSeguro } from '@/app/lib/url-segura';
 import pool from '@/app/lib/db';
 import { ahoraChileSQL } from '@/app/lib/tz';
 import { crearChatIA as crearChatIABase } from '@/app/lib/gemini';
@@ -106,7 +106,7 @@ function unirTranscripciones(glm: string, tesseract: string): string {
 /** @param opts.combinar re-análisis: para imágenes y PDFs escaneados junta GLM-OCR y Tesseract, porque cada uno pierde cosas distintas
  *  (caso real: una lista de precios donde GLM-OCR perdió los precios vigentes y Tesseract los tenía todos). */
 export async function transcribirDocumento(url: string, opts: { combinar?: boolean } = {}): Promise<{ texto: string; metodo: string }> {
-  const res = await fetchConTimeout(url);
+  const res = await fetchSeguro(url);   // la dirección puede venir de un link que trajo una persona (SSRF, QA 2026-11-27)
   if (!res.ok) throw new Error(`no se pudo descargar el documento (HTTP ${res.status})`);
   const buffer = Buffer.from(await res.arrayBuffer());
   if (buffer.length === 0) throw new Error('el archivo quedó vacío al subirlo (0 bytes): elimínalo y vuelve a subirlo en Documentos');
