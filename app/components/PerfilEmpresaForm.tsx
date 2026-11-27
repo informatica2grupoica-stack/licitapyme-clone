@@ -27,7 +27,7 @@ export function PerfilEmpresaForm() {
     <div className="grid gap-3 sm:grid-cols-2">
       <label className="text-[11px] text-slate-500 sm:col-span-2">Qué hace tu empresa<textarea disabled={lock} rows={2} className={`${campo} mt-0.5`} value={p.descripcion} onChange={e => setP({ ...p, descripcion: e.target.value })} /></label>
       <label className="text-[11px] text-slate-500">Rubros (separados por coma)<input disabled={lock} className={`${campo} mt-0.5`} value={p.rubros} onChange={e => setP({ ...p, rubros: e.target.value })} /></label>
-      <label className="text-[11px] text-slate-500">Regiones donde puedes entregar<input disabled={lock} className={`${campo} mt-0.5`} value={p.regiones} onChange={e => setP({ ...p, regiones: e.target.value })} /></label>
+      <label className="text-[11px] text-slate-500">Regiones donde puedes entregar (si la licitación es de otra, el nivel baja)<input disabled={lock} placeholder="Ej.: Metropolitana, Valparaíso (vacío = todo Chile)" className={`${campo} mt-0.5`} value={p.regiones} onChange={e => setP({ ...p, regiones: e.target.value })} /></label>
       <label className="text-[11px] text-slate-500">Productos o servicios que SÍ ofreces <b className="text-teal-700">(lo más importante)</b>
         <textarea disabled={lock} rows={4} placeholder="Ej: refrigeradores industriales, cámaras de frío, balones, mallas, herramientas manuales…" className={`${campo} mt-0.5`} value={p.productos_si} onChange={e => setP({ ...p, productos_si: e.target.value })} /></label>
       <label className="text-[11px] text-slate-500">Que NO ofreces

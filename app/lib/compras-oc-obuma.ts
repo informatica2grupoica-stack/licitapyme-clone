@@ -619,6 +619,9 @@ export async function crearOrdenCompraParaProveedor(
   }
   const itemsOrden = grupo.items.filter(it => (marcados ? marcados.has(it.productoId) : it.aprobado !== false) && it.estadoLinea !== 'RECHAZADA');
   if (itemsOrden.length === 0) throw new Error('No hay productos para esta orden: marca al menos uno (los rechazados no se pueden incluir).');
+  // Regla del dueño (1202333-67-LE26, OC 4102–4104 salieron sin SKU): ninguna línea de una OC sale sin SKU de Obuma, ni siquiera una compra rápida.
+  const sinSku = itemsOrden.filter(it => !it.obumaProductoId && !it.obumaCodigoComercial);
+  if (sinSku.length) throw new Error(`Falta crear el SKU de: ${sinSku.map(it => `«${it.descripcion.slice(0, 60)}»`).join(', ')}. Créalo en «Aprobación y SKU» antes de emitir la orden de compra.`);
   // Una compra rápida pendiente (o rechazada) no se emite aunque se haya marcado a mano: primero la aprueba el jefe de ventas.
   const { compras: rapidasOC } = await listarComprasRapidas(negocioId).catch(() => ({ compras: [] as CompraRapida[] }));
   if (rapidasOC.some(c => c.estado !== 'APROBADA' && itemsOrden.some(it => it.productoId === c.productoId)))
@@ -1020,13 +1023,13 @@ function vistaManualError(folio: string, error: string): OrdenCompraVista {
 // pantalla de Compras (la consulta en vivo del Proyecto completo sigue siendo un botón aparte, ver
 // gastosDelProyectoPorLicitacion en obuma.ts).
 export interface ResumenGastosCompra {
-  ocCreadas: { cantidad: number; totalNeto: number; proveedores: { nombre: string; folio: string | null; total: number; fecha: string }[] };
+  ocCreadas: { cantidad: number; totalNeto: number; proveedores: { nombre: string; folio: string | null; total: number; fecha: string; creadoPor?: string | null }[] };
   comprasCruzadas: { cantidad: number; total: number; neto: number };
   // Las OC reales que YA existen en Obuma para esta licitación (hechas directo, no por Licitank),
   // con los SKU (código comercial) de sus líneas — para mostrarlas aparte de las que emite Licitank.
   ocsObuma: { din: string[]; compraOcId: string; excluidoNeto: number; folio: string; proveedor: string | null; rut?: string | null; estado: string | null; fecha: string | null; neto: number; total: number; skus: string[]; lineas: { lineaId: string | null; cantidadNegocio: number | null; producto: string; sku: string | null; cantidad: number | null; precio: number | null; subtotal: number | null }[] }[];
   // OC propias (Comercial MP: se emiten en Licitank, no pasan por Obuma), sin anuladas. También son gasto (979: las vacuolavadoras, $10,5M, quedaban fuera).
-  ocsPropias: { folio: string; proveedor: string; estado: string; fecha: string; neto: number; total: number; /** Parte de una OC interna (empresa del grupo) que es solo respaldo: no suma al costo. */ respaldoInternoNeto?: number; lineas: { producto: string; sku: string | null; cantidad: number | null; precio: number | null; subtotal: number | null }[] }[];
+  ocsPropias: { folio: string; creadoPor?: string | null; proveedor: string; estado: string; fecha: string; neto: number; total: number; /** Parte de una OC interna (empresa del grupo) que es solo respaldo: no suma al costo. */ respaldoInternoNeto?: number; lineas: { producto: string; sku: string | null; cantidad: number | null; precio: number | null; subtotal: number | null }[] }[];
   /** Gasto real NETO: lo de Obuma sin anuladas (si Obuma aún no trae nada, lo emitido por Licitank) + las OC propias. */
   gastadoNeto: number | null;
   facturas: {
@@ -1043,7 +1046,7 @@ export async function resumenGastosCompra(negocioId: number, montoCosteado: numb
   codigoP.catch(() => {});   // si la lectura de OC falla primero, que este error no quede suelto (se relanza igual en el await)
   const [ocRows] = await pool.query(
     // OJO: la columna `total_neto` guarda el TOTAL CON IVA de la orden (el nombre engaña, se vio con la OC 3989); el neto real es `subtotal_neto`.
-    `SELECT proveedor_nombre, obuma_folio, obuma_compra_oc_id, COALESCE(subtotal_neto, ROUND(total_neto / 1.19)) AS total_neto, DATE_FORMAT(fecha_oc, '%Y-%m-%d') AS fecha_oc
+    `SELECT proveedor_nombre, obuma_folio, obuma_compra_oc_id, COALESCE(subtotal_neto, ROUND(total_neto / 1.19)) AS total_neto, creado_por_nombre, DATE_FORMAT(fecha_oc, '%Y-%m-%d') AS fecha_oc
        FROM compras_orden_compra_obuma WHERE negocio_id = ? ORDER BY created_at`,
     [negocioId],
   ) as any;
@@ -1058,7 +1061,7 @@ export async function resumenGastosCompra(negocioId: number, montoCosteado: numb
   const anuladasObuma = new Set(todasObuma.filter(c => /anulad/i.test(c.estado || '')).map(c => String(c.compraOcId)));
   const ocCreadas = (ocRows as any[])
     .filter(r => !r.obuma_compra_oc_id || !anuladasObuma.has(String(r.obuma_compra_oc_id)))
-    .map(r => ({ nombre: r.proveedor_nombre, folio: r.obuma_folio, total: Number(r.total_neto), fecha: r.fecha_oc }));
+    .map(r => ({ nombre: r.proveedor_nombre, folio: r.obuma_folio, total: Number(r.total_neto), fecha: r.fecha_oc, creadoPor: r.creado_por_nombre ?? null }));
   const totalOcCreadas = ocCreadas.reduce((s, o) => s + o.total, 0);
   const propias = (await propiasP).filter(o => o.estado !== 'ANULADA');
   // OC interna a una empresa del grupo por productos que ya tienen su OC externa en Obuma: respaldo, no costo (4152-22-LE26).
@@ -1127,7 +1130,7 @@ export async function resumenGastosCompra(negocioId: number, montoCosteado: numb
       })),
     })),
     ocsPropias: propias.map(o => ({
-      folio: o.folio, proveedor: o.proveedor.nombre, estado: o.estado, fecha: o.fechaOc, neto: Math.round(o.neto), total: Math.round(o.total),
+      folio: o.folio, creadoPor: o.creadoPor, proveedor: o.proveedor.nombre, estado: o.estado, fecha: o.fechaOc, neto: Math.round(o.neto), total: Math.round(o.total),
       respaldoInternoNeto: respaldo.get(o.folio) ?? 0,
       lineas: o.items.map(i => ({ producto: i.descripcion, sku: i.codigo, cantidad: i.cantidad, precio: i.precio, subtotal: Math.round(i.cantidad * i.precio) })),
     })),

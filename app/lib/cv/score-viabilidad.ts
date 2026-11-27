@@ -52,7 +52,7 @@ export interface CtxNivel {
   confirmados?: string[];
   ahora?: Date;
   /** Perfil y modo de calce de la empresa-cliente: ajustan el nivel según lo que ella vende. Sin esto, el nivel no mira el perfil. */
-  calce?: { modo: ModoCalce; perfil: PerfilCalce | null };
+  calce?: { modo: ModoCalce; perfil: PerfilCalce | null; /** región de la licitación (para el calce con las regiones del perfil) */ region?: string | null };
 }
 
 const LABEL: Record<NivelAtractivo, string> = {
@@ -303,14 +303,14 @@ export function calcularNivel(inf: any, cfg: ConfigViabilidadV4, ctx: CtxNivel):
   // Calce con lo que la empresa vende (solo clientes): baja el nivel si la licitación no calza con su perfil.
   let calce: ScoreV4['calce'];
   if (ctx.calce && ctx.calce.modo !== 'ninguno') {
-    const res = evaluarCalce(ctx.calce.perfil, u.productos, u.neto);
+    const res = evaluarCalce(ctx.calce.perfil, u.productos, u.neto, ctx.calce.region);
     calce = { ...res, modo: ctx.calce.modo };
     const ef = efectoCalce(ctx.calce.modo, res);
     if (ef.escalones > 0) {
       n = Math.max(1, n - ef.escalones);
-      pasos.push({ regla: 'Calce con tu empresa', efecto: `-${ef.escalones}`, dato: [res.detalle, res.montoFuera === 'BAJO_MINIMO' ? 'El monto está bajo lo que tú buscas.' : res.montoFuera === 'SOBRE_MAXIMO' ? 'El monto está sobre lo que tú buscas.' : ''].filter(Boolean).join(' ') });
+      pasos.push({ regla: 'Calce con tu empresa', efecto: `-${ef.escalones}`, dato: [res.detalle, res.montoFuera === 'BAJO_MINIMO' ? 'El monto está bajo lo que tú buscas.' : res.montoFuera === 'SOBRE_MAXIMO' ? 'El monto está sobre lo que tú buscas.' : '', res.regionFuera ? 'La licitación es de una región donde dijiste que no entregas.' : ''].filter(Boolean).join(' ') });
     }
-    if (ef.techoBajo && n > 1) { n = 1; pasos.push({ regla: 'Calce con tu empresa', efecto: `techo ${etiquetaNivel(nivelDe(1))}`, dato: [res.detalle, res.montoFuera ? 'El monto está fuera de lo que tú buscas.' : ''].filter(Boolean).join(' ') }); }
+    if (ef.techoBajo && n > 1) { n = 1; pasos.push({ regla: 'Calce con tu empresa', efecto: `techo ${etiquetaNivel(nivelDe(1))}`, dato: [res.detalle, res.montoFuera ? 'El monto está fuera de lo que tú buscas.' : '', res.regionFuera ? 'La región de la licitación está fuera de donde entregas.' : ''].filter(Boolean).join(' ') }); }
     if (res.coincidencia === 'SIN_DATO') avisos.push(res.detalle);
   }
   const nivel = nivelDe(n);

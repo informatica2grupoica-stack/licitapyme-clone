@@ -44,7 +44,7 @@ function Linea({ etiqueta, valor, nota, fuerte }: { etiqueta: string; valor: num
 // ── Detalle del costo real (pedido del dueño, 12-nov-2026: «que sea más entendible y me muestre detallado el costo real») ──────────
 // Sale de «Seguimiento · Comparativo» (mismos datos): cada producto con su OC, los fletes/armado que van en OC y los gastos sin OC.
 interface FilaComp { productoId: number; producto: string; cantidad: number | null; ventaNeto: number | null; costeoNeto: number | null; planNeto: number | null; obumaProveedor: string | null; planProveedor: string | null; obumaOc: string | null; obumaNeto: number | null }
-interface GastoComp { id: number; categoria: string; descripcion: string; monto: number; moneda: string; fecha: string | null }
+interface GastoComp { id: number; categoria: string; descripcion: string; monto: number; moneda: string; fecha: string | null; enOc?: string }
 
 function Bloque({ titulo, total, nota, children }: { titulo: string; total: number; nota: string; children: React.ReactNode }) {
   const [abierto, setAbierto] = useState(false);
@@ -64,7 +64,7 @@ function DetalleCostoReal({ negocioId, venta, costoTotal, utilidad, margen }: { 
   const [d, setD] = useState<{ filas: FilaComp[]; gastos: GastoComp[] } | null>(null);
   useEffect(() => {
     fetch(`/api/compras/${negocioId}/resumen-comparativo`).then(r => r.json())
-      .then(j => { if (j?.success) setD({ filas: j.resumen.filas || [], gastos: (j.resumen.gastosExtra || []).filter((g: GastoComp) => String(g.moneda || 'CLP').toUpperCase() === 'CLP') }); })
+      .then(j => { if (j?.success) setD({ filas: j.resumen.filas || [], gastos: (j.resumen.gastosExtra || []).filter((g: GastoComp) => String(g.moneda || 'CLP').toUpperCase() === 'CLP' && !g.enOc) }); })
       .catch(() => {});
   }, [negocioId, costoTotal]);
   if (!d) return null;

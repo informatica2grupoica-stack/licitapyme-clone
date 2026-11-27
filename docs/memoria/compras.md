@@ -3,6 +3,25 @@
 Pantalla principal: `/compras/[negocioId]` (`ComprasChrome.tsx`). Traspasado desde la memoria
 personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-11-27 (3) — «Quién lo hizo» a la vista en Compras (tsc OK, sin probar en pantalla, sin desplegar, sin migración)
+- Pedido del dueño: en Compras debe verse el nombre de quien hizo cada cosa (OC, SKU, cuadro comparativo, proveedor elegido).
+- Ya se guardaba y mostraba: SKU, cotización subida, OC de Obuma (pestaña Avance), gastos. Se agregó: línea «Proveedor elegido por / Enviada por / Aprobada o Rechazada por» (nombre + fecha) en la compuerta «Aprobar la compra» (`AprobacionesCompraCard.tsx`; `obtenerEscenarioElegido` ahora trae `elegido_por_nombre`), nombre visible (no solo tooltip) en los chips globales de Avance, y la OC propia ahora trae su autor en Avance.
+- Pendiente: revisar en pantalla y ver si faltan otros lugares (p. ej. lista de OC de Obuma fuera de Avance).
+
+## 2026-11-27 (3) — OC sin SKU bloqueadas (1202333-67-LE26, negocio 708; tsc OK, sin probar en pantalla, sin desplegar)
+- Caso: OC 4102, 4103 y 4104 (piolas y candados, «Gastos con SKU y OC» tipo Adicional/compra rápida) las emitió Carla Campos el 24-nov, aprobadas por Alexis Tobar, sin SKU: el servidor no lo exigía y el botón solo mostraba «sin SKU todavía». Siguen así en Obuma (decidir si se anulan y reemiten).
+- Regla (dueño): ninguna línea de OC sale sin SKU, tampoco una compra rápida. `crearOrdenCompraParaProveedor` lanza error y `RepartoAdminCard` deshabilita «Crear en Obuma» con aviso.
+- Pendiente: por qué esos ítems no aparecían para crear el SKU en «Aprobación y SKU» (sin ver en pantalla).
+
+## 2026-11-27 (2) — El «4/5» de «Compra y logística» contaba OC que ya eran gasto extra (2736-44-LE26, negocio 1525; tsc OK, sin desplegar, sin migración)
+- Causa: `contarHitosAdminPendientes` (`compras.ts`) contaba toda OC de Obuma sin pago total/saldo; las 5 OC de combustible (4088–4092) se anotaron como «Gasto extra» (no se pagan por «Pagos por OC») y seguían contando, aunque la tarjeta «Avance» decía 6 de 6.
+- Regla (dueño): una OC enlazada a un gasto extra (`compras_gasto.oc_obuma_folio`) no lleva comprobante de pago ni cuenta como pendiente. Verificado: 1525 pasa de 5 a 0.
+
+## 2026-11-27 — «No se pudieron cargar las fichas» (759-30-LE26, negocio 891) y QA de Compras (tsc y 2069 pruebas OK; sin desplegar, sin migración)
+- Causa: la IA del Lector devolvió el modelo de una ficha como objeto `{"valor":"LB205","cita":"…"}` (documento «LB205 DISPENSADOR DE VENTILADOR.pdf», extracción 1214) en vez de texto; `tokensDeProducto` hizo `.split` sobre un objeto, `panelFichas` lanzó TypeError y la ruta devolvió 500 con el mensaje genérico. Todo el panel de fichas del negocio quedaba caído por UNA ficha.
+- Arreglo general: `normalizarProductos` (`auditor-opciones-core.ts`) baja tipo/marca/modelo/versión/SKU a texto (acepta `{valor}` y números), así sirve también para lecturas ya guardadas. `panelFichas` probado contra los 83 negocios de Compras: 83 OK.
+- QA: scripts de solo lectura en `scripts/_qa/` (`fichas-todos.mts`, `get-todos.mts`: llama el GET de cada ruta de Compras por negocio). Ojo: el túnel SSH 3307 debe estar abierto (`ssh -N -L 3307:127.0.0.1:3306 ubuntu@216.185.51.104`); sin él, la pantalla local falla en todo.
+
 ## 2026-11-26 (8) — «Por decidir»: decidir en un clic si un modelo/marca distinto sirve (tsc y 2054 pruebas OK; lista probada contra el 1356 SIN decidir nada; pantalla SIN ver en navegador; sin desplegar)
 - Pedido del dueño: poder cotizar un equivalente distinto y decidirlo fácil. Pestaña cotizaciones de Compras, sobre «Equivalencias de tu empresa»: tarjetas «Piden / Ofrece» lado a lado, con precio, ahorro vs lo mejor que ya hay, lo que cambia (medidas) y 3 botones: **Sí sirve** (asigna + queda equivalencia de la EMPRESA), **Sirve solo aquí** (asigna en este negocio), **No sirve** (no se vuelve a ofrecer).
 - Piezas: `compras-por-decidir-core.ts` (puro: línea sin asignar + producto que más se parece, puntaje ≥ 0,25, sin choque de medida ni de familia, solo si es más barata o el producto no tiene precio; ordena por ahorro), `compras-por-decidir.ts` (BD; tabla `compras_pareo_decision` creada sola con cliente_id, sin migración), `api/compras/[negocioId]/por-decidir` (GET lista, POST decide; el servidor recalcula el caso, el navegador solo manda clave + decisión), `PorDecidirPareo.tsx` en `AuditorComprasCard`. Sin IA.
@@ -1285,3 +1304,8 @@ Pedido del dueño: él edita las zonas; lo que faltaba era poder eliminar fleter
 
 ## OC a Obuma: concepto elegible (26-nov-2026)
 - Al emitir la OC se elige Inventario / Gasto / Activo (antes siempre Inventario; combustible iba a Gasto). Por defecto Inventario. Va en `oc_concepto` en minúscula. **Pendiente probar en vivo «activo»** (solo «inventario» y «gasto» están probados).
+
+## 27-nov-2026 · Borrar gasto rechazado y retirar lo enviado a aprobación
+- **Gasto con SKU (flete/adicional/combustible) RECHAZADO por el jefe**: ahora se puede «Borrar» aunque ya tuviera SKU o quedara «Comprado» por una aprobación deshecha (antes salía «Este flete ya se compró o ya tiene SKU… usa Renunciar»). Borra también sus filas de `compras_sku` locales (no toca Obuma). `eliminarParteProducto` en `app/lib/compras.ts`.
+- **Retirar lo enviado**: mientras la compuerta (Compra o Margen) siga PENDIENTE, el encargado ve «Retirar lo enviado» junto a «Paso A hecho»; la propuesta se borra y vuelve a «sin enviar» (restaura costos reales previos como al rechazar). `retirarAprobacion` + `PATCH aprobaciones` con `decision: 'RETIRAR'`. Ya resuelta → sigue siendo «Deshacer esta decisión» (jefe/admin).
+- Pendiente: no se probó en el navegador (la causa exacta del bloqueo del adicional se dedujo del código, no de la base).

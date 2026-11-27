@@ -106,7 +106,7 @@ export function AvanceComprasCard({ negocioId, novedades, onVistas, version }: {
               className={`inline-flex items-center gap-1 text-[11.5px] font-semibold px-2 py-1 rounded-full border ${
                 g.estado === 'hecho' ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : g.estado === 'rechazado' ? 'bg-rose-50 border-rose-200 text-rose-700'
                   : g.estado === 'parcial' ? 'bg-amber-50 border-amber-200 text-amber-700' : 'bg-slate-50 dark:bg-slate-950/40 border-linea dark:border-slate-800 text-tinta-2'}`}>
-              <IconoPaso estado={g.estado} /> {g.titulo}: {g.texto}
+              <IconoPaso estado={g.estado} /> {g.titulo}: {g.texto}{g.por ? ` · ${g.por}` : ''}
             </span>
           ))}
         </div>

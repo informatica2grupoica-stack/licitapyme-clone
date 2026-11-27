@@ -46,7 +46,7 @@ export async function GET(request: NextRequest, { params }: Params) {
                     FROM compras_sku WHERE negocio_id = ?`, [id]).catch(() => vacio) as Promise<any>,
       pool.query(`SELECT items_json, obuma_folio, creado_por_nombre AS por, DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS at
                     FROM compras_orden_compra_obuma WHERE negocio_id = ?`, [id]).catch(() => vacio) as Promise<any>,
-      pool.query(`SELECT items_json, folio, DATE_FORMAT(fecha_oc, '%Y-%m-%d') AS at
+      pool.query(`SELECT items_json, folio, creado_por_nombre AS por, DATE_FORMAT(fecha_oc, '%Y-%m-%d') AS at
                     FROM compras_oc_propia WHERE negocio_id = ? AND estado <> 'ANULADA'`, [id]).catch(() => vacio) as Promise<any>,
       pool.query(`SELECT tipo, estado, COALESCE(resuelto_por_nombre, propuesto_por_nombre) AS por,
                          DATE_FORMAT(COALESCE(resuelto_at, propuesto_at), '%Y-%m-%d %H:%i:%s') AS at
@@ -77,7 +77,7 @@ export async function GET(request: NextRequest, { params }: Params) {
       catch { /* items_json corrupto: no se adivina */ }
     };
     for (const r of ocRows[0] as any[]) leerOc(r.items_json, f(r.obuma_folio), f(r.por), f(r.at));
-    for (const r of ocPropRows[0] as any[]) leerOc(r.items_json, f(r.folio), null, f(r.at));
+    for (const r of ocPropRows[0] as any[]) leerOc(r.items_json, f(r.folio), f(r.por), f(r.at));
 
     const apr = (tipo: string) => { const r = (aprRows[0] as any[]).find(x => x.tipo === tipo); return r ? { estado: String(r.estado), por: f(r.por), at: f(r.at) } : null; };
 

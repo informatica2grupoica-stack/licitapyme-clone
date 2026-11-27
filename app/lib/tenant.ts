@@ -126,6 +126,29 @@ export function codigoAlmacenDocs(clienteId: number, codigo: string): string {
   return clienteId === CLIENTE_ICA ? codigo : `c${clienteId}:${codigo}`;
 }
 
+/** Deja un código tal como lo guarda `documentos_cache` («c4:123-45-LE26») en el código de la licitación («123-45-LE26»). Puro. */
+export function codigoDeAlmacen(clienteId: number, almacen: string): string {
+  const pref = `c${clienteId}:`;
+  return clienteId !== CLIENTE_ICA && almacen.startsWith(pref) ? almacen.slice(pref.length) : almacen;
+}
+
+/** De estas licitaciones, ¿cuáles tienen documentos que la empresa PUEDE ver? (los oficiales compartidos + los suyos; los de otra empresa no cuentan).
+ *  Consulta solo los códigos pedidos, no toda la tabla: el costo no crece con el total de la plataforma. */
+export async function codigosConDocumentos(clienteId: number, codigos: Array<string | null | undefined>): Promise<Set<string>> {
+  const unicos = [...new Set(codigos.filter((c): c is string => !!c))];
+  const salida = new Set<string>();
+  for (let i = 0; i < unicos.length; i += 2000) {
+    const trozo = unicos.slice(i, i + 2000);
+    const [rows] = clienteId === CLIENTE_ICA
+      ? await pool.query(`SELECT DISTINCT licitacion_codigo FROM documentos_cache WHERE licitacion_codigo IN (?)`, [trozo])
+      : await pool.query(
+          `SELECT DISTINCT licitacion_codigo FROM documentos_cache WHERE (licitacion_codigo IN (?) AND cliente_id = 0) OR licitacion_codigo IN (?)`,
+          [trozo, trozo.map(c => codigoAlmacenDocs(clienteId, c))]);
+    for (const r of rows as Array<{ licitacion_codigo: string }>) salida.add(codigoDeAlmacen(clienteId, r.licitacion_codigo));
+  }
+  return salida;
+}
+
 /** Fragmento WHERE para los documentos que VE una empresa de una licitación: los oficiales compartidos + los suyos.
  *  Para Grupo ICA queda igual que antes (todo lo que está bajo el código a secas). */
 export function filtroDocsVisibles(clienteId: number, codigo: string, alias = ''): { sql: string; params: string[] } {

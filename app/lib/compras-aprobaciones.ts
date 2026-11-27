@@ -69,7 +69,8 @@ export async function obtenerAprobaciones(negocioId: number): Promise<{ compra: 
 
 export async function obtenerEscenarioElegido(negocioId: number) {
   const [rows] = await pool.query(
-    `SELECT tipo, costo_total, dias_estimados, viajes_estimados, elegido_justificacion, detalle_json
+    `SELECT tipo, costo_total, dias_estimados, viajes_estimados, elegido_justificacion, detalle_json, elegido_por_nombre,
+            DATE_FORMAT(elegido_at, '%Y-%m-%d %H:%i') AS elegido_at
        FROM compras_escenario WHERE negocio_id = ? AND elegido = 1 ORDER BY generado_at DESC LIMIT 1`,
     [negocioId],
   ) as any;
@@ -440,6 +441,29 @@ export async function deshacerAprobacion(negocioId: number, tipo: TipoAprobacion
     tipo: `COMPRAS_APROBACION_${tipo}_DESHECHA`, licitacionCodigo: await licitacionDeNegocio(negocioId), actorId, actorNombre,
     mensaje: `Compuerta ${tipo === 'COMPRA' ? '1 (Compra)' : '2 (Margen)'}: se deshizo la decisión (${(estadoPrevio || '').replace(/_/g, ' ').toLowerCase()}) y volvió a pendiente${motivo ? ` — ${motivo}` : ''}.`,
     metadata: { negocio_id: negocioId, tipo, estado_previo: estadoPrevio ?? null },
+  });
+}
+
+/** El encargado se arrepiente de lo que mandó al jefe de ventas: mientras siga PENDIENTE (nadie decidió), la propuesta se retira y la
+ *  compuerta vuelve a «sin enviar». El escenario elegido no se toca; los costos reales que la propuesta había pisado vuelven a lo anotado
+ *  antes (igual que al rechazarla). Una ya resuelta se deshace con «Deshacer esta decisión» (jefe/admin). */
+export async function retirarAprobacion(negocioId: number, tipo: TipoAprobacion, actorId: number, actorNombre: string | null): Promise<void> {
+  if (!['COMPRA', 'MARGEN'].includes(tipo)) throw new Error('Compuerta inválida.');
+  const actual = await leerAprobacion(negocioId, tipo);
+  if (!actual || actual.estado !== 'PENDIENTE') throw new Error('Solo se puede retirar una propuesta que sigue pendiente (puede que el jefe de ventas ya la haya resuelto).');
+  const [r] = await pool.query(`DELETE FROM compras_aprobacion WHERE negocio_id = ? AND tipo = ? AND estado = 'PENDIENTE'`, [negocioId, tipo]) as any;
+  if (!r?.affectedRows) throw new Error('Esta propuesta ya fue resuelta: no se puede retirar.');
+  if (tipo === 'COMPRA') {
+    const previos = (actual.detalle as any)?.costosRealesPrevios;
+    if (Array.isArray(previos) && previos.length)
+      await import('@/app/lib/compras-compra-a-costeo').then(m => m.restaurarCostosRealesPrevios(negocioId, previos, { id: actorId, nombre: actorNombre }))
+        .catch(e => console.error('[compras-aprobaciones] no se pudieron restaurar los costos reales al retirar (no crítico):', String(e).slice(0, 150)));
+  }
+  await sincronizarTareaAprobacion(negocioId, { id: actorId, nombre: actorNombre }).catch(() => {});
+  await registrarEvento({
+    tipo: `COMPRAS_APROBACION_${tipo}_RETIRADA`, licitacionCodigo: await licitacionDeNegocio(negocioId), actorId, actorNombre,
+    mensaje: `Compuerta ${tipo === 'COMPRA' ? '1 (Compra)' : '2 (Margen)'}: ${actorNombre || 'el encargado'} retiró la propuesta que estaba pendiente.`,
+    metadata: { negocio_id: negocioId, tipo },
   });
 }
 

@@ -234,7 +234,12 @@ export function factorSegunLinea(n: number | null | undefined, detalleLinea: str
  */
 export function normalizarProductos(salida: SalidaLector, texto?: string, esWeb = false, tiposCambio?: Record<string, { valor: number; fecha: string }>): ProductoNormalizado[] {
   return (salida.productos || []).map((p, idx) => {
-    const c = p.comercial || {}, d = p.producto || {};
+    const c = p.comercial || {};
+    // La IA a veces devuelve un dato como {valor, cita} o un número en vez de texto (visto: modelo «LB205» en 759-30-LE26): se baja a texto
+    // aquí para que ningún paso de abajo (puntuar, tokens) se caiga y deje el panel de fichas en error.
+    const aTexto = (v: unknown): string => typeof v === 'string' ? v : typeof v === 'number' ? String(v) : (v && typeof v === 'object' && 'valor' in v) ? aTexto((v as { valor: unknown }).valor) : '';
+    const d = { ...(p.producto || {}) } as NonNullable<typeof p.producto>;
+    for (const k of ['tipo', 'marca', 'modelo', 'version', 'sku_fabricante', 'sku_proveedor'] as const) if (d[k] != null) (d as any)[k] = aTexto(d[k]);
     const condiciones = (c.condiciones_generales || []).map(x => x.texto || '').filter(Boolean);
     const cantTexto = condiciones.map(t => t.match(/cantidad\s*cotizada\s*[:=]?\s*([\d.,]+)/i)?.[1]).find(Boolean);
     const elegido = elegirPrecio(p, parsearMonto(cantTexto));

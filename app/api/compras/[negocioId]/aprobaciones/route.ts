@@ -9,7 +9,7 @@ import { obtenerAsignacion } from '@/app/lib/compras';
 import { validacionesPendientesCompra,
   obtenerAprobaciones, calcularMargenPrevisto, calcularPresupuestoCompra, obtenerEscenarioElegido,
   proponerAprobacionCompra, proponerAprobacionMargen,
-  resolverAprobacion, deshacerAprobacion, type TipoAprobacion, type DecisionAprobacion,
+  resolverAprobacion, deshacerAprobacion, retirarAprobacion, type TipoAprobacion, type DecisionAprobacion,
 } from '@/app/lib/compras-aprobaciones';
 import { puedeOperarCompras, puedeVerCompras } from '@/app/api/compras/[negocioId]/route';
 import { permisosCrudosDeUsuario } from '@/app/lib/api-auth';
@@ -61,7 +61,7 @@ export async function GET(request: NextRequest, { params }: Params) {
     // mostrar el número viejo como si fuera el vigente.
     return NextResponse.json({
       success: true, ...aprobaciones, margenActual: margen, presupuestoActual: presupuesto, validacionesPendientes,
-      escenarioElegidoActual: escenarioElegido ? { tipo: escenarioElegido.tipo, costoTotal: Number(escenarioElegido.costo_total) } : null,
+      escenarioElegidoActual: escenarioElegido ? { tipo: escenarioElegido.tipo, costoTotal: Number(escenarioElegido.costo_total), elegidoPorNombre: escenarioElegido.elegido_por_nombre ?? null, elegidoAt: escenarioElegido.elegido_at ?? null } : null,
       esJefeDeVentas: jefe,
       puedeDeshacer: jefe,
     });
@@ -107,6 +107,16 @@ async function __PATCH(request: NextRequest, { params }: Params) {
 
   try {
     const body = await request.json();
+    // Retirar lo enviado (aún pendiente): lo hace el encargado de la compra, no hace falta ser jefe.
+    if (body.decision === 'RETIRAR') {
+      const asignacion = await obtenerAsignacion(id);
+      if (!asignacion) return NextResponse.json({ error: 'Compras no está abierto para este negocio.' }, { status: 404 });
+      if (!(await puedeOperarCompras(userId, rol, asignacion.asignadoA, asignacion.coencargados)))
+        return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
+      await retirarAprobacion(id, body.tipo as TipoAprobacion, userId, nombre);
+      const aprobaciones = await obtenerAprobaciones(id);
+      return NextResponse.json({ success: true, ...aprobaciones });
+    }
     // Deshacer una decisión ya tomada: jefe de ventas / asesor (permisos de aprobación) y cualquier admin (pedido del usuario, 14-oct-2026).
     if (body.decision === 'DESHACER') {
       if (!(await esJefeDeVentas(userId, rol)))

@@ -156,7 +156,7 @@ export async function costoRealDeNegocio(negocioId: number): Promise<ResultadoCo
     const r = await resumenGastosCompra(negocioId, null);
     if (r.ocCreadas.cantidad > 0 || r.comprasCruzadas.cantidad > 0 || r.ocsPropias.length > 0) {
       // gastadoNeto ya junta Obuma (o lo emitido por Licitank) + las OC propias de Comercial MP, sin anuladas.
-      obuma = { ocCreadas: r.ocCreadas.totalNeto, comprasCruzadas: r.gastadoNeto ?? 0, facturas: r.facturas.total };
+      obuma = { ocCreadas: r.ocCreadas.totalNeto, comprasCruzadas: r.gastadoNeto ?? 0, facturas: Math.round((r.facturas.detalle ?? []).reduce((s: number, f: any) => s + (f.neto ?? (f.total || 0) / 1.19), 0)) };
     }
   } catch { /* Obuma sin datos: el consolidado se arma igual, solo sin contraste */ }
   // ¿Todos los productos (no servicios) vigentes ya tienen OC? Entonces el costo real sale de las OC, no de la cotización.

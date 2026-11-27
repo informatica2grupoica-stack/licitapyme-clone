@@ -5,7 +5,7 @@ import pool from '@/app/lib/db';
 import { completarUbicacion } from '@/app/lib/licitacion-ubicacion';
 import { permisosDeUsuario } from '@/app/lib/api-auth';
 import { ahoraChileSQL } from '@/app/lib/tz';
-import { clienteDeHeader, usaViabilidadDeICA } from '@/app/lib/tenant';
+import { clienteDeHeader, usaViabilidadDeICA, codigosConDocumentos } from '@/app/lib/tenant';
 
 function getUserId(req: NextRequest): number | null {
   const id = req.headers.get('x-user-id');
@@ -150,27 +150,33 @@ export async function GET(request: NextRequest) {
     // (resumen/ventaja/recomendación) vía JSON_EXTRACT (guardado con JSON_VALID por si
     // alguna fila trae JSON malformado). Aislado en allSettled: si la BD no soporta
     // funciones JSON, el radar sigue mostrando el semáforo/score sin el popover.
+    // Las consultas de apoyo que leen tablas compartidas (documentos, viabilidad, adjudicación) piden SOLO los códigos de esta lista:
+    // antes recorrían la tabla completa de la plataforma y el costo crecía con cada empresa nueva.
+    const codigosLista = [...new Set((rows as any[]).map(r => r.licitacion_codigo).filter(Boolean))] as string[];
+    const sinCodigos = codigosLista.length === 0;
     const [asigRes, descRes, docsRes, countRes, resumenRes, puenteRes, adjRes] = await Promise.allSettled([
       pool.query(
         `SELECT n.licitacion_codigo, n.asignado_a, u.nombre AS asignado_nombre, u.email AS asignado_email
          FROM negocios n JOIN usuarios u ON u.id = n.asignado_a WHERE n.activo = TRUE AND n.cliente_id = ?`, [clienteId]),
       pool.query(`SELECT licitacion_codigo FROM licitaciones_descartadas WHERE cliente_id = ?`, [clienteId]),
-      pool.query(`SELECT DISTINCT licitacion_codigo FROM documentos_cache`),
+      codigosConDocumentos(clienteId, codigosLista).then(s => [[...s].map(c => ({ licitacion_codigo: c }))] as any),
       pool.query(countSql, countParams),
-      conViabilidad
+      conViabilidad && !sinCodigos
         ? pool.query(
             `SELECT licitacion_codigo,
                     CASE WHEN JSON_VALID(informe_ejecutivo) THEN JSON_UNQUOTE(JSON_EXTRACT(informe_ejecutivo,'$.resumen')) END AS resumen,
                     CASE WHEN JSON_VALID(informe_ejecutivo) THEN JSON_UNQUOTE(JSON_EXTRACT(informe_ejecutivo,'$.ventaja_competitiva')) END AS ventaja_competitiva,
                     CASE WHEN JSON_VALID(informe_ejecutivo) THEN JSON_UNQUOTE(JSON_EXTRACT(informe_ejecutivo,'$.recomendacion')) END AS recomendacion
-             FROM viabilidad_licitacion`)
+             FROM viabilidad_licitacion WHERE licitacion_codigo IN (?)`, [codigosLista])
         : Promise.resolve([[]] as any),
       // Puente del radar: las que ya están esperando reparto se marcan en la tarjeta para no
       // empujarlas dos veces (migración 73 — tolerante si aún no está aplicada).
       pool.query(`SELECT licitacion_codigo FROM puente_radar WHERE cliente_id = ?`, [clienteId]),
       // Fecha del acta de adjudicación (solo procesos ya adjudicados: en Desierta/Revocada ese campo
       // del cache es basura). Solo para la columna "Fecha adjudicación" del Excel del radar.
-      pool.query(`SELECT licitacion_codigo, fecha_adjudicacion FROM adjudicacion_cache WHERE es_adjudicada = 1 AND fecha_adjudicacion IS NOT NULL`),
+      sinCodigos
+        ? Promise.resolve([[]] as any)
+        : pool.query(`SELECT licitacion_codigo, fecha_adjudicacion FROM adjudicacion_cache WHERE es_adjudicada = 1 AND fecha_adjudicacion IS NOT NULL AND licitacion_codigo IN (?)`, [codigosLista]),
     ]);
 
     const lista = await completarUbicacion(rows as any[]);

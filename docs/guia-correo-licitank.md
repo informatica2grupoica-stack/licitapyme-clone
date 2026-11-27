@@ -1,5 +1,7 @@
 # Correo de LICITANK bajo su propio dominio — guía para el dueño
 
+> **Decisión del dueño (2026-11-27): por ahora se sigue usando el correo de notificaciones actual** (`notificaciones@sociedadcomercialmp.cl`, SMTP de Bluehost de ICA, no el de la empresa cliente Comercial MP). Esta guía queda como opcional para cuando se quiera pasar a `licitank.cl` (más marca y reputación propia). El código ya está listo para ese cambio.
+
 **Para qué:** hoy los correos de la plataforma (recuperar clave, avisos, órdenes de compra) salen por el SMTP de Bluehost de Comercial MP, como
 `notificaciones@sociedadcomercialmp.cl`. **Funciona y llega a Gmail** (se arregló el 06-nov con el saludo SMTP). Pero para vender LICITANK a otras empresas conviene
 que salga desde **`licitank.cl`**:

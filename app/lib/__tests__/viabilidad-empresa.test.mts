@@ -39,7 +39,7 @@ test('calce: monto fuera de lo que la empresa busca', () => {
 });
 
 test('efecto del calce según el modo', () => {
-  const no: ResultadoCalce = { coincidencia: 'NO', detalle: '', calzan: [], noDeseados: [], montoFuera: null };
+  const no: ResultadoCalce = { coincidencia: 'NO', detalle: '', calzan: [], noDeseados: [], montoFuera: null, regionFuera: false };
   const parcial: ResultadoCalce = { ...no, coincidencia: 'PARCIAL' };
   assert.deepEqual(efectoCalce('ninguno', no), { escalones: 0, techoBajo: false });
   assert.deepEqual(efectoCalce('suave', no), { escalones: 1, techoBajo: false });
@@ -83,4 +83,37 @@ test('configuración de la empresa: valores por defecto y datos malos', () => {
   assert.deepEqual(normalizarConfigEmpresa({ minimo_neto: 5000000, calce: 'estricto' }), { minimo_neto: 5000000, calce: 'estricto' });
   assert.equal(normalizarConfigEmpresa({ minimo_neto: -5 }).minimo_neto, null);
   assert.equal(normalizarConfigEmpresa({ calce: 'hackeo' }).calce, 'normal');
+});
+
+test('regiones: se castiga solo cuando se entiende dónde entrega la empresa y dónde es la licitación', () => {
+  const sillas = [{ nombre: 'Silla escolar' }];
+  const con = (regiones: string, region: string | null) => evaluarCalce({ ...perfilMobiliario, regiones }, sillas, 5e7, region).regionFuera;
+  assert.equal(con('Metropolitana, Valparaíso', 'Región de Los Lagos'), true);
+  assert.equal(con('Metropolitana, Valparaíso', 'Región Metropolitana de Santiago'), false);
+  assert.equal(con('RM y Valparaíso', 'Región de Valparaíso'), false);
+  assert.equal(con('Los Ríos', 'Región de Los Lagos'), true, 'Los Ríos y Los Lagos no se confunden');
+  assert.equal(con('Biobío', 'Región del Bío Bío'), false);
+  assert.equal(con('Ñuble', 'Región de Ñuble'), false);
+  // ante la duda no se castiga
+  assert.equal(con('', 'Región de Los Lagos'), false, 'perfil sin regiones');
+  assert.equal(con('todo Chile', 'Región de Los Lagos'), false);
+  assert.equal(con('zona sur', 'Región de Los Lagos'), false, 'texto que no se entiende');
+  assert.equal(con('Metropolitana', null), false, 'la licitación no trae región');
+  assert.equal(con('Metropolitana', 'Varias regiones'), false);
+  assert.equal(evaluarCalce(null, sillas, 5e7, 'Región de Los Lagos').regionFuera, false);
+});
+
+test('regiones: baja un escalón (normal), techo BAJO (estricto) y nada si no se usa el calce', () => {
+  const base: ResultadoCalce = { coincidencia: 'SI', detalle: '', calzan: [], noDeseados: [], montoFuera: null, regionFuera: true };
+  assert.deepEqual(efectoCalce('normal', base), { escalones: 1, techoBajo: false });
+  assert.deepEqual(efectoCalce('suave', base), { escalones: 1, techoBajo: false });
+  assert.deepEqual(efectoCalce('estricto', base), { escalones: 0, techoBajo: true });
+  assert.deepEqual(efectoCalce('ninguno', base), { escalones: 0, techoBajo: false });
+  assert.deepEqual(efectoCalce('normal', { ...base, regionFuera: false }), { escalones: 0, techoBajo: false });
+});
+
+test('regiones: el nivel baja un escalón por estar fuera de donde entrega', () => {
+  const inf = informe([{ nombre: 'Silla escolar', familia: 'MOBILIARIO' }]);
+  const nivel = (region: string) => calcularNivel(inf as any, CONFIG_V4_DEFAULT, { codigo: '1000-1-LP26', calce: { modo: 'normal', perfil: { ...perfilMobiliario, regiones: 'Metropolitana' }, region } } as any).nivel;
+  assert.notEqual(nivel('Región de Los Lagos'), nivel('Región Metropolitana de Santiago'));
 });

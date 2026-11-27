@@ -2629,11 +2629,14 @@ export async function eliminarParteProducto(productoId: number, actorId: number,
   };
   // Un flete (servicio) nace con su cotización, así que las cotizaciones no lo bloquean: se van con él. Lo que sí lo bloquea es una
   // compra o un veredicto, que son historial.
-  if (!(p.subestado === 'PENDIENTE' || (esServicio && p.subestado === 'COTIZANDO'))
+  // Un gasto (flete, adicional, combustible) que el jefe RECHAZÓ no se compra: se puede borrar aunque ya tuviera SKU o quedara «Comprado»
+  // por una aprobación que se deshizo. (Antes el SKU o el estado lo trababan y solo quedaba «Renunciar».)
+  const rechazado = esServicio && await tiene(`SELECT 1 FROM compras_compra_rapida WHERE producto_id = ? AND estado = 'RECHAZADA' LIMIT 1`);
+  if (!rechazado && (!(p.subestado === 'PENDIENTE' || (esServicio && p.subestado === 'COTIZANDO'))
     || (!esServicio && await tiene(`SELECT 1 FROM compras_cotizacion_item WHERE producto_id = ? LIMIT 1`))
     || (!esServicio && await tiene(`SELECT 1 FROM compras_compra_rapida WHERE producto_id = ? LIMIT 1`))
     || (!esServicio && await tiene(`SELECT 1 FROM compras_veredicto WHERE producto_id = ? LIMIT 1`))
-    || (esServicio && await tiene(`SELECT 1 FROM compras_sku WHERE producto_id = ? LIMIT 1`)))
+    || (esServicio && await tiene(`SELECT 1 FROM compras_sku WHERE producto_id = ? LIMIT 1`))))
     throw new Error(esServicio
       ? 'Este flete ya se compró o ya tiene SKU: no se puede quitar. Si ya no va, usa «Renunciar».'
       : 'Esta parte ya tiene cotizaciones o una compra: no se puede quitar. Si ya no va, usa «Renunciar».');
@@ -2644,7 +2647,7 @@ export async function eliminarParteProducto(productoId: number, actorId: number,
       const [cr] = await pool.query(`SELECT DISTINCT cotizacion_id FROM compras_cotizacion_item WHERE producto_id = ?`, [productoId]) as any;
       cotIds = (cr as any[]).map(x => Number(x.cotizacion_id)).filter(Boolean);
     } catch (e: any) { if (e?.code !== 'ER_NO_SUCH_TABLE' && e?.code !== 'ER_BAD_FIELD_ERROR') throw e; }
-    for (const t of ['compras_cotizacion_item', 'compras_cotizacion_adicional', 'compras_veredicto', 'compras_aprobacion_linea', 'compras_compra_rapida']) {
+    for (const t of ['compras_cotizacion_item', 'compras_cotizacion_adicional', 'compras_veredicto', 'compras_aprobacion_linea', 'compras_compra_rapida', ...(rechazado ? ['compras_sku'] : [])]) {
       try { await pool.query(`DELETE FROM ${t} WHERE producto_id = ?`, [productoId]); }
       catch (e: any) { if (e?.code !== 'ER_NO_SUCH_TABLE') throw e; }
     }
@@ -2983,16 +2986,19 @@ async function contarHitosAdminPendientes(negocioId: number): Promise<number | n
     // OC sin pago total/saldo registrado. La factura llega sola desde Obuma y la provisión de fondos
     // se quitó; pago y anticipo únicos por negocio ya no se usan (eran uno para todas las OC).
     // "No aplica" es una resolución tan válida como marcarlo hecho (bug real del 17-sep-2026).
-    const [[[apr]], [[r]], [[noAplica]], ocs, pagos]: any = await Promise.all([
+    const [[[apr]], [[r]], [[noAplica]], ocs, pagos, [gastosOc]]: any = await Promise.all([
       pool.query(`SELECT estado FROM compras_aprobacion WHERE negocio_id = ? AND tipo = 'COMPRA' LIMIT 1`, [negocioId]),
       pool.query(`SELECT carpeta_proyecto_creada_at FROM compras_reparto_administrativo WHERE negocio_id = ?`, [negocioId]),
       pool.query(`SELECT COUNT(*) n FROM compras_reparto_respaldo WHERE negocio_id = ? AND hito = 'carpetaProyectoCreada' AND estado = 'NO_APLICA'`, [negocioId]),
       ocsConFacturas(negocioId),
       listarPagosOc(negocioId),
+      // OC que ya se anotaron como «gasto extra» (combustible, flete…): no se pagan por «Pagos por OC», no cuentan como pendientes.
+      pool.query(`SELECT DISTINCT oc_obuma_folio FROM compras_gasto WHERE negocio_id = ? AND oc_obuma_folio IS NOT NULL AND oc_obuma_folio <> ''`, [negocioId]),
     ]);
     if (!apr || !String(apr.estado).startsWith('APROBADA')) return null;
     const carpetaPendiente = !r?.carpeta_proyecto_creada_at && !Number(noAplica?.n) ? 1 : 0;
-    return carpetaPendiente + ocs.filter((o: any) => !ocPagada(pagos, o.folio) && !ocSoloFacturasAnuladas(o)).length;
+    const comoGasto = new Set((gastosOc as any[]).map(g => String(g.oc_obuma_folio)));
+    return carpetaPendiente + ocs.filter((o: any) => !comoGasto.has(String(o.folio)) && !ocPagada(pagos, o.folio) && !ocSoloFacturasAnuladas(o)).length;
   } catch { return null; }
 }
 

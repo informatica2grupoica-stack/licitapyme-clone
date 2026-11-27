@@ -2234,7 +2234,15 @@ export async function aplicarNivel(inf: any, codigo: string, cfg?: Awaited<Retur
   let utm: number | null = null;
   try { utm = (await obtenerTipoCambio('UTM'))?.valor ?? null; } catch { /* sin UTM: solo afecta el aviso de rango */ }
   const confirmados: string[] = Array.isArray(inf?.score_confirmaciones) ? inf.score_confirmaciones.map((c: any) => String(c?.clave || '')).filter(Boolean) : [];
-  inf.score = calcularNivel(inf, config, { codigo, utm, confirmados, calce: { modo: empresa.calce, perfil } });
+  // Región de la licitación: solo hace falta si la empresa dijo en qué regiones entrega.
+  let regionLic: string | null = null;
+  if (perfil?.regiones?.trim()) {
+    try {
+      const [rg] = await pool.query(`SELECT region FROM licitaciones_cache WHERE codigo = ? LIMIT 1`, [codigo]);
+      regionLic = (rg as any[])[0]?.region ?? null;
+    } catch { /* sin región: no se castiga */ }
+  }
+  inf.score = calcularNivel(inf, config, { codigo, utm, confirmados, calce: { modo: empresa.calce, perfil, region: regionLic } });
   const v27 = validarNivelV27(inf);
   if (v27 && inf._validador && Array.isArray(inf._validador.hallazgos)) {
     inf._validador.hallazgos = inf._validador.hallazgos.filter((h: any) => h?.regla !== 'V-27').concat(v27);

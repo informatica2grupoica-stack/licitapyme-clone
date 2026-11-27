@@ -2258,9 +2258,10 @@ export function CosteoEditorCard({
       flot.modo === 'grande' ? (
         <div className="fixed inset-0 z-[100] bg-zinc-100 flex flex-col">
           {Cabecera}
-          <div className="flex-1 min-h-0 p-3 flex flex-col gap-3">
-            <div className="flex-1 min-h-0 min-w-0 flex">{Hoja}</div>
-            <div className="flex-shrink-0 max-h-[42vh] overflow-y-auto">{cuadroDeHoja(g, giActivo, true)}</div>
+          <div className="flex-1 min-h-0 p-3 flex flex-col gap-3 overflow-y-auto">
+            {/* La planilla manda: mínimo 65 % del alto; el cuadro comparativo queda debajo y se baja con scroll. */}
+            <div className="flex-1 min-h-[65vh] min-w-0 flex">{Hoja}</div>
+            <div className="flex-shrink-0">{cuadroDeHoja(g, giActivo, true)}</div>
           </div>
         </div>
       ) : (
@@ -2293,11 +2294,11 @@ export function CosteoEditorCard({
             POR ENCIMA del cuadro, porque el contenedor de la hoja no tenía `min-w-0` y un flex
             child con una tabla adentro no se encoge sin eso. Abajo, el mismo cuadro se reparte en
             columnas que se adaptan al ancho disponible y ocupa menos alto que la tira vertical. */}
-        <div className="flex-1 min-h-0 p-3 flex flex-col gap-3">
-          <div className="flex-1 min-h-0 min-w-0 flex">{Hoja}</div>
+        <div className="flex-1 min-h-0 p-3 flex flex-col gap-3 overflow-y-auto">
+          <div className="flex-1 min-h-[65vh] min-w-0 flex">{Hoja}</div>
           {/* El cuadro de la hoja que se está mirando — el de las otras líneas se ve al cambiar de
               pestaña, para no comparar dos topes distintos en el mismo lugar. */}
-          <div className="flex-shrink-0 max-h-[42vh] overflow-y-auto">{cuadroDeHoja(g, giActivo, true)}</div>
+          <div className="flex-shrink-0">{cuadroDeHoja(g, giActivo, true)}</div>
         </div>
       </div>,
       document.body,

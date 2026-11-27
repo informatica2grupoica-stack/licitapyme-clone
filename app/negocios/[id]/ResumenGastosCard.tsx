@@ -15,10 +15,10 @@ import { enfocarProducto } from '@/app/compras/[negocioId]/comprasNavegacion';
 
 interface LineaOc { lineaId?: string | null; cantidadNegocio?: number | null; producto: string; sku: string | null; cantidad: number | null; precio: number | null; subtotal: number | null }
 interface ResumenGastos {
-  ocCreadas: { cantidad: number; totalNeto: number; proveedores: { nombre: string; folio: string | null; total: number; fecha: string }[] };
+  ocCreadas: { cantidad: number; totalNeto: number; proveedores: { nombre: string; folio: string | null; total: number; fecha: string; creadoPor?: string | null }[] };
   comprasCruzadas: { cantidad: number; total: number; neto: number };
   ocsObuma?: { din?: string[]; compraOcId?: string; excluidoNeto?: number; folio: string; proveedor: string | null; estado: string | null; fecha: string | null; neto: number; total: number; skus: string[]; lineas: LineaOc[] }[];
-  ocsPropias?: { folio: string; proveedor: string; estado: string; fecha: string; neto: number; total: number; lineas: LineaOc[] }[];
+  ocsPropias?: { folio: string; creadoPor?: string | null; proveedor: string; estado: string; fecha: string; neto: number; total: number; lineas: LineaOc[] }[];
   gastadoNeto?: number | null;
   facturas: {
     cantidad: number; total: number;
@@ -37,7 +37,7 @@ interface GastosProyecto {
   totalOc: number; cantidadOc: number; totalOcNeto?: number; cantidadAnuladas?: number;
 }
 /** Una fila de la tabla de órdenes de compra: las emitidas desde Licitank y las hechas directo en Obuma, sin repetir. */
-interface FilaOc { din?: string[]; compraOcId?: string; excluidoNeto?: number; folio: string; proveedor: string; fecha: string | null; estado: string | null; origen: 'licitank' | 'obuma' | 'propia'; neto: number | null; total: number | null; lineas: LineaOc[] }
+interface FilaOc { creadoPor?: string | null; din?: string[]; compraOcId?: string; excluidoNeto?: number; folio: string; proveedor: string; fecha: string | null; estado: string | null; origen: 'licitank' | 'obuma' | 'propia'; neto: number | null; total: number | null; lineas: LineaOc[] }
 
 const fmtCLP = (n: number | null | undefined) => n == null ? '—'
   : new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n);
@@ -113,15 +113,15 @@ export function ResumenGastosCard({ negocioId }: { negocioId: number }) {
     const delicitank = new Map(resumen.ocCreadas.proveedores.filter(o => o.folio).map(o => [String(o.folio), o]));
     const filas: FilaOc[] = (resumen.ocsObuma ?? []).map(o => ({
       din: o.din, compraOcId: o.compraOcId, excluidoNeto: o.excluidoNeto, folio: o.folio, proveedor: o.proveedor || 'Proveedor', fecha: o.fecha, estado: o.estado,
-      origen: delicitank.has(String(o.folio)) ? 'licitank' : 'obuma', neto: o.neto, total: o.total, lineas: o.lineas,
+      origen: delicitank.has(String(o.folio)) ? 'licitank' : 'obuma', creadoPor: delicitank.get(String(o.folio))?.creadoPor ?? null, neto: o.neto, total: o.total, lineas: o.lineas,
     }));
     for (const o of resumen.ocCreadas.proveedores) {
       if (o.folio && filas.some(f => f.folio === String(o.folio))) continue;
-      filas.push({ folio: o.folio || 's/folio', proveedor: o.nombre, fecha: o.fecha, estado: null, origen: 'licitank', neto: o.total, total: null, lineas: [] });
+      filas.push({ folio: o.folio || 's/folio', proveedor: o.nombre, fecha: o.fecha, estado: null, origen: 'licitank', creadoPor: o.creadoPor ?? null, neto: o.total, total: null, lineas: [] });
     }
     // OC propias (Comercial MP): no pasan por Obuma. El servidor ya saca las anuladas, igual que las de Obuma.
     for (const o of resumen.ocsPropias ?? []) {
-      filas.push({ folio: o.folio, proveedor: o.proveedor, fecha: o.fecha, estado: o.estado, origen: 'propia', neto: o.neto, total: o.total, lineas: o.lineas });
+      filas.push({ folio: o.folio, proveedor: o.proveedor, fecha: o.fecha, estado: o.estado, origen: 'propia', creadoPor: o.creadoPor ?? null, neto: o.neto, total: o.total, lineas: o.lineas });
     }
     return filas.sort((a, b) => String(b.fecha || '').localeCompare(String(a.fecha || '')));
   }, [resumen]);
@@ -411,6 +411,7 @@ function FilaOrden({ f, abierta, anulada, facturas, onAlternar, negocioId, onGua
         <td className="px-2 py-2">{f.estado ? <span className={`text-[10.5px] font-semibold px-2 py-0.5 rounded-full border ${estadoCls}`}>{f.estado}</span> : <span className="text-zinc-300">—</span>}</td>
         <td className="px-2 py-2">
           <span className={`text-[10.5px] font-semibold px-2 py-0.5 rounded-full border ${f.origen === 'obuma' ? 'bg-sky-50 text-sky-700 border-sky-200' : 'bg-teal-50 text-teal-700 border-teal-200'}`}>{f.origen === 'licitank' ? 'Desde Licitank' : f.origen === 'propia' ? 'OC propia (Licitank)' : 'Directo en Obuma'}</span>
+          {f.creadoPor && <span className="block text-[11px] text-zinc-600 mt-0.5">Creada por <b className="font-semibold text-zinc-800">{f.creadoPor}</b></span>}
         </td>
         <td className="px-2 py-2 text-right tabular-nums font-semibold text-zinc-800">{fmtCLP(f.neto)}{f.excluidoNeto ? <span className="block text-[10.5px] font-normal text-amber-700" title="Unidades de esta orden que no son de este negocio (inventario u otro uso): no suman a su costo">sin {fmtCLP(f.excluidoNeto)} de otro uso</span> : null}</td>
         <td className="px-2 py-2 text-right tabular-nums text-zinc-600">{fmtCLP(f.total ?? (f.neto != null ? Math.round(f.neto * 1.19) : null))}</td>

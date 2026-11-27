@@ -315,7 +315,11 @@ async function avanzar(clienteId: number, c: CursorEval, hasta: number): Promise
       codigoProveedor: c.ruts[0].codigo ?? null, nombreMP: nombre, diasRevisados: dias, ordenes: c.oc.length, licitaciones: c.licitaciones.length, actasConLineasGanadas: c.actas,
       lineas: c.lineas.length, montoTipico: { p10, p90 }, compradores: top(c.compradores, 10), regiones: top(c.regiones, 8), modelo: propuesta.modelo,
       sugeridas: propuesta.sugeridas, posibles: propuesta.posibles, negativas: propuesta.negativas, resumen: propuesta.resumen,
-      perfil: { ...propuesta.perfil, monto_min: p10, monto_max: p90, regiones: regionesTop.join(', ') },
+      // Las regiones del perfil BAJAN el nivel de las licitaciones de otras regiones (viabilidad por empresa): no se precargan con las
+      // que alguna vez compraron (una sola venta en una región la dejaría como la única). Quedan vacías = todo Chile; el admin las elige.
+      // El historial se muestra aparte en `regiones` (compradores por región).
+      perfil: { ...propuesta.perfil, monto_min: p10, monto_max: p90, regiones: '' },
+      regionesHistorial: regionesTop,
     },
   });
   return true;

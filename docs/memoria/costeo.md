@@ -3,6 +3,9 @@
 Costeo digital del negocio (editor + burbuja flotante) y Excel de costeo (plantilla V3).
 Traspasado desde la memoria personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-11-27 — Costeo grande: la planilla de ítems manda sobre el cuadro comparativo
+**Regla:** en pantalla completa/burbuja grande la planilla tiene mínimo 65 vh (`min-h-[65vh]`); el cuadro comparativo ya no tiene tope de 42vh con scroll propio, queda debajo y se baja con el scroll del contenedor. Pedido del dueño (notebooks chicos no mostraban las filas). Sin ver en navegador, sin desplegar.
+
 ## 2026-11-25 — Cambio de CANTIDAD en el costeo: campana a los admin + señal roja arriba (pedido del dueño)
 **Regla:** si al guardar el costeo (PUT) cambia la `cantidad` de un ítem que ya estaba guardado (se empareja por `id`; agregar/quitar
 ítems y costos adicionales no cuentan; sin guardado previo no se compara), `avisarCambioDeCantidad` (`costeo-aviso-cantidad.ts`)

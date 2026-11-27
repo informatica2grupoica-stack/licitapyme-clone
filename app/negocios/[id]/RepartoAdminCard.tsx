@@ -491,6 +491,8 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo', ocult
   const idsSel = (p: ProveedorOC): number[] => seleccion[p.proveedorNombre] ?? p.items.filter(it => it.aprobado !== false && it.estadoLinea !== 'RECHAZADA' && (compuertasOk || it.compraRapida) && !(p.ocRealObuma && p.items.some(x => x.enOcObuma === false) && it.enOcObuma !== false)).map(it => it.productoId);
   // ¿Se puede emitir esta orden? Con las dos compuertas, siempre; si no, solo si TODO lo marcado es compra rápida aprobada.
   const puedeEmitirOC = (p: ProveedorOC) => compuertasOk || (idsSel(p).length > 0 && idsSel(p).every(id => p.items.find(it => it.productoId === id)?.compraRapida));
+  // Lo marcado que aún no tiene SKU de Obuma: no se puede emitir (el servidor también lo rechaza).
+  const marcadosSinSku = (p: ProveedorOC) => p.items.filter(it => idsSel(p).includes(it.productoId) && !it.obumaProductoId && !it.obumaCodigoComercial);
   // ¿Lo marcado repite algo que la OC de Obuma ya trae? Si solo va lo que a esa OC le falta, no es duplicado.
   const ocRealDuplica = (p: ProveedorOC) => !!p.ocRealObuma && !(idsSel(p).length > 0 && idsSel(p).every(id => p.items.find(it => it.productoId === id)?.enOcObuma === false));
   const subtotalSel = (p: ProveedorOC) => p.items.filter(it => idsSel(p).includes(it.productoId)).reduce((s, it) => s + it.subtotal, 0);
@@ -841,10 +843,13 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo', ocult
                       subtitle="Revisa los datos: al confirmar se crea de verdad en Obuma."
                       footer={<>
                         <Boton variante="fantasma" onClick={() => setOcAbierta(null)}>Cancelar</Boton>
+                        {marcadosSinSku(p).length > 0 && (
+                          <span className="text-[12px] text-amber-700 self-center">Falta el SKU de {marcadosSinSku(p).length} producto(s): créalo en «Aprobación y SKU».</span>
+                        )}
                         {estadoProveedorObuma === 'existe' && (
                           <Boton variante="primario" onClick={() => crearOC(p.proveedorNombre, !!p.posibleDuplicadoObuma || ocRealDuplica(p), idsSel(p))}
                             icono={creandoOC === p.proveedorNombre ? <Loader2 size={15} className="animate-spin" /> : undefined}
-                            disabled={creandoOC === p.proveedorNombre || idsSel(p).length === 0 || !formaPagoId || !fechaEntrega || !metodoDespacho || !confirmadoOC || (ocInternacional && (!monedaOcId || !(tcNumero(tipoCambioOc) > 0))) || !puedeEmitirOC(p) || ((!!p.posibleDuplicadoObuma || ocRealDuplica(p)) && !confirmadoPeseADuplicado)}>
+                            disabled={creandoOC === p.proveedorNombre || idsSel(p).length === 0 || marcadosSinSku(p).length > 0 || !formaPagoId || !fechaEntrega || !metodoDespacho || !confirmadoOC || (ocInternacional && (!monedaOcId || !(tcNumero(tipoCambioOc) > 0))) || !puedeEmitirOC(p) || ((!!p.posibleDuplicadoObuma || ocRealDuplica(p)) && !confirmadoPeseADuplicado)}>
                             Crear en Obuma
                           </Boton>
                         )}

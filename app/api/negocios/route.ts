@@ -8,7 +8,7 @@ import { asignarLicitacion } from '@/app/lib/asignar-licitacion';
 import { resumirCarga, type FilaCarga } from '@/app/lib/carga-perfiles';
 import { respuestaDesdeCache, enriquecer } from '@/app/lib/adjudicacion';
 import { extractTipoFromCodigo } from '@/app/lib/tipos-licitacion';
-import { clienteDeHeader, usaViabilidadDeICA } from '@/app/lib/tenant';
+import { clienteDeHeader, usaViabilidadDeICA, codigosConDocumentos } from '@/app/lib/tenant';
 
 function getUser(req: NextRequest) {
   const id  = req.headers.get('x-user-id');
@@ -120,7 +120,7 @@ export async function GET(request: NextRequest) {
       // La viabilidad (semáforo/puntaje) es análisis de IA de Grupo ICA: un cliente solo la ve si contrató el módulo.
       const conViabilidad = await usaViabilidadDeICA(clienteId);
       const [docsRes, viabRes, aperturaRes, adjRes, postRes] = await Promise.allSettled([
-        pool.query(`SELECT DISTINCT licitacion_codigo FROM documentos_cache WHERE licitacion_codigo IN (${ph})`, codigos),
+        codigosConDocumentos(clienteId, codigos),
         conViabilidad
           ? pool.query(`SELECT licitacion_codigo, semaforo, score_total, nivel_atractivo FROM viabilidad_licitacion WHERE licitacion_codigo IN (${ph})`, codigos)
           : Promise.resolve([[]] as any),
@@ -138,7 +138,7 @@ export async function GET(request: NextRequest) {
           negocios.map(n => n.id)),
       ]);
       if (docsRes.status === 'fulfilled') {
-        const setDocs = new Set(((docsRes.value as any)[0] as any[]).map(r => r.licitacion_codigo));
+        const setDocs = docsRes.value as Set<string>;
         for (const n of negocios) n.tiene_documentos = setDocs.has(n.licitacion_codigo) ? 1 : 0;
       }
       if (viabRes.status === 'fulfilled') {

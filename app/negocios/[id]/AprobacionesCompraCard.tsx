@@ -17,7 +17,7 @@ import { IconShieldCheck as ShieldCheck, IconLoader2 as Loader2, IconCircleCheck
 
 type Estado = 'PENDIENTE' | 'APROBADA' | 'APROBADA_CON_MODIFICACION' | 'RECHAZADA';
 type Tipo = 'COMPRA' | 'MARGEN';
-type Decision = 'APROBAR' | 'APROBAR_CON_MODIFICACION' | 'RECHAZAR' | 'DESHACER';
+type Decision = 'APROBAR' | 'APROBAR_CON_MODIFICACION' | 'RECHAZAR' | 'DESHACER' | 'RETIRAR';
 
 interface Aprobacion {
   tipo: Tipo; estado: Estado; detalle: any; motivo: string | null;
@@ -53,11 +53,11 @@ function AvisoCampoSku({ valor, leido, cotizacionLeida }: { valor: string; leido
   return <span className="block text-[11px] font-semibold text-amber-700 mt-0.5">⚠ {cotizacionLeida ? 'No aparece en la cotización' : 'No hay cotización de la que leerlo'}: complétalo a mano.</span>;
 }
 
-function BloqueCompuerta({ tipo, titulo, aprobacion, esJefeDeVentas, puedeOperar, onProponer, onResolver, resumen, detalleAprobar, requiereMotivo, motivoLabel, desactualizada, puedeDeshacer, onDeshacer }: {
+function BloqueCompuerta({ tipo, titulo, aprobacion, esJefeDeVentas, puedeOperar, onProponer, onRetirar, onResolver, resumen, detalleAprobar, requiereMotivo, motivoLabel, desactualizada, puedeDeshacer, onDeshacer, elegido }: {
   tipo: Tipo; titulo: string; aprobacion: Aprobacion | null; esJefeDeVentas: boolean; puedeOperar: boolean;
-  onProponer: (motivo: string | null) => void; onResolver: (decision: Decision, comentario: string | null) => void; resumen: React.ReactNode; detalleAprobar?: React.ReactNode;
+  onProponer: (motivo: string | null) => void; onRetirar?: () => void; onResolver: (decision: Decision, comentario: string | null) => void; resumen: React.ReactNode; detalleAprobar?: React.ReactNode;
   requiereMotivo?: boolean; motivoLabel?: string; desactualizada?: boolean;
-  puedeDeshacer?: boolean; onDeshacer?: (comentario: string | null) => void;
+  puedeDeshacer?: boolean; onDeshacer?: (comentario: string | null) => void; elegido?: { por: string | null; at: string | null } | null;
 }) {
   const [comentario, setComentario] = useState('');
   const [decidiendo, setDecidiendo] = useState(false);
@@ -66,6 +66,7 @@ function BloqueCompuerta({ tipo, titulo, aprobacion, esJefeDeVentas, puedeOperar
   const [confirmandoDeshacer, setConfirmandoDeshacer] = useState(false);
   // Ya enviada y vigente: el Paso A se pliega (no hay nada que llenar) y solo se abre si se quiere reenviar.
   const [reenviando, setReenviando] = useState(false);
+  const [confirmandoRetiro, setConfirmandoRetiro] = useState(false);
   // Antes: cuando la compuerta necesitaba motivo (margen bajo 20%, o ahora sobre presupuesto), el
   // botón tiraba directo un error del servidor ("requiere motivo") sin que hubiera DÓNDE escribirlo
   // en pantalla — el encargado quedaba atascado sin saber qué hacer. Ahora el campo aparece solo
@@ -91,6 +92,15 @@ function BloqueCompuerta({ tipo, titulo, aprobacion, esJefeDeVentas, puedeOperar
           : 'Falta: el encargado la propone para que el jefe de ventas decida.';
         return <p className={`mt-2 text-[12px] font-semibold rounded-lg px-2.5 py-1.5 ${ok ? 'bg-emerald-50 text-emerald-800' : e === 'RECHAZADA' ? 'bg-rose-50 text-rose-800' : 'bg-zinc-50 text-zinc-700'}`}>{t}</p>;
       })()}
+
+      {/* Quién hizo cada paso: quien la envió y quien la resolvió, siempre a la vista. */}
+      {((aprobacion && (aprobacion.propuestoPorNombre || aprobacion.resueltoPorNombre)) || elegido?.por) && (
+        <p className="mt-1.5 text-[11.5px] text-zinc-600 flex flex-wrap gap-x-3 gap-y-0.5" data-testid="aprobacion-quien">
+          {elegido?.por && <span>Proveedor elegido por <b className="font-semibold text-zinc-800">{elegido.por}</b>{elegido.at ? ` · ${elegido.at}` : ''}</span>}
+          {aprobacion?.propuestoPorNombre && <span>Enviada por <b className="font-semibold text-zinc-800">{aprobacion.propuestoPorNombre}</b>{aprobacion.propuestoAt ? ` · ${aprobacion.propuestoAt.slice(0, 16).replace('T', ' ')}` : ''}</span>}
+          {aprobacion?.resueltoPorNombre && aprobacion.estado !== 'PENDIENTE' && <span>{aprobacion.estado === 'RECHAZADA' ? 'Rechazada' : 'Aprobada'} por <b className="font-semibold text-zinc-800">{aprobacion.resueltoPorNombre}</b>{aprobacion.resueltoAt ? ` · ${aprobacion.resueltoAt.slice(0, 16).replace('T', ' ')}` : ''}</span>}
+        </p>
+      )}
 
       {desactualizada && (
         <p className="mt-1.5 text-[11px] font-semibold text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-2 py-1 flex items-start gap-1">
@@ -137,6 +147,13 @@ function BloqueCompuerta({ tipo, titulo, aprobacion, esJefeDeVentas, puedeOperar
         <p className="mt-3 text-[12px] text-zinc-500 flex items-center gap-2 flex-wrap" data-testid="paso-a-enviada">
           <span className="font-semibold text-emerald-700">✔ Paso A hecho: ya fue enviada al jefe de ventas.</span>
           <button type="button" onClick={() => setReenviando(true)} className="font-semibold text-teal-700 hover:text-teal-900 underline decoration-dotted">Reenviar con datos nuevos</button>
+          {onRetirar && (confirmandoRetiro
+            ? <span className="inline-flex items-center gap-2">
+                <span className="text-zinc-600">¿Retirarla? Vuelve a «sin enviar» y el jefe ya no la verá.</span>
+                <button type="button" onClick={() => { setConfirmandoRetiro(false); onRetirar(); }} data-testid="confirmar-retirar" className="font-semibold text-white bg-rose-600 hover:bg-rose-700 px-2 py-1 rounded-lg">Sí, retirar</button>
+                <button type="button" onClick={() => setConfirmandoRetiro(false)} className="font-semibold text-zinc-500">No</button>
+              </span>
+            : <button type="button" onClick={() => setConfirmandoRetiro(true)} data-testid="retirar-envio" className="font-semibold text-rose-700 hover:text-rose-900 underline decoration-dotted">Retirar lo enviado</button>)}
         </p>
         ) : (
         <div className="mt-3 space-y-1.5 rounded-lg border border-zinc-200 px-3 py-2.5">
@@ -226,7 +243,7 @@ export function AprobacionesCompraCard({ negocioId, puedeOperar, parte = 'todo' 
   const [margenActual, setMargenActual] = useState<Margen | null>(null);
   const [presupuestoActual, setPresupuestoActual] = useState<Presupuesto | null>(null);
   const [validacionesPendientes, setValidacionesPendientes] = useState<string[]>([]);
-  const [escenarioElegidoActual, setEscenarioElegidoActual] = useState<{ tipo: string; costoTotal: number } | null>(null);
+  const [escenarioElegidoActual, setEscenarioElegidoActual] = useState<{ tipo: string; costoTotal: number; elegidoPorNombre?: string | null; elegidoAt?: string | null } | null>(null);
   const [esJefeDeVentas, setEsJefeDeVentas] = useState(false);
   const [puedeDeshacer, setPuedeDeshacer] = useState(false);
   const [skus, setSkus] = useState<Sku[]>([]);
@@ -448,14 +465,14 @@ export function AprobacionesCompraCard({ negocioId, puedeOperar, parte = 'todo' 
     }
   };
 
-  const resolver = async (tipo: Tipo, decision: Decision, comentario: string | null) => {
+  const resolver = async (tipo: Tipo, decision: Decision, comentario: string | null, mensajeOk = 'Decisión registrada') => {
     try {
       const res = await fetch(`/api/compras/${negocioId}/aprobaciones`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tipo, decision, comentario }),
       });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo resolver');
-      toast.success('Decisión registrada');
+      toast.success(mensajeOk);
       // El PATCH ya trae el estado nuevo de las dos aprobaciones: se muestra al tiro, sin esperar la recarga.
       if ('compra' in data) setCompra(data.compra);
       if ('margen' in data) setMargen(data.margen);
@@ -623,8 +640,8 @@ export function AprobacionesCompraCard({ negocioId, puedeOperar, parte = 'todo' 
       })()}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
         <BloqueCompuerta
-          tipo="COMPRA" titulo="1 · Aprobar la compra (a quién y cuánto se compra)" aprobacion={compra} esJefeDeVentas={esJefeDeVentas} puedeOperar={puedeOperar}
-          onProponer={(motivo) => proponer('COMPRA', motivo)} onResolver={(d, c) => resolver('COMPRA', d, c)} puedeDeshacer={puedeDeshacer} onDeshacer={(c) => resolver('COMPRA', 'DESHACER', c)}
+          tipo="COMPRA" titulo="1 · Aprobar la compra (a quién y cuánto se compra)" elegido={{ por: escenarioElegidoActual?.elegidoPorNombre ?? null, at: escenarioElegidoActual?.elegidoAt ?? null }} aprobacion={compra} esJefeDeVentas={esJefeDeVentas} puedeOperar={puedeOperar}
+          onProponer={(motivo) => proponer('COMPRA', motivo)} onRetirar={() => resolver('COMPRA', 'RETIRAR', null, 'Propuesta retirada')} onResolver={(d, c) => resolver('COMPRA', d, c)} puedeDeshacer={puedeDeshacer} onDeshacer={(c) => resolver('COMPRA', 'DESHACER', c)}
           requiereMotivo={!!presupuestoActual?.excede || validacionesPendientes.length > 0}
           motivoLabel={validacionesPendientes.length
             ? `Faltan validaciones (${validacionesPendientes.join(', ')}): ¿por qué se envía igual? (mínimo 10 letras)`
@@ -658,7 +675,7 @@ export function AprobacionesCompraCard({ negocioId, puedeOperar, parte = 'todo' 
         />
         <BloqueCompuerta
           tipo="MARGEN" titulo="2 · Aprobar el margen (la ganancia del proyecto)" aprobacion={margen} esJefeDeVentas={esJefeDeVentas} puedeOperar={puedeOperar}
-          onProponer={(motivo) => proponer('MARGEN', motivo)} onResolver={(d, c) => resolver('MARGEN', d, c)} puedeDeshacer={puedeDeshacer} onDeshacer={(c) => resolver('MARGEN', 'DESHACER', c)}
+          onProponer={(motivo) => proponer('MARGEN', motivo)} onRetirar={() => resolver('MARGEN', 'RETIRAR', null, 'Propuesta retirada')} onResolver={(d, c) => resolver('MARGEN', d, c)} puedeDeshacer={puedeDeshacer} onDeshacer={(c) => resolver('MARGEN', 'DESHACER', c)}
           requiereMotivo={margenActual?.margenPct != null && margenActual.margenPct < 20} motivoLabel="¿Por qué se aprueba con margen bajo el 20%?"
           detalleAprobar={<DetalleCompuerta negocioId={negocioId} tipo="MARGEN" refresco={`${margen?.estado}|${margen?.propuestoAt}`} />}
           resumen={margenActual?.margenPct != null ? (
