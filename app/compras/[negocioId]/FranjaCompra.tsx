@@ -12,7 +12,7 @@ export function FranjaCompra({ incidenciasAbiertas, onIrIncidencias, ocultar = f
   return (
     <div className="flex flex-wrap items-center gap-2" data-testid="franja-compra">
       <button type="button" onClick={onIrIncidencias}
-        className="inline-flex items-center gap-1.5 text-[12px] px-2.5 py-1.5 font-semibold rounded-lg border border-rose-300 bg-rose-50 text-rose-800 hover:shadow-sm transition-colors">
+        className="inline-flex items-center gap-1.5 text-[12px] px-2.5 py-1.5 font-semibold rounded-lg border border-amber-300 bg-amber-50 text-amber-800 hover:shadow-sm transition-colors">
         <AlertTriangle size={14} /> {incidenciasAbiertas} incidencia{incidenciasAbiertas === 1 ? '' : 's'}
       </button>
     </div>

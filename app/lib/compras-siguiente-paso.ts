@@ -41,7 +41,7 @@ export function siguientePaso(e: EntradaSiguientePaso): SiguientePaso {
   const pendientes = e.tareas.filter(t => t.estado !== 'HECHA');
   const pendiente = (clave: string) => pendientes.find(t => t.catalogoClave === clave);
 
-  if (f && f.incidenciasAbiertas > 0) return { tono: 'alerta', titulo: `${f.incidenciasAbiertas === 1 ? 'Hay 1 incidencia abierta' : `Hay ${f.incidenciasAbiertas} incidencias abiertas`}`, detalle: 'Las incidencias no detienen el plazo de entrega: resuélvelas o gestiónalas en paralelo.', fase: 'tareas', boton: 'Ver incidencias' };
+  if (f && f.incidenciasAbiertas > 0) return { tono: 'pendiente', titulo: `${f.incidenciasAbiertas === 1 ? 'Hay 1 incidencia abierta' : `Hay ${f.incidenciasAbiertas} incidencias abiertas`}`, detalle: 'Las incidencias no detienen el plazo de entrega: resuélvelas o gestiónalas en paralelo.', fase: 'entrega', boton: 'Ver incidencias' };
   if (f && (f.compraRechazada || f.margenRechazado)) return { tono: 'alerta', titulo: f.compraRechazada ? 'El jefe de ventas rechazó la compra' : 'El jefe de ventas rechazó el margen', detalle: 'Lee el motivo en «Aprobación y SKU», corrige lo que pidió y vuelve a enviarlo a aprobación.', fase: 'aprobacion', boton: 'Ver el motivo y corregir' };
   // Un rechazo del jefe de ventas bloquea todo lo administrativo: va antes que una tarea vencida cualquiera.
   const vencidas = pendientes.filter(t => t.vencida);

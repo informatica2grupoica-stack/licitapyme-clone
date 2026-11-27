@@ -188,7 +188,7 @@ export function calcularNivel(inf: any, cfg: ConfigViabilidadV4, ctx: CtxNivel):
   const resultadoAdj = String(inf?.adjudicacion?.resultado || 'NO_CLARO').toUpperCase();
   if (resultadoAdj === 'NO_CLARO') dudar('adjudicacion', 'cómo se adjudica', 'las bases no dejan claro si se adjudica global o por línea');
   if (!sinMonto && (pres.cita?.verificada === false || pres.incierto === true)) dudar('presupuesto', 'el presupuesto', pres.incierto ? 'las bases traen cifras que no calzan' : 'su cita no se encontró en las bases');
-  if (pres.caracter_corregido) avisos.push('El carácter del presupuesto (excluyente o referencial) no quedó respaldado por una frase de las bases: se trata como no declarado.');
+  if (pres.caracter_corregido) avisos.push('No encontramos en las bases una frase que diga si el presupuesto es un tope o solo una referencia: lo tratamos como no declarado. Confírmalo antes de ofertar.');
   const conteo = inf?.productos?.conteo_cruzado;
   const calidad: string[] = Array.isArray(inf?.productos?.problemas_calidad) ? inf.productos.problemas_calidad : [];
   if ((conteo && conteo.cuadra === false) || calidad.length) dudar('productos', 'la cantidad de productos', conteo?.detalle || calidad[0] || 'el conteo no cuadra entre fuentes');
@@ -200,7 +200,7 @@ export function calcularNivel(inf: any, cfg: ConfigViabilidadV4, ctx: CtxNivel):
     const bloqueaConfirmar = s.motivo_exclusion && (s.motivo_exclusion.filtro === 'F1' || s.motivo_exclusion.filtro === 'F2');
     if (dud.length && !bloqueaConfirmar) accion = 'CONFIRMAR_DATO';
     const accionTexto = accion === 'SEGUIR' ? 'Sigue con el proyecto'
-      : accion === 'CONSULTAR_CA' ? 'Consulta al jefe de ventas antes de seguir'
+      : accion === 'CONSULTAR_CA' ? 'Revísala bien antes de decidir si seguir'
       : accion === 'SOLTAR' ? 'Suelta el proyecto'
       : accion === 'REVISAR_SALIDA' ? 'Revisa si hay salida antes de soltarlo'
       : `Confirma ${dud.map(d => d.dato).join(', ')} en el visor antes de decidir`;
@@ -223,7 +223,7 @@ export function calcularNivel(inf: any, cfg: ConfigViabilidadV4, ctx: CtxNivel):
   }
   if (tipo === 'LS') return excluido('F2', 'Licitación LS (servicios personales especializados)', null);
   if (exc.categoria && String(exc.categoria).toUpperCase() !== 'CONTRATO_SUMINISTRO') {
-    avisos.push(`El objeto se reportó como ${String(exc.categoria).toLowerCase().replace(/_/g, ' ')}${exc.motivo ? ` (${exc.motivo})` : ''}: no excluye en esta versión.`);
+    avisos.push(`Revisa el tipo de compra: se clasificó como ${String(exc.categoria).toLowerCase().replace(/_/g, ' ')}${exc.motivo ? ` (${exc.motivo})` : ''}. No se descarta por eso.`);
   }
   // Presupuesto no publicado: decide el tipo de licitación (3.1).
   if (sinMonto) {

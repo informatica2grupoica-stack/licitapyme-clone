@@ -12,6 +12,7 @@
 import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
+import { leerOpciones } from '@/app/lib/opciones-empresa';
 import { puedeVerNegocioAsignado, permisosCrudosDeUsuario } from '@/app/lib/api-auth';
 import { ahoraChileSQL } from '@/app/lib/tz';
 import { adaptarViabilidadACosteo } from '@/app/lib/generar-costeo';
@@ -252,7 +253,9 @@ export async function GET(request: NextRequest, { params }: Params) {
     } else if (guardado) {
       estado = guardado;
     } else if (desdeViab) {
-      estado = desdeViab; sinGuardar = true; // aún no se guardó ninguna versión — es solo la propuesta inicial
+      // aún no se guardó ninguna versión — es solo la propuesta inicial, con el recargo propio de la empresa si lo configuró
+      const { recargo_costeo } = await leerOpciones(Number(negocio.cliente_id ?? 1));
+      estado = recargo_costeo != null ? { ...desdeViab, margenVenta: recargo_costeo } : desdeViab; sinGuardar = true;
     }
 
     // ── UNA SOLA DECISIÓN DE LÍNEAS PARA TODA LA APP (03-sep-2026) ────────────────────────────
@@ -379,7 +382,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
     if (sinLink.length) {
       const muestra = sinLink.slice(0, 4).map(f => `"${f.detalle.slice(0, 40)}"`).join(', ');
       return NextResponse.json({
-        error: `Falta el link del producto en ${sinLink.length} ítem(s) ya cotizado(s): ${muestra}${sinLink.length > 4 ? `, y ${sinLink.length - 4} más` : ''}. Cada uno necesita un link o un comentario en Link 1 (Link 2 y 3 son opcionales).`,
+        error: `Falta el link del producto en ${sinLink.length} ítem(s) ya cotizado(s): ${muestra}${sinLink.length > 4 ? `, y ${sinLink.length - 4} más` : ''}. Cada uno necesita en Link 1 un link o un comentario de al menos 5 caracteres (Link 2 y 3 son opcionales).`,
         itemsSinLink: sinLink,
       }, { status: 400 });
     }

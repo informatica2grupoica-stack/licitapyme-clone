@@ -11,6 +11,7 @@ import { Pestanas } from '@/app/components/ui/kit/Pestanas';
 import { Encabezado, Esqueleto, Vacio } from '@/app/components/ui/kit/Estructura';
 import { SelectorAprobaciones } from '@/app/components/AprobacionesAuditor';
 import type { OpcionesEmpresa } from '@/app/lib/opciones-empresa-core';
+import { CampoRecargo } from '@/app/components/RecargoCosteo';
 import { CriteriosViabilidadForm } from '@/app/components/CriteriosViabilidad';
 import type { ConfigViabilidadEmpresa } from '@/app/lib/cv/viabilidad-empresa-core';
 import { NOMBRE_MODULO, NOMBRE_PLAN, PLANES, type Modulo, type Plan } from '@/app/lib/modulos';
@@ -248,6 +249,12 @@ function Ficha({ c, tab, setTab, catalogo, activables, planes, puedeBorrar, bita
               <div className="border-t border-linea dark:border-slate-800 pt-3 dark:border-slate-800">
                 <p className="mb-1.5 text-xs text-tinta-2 dark:text-slate-400">Cómo se adapta la viabilidad a esta empresa (también lo cambia la empresa en Mi empresa)</p>
                 <CriteriosViabilidadForm valor={c.viabilidad} onGuardar={v => cambiar(c.id, { viabilidadCalce: v.calce, viabilidadMinimoNeto: v.minimo_neto })} />
+              </div>
+            )}
+            {c.modulos.includes('costeo') && (
+              <div className="border-t border-linea dark:border-slate-800 pt-3 dark:border-slate-800">
+                <p className="mb-1.5 text-xs text-tinta-2 dark:text-slate-400">Recargo inicial del costeo (también lo cambia la empresa en Mi empresa)</p>
+                <CampoRecargo key={c.id} valor={c.opciones?.recargo_costeo ?? null} onGuardar={v => cambiar(c.id, { recargoCosteo: v })} />
               </div>
             )}
             {c.modulos.includes('auditor') && (

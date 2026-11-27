@@ -3,6 +3,24 @@
 Pantalla principal: `/compras/[negocioId]` (`ComprasChrome.tsx`). Traspasado desde la memoria
 personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-11-27 (10) — Fichas técnicas: «Eliminar» y «Eliminar todas» en «Fichas subidas» (759-30-LE26; tsc y 3 pruebas OK; borrado NO probado con datos, sin commit ni desplegar)
+- El dueño no veía cómo borrar (solo había una ✕ chica dentro de cada producto): borrar un documento subido es básico y va a la vista, con confirmación.
+- `eliminarDocumentosDeFichas`: la ficha sale de todos los modelos `cmp:` y de pendientes / no-ficha / con error; el modelo sin fichas queda descartado. No borra archivo, cotización ni Auditor. No tiene «Deshacer»: se sube de nuevo.
+
+## 2026-11-27 (10) — ARREGLADOS en código los 2 errores del pareo global (dueño: «Sí, arréglalos»; tsc y 2096 pruebas OK; sin commit ni desplegar; NO se corrigió ningún dato)
+- Descuento doble: lo que escriben el pareo, la reparación de unidad y «Emparejar a mano» vuelve a precio de lista si `descuento_sobre_total = 1` (`precioBaseAGuardar`).
+- Repuesto como máquina: `esRepuestoDelProducto` (`compras-pareo-global-core.ts`) descarta del pareo filtros, bujías, espadas, cargadores… como precio de una máquina. No aplica si el producto es una parte o un kit. Revisada contra 945 precios guardados: marca 8, todos partes. La causa era «gana la más barata con el mismo modelo».
+- Datos YA dañados (consulta de solo lectura): descuento doble en 759-30-LE26 (#373 IMAHE, 16 precios), 727202-72-LP26 (#397 CGC 8, #415 Cosmoplas 5) y 2378-117-LP26 (#419); repuesto como máquina en #418, #419, #426, #498 y 727202 #417 (máscara = filtro). Ninguno de #373/#397/#415 tenía escenario de compra. El arreglo NO los corrige solo: corregir DESPUÉS de desplegar (si no, el servidor viejo los vuelve a dañar).
+- Pendiente, no tocado: «Emparejar a mano» y «Por decidir» comparan el precio de lista guardado con la línea ya descontada (no marcan la oferta actual en cotizaciones con descuento).
+
+## 2026-11-27 (9) — Revisión de las cotizaciones de 2378-117-LP26 (1385): el pareo global daña precios (solo lectura, nada corregido ni en código ni en datos)
+- ERROR 1: `precioNetoClp` (`compras-pareo-global-core.ts`) ya resta el descuento y escribe `precio_base`; con `descuento_sobre_total = 1`, `recalcularPrecioItem` lo resta otra vez (#419).
+- ERROR 2: el pareo pisa el precio de la máquina con el de un REPUESTO en productos «+ REPUESTOS» (#419 cortasetos = filtro $3.866; #498 Sacredo/S y S, 4 productos = filtro de mezcla $3.592,90; #426 MS 172 = filtro de aire; revisar #418, base = cargador).
+- Lectura/reparto: #428 Agro suma repuestos que ya venían en el precio (y falta el cortasetos); #426 Emoch perdió 2 líneas (cadena 1/4 y soplador) y tiene mal la espada HT; #494 Rimak no aplicó el 10 % («Total c/dcto», sin %); #399 Van Beek repite una línea en dos productos.
+- #419 Coprofor: el 15 % no está en el PDF; se guardó al editar la cotización 74 s después de registrarla. Falta confirmar con el equipo si es real.
+- Control útil: repartir las líneas por bloque suma exacto el neto del documento (#419 4.383.774, #426 23.775.718, #498 22.049.588).
+- Sin revisar: otros negocios con el mismo daño.
+
 ## 2026-11-27 (8) — SE SACÓ el reloj de entrega (dueño: «Sí, sácalo»; tsc y 2079 pruebas OK; consultas probadas solo leyendo contra la BD del VPS; pantalla sin ver, sin commit ni desplegar, sin migración)
 - Reemplaza lo de «apagado» del 06-11. Borrados: pantalla, 4 rutas `/reloj`, `compras-reloj.ts`, el interruptor, la alerta de plazo vencido, y en el panel «Relojes vencidos».
 - La tarea `reloj_entrega` queda oculta por código (`compras-tareas-retiradas.ts`): no se crea, no se lista ni cuenta. Sus filas y la tabla `compras_reloj` siguen en la BD (había 0 prórrogas, 0 multas, 3 entregas anotadas).
@@ -12,7 +30,21 @@ personal el 2026-10-27; las fechas son de cuando se decidió.
 - Visto al probar (no es de este cambio): `obtenerAnaliticaCompras` registra «Illegal mix of collations for operation UNION».
 - Multiempresa: sirve igual para cualquier cliente (filtro en código, sin datos de empresa).
 
+## 2026-11-27 (9) — Incidencias en ámbar y check del paso 5 (tsc y pruebas OK; resumen de 1525 verificado solo leyendo; pantalla sin ver, sin commit ni desplegar)
+- Regla (dueño): una incidencia ya detectada no se muestra en rojo. Aviso, pestaña y «siguiente paso» en ámbar; el paso «Tareas» cuenta solo tareas (check verde si están todas hechas). «Ver incidencias» ahora lleva a Entrega y cierre.
+- «Entrega y cierre» queda con check verde solo con el resultado cerrado y completo (`compras_cierre_resultado.incompleto = 0`). No exige pago del cliente ni incidencias cerradas (criterio puesto por Claude, a confirmar). Cerrado incompleto queda gris.
+- Multiempresa: se calcula por negocio, sin datos de empresa.
+
 ## 2026-11-27 (7) — Revisión del cierre de 2736-44-LE26 (1525) en el Chrome del dueño (solo lectura, producción)
+- 1525 CERRADO el resultado 27-11 15:46 (figura Maria Elena Álvarez): costo 20.871.210, utilidad 6.770.459 (24,49 %), completo. Incluye un gasto nuevo sin OC de 128.000 (horas extra, anotado por ella). El «2» rojo del paso Tareas son las 2 incidencias abiertas, no tareas: `calcFase` en `ComprasChrome.tsx` muestra en Tareas el número de incidencias cuando no hay vencidas (confuso; sin cambiar).
+- «Cerrar resultado» revisado sin pulsarlo (27-11): hoy no pide motivo (sin faltantes, 21/21 con costo real); guarda venta 27.641.669, estimado 18.306.210, costo 20.743.210, utilidad 6.898.459 (24,96 %), variación 13,31 % y una foto (`snapshot_json`) con líneas, comparativo, Obuma y alertas. El desglose que no suma NO se guarda. No exige pago ni incidencias cerradas; se puede volver a cerrar (sobrescribe), no vi forma de deshacer.
+- 27-11 15:23, con OK del dueño: «Cotización preexistente» HECHA (sin respuestas de verificación, sin hallazgo). 1525 queda con 13 de 13 tareas. Pendiente: «Cerrar resultado», pago del cliente, 2 incidencias abiertas, compromiso de postventa, enlazar 2 guías y confirmación escrita del fieltro.
+- 27-11 15:21: «Cotización preexistente» GUARDADA y aún PENDIENTE: en «Proveedor de respaldo» van los 4 elegidos para comprar productos (pedido del dueño), preguntas de verificación vacías, sin hallazgo. Falta que el dueño decida darla por hecha.
+- Revisión final del 27-11 (solo lectura): guardar una tarea con hallazgo abre sola una incidencia: hay 2 abiertas (costeo 14:56 y técnica 15:06). Además: 1 compromiso de postventa sin descripción y pendiente; «Gestionar documentos» sin documentos; 2 guías sin enlazar; «Cerrar resultado» sin pulsar; factura por cobrar.
+- 27-11 15:10: «Captura del contacto de pagos» HECHA con solo el nombre que trae la ficha (pedido del dueño: «con los datos que estén»; sin correo, teléfono ni datos de transferencia). «Validación técnica real» aparece HECHA desde las 15:09 con la cuenta de Alexis (no la cerró Claude). Van 12 de 13; queda la cotización preexistente.
+- Regla para este cierre (dueño): en el contacto de pagos se pone el que sale en la ficha con los datos que haya.
+- 27-11 15:06, con OK del dueño: «Validación técnica real» de 1525 GUARDADA y aún PENDIENTE, con hallazgo (solo fieltro; fabricante y ficha sin responder; falta confirmación escrita de Angol). El mismo día se vio el reloj ya retirado en licitank.cl (13 tareas). Quedan 3: técnica, cotización preexistente y contacto de pagos.
+- Fieltro, con documentos (27-11): Electrocom facturó «FIELTRO CREPADO 10/16 BECTON 16MT2», 30 rollos (fact. 7358736) + 2 (fact. 7358863); lo pedido era 15 lbs 16 m. La guía 1913 firmada dice «15/16» ×30 y el acta firmada «15 lbs. 16mts» ×30, sin observaciones del cambio ni las 2 extra. El «10» sería el gramaje, no metros (inferido del nombre; la cuenta de 320 vs 480 m que se dio antes estaba mal). Las cotizaciones FERREMEL y Vilcun eran #10 y el sistema las dejó CUMPLE. «Validación técnica real» sigue sin guardar.
 - 27-11 14:56, con OK del dueño: «Validación del costeo como presupuesto» de 1525 guardada y HECHA en producción (No es correcto, con hallazgo; «espacio para mejorar» quedó vacío). Quedan: validación técnica, cotización preexistente y contacto de pagos (la del reloj desaparece al desplegar).
 - Forma de trabajo (dueño): revisar el cierre de varias licitaciones desde las tareas, todo el ciclo de Compras, con Claude in Chrome y en vivo.
 - Cuadra: venta $27.641.669 = guías 1913 + 1915 + 1919 = factura 1839; costo real $20.743.210 (25,0 %) = OC + 5 gastos de combustible; 6/6 OC pagadas y facturadas ($24.413.330); entrega cerrada el 27-11 con actas y guías cargadas.

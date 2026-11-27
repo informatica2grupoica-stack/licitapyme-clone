@@ -16,6 +16,7 @@
 import { mensajeSeguro } from '@/app/lib/errores-api';
 import { igualSecreto } from '@/app/lib/cron-secret';
 import { SQL_EMPRESA_DE_LA_PALABRA_VIGENTE } from '@/app/lib/radar-matching';
+import { filtroPorEmpresa } from '@/app/lib/radar-estricto-core';
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { getMercadoPublicoClient } from '@/app/lib/mercado-publico';
@@ -416,6 +417,8 @@ export async function GET(request: NextRequest) {
     const alertasMap = new Map<number, number>();
     const matchedCodigos = new Set<string>(); // los que pegan → prioridad de enrichment
 
+    const sinRuido = filtroPorEmpresa(kws);
+
     await withConcurrency(kws, KW_CONCURRENCY, async (kw) => {
       try {
         // Matcher compartido: normaliza acentos/plurales, pondera por campo y
@@ -424,7 +427,7 @@ export async function GET(request: NextRequest) {
         for (const lic of licitacionesFinales) {
           if (excluidasNeg.has(`${kw.cliente_id}:${lic.Codigo}`)) continue; // palabra negativa (de su misma empresa) manda
           const r = evaluarKeyword(indices.get(lic.Codigo)!, kw.keyword);
-          if (!r.match) continue;
+          if (!r.match || !sinRuido(kw, lic)) continue;
           matchedCodigos.add(lic.Codigo);
           coincidencias.push({
             lic,

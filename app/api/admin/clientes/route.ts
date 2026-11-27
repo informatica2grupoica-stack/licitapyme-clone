@@ -201,6 +201,12 @@ export async function PATCH(req: NextRequest) {
     det.aprobacionesAuditor = r.opciones.aprobaciones_auditor;
     if (!sets.length) { olvidarFichaCliente(id); await bitacora(id, g.u!.id, 'cambio', det); return NextResponse.json({ success: true }); }
   }
+  if (b.recargoCosteo !== undefined) {
+    const r = await guardarOpciones(id, { recargo_costeo: b.recargoCosteo });
+    if (!r.ok) return NextResponse.json({ error: r.error }, { status: 400 });
+    det.recargoCosteo = r.opciones.recargo_costeo;
+    if (!sets.length) { await bitacora(id, g.u!.id, 'cambio', det); return NextResponse.json({ success: true }); }
+  }
   if (b.viabilidadCalce !== undefined || b.viabilidadMinimoNeto !== undefined) {
     const r = await guardarConfigEmpresa(id, { calce: b.viabilidadCalce, minimo_neto: b.viabilidadMinimoNeto });
     if (!r.ok) return NextResponse.json({ error: r.error }, { status: 400 });

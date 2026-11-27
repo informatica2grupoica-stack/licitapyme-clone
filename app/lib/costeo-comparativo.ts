@@ -128,9 +128,12 @@ export function esLinkDeProducto(url: string | null | undefined): boolean {
   return /^[a-z0-9-]+(\.[a-z0-9-]+)+(\/|$|\?|:)/i.test(t);  // dominio.tld, con o sin ruta
 }
 
-/** Respaldo de una celda Link 1/2/3: sirve un link o un comentario (cualquier texto no vacío). */
+export const MIN_COMENTARIO_RESPALDO = 5;
+
+/** Respaldo de una celda Link 1/2/3: un link, o un comentario de al menos 5 caracteres (2026-11-27: con cualquier texto bastaba «a»). */
 export function tieneRespaldoLink(v: string | null | undefined): boolean {
-  return (v || '').trim().length > 0;
+  const t = (v || '').trim();
+  return t.length >= MIN_COMENTARIO_RESPALDO || esLinkDeProducto(t);
 }
 
 const pct = (num: number, den: number): number | null => (den === 0 ? null : (num / den) * 100);

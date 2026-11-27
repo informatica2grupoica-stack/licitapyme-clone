@@ -1752,7 +1752,7 @@ export function CosteoEditorCard({
             onClick={guardar}
             disabled={guardando || (congelado && !modoCompras) || !dirty || (!modoCompras && sinLink.length > 0)}
             title={sinLink.length > 0
-              ? `Falta un link o comentario en Link 1 de ${sinLink.length} ítem(s) ya cotizado(s). Complétalos para poder guardar.`
+              ? `Falta en Link 1 un link o un comentario de al menos 5 caracteres en ${sinLink.length} ítem(s) ya cotizado(s). Complétalos para poder guardar.`
               : undefined}
             className="flex items-center gap-1.5 px-3 py-1.5 text-[11.5px] font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg transition-colors disabled:opacity-40"
           >
@@ -1817,7 +1817,7 @@ export function CosteoEditorCard({
           <LinkIcon size={13} className="text-rose-500 flex-shrink-0 mt-0.5" />
           <p className="text-[11.5px] text-rose-800 flex-1">
             <span className="font-semibold">Falta respaldo en {sinLink.length} ítem(s) cotizado(s).</span>{' '}
-            Escribe un link o un comentario en <span className="font-semibold">Link 1</span> de cada uno (Link 2 y 3 son opcionales) — sin eso no se puede guardar el costeo.
+            Escribe un link, o un comentario de al menos 5 caracteres, en <span className="font-semibold">Link 1</span> de cada uno (Link 2 y 3 son opcionales) — sin eso no se puede guardar el costeo.
             <span className="block text-[11px] text-rose-600/90 mt-0.5">
               {sinLink.slice(0, 4).map(f => f.detalle.slice(0, 45)).join(' · ')}{sinLink.length > 4 ? ` · y ${sinLink.length - 4} más` : ''}
             </span>

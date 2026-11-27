@@ -84,7 +84,7 @@ export interface ResumenFases {
   costeo: { productosSinCotizacion: number; escenarioElegido: boolean };
   aprobacion: { compuertasPendientes: number; compraAprobada: boolean; margenAprobado: boolean; compraRechazada?: boolean; margenRechazado?: boolean };
   compra: { hitosAdminPendientes: number | null };
-  entrega: { incidenciasAbiertas: number };
+  entrega: { incidenciasAbiertas: number; resultadoCerrado: boolean };
 }
 
 export const fmtCLP = (n: number | null) => n == null ? '—' : new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n);

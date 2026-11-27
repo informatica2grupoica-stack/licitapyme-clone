@@ -15,3 +15,11 @@ test('volver a subir una ficha quitada la reactiva: el chequeo de «ya existe» 
   const g = src.slice(src.indexOf('async function agregarFichaCompras'));
   assert.match(g.slice(0, 700), /producto_idx = \? AND vigente = 1/);
 });
+
+test('eliminar fichas subidas: solo el espacio de Compras, sin borrar archivos ni respaldos, y no reaparecen como pendientes', () => {
+  const f = src.slice(src.indexOf('export async function eliminarDocumentosDeFichas'), src.indexOf('export async function olvidarDocumentoDeCompras'));
+  assert.match(f, /SET vigente = 0/);
+  assert.match(f, /o\.fila_id LIKE 'cmp:%'/);
+  assert.match(f, /olvidarDocumentoDeCompras/);
+  assert.doesNotMatch(f, /DELETE FROM|borrar.*R2/);
+});

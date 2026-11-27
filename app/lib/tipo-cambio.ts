@@ -58,7 +58,17 @@ export async function obtenerTipoCambio(moneda: string): Promise<TipoCambio | nu
       console.error('[tipo-cambio] respaldo open.er-api.com falló:', String(e).slice(0, 200));
     }
   }
-  if (!valor || !Number.isFinite(valor) || valor <= 0) return null;
+  if (!valor || !Number.isFinite(valor) || valor <= 0) {
+    // La UTM es MENSUAL: si la fuente no responde, la que se guardó este mismo mes sigue siendo la oficial (2026-11-27: mindicador
+    // no respondió y el informe quedó sin multa en pesos). No aplica a la UF ni a las monedas, que cambian todos los días.
+    if (moneda !== 'UTM') return null;
+    const [mes] = await pool.query(
+      `SELECT valor, fuente, DATE_FORMAT(fecha, '%Y-%m-%d') AS fecha FROM compras_tipo_cambio WHERE moneda = 'UTM' AND fecha >= ? AND fecha <= ? ORDER BY fecha DESC LIMIT 1`,
+      [`${hoy.slice(0, 7)}-01`, hoy],
+    ) as any;
+    const delMes = (mes as any[])[0];
+    return delMes ? { valor: Number(delMes.valor), fecha: delMes.fecha, fuente: delMes.fuente } : null;
+  }
 
   try {
     await pool.query(

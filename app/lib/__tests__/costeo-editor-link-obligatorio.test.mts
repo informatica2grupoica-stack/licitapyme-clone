@@ -42,9 +42,14 @@ test('una hoja que no se oferta no necesita respaldo', () => {
 });
 
 test('un comentario en vez de un link sí cuenta como respaldo', () => {
-  for (const texto of ['pendiente', 'cotizado por mail', 'lo mando el proveedor', '—', 'ver correo']) {
+  for (const texto of ['pendiente', 'cotizado por mail', 'lo mando el proveedor', 'stock', 'ver correo']) {
     assert.equal(filasSinLink(conFilas([fila({ id: 'a', valorConIva: 100, link1: texto, link2: texto, link3: texto })])).length, 0, `"${texto}" es un comentario válido`);
   }
+});
+
+test('un comentario de menos de 5 caracteres ya no sirve; un link corto sí', () => {
+  for (const texto of ['a', '—', 'mail', '  ok   ']) assert.equal(filasSinLink(conFilas([fila({ id: 'a', valorConIva: 100, link1: texto })])).length, 1, `"${texto}" es muy corto`);
+  assert.equal(filasSinLink(conFilas([fila({ id: 'a', valorConIva: 100, link1: 'a.cl' })])).length, 0);
 });
 
 test('el link se acepta como llegue: con protocolo o pegado a secas', () => {

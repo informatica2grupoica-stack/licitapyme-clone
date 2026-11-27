@@ -2883,7 +2883,7 @@ export interface ResumenFasesCompras {
   costeo: { productosSinCotizacion: number; escenarioElegido: boolean };
   aprobacion: { compuertasPendientes: number; compraAprobada: boolean; margenAprobado: boolean; compraRechazada?: boolean; margenRechazado?: boolean };
   compra: { hitosAdminPendientes: number | null }; // null = Compuerta 1 no aprobada, no aplica todavía
-  entrega: { incidenciasAbiertas: number };
+  entrega: { incidenciasAbiertas: number; resultadoCerrado: boolean };
 }
 
 async function contarProductosSinCotizacion(negocioId: number): Promise<number> {
@@ -2977,13 +2977,22 @@ async function contarIncidenciasAbiertas(negocioId: number): Promise<number> {
   } catch { return 0; }
 }
 
+/** true solo con el resultado cerrado y completo: es lo que da por terminado el paso «Entrega y cierre». */
+async function resultadoCerradoCompleto(negocioId: number): Promise<boolean> {
+  try {
+    const [[r]]: any = await pool.query(`SELECT incompleto FROM compras_cierre_resultado WHERE negocio_id = ? LIMIT 1`, [negocioId]);
+    return !!r && !Number(r.incompleto);
+  } catch { return false; }
+}
+
 export async function obtenerResumenFases(negocioId: number, tareas: { vencida: boolean }[]): Promise<ResumenFasesCompras> {
-  const [productosSinCotizacion, compuertasPendientes, hitosAdminPendientes, incidenciasAbiertas, estadoFlujo] =
+  const [productosSinCotizacion, compuertasPendientes, hitosAdminPendientes, incidenciasAbiertas, resultadoCerrado, estadoFlujo] =
     await Promise.all([
       contarProductosSinCotizacion(negocioId),
       contarCompuertasPendientes(negocioId),
       contarHitosAdminPendientes(negocioId),
       contarIncidenciasAbiertas(negocioId),
+      resultadoCerradoCompleto(negocioId),
       estadoDelFlujo(negocioId),
     ]);
   return {
@@ -2991,6 +3000,6 @@ export async function obtenerResumenFases(negocioId: number, tareas: { vencida: 
     costeo: { productosSinCotizacion, escenarioElegido: estadoFlujo.escenarioElegido },
     aprobacion: { compuertasPendientes, compraAprobada: estadoFlujo.compraAprobada, margenAprobado: estadoFlujo.margenAprobado, compraRechazada: estadoFlujo.compraRechazada, margenRechazado: estadoFlujo.margenRechazado },
     compra: { hitosAdminPendientes },
-    entrega: { incidenciasAbiertas },
+    entrega: { incidenciasAbiertas, resultadoCerrado },
   };
 }

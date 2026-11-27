@@ -9,7 +9,7 @@ import { useToast } from '@/app/components/ui/toast';
 import { DocumentViewerModal, type VisorDoc } from '@/app/components/DocumentViewerModal';
 import {
   IconLoader2 as Loader2, IconUpload as Upload, IconFolderPlus as FolderPlus, IconCircleCheck as Check, IconAlertTriangle as Alerta,
-  IconChevronDown as Chevron, IconFileText as Doc, IconEye as Eye, IconX as X, IconRefresh as Refresh, IconChecklist as Chispa, IconDownload as Descarga,
+  IconChevronDown as Chevron, IconFileText as Doc, IconEye as Eye, IconX as X, IconRefresh as Refresh, IconChecklist as Chispa, IconDownload as Descarga, IconTrash as Basura,
 } from '@tabler/icons-react';
 import { LinksProducto, type LinksCosteo } from './LinksProducto';
 import { IncidenciaFichaModal } from './IncidenciaFichaModal';
@@ -289,6 +289,22 @@ export function FichasTecnicasCard({ negocioId, puedeOperar, soloLectura = false
   const olvidar = async (extraccionId: number) => {
     try { await post({ accion: 'olvidar_documento', extraccionId }); await cargar(); } catch (e: any) { toast.error('No se pudo quitar de la lista', e.message); }
   };
+  // «Eliminar» una o todas las fichas subidas: siempre con confirmación.
+  const [porEliminar, setPorEliminar] = useState<FichaSubida[] | null>(null);
+  const [eliminando, setEliminando] = useState(false);
+  useCerrarConEsc(() => setPorEliminar(null), !!porEliminar && !eliminando);
+  const eliminarSubidas = async () => {
+    if (!porEliminar) return;
+    setEliminando(true);
+    try {
+      await post({ accion: 'eliminar_documentos', urls: porEliminar.map(d => d.url) });
+      toast.success(porEliminar.length === 1 ? 'Ficha eliminada' : `${porEliminar.length} fichas eliminadas`);
+      setCola([]);
+      setPorEliminar(null);
+      await cargar();
+    } catch (e: any) { toast.error('No se pudo eliminar', e.message); }
+    finally { setEliminando(false); }
+  };
   // Ficha sin marca ni modelo: se pregunta al centro de la pantalla y, si se confirma, se asigna igual (el nombre hace de modelo).
   const [confirmaSinMarca, setConfirmaSinMarca] = useState<{ documento: string; responder: (si: boolean) => void } | null>(null);
   const preguntarSinMarca = (documento: string) => new Promise<boolean>(resolve => setConfirmaSinMarca({ documento, responder: si => { setConfirmaSinMarca(null); resolve(si); } }));
@@ -434,7 +450,7 @@ export function FichasTecnicasCard({ negocioId, puedeOperar, soloLectura = false
       )}
 
       {/* Documentos subidos: ver y descargar todos */}
-      {subidas.length > 0 && <FichasSubidas subidas={subidas} onVer={setVisor} onDescargarTodas={descargarTodas} />}
+      {subidas.length > 0 && <FichasSubidas subidas={subidas} onVer={setVisor} onDescargarTodas={descargarTodas} onEliminar={puedeOperar && !procesando ? setPorEliminar : undefined} />}
 
       {/* 3 · Por confirmar */}
       {panel.pendientes.length > 0 && (
@@ -620,6 +636,22 @@ export function FichasTecnicasCard({ negocioId, puedeOperar, soloLectura = false
       <DocumentViewerModal doc={visor} onClose={() => setVisor(null)} lista={subidas.map(d => ({ nombre: d.nombre, url: d.url }))} onElegir={setVisor} />
       <IncidenciaFichaModal negocioId={negocioId} productos={incidenciaDe} onClose={() => setIncidenciaDe([])} onCreada={() => { setIncidenciaDe([]); setMarcados(new Set()); void recargarCompras(); }} />
 
+      {/* Modal: confirmar eliminación de fichas */}
+      {porEliminar && (
+        <div className="fixed inset-0 z-[95] bg-black/50 flex items-center justify-center p-4" role="alertdialog" aria-modal="true" onClick={() => { if (!eliminando) setPorEliminar(null); }}>
+          <div className="bg-white rounded-xl shadow-flotante w-full max-w-md" onClick={e => e.stopPropagation()}>
+            <div className="px-5 pt-4 pb-3">
+              <p className="text-[15px] font-semibold text-zinc-900">{porEliminar.length === 1 ? '¿Eliminar esta ficha?' : `¿Eliminar las ${porEliminar.length} fichas?`}</p>
+              <p className="mt-2 text-[13px] text-zinc-600">{porEliminar.length === 1 ? `«${porEliminar[0].nombre}» sale` : 'Salen'} de todos los productos y de la comparación con las bases. Las cotizaciones no se tocan. Para recuperar una ficha hay que subirla de nuevo.</p>
+            </div>
+            <div className="flex justify-end gap-2 px-5 py-3 border-t border-zinc-200">
+              <button type="button" autoFocus disabled={eliminando} onClick={() => setPorEliminar(null)} className="px-3 py-1.5 text-[13px] font-semibold text-zinc-700 hover:text-zinc-950">Cancelar</button>
+              <button type="button" disabled={eliminando} onClick={eliminarSubidas} data-testid="fichas-eliminar-confirmar" className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[13px] font-semibold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-50">{eliminando && <Loader2 size={13} className="animate-spin" />} Eliminar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Modal: confirmar ficha sin marca ni modelo */}
       {confirmaSinMarca && (
         <div className="fixed inset-0 z-[95] bg-black/50 flex items-center justify-center p-4" role="alertdialog" aria-modal="true" onClick={() => confirmaSinMarca.responder(false)}>
@@ -745,8 +777,8 @@ const extension = (nombre: string) => (nombre.match(/\.([a-z0-9]{2,4})$/i)?.[1] 
 const sinExtension = (nombre: string) => nombre.replace(/\.[a-z0-9]{2,4}$/i, '');
 const VISIBLES = 6;
 
-/** Documentos subidos: tarjetas (o lista) con Ver y Descargar, para revisarlos todos sin abrir producto por producto. */
-function FichasSubidas({ subidas, onVer, onDescargarTodas }: { subidas: FichaSubida[]; onVer: (d: VisorDoc) => void; onDescargarTodas: () => Promise<void> }) {
+/** Documentos subidos: tarjetas (o lista) con Ver, Descargar y Eliminar, para revisarlos todos sin abrir producto por producto. */
+function FichasSubidas({ subidas, onVer, onDescargarTodas, onEliminar }: { subidas: FichaSubida[]; onVer: (d: VisorDoc) => void; onDescargarTodas: () => Promise<void>; onEliminar?: (docs: FichaSubida[]) => void }) {
   const [vista, setVista] = useState<'tarjetas' | 'lista'>('tarjetas');
   const [todas, setTodas] = useState(false);
   const [bajando, setBajando] = useState(false);
@@ -759,6 +791,7 @@ function FichasSubidas({ subidas, onVer, onDescargarTodas }: { subidas: FichaSub
           <Pestanas id="fichas-vista" valor={vista} onCambio={setVista} opciones={[{ valor: 'tarjetas', etiqueta: 'Tarjetas' }, { valor: 'lista', etiqueta: 'Lista' }]} />
           <Boton tamano="sm" data-testid="fichas-descargar-todas" disabled={bajando} icono={bajando ? <Loader2 size={14} className="animate-spin" /> : <Descarga size={14} />}
             onClick={async () => { setBajando(true); await onDescargarTodas(); setBajando(false); }}>Descargar todas</Boton>
+          {onEliminar && <Boton tamano="sm" variante="fantasma" data-testid="fichas-eliminar-todas" className="!text-rose-700" icono={<Basura size={14} />} onClick={() => onEliminar(subidas)}>Eliminar todas</Boton>}
         </div>
       </div>
       {vista === 'tarjetas' ? (
@@ -776,6 +809,7 @@ function FichasSubidas({ subidas, onVer, onDescargarTodas }: { subidas: FichaSub
               <div className="mt-3 pt-3 border-t border-linea/80 dark:border-slate-800 flex items-center gap-2">
                 <Boton tamano="sm" variante="secundario" icono={<Eye size={14} />} onClick={() => onVer({ nombre: d.nombre, url: d.url })}>Ver</Boton>
                 <a href={urlDescarga(d.url)} download={d.nombre} className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg text-[13px] font-medium text-tinta-2 hover:bg-slate-100 hover:text-tinta dark:text-slate-300 dark:hover:bg-slate-800 transition-colors duration-150"><Descarga size={14} /> Descargar</a>
+                {onEliminar && <button type="button" onClick={() => onEliminar([d])} data-testid="ficha-eliminar" className="ml-auto inline-flex items-center gap-1.5 h-8 px-3 rounded-lg text-[13px] font-medium text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors duration-150"><Basura size={14} /> Eliminar</button>}
               </div>
             </Tarjeta>
           ))}
@@ -791,6 +825,7 @@ function FichasSubidas({ subidas, onVer, onDescargarTodas }: { subidas: FichaSub
               </div>
               <Boton tamano="sm" variante="secundario" icono={<Eye size={14} />} onClick={() => onVer({ nombre: d.nombre, url: d.url })}>Ver</Boton>
               <a href={urlDescarga(d.url)} download={d.nombre} title="Descargar" aria-label={`Descargar ${d.nombre}`} className="inline-flex items-center justify-center h-8 w-8 rounded-lg text-tinta-2 hover:bg-slate-100 hover:text-tinta dark:text-slate-300 dark:hover:bg-slate-800 transition-colors duration-150"><Descarga size={15} /></a>
+              {onEliminar && <button type="button" onClick={() => onEliminar([d])} title="Eliminar" aria-label={`Eliminar ${d.nombre}`} data-testid="ficha-eliminar" className="inline-flex items-center justify-center h-8 w-8 rounded-lg text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors duration-150"><Basura size={15} /></button>}
             </li>
           ))}
         </ul>

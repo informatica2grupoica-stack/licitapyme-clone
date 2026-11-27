@@ -884,6 +884,8 @@ function AsignarModal({ usuarios, count, unaNombre = null, onClose, onConfirm, l
 
 export default function RadarPage() {
   const { usuario } = useSession();
+  // El prefiltro automático y el semáforo de viabilidad del radar son de Grupo ICA: a otra empresa siempre le salían en cero y confundían.
+  const conPrefiltroIA = usuario?.clienteId === 1;
   const toast       = useToast();
   const confirmar   = useConfirm();
 
@@ -1945,11 +1947,12 @@ export default function RadarPage() {
                 </div>
 
                 {/* ── Embudo del radar: KPIs CLICABLES (aplican su filtro al tablero) ── */}
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+                <div className={`grid grid-cols-2 sm:grid-cols-3 gap-3 ${conPrefiltroIA ? 'lg:grid-cols-5' : 'lg:grid-cols-3'}`}>
                   <KpiFiltro icon={<Eye size={20} />} label="No leídas" value={embudo.noLeidas} color="#0891b2"
                     sub="sin revisar aún" hint="Ver solo las licitaciones que nadie ha abierto"
                     activo={filtros.gestion === 'no_leidas'}
                     onClick={() => setFiltro('gestion', filtros.gestion === 'no_leidas' ? '' : 'no_leidas')} />
+                  {conPrefiltroIA && <>
                   <KpiFiltro icon={<CheckCheck size={20} />} label="Pasan prefiltro" value={embudo.pasan} color="#10b981"
                     sub="calzan con el perfil" hint="Ver solo las que la Fase 0 marcó como PASA"
                     activo={filtros.decisiones.length === 1 && filtros.decisiones[0] === 'PASA'}
@@ -1958,6 +1961,7 @@ export default function RadarPage() {
                     sub="semáforo verde o amarillo" hint="Ver solo las analizadas con viabilidad alta o media-alta"
                     activo={filtros.semaforos.length === 2 && filtros.semaforos.includes('VERDE') && filtros.semaforos.includes('AMARILLO')}
                     onClick={() => setFiltro('semaforos', filtros.semaforos.length === 2 && filtros.semaforos.includes('VERDE') && filtros.semaforos.includes('AMARILLO') ? [] : ['VERDE', 'AMARILLO'])} />
+                  </>}
                   <KpiFiltro icon={<Flame size={20} />} label="Cierran ≤ 7 días" value={embudo.cierran7} color="#dc2626"
                     sub="urgentes esta semana" hint="Ver solo las que cierran dentro de 7 días"
                     activo={filtros.dias === '7'}
@@ -2020,7 +2024,7 @@ export default function RadarPage() {
                       { key: 'asignadas',      label: 'Asignadas',       color: 'emerald' },
                       { key: 'descartadas',    label: 'Descartadas',     color: 'slate'  },
                       { key: 'excluidas_pref', label: 'Excluidas (prefiltro)', color: 'amber'  },
-                    ] as const).map(g => {
+                    ] as const).filter(g => conPrefiltroIA || g.key !== 'excluidas_pref').map(g => {
                       const TITULOS_GESTION: Record<string, string> = {
                         no_leidas:      'Solo las que nadie ha abierto ni asignado todavía',
                         sin_asignar:    'Solo las que no están asignadas a ningún perfil del equipo',
@@ -2037,7 +2041,7 @@ export default function RadarPage() {
                         </button>
                       );
                     })}
-                    <InfoHint texto="Cortes rápidos de gestión: 'Activas' es la vista base (todo lo no descartado). 'Descartadas' muestra lo que sacaste del radar y 'Excluidas (prefiltro)' lo que la Fase 0 dejó fuera automáticamente." />
+                    <InfoHint texto={`Cortes rápidos de gestión: 'Activas' es la vista base (todo lo no descartado). 'Descartadas' muestra lo que sacaste del radar${conPrefiltroIA ? " y 'Excluidas (prefiltro)' lo que la Fase 0 dejó fuera automáticamente" : ''}.`} />
 
                     <div className="ml-auto flex items-center gap-3 flex-wrap">
                       <p className="text-xs text-tinta-2 dark:text-slate-400">

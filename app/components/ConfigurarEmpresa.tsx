@@ -41,10 +41,12 @@ export function ConfigurarEmpresa({ alGuardar }: { alGuardar?: () => void }) {
   const [listo, setListo] = useState(false);
   const [guardando, setGuardando] = useState(false);
   const [msg, setMsg] = useState('');
+  const [noAplica, setNoAplica] = useState(false); // Grupo ICA no se configura por RUT: antes quedaba en «Cargando…» para siempre
 
   const cargar = useCallback(async () => {
     const r = await fetch('/api/mi-empresa/configuracion').then(x => x.json()).catch(() => null);
     if (r?.aplica) setD(r);
+    else if (r && r.aplica === false) setNoAplica(true);
   }, []);
   useEffect(() => { cargar(); }, [cargar]);
   // Mientras la evaluación corre (minutos), se vuelve a preguntar.
@@ -82,6 +84,7 @@ export function ConfigurarEmpresa({ alGuardar }: { alGuardar?: () => void }) {
     await cargar(); alGuardar?.();
   };
 
+  if (noAplica) return null;
   if (!d) return <p className="text-sm text-slate-500">Cargando…</p>;
   const ev = d.evaluacion;
 

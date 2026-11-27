@@ -322,14 +322,16 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
   // Estado REAL de cada paso (pedido del 17-sep: no quedar en verde si aún hay pendientes).
   const calcFase = (key: Fase): { badge: number | null; estado: 'alerta' | 'pendiente' | 'ok' | 'neutral' } => {
     if (key === 'tareas') {
-      const vencidas = resumenFases?.tareas.vencidas ?? 0; const incidencias = resumenFases?.entrega.incidenciasAbiertas ?? 0;
-      return { badge: vencidas || incidencias || pendientesN || null, estado: vencidas > 0 || incidencias > 0 ? 'alerta' : pendientesN > 0 ? 'pendiente' : tareas.length > 0 ? 'ok' : 'neutral' };
+      // Las incidencias no son tareas: se ven en su aviso y su pestaña, no en este paso.
+      const vencidas = resumenFases?.tareas.vencidas ?? 0;
+      return { badge: vencidas || pendientesN || null, estado: vencidas > 0 ? 'alerta' : pendientesN > 0 ? 'pendiente' : tareas.length > 0 ? 'ok' : 'neutral' };
     }
     if (!resumenFases) return { badge: null, estado: 'neutral' };
     // ✓ solo si ocurrió de verdad: todos los productos cotizados Y una forma de comprar elegida; compra Y margen aprobados.
     if (key === 'costeo') { const c = resumenFases.costeo; return { badge: c.productosSinCotizacion || null, estado: c.productosSinCotizacion > 0 || !c.escenarioElegido ? 'pendiente' : 'ok' }; }
     if (key === 'aprobacion') { const a = resumenFases.aprobacion; return { badge: a.compuertasPendientes || null, estado: a.compuertasPendientes > 0 || !(a.compraAprobada && a.margenAprobado) ? 'pendiente' : 'ok' }; }
     if (key === 'compra') { const h = resumenFases.compra.hitosAdminPendientes; return { badge: h || null, estado: h == null ? 'neutral' : h > 0 ? 'pendiente' : 'ok' }; }
+    if (key === 'entrega') return { badge: null, estado: resumenFases.entrega.resultadoCerrado ? 'ok' : 'neutral' };
     return { badge: null, estado: 'neutral' };
   };
 
@@ -989,7 +991,7 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
                     contenido: <PostventaCard negocioId={negocioId} puedeOperar={puedeOperar} /> }
                   ] : []),
                   { clave: 'incidencias', titulo: 'Si hay un problema · Incidencias', ayuda: 'Problemas u oportunidades que pueden aparecer en cualquier etapa: sin stock, plazo incompatible, una alternativa más barata.',
-                    badge: (resumenFases?.entrega.incidenciasAbiertas ?? 0) || null, tono: 'alerta',
+                    badge: (resumenFases?.entrega.incidenciasAbiertas ?? 0) || null, tono: 'pendiente',
                     contenido: <IncidenciasCard negocioId={negocioId} puedeOperar={puedeOperar} esJefeDeVentas={esJefeDeVentas} /> },
                   { clave: 'fracaso', titulo: 'Si no se puede entregar', ayuda: 'Registro de fracaso: lo declara el encargado y el jefe de ventas dictamina la causa real.',
                     contenido: <FracasoCard negocioId={negocioId} puedeOperar={puedeOperar} esJefeDeVentas={esJefeDeVentas} /> },

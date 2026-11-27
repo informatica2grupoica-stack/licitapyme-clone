@@ -51,6 +51,17 @@ export function precioNetoClp(precioDoc: number | null, c: CotizacionPareo): num
   return Math.round(x * tc * 100) / 100;
 }
 
+/** DESCUENTO SOBRE EL TOTAL (migration-195): en esas cotizaciones `precio_base` se guarda a PRECIO DE LISTA y recalcularPrecioItem aplica el %.
+ *  El pareo compara en neto con descuento, así que antes de guardar hay que devolverlo a lista; si no, el % se restaba dos veces
+ *  (2378-117-LP26, #419: filtro $3.866 − 15 % − 15 %). `pct` null = la cotización no está en ese modo: el neto se guarda tal cual. */
+export function precioBaseAGuardar(neto: number, pct: number | null | undefined): number {
+  return pct != null && pct > 0 && pct < 100 ? Math.round((neto * 10000) / (100 - pct)) / 100 : neto;
+}
+/** Lo contrario: del precio guardado a lista al neto con descuento, para compararlo con las líneas del pareo. */
+export function netoDeBaseGuardada(base: number, pct: number | null | undefined): number {
+  return pct != null && pct > 0 && pct < 100 ? Math.round(base * (100 - pct)) / 100 : base;
+}
+
 /** Todas las líneas con precio de todas las cotizaciones, numeradas L1…Lm, en CLP neto. */
 export function lineasDelNegocio(cotizaciones: CotizacionPareo[]): LineaPareo[] {
   const out: LineaPareo[] = [];
@@ -174,6 +185,39 @@ export function choqueDeFamilia(descProducto: string, descLinea: string, equival
   return null;
 }
 
+// ─── Repuesto ≠ máquina ────────────────────────────────────────────────────────────────────────────────────────────────────────────
+// 2378-117-LP26 (productos «MOTOSIERRA … + REPUESTOS»): «FILTRO DE MEZCLA MS-172» trae el modelo del producto y era la línea más barata con ese
+// modelo, así que le ganaba como precio principal a la motosierra ($3.592,90 en vez de $210.080).
+const PARTES = new Set(['repuesto', 'recambio', 'accesorio', 'insumo', 'filtro', 'bujia', 'carburador', 'espada', 'cadena', 'pinon', 'cabezal', 'juego',
+  'bateria', 'cargador', 'aceite', 'correa', 'empaquetadura', 'sello', 'rodamiento', 'piston', 'embrague']);
+/** Un producto que ES un conjunto de partes («kit de repuestos»): ahí cualquier parte puede ser su línea. */
+const PARTES_GENERICAS = ['repuesto', 'recambio', 'accesorio', 'insumo', 'kit', 'set', 'juego'];
+const palabras = (s: string) => (String(s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').match(/[a-z]+/g) ?? [])
+  .map(w => (w.length > 4 && w.endsWith('es') && PARTES.has(w.slice(0, -2)) ? w.slice(0, -2) : w.length > 3 && w.endsWith('s') ? w.slice(0, -1) : w));
+/** El nombre de la cosa: lo que va antes de «+», «con», «para», «incluye», «sin»… (lo de después son complementos o para qué sirve). */
+const cabezaDe = (s: string) => String(s).split(/\+|\bc\/|\b(?:con|para|incluy\w*|incl|sin|mas|más)\b/i)[0];
+
+/** ¿La línea es un repuesto o accesorio del producto, y no el producto? Mira el nombre de la línea: si antes de la palabra que nombra al producto
+ *  («motosierra», la primera del producto) aparece una parte («filtro», «espada», «cargador»…) que el producto no dice ser, es un repuesto.
+ *  La marca delante no cuenta («STIHL CARBURADOR …»). */
+export function esRepuestoDelProducto(descProducto: string, descLinea: string): boolean {
+  const producto = palabras(cabezaDe(descProducto));
+  // El producto que se pide ES una parte (un filtro, una cadena) o un conjunto de partes: aquí no hay máquina que confundir.
+  if (!producto.length || PARTES.has(producto[0]) || producto.some(w => PARTES_GENERICAS.includes(w))) return false;
+  // «MS 250 STIHL 2 BUJIA, 2 FILTRO…»: una parte con su cantidad DESPUÉS del nombre es lo que viene incluido.
+  const sinIncluidos = String(descLinea).split(/(?<=[a-z].*)\s\d{1,2}\s*(?=(?:buj[ií]a|filtro|carburador|espada|cadena|bater[ií]a|cargador|pi[ñn][oó]n)e?s?\b)/i)[0];
+  const linea = palabras(cabezaDe(sinIncluidos.split(/\b(?:de|del)\b/i)[0])).slice(0, 4);
+  for (const w of linea) {
+    if (w === producto[0]) return false;
+    if (!PARTES.has(w) || producto.includes(w)) { if (PARTES.has(w)) return false; continue; }
+    // «Repuesto cuchillo» para el producto «cuchillo»: es el producto, salvo que además nombre otra parte («Repuesto Motosierra Cadena»).
+    if (w !== 'repuesto' && w !== 'recambio') return true;
+    const todas = palabras(descLinea);
+    return !todas.includes(producto[0]) || todas.some(x => x !== w && x !== 'accesorio' && PARTES.has(x) && !producto.includes(x));
+  }
+  return false;
+}
+
 /** Debajo de este puntaje de texto (0 a 1) una asignación se considera un código mal puesto de la IA. HST 300 contra Connect160 saca 0,23; una copla contra una máquina, ~0. */
 export const UMBRAL_PARECIDO = 0.15;
 export interface AsignacionPareo {
@@ -235,6 +279,7 @@ export function validarPareoGlobal(ctx: Ctx, respuesta: any): ResultadoPareo {
     const p = prodPorCod(a?.producto), l = lin(a?.linea);
     if (!p || !l) { descartar({ linea: a?.linea, motivo: `producto o línea que no existe (${a?.producto} / ${a?.linea})` }); return; }
     if (l.esFlete && !RE_FLETE.test(p.descripcion)) { descartar({ producto: p.id, linea: l.codigo, motivo: 'una línea de flete no es el precio de un producto' }); return; }
+    if (esRepuestoDelProducto(p.descripcion, l.descripcion) && !declaradasEquivalentes(p.descripcion, l.descripcion, equivalencias)) { descartar({ producto: p.id, linea: l.codigo, motivo: 'es un repuesto o accesorio, no el producto' }); return; }
     const c = cot.get(l.cotizacionId)!;
     const pr = precioDeLinea(p, l, c, a?.conversion);
     if (!pr) { descartar({ producto: p.id, linea: l.codigo, motivo: 'la línea no tiene precio' }); return; }
@@ -340,6 +385,7 @@ export function validarPareoGlobal(ctx: Ctx, respuesta: any): ResultadoPareo {
   for (const a of Array.isArray(respuesta?.alternativas) ? respuesta.alternativas : []) {
     const p = prodPorCod(a?.producto), l = lin(a?.linea);
     if (!p || !l || l.esFlete) continue;
+    if (esRepuestoDelProducto(p.descripcion, l.descripcion) && !declaradasEquivalentes(p.descripcion, l.descripcion, equivalencias)) continue;
     if (principales.some(x => x.productoId === p.id && x.linea === l.codigo) || alternativas.some(x => x.productoId === p.id && x.linea === l.codigo)) continue;
     const pr = precioDeLinea(p, l, cot.get(l.cotizacionId)!, a?.conversion);
     if (!pr) continue;
@@ -519,6 +565,8 @@ export interface EntradaPlan {
   respaldado: (it: ItemGuardado) => boolean;
   /** quitar lo guardado que el pareo ya no sostiene. El pareo automático NO quita (solo agrega o cambia); el botón «Corregir pareo» sí. */
   quitar?: boolean;
+  /** cotización → % de las que llevan el descuento SOBRE EL TOTAL (su precio_base va a precio de lista) */
+  descuentoSobreTotal?: Map<number, number>;
 }
 export interface PlanPareo {
   escribir: Array<{ cotizacionId: number; productoId: number; precio: number; cumple: 'CUMPLE' | 'INFERIOR_NEGOCIABLE'; detalle: string | null }>;
@@ -543,11 +591,12 @@ export function planificarEscrituraPareo(e: EntradaPlan): PlanPareo {
     if (e.cotizacionesDeUnaPersona.has(a.cotizacionId)) { plan.saltados.push({ cotizacionId: a.cotizacionId, productoId: a.productoId, motivo: 'una persona ya tocó esta cotización' }); continue; }
     if (!movible.has(a.productoId)) { plan.saltados.push({ cotizacionId: a.cotizacionId, productoId: a.productoId, motivo: 'el producto ya avanzó (aprobado, comprado o fuera)' }); continue; }
     const previo = guardado.get(clave(a.cotizacionId, a.productoId));
-    if (previo?.precioBase != null && Math.abs(previo.precioBase - a.precioUnitarioClp) < 0.5) continue;   // ya está igual: no se pisa el veredicto del auditor
+    const precio = precioBaseAGuardar(a.precioUnitarioClp, e.descuentoSobreTotal?.get(a.cotizacionId));
+    if (previo?.precioBase != null && Math.abs(previo.precioBase - precio) < 0.5) continue;   // ya está igual: no se pisa el veredicto del auditor
     const p = e.resultado.lineas.find(l => l.codigo === a.linea);
     const partes = [a.confianza === 'alta' ? '' : a.motivo, ...a.avisos].filter(Boolean);
     plan.escribir.push({
-      cotizacionId: a.cotizacionId, productoId: a.productoId, precio: a.precioUnitarioClp,
+      cotizacionId: a.cotizacionId, productoId: a.productoId, precio,
       cumple: a.confianza === 'alta' && a.avisos.length === 0 ? 'CUMPLE' : 'INFERIOR_NEGOCIABLE',
       detalle: partes.length ? `Pareo global (${a.confianza}${p ? ', ' + p.codigo : ''}): ${partes.join(' · ')}`.slice(0, 480) : null,
     });

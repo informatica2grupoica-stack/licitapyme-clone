@@ -9,14 +9,14 @@ import { conCupo } from '@/app/lib/cupo-ia';
 import { listarProductosCompra } from '@/app/lib/compras';
 import { esSubestadoFuera } from '@/app/lib/compras-no-adjudicadas';
 import { lineasDesdeTabla, asignacionRespaldadaPorDocumento, factoresPrecioDeCotizacion } from '@/app/lib/compras-cotizacion-lineas';
-import { recalcularPreciosDeCotizacion, cargarFleteAProductos } from '@/app/lib/compras-adicionales';
+import { recalcularPreciosDeCotizacion, cargarFleteAProductos, descuentoSobreTotal } from '@/app/lib/compras-adicionales';
 import { auditarCotizacionEnSegundoPlano } from '@/app/lib/compras-auditoria-cotizacion';
 import { marcarCotizandoSiHayCotizacion } from '@/app/lib/compras-avance-estados';
 import { ahoraChileSQL } from '@/app/lib/tz';
 import { registrarEvento } from '@/app/lib/historial';
 import { listarEquivalencias } from '@/app/lib/compras-equivalencias';
 import { clienteDeNegocio } from '@/app/lib/tenant';
-import { reparacionesDeUnidad, parearNegocio, planificarEscrituraPareo, type CotizacionPareo, type ItemGuardado } from '@/app/lib/compras-pareo-global-core';
+import { reparacionesDeUnidad, parearNegocio, planificarEscrituraPareo, precioBaseAGuardar, netoDeBaseGuardada, type CotizacionPareo, type ItemGuardado } from '@/app/lib/compras-pareo-global-core';
 
 const crearChatIA = conModuloIA('compras', crearChatIABase);
 
@@ -62,7 +62,10 @@ async function ejecutar(negocioId: number, actor?: { id: number; nombre: string 
   const porCot = new Map(cotizaciones.map(c => [c.id, c]));
   const lineasDoc = new Map(cotizaciones.map(c => [c.id, lineasDesdeTabla(String(c.descripcion_libre || ''))]));
   const desc = new Map(productos.map(p => [p.id, p.descripcion]));
+  const [stRows]: any = await pool.query('SELECT id, descuento_pct FROM compras_cotizacion WHERE id IN (?) AND descuento_sobre_total = 1', [ids]).catch(() => [[]]);   // sin la migration-195: ninguna
+  const sobreTotal = new Map<number, number>((stRows as any[]).filter(r => Number(r.descuento_pct) > 0).map(r => [Number(r.id), Number(r.descuento_pct)]));
   const plan = planificarEscrituraPareo({
+    descuentoSobreTotal: sobreTotal,
     quitar, resultado: R, productos: productos.map(p => ({ id: p.id, subestado: p.subestado })), itemsGuardados, cotizacionesDeUnaPersona,
     respaldado: it => {
       const c = porCot.get(it.cotizacionId)!;
@@ -93,12 +96,14 @@ async function ejecutar(negocioId: number, actor?: { id: number; nombre: string 
   const yaEscritos = new Set(plan.escribir.map(w => `${w.cotizacionId}:${w.productoId}`));
   const movibles = new Set(productos.filter(p => p.subestado === 'PENDIENTE' || p.subestado === 'COTIZANDO').map(p => p.id));
   const reparaciones = reparacionesDeUnidad({
-    itemsGuardados, lineas: R.lineas, productos: productos.map(p => ({ id: p.id, descripcion: p.descripcion, cantidad: p.cantidad, unidad: p.unidad })),
+    // Se comparan en neto contra las líneas; lo guardado a precio de lista se pasa a neto antes y vuelve a lista al escribir.
+    itemsGuardados: itemsGuardados.map(i => i.precioBase == null ? i : { ...i, precioBase: netoDeBaseGuardada(i.precioBase, sobreTotal.get(i.cotizacionId)) }),
+    lineas: R.lineas, productos: productos.map(p => ({ id: p.id, descripcion: p.descripcion, cantidad: p.cantidad, unidad: p.unidad })),
     excluir: it => cotizacionesDeUnaPersona.has(it.cotizacionId) || !movibles.has(it.productoId) || yaEscritos.has(`${it.cotizacionId}:${it.productoId}`),
   });
   for (const r of reparaciones) {
     await pool.query(`UPDATE compras_cotizacion_item SET precio_unitario = ?, precio_base = ?, detalle_desviacion = ? WHERE cotizacion_id = ? AND producto_id = ?`,
-      [r.precio, r.precio, `Pareo global: ${r.motivo}`.slice(0, 480), r.cotizacionId, r.productoId]);
+      [precioBaseAGuardar(r.precio, sobreTotal.get(r.cotizacionId)), precioBaseAGuardar(r.precio, sobreTotal.get(r.cotizacionId)), `Pareo global: ${r.motivo}`.slice(0, 480), r.cotizacionId, r.productoId]);
     tocadas.add(r.cotizacionId);
   }
   for (const id of tocadas) {
@@ -164,12 +169,13 @@ export async function emparejarAMano(negocioId: number, a: { cotizacionId: numbe
   if (!producto) throw new Error('Ese producto no es de este negocio.');
   if (esSubestadoFuera(producto.subestado) || !(producto.subestado === 'PENDIENTE' || producto.subestado === 'COTIZANDO'))
     throw new Error('Ese producto ya avanzó (aprobado, comprado o fuera): no se puede cambiar su cotización.');
+  const base = precioBaseAGuardar(a.precio, await descuentoSobreTotal(a.cotizacionId));   // el precio que llega viene en neto, con el descuento
   const linea = String(a.linea || '').trim().slice(0, 200);
   const detalle = `Emparejado a mano${actor.nombre ? ` por ${actor.nombre}` : ''}: línea «${linea}»${a.aviso ? ` · ${String(a.aviso).slice(0, 160)}` : ''}`.slice(0, 480);
   await pool.query(
     `INSERT INTO compras_cotizacion_item (cotizacion_id, producto_id, precio_unitario, precio_base, cumple, detalle_desviacion) VALUES (?,?,?,?,?,?)
      ON DUPLICATE KEY UPDATE precio_unitario = VALUES(precio_unitario), precio_base = VALUES(precio_base), cumple = VALUES(cumple), detalle_desviacion = VALUES(detalle_desviacion)`,
-    [a.cotizacionId, a.productoId, a.precio, a.precio, a.cumple, detalle]);
+    [a.cotizacionId, a.productoId, base, base, a.cumple, detalle]);
   await recalcularPreciosDeCotizacion(a.cotizacionId);   // los adicionales ya cargados se vuelven a sumar al base nuevo
   await cargarFleteAProductos(a.cotizacionId).catch(() => {});
   await registrarEvento({

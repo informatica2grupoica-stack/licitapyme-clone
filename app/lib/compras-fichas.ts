@@ -641,6 +641,33 @@ export async function restaurarFichaDeOpcion(negocioId: number, opcionId: number
     [negocioId, opcionId, `Ficha técnica «${(rs as any[])[0].documento_nombre}» restaurada por ${actor.nombre}`, ahoraChileSQL()]).catch(() => {});
 }
 
+/** «Eliminar» de la lista de fichas subidas: el documento sale COMPLETO del panel de Compras (de todos sus modelos y de las listas de
+ *  pendientes / no-ficha / con error). El modelo que queda sin ninguna ficha se descarta. Solo toca el espacio de Compras: la cotización,
+ *  el Auditor y el archivo guardado no se borran. Si se vuelve a subir, entra de nuevo normalmente. */
+export async function eliminarDocumentosDeFichas(negocioId: number, urls: string[], actor: Actor): Promise<number> {
+  const lista = [...new Set(urls.filter(Boolean))];
+  if (!lista.length) throw new Error('No hay fichas que eliminar.');
+  const [rs] = await pool.query(
+    `SELECT r.id, r.opcion_id, r.documento_nombre FROM auditor_respaldo r JOIN auditor_opcion o ON o.id = r.opcion_id
+      WHERE r.negocio_id = ? AND r.tipo = 'ficha_tecnica' AND r.vigente = 1 AND r.documento_url IN (?) AND o.fila_id LIKE 'cmp:%'`, [negocioId, lista]) as any;
+  const ahora = ahoraChileSQL();
+  if ((rs as any[]).length) {
+    await pool.query(`UPDATE auditor_respaldo SET vigente = 0 WHERE id IN (?)`, [(rs as any[]).map(r => r.id)]);
+    await pool.query(
+      `UPDATE auditor_opcion o SET o.estado = 'descartada', o.motivo_descarte = ?, o.actualizado_at = ?
+        WHERE o.id IN (?) AND o.negocio_id = ? AND o.fila_id LIKE 'cmp:%'
+          AND NOT EXISTS (SELECT 1 FROM auditor_respaldo r WHERE r.opcion_id = o.id AND r.tipo = 'ficha_tecnica' AND r.vigente = 1)`,
+      [`Se eliminaron sus fichas (${actor.nombre}).`, ahora, [...new Set((rs as any[]).map(r => r.opcion_id))], negocioId]);
+    for (const r of rs as any[]) {
+      await pool.query(`INSERT INTO auditor_evento (negocio_id, opcion_id, tipo, emisor, detalle, creado_at) VALUES (?, ?, 'ficha_quitada', 'compras', ?, ?)`,
+        [negocioId, r.opcion_id, `Ficha técnica «${r.documento_nombre}» eliminada por ${actor.nombre}`, ahora]).catch(() => {});
+    }
+  }
+  const [exs] = await pool.query(`SELECT id FROM auditor_extraccion WHERE negocio_id = ? AND documento_url IN (?)`, [negocioId, lista]) as any;
+  for (const x of exs as any[]) await olvidarDocumentoDeCompras(negocioId, Number(x.id));
+  return lista.length;
+}
+
 /** Saca un documento de las listas del panel (pendientes, «no son fichas», con error). Si ya tenía fichas asignadas, estas no se tocan. */
 export async function olvidarDocumentoDeCompras(negocioId: number, extraccionId: number): Promise<void> {
   await pool.query(`DELETE FROM auditor_evento WHERE negocio_id = ? AND tipo = 'ficha_compras' AND detalle = ?`, [negocioId, String(extraccionId)]);

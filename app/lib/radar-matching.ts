@@ -16,6 +16,7 @@ import {
   indexarLicitacion, evaluarKeyword, normalizar, tokenizar,
   type LicitacionIndexada,
 } from '@/app/lib/text-match';
+import { filtroPorEmpresa } from '@/app/lib/radar-estricto-core';
 
 // cliente_id: empresa dueña de la palabra (multi-cliente). Las negativas SOLO excluyen dentro de su propia empresa.
 export interface KwRow { id: number; usuario_id: number; cliente_id: number; keyword: string }
@@ -286,12 +287,13 @@ export async function matchearEInsertar(
   // 2) Matchear positivas e insertar alertas.
   let alertasNuevas = 0;
   const codigosConMatch = new Set<string>();
+  const sinRuido = filtroPorEmpresa(keywords.positivas); // empresas-cliente: sin coincidencias armadas con productos distintos
   for (const kw of keywords.positivas) {
     const coincidencias: Coincidencia[] = [];
     for (const lic of lics) {
       if (excluidos.has(`${kw.cliente_id}:${lic.Codigo}`)) continue; // negativa (de su misma empresa) manda
       const r = evaluarKeyword(indices.get(lic.Codigo)!, kw.keyword);
-      if (!r.match) continue;
+      if (!r.match || !sinRuido(kw, lic)) continue;
       codigosConMatch.add(lic.Codigo);
       coincidencias.push({
         lic,

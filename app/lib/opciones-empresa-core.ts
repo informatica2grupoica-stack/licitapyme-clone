@@ -10,8 +10,11 @@ export const MODOS_APROBACION: { id: ModoAprobacion; titulo: string; ayuda: stri
   { id: 'nunca', titulo: 'Nunca', ayuda: 'Las opciones firmadas quedan aprobadas al instante, sin que nadie más las revise.' },
 ];
 
-export interface OpcionesEmpresa { aprobaciones_auditor: ModoAprobacion }
-export const OPCIONES_POR_DEFECTO: OpcionesEmpresa = { aprobaciones_auditor: 'auto' };
+/** `recargo_costeo`: % sobre el costo con que nace un costeo nuevo. null = el del sistema (27 %). */
+export interface OpcionesEmpresa { aprobaciones_auditor: ModoAprobacion; recargo_costeo: number | null }
+export const OPCIONES_POR_DEFECTO: OpcionesEmpresa = { aprobaciones_auditor: 'auto', recargo_costeo: null };
+
+export const esRecargoValido = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= 300;
 
 export const esModoAprobacion = (v: unknown): v is ModoAprobacion => v === 'auto' || v === 'siempre' || v === 'nunca';
 
@@ -20,7 +23,8 @@ export function normalizarOpciones(raw: unknown): OpcionesEmpresa {
   let o: unknown = raw;
   if (typeof o === 'string') { try { o = JSON.parse(o); } catch { o = null; } }
   const m = (o as { aprobaciones_auditor?: unknown } | null)?.aprobaciones_auditor;
-  return { aprobaciones_auditor: esModoAprobacion(m) ? m : OPCIONES_POR_DEFECTO.aprobaciones_auditor };
+  const r = (o as { recargo_costeo?: unknown } | null)?.recargo_costeo;
+  return { aprobaciones_auditor: esModoAprobacion(m) ? m : OPCIONES_POR_DEFECTO.aprobaciones_auditor, recargo_costeo: esRecargoValido(r) ? r : null };
 }
 
 /** ¿El Auditor de esa empresa pide aprobación? Grupo ICA (cliente 1) siempre conserva su flujo. */
