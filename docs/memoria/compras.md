@@ -3,6 +3,11 @@
 Pantalla principal: `/compras/[negocioId]` (`ComprasChrome.tsx`). Traspasado desde la memoria
 personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-11-27 (4) — La OC 4102 se tragaba las 142 piolas (1202333-67-LE26, negocio 708; tsc OK, verificado contra la BD del VPS solo leyendo, pantalla sin ver, sin desplegar)
+- Causa: la línea guardada de la 4102 no tiene `productoId` (reescrita con lo de Obuma) y dos productos comparten el SKU 60264231368 (#931 compra rápida $80.156 y #1027 142 piolas). Con dos candidatos no se reconocía ninguno y la OC «cubría todo» al proveedor.
+- Arreglo (`productoDelSku`, `compras-oc-obuma.ts`): con SKU compartido desempata el monto de la línea. Si el monto tampoco distingue, sigue como antes.
+- Pendiente: `sincronizarOcDesdeObuma` puede volver a perder el `productoId` si en Obuma cambian nombre y SKU de una línea.
+
 ## 2026-11-27 (3) — «Quién lo hizo» a la vista en Compras (tsc OK, sin probar en pantalla, sin desplegar, sin migración)
 - Pedido del dueño: en Compras debe verse el nombre de quien hizo cada cosa (OC, SKU, cuadro comparativo, proveedor elegido).
 - Ya se guardaba y mostraba: SKU, cotización subida, OC de Obuma (pestaña Avance), gastos. Se agregó: línea «Proveedor elegido por / Enviada por / Aprobada o Rechazada por» (nombre + fecha) en la compuerta «Aprobar la compra» (`AprobacionesCompraCard.tsx`; `obtenerEscenarioElegido` ahora trae `elegido_por_nombre`), nombre visible (no solo tooltip) en los chips globales de Avance, y la OC propia ahora trae su autor en Avance.

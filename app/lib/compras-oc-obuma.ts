@@ -213,13 +213,16 @@ export async function proveedoresParaOrdenCompra(negocioId: number, { buscarDupl
     let productos: Set<number> | null = null;
     // Una línea sin productoId (OC cuyas líneas se reescribieron desde Obuma, p. ej. 4102 de 1202333-67-LE26) se reconoce por su SKU: si no, la OC
     // «cubre todo» al proveedor y se traga lo que se compra después, sin dejar emitir otra orden.
-    const productoDelSku = (cod: string | null | undefined, idObuma: string | null | undefined): number | null => {
-      const m = [...skuPorProducto.entries()].filter(([, s]) => (cod && s.obumaCodigoComercial === cod) || (idObuma && idObuma !== '0' && s.obumaProductoId === idObuma));
-      return m.length === 1 ? m[0][0] : null;
+    // Si dos productos comparten el SKU (4102: la compra rápida de $80.156 y 142 piolas aparte), desempata el monto de la línea.
+    const productoDelSku = (i: any): number | null => {
+      const m = [...skuPorProducto.entries()].filter(([, s]) => (i.obumaCodigoComercial && s.obumaCodigoComercial === i.obumaCodigoComercial) || (i.obumaProductoId && i.obumaProductoId !== '0' && s.obumaProductoId === i.obumaProductoId));
+      if (m.length === 1) return m[0][0];
+      const porMonto = cubiertos.filter(c => m.some(([id]) => id === c.productoId) && Math.abs(Number(c.subtotal) - Number(i.subtotal)) <= 1);
+      return porMonto.length === 1 ? porMonto[0].productoId : null;
     };
     try {
       productos = new Set((JSON.parse(r.items_json || '[]') as any[])
-        .map(i => i.productoId != null ? Number(i.productoId) : (productoDelSku(i.obumaCodigoComercial, i.obumaProductoId) ?? NaN))
+        .map(i => i.productoId != null ? Number(i.productoId) : (productoDelSku(i) ?? NaN))
         .filter(n => Number.isFinite(n)));
     } catch { /* items_json corrupto: se asume que cubre todo */ }
     const oc: OcLicitank = { obumaCompraOcId: r.obuma_compra_oc_id, folio: r.obuma_folio, total: Number(r.total_neto), fechaOc: r.fecha_oc, productos: productos?.size ? productos : null, creadoPor: r.creado_por_nombre ?? null };
