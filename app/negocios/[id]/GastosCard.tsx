@@ -33,7 +33,7 @@ export function GastosCard({ negocioId, puedeOperar }: { negocioId: number; pued
   const [guardando, setGuardando] = useState(false);
   const [eliminando, setEliminando] = useState<number | null>(null);
   const [archivo, setArchivo] = useState<File | null>(null);
-  const [form, setForm] = useState({ categoriaClave: '', categoriaLibre: '', descripcion: '', monto: '', moneda: 'CLP', fechaGasto: '' });
+  const [form, setForm] = useState({ categoriaClave: '', categoriaLibre: '', descripcion: '', monto: '', cantidad: '', moneda: 'CLP', fechaGasto: '' });
 
   const cargar = useCallback(async () => {
     try {
@@ -52,6 +52,11 @@ export function GastosCard({ negocioId, puedeOperar }: { negocioId: number; pued
 
   const crear = async () => {
     if (!form.descripcion.trim() || !form.monto) return;
+    // Con cantidad (más de 1), «monto» es el precio por unidad: se guarda el total y la cuenta queda en la descripción.
+    const cant = Number(form.cantidad.replace(',', '.')) || 1;
+    const unitario = Number(form.monto);
+    const montoTotal = cant > 1 ? Math.round(unitario * cant * 100) / 100 : unitario;
+    const descripcionFinal = cant > 1 ? `${form.descripcion.trim()} (${cant.toLocaleString('es-CL')} × ${unitario.toLocaleString('es-CL')})` : form.descripcion.trim();
     setGuardando(true);
     try {
       let res: Response;
@@ -60,8 +65,8 @@ export function GastosCard({ negocioId, puedeOperar }: { negocioId: number; pued
         fd.set('file', archivo);
         if (form.categoriaClave) fd.set('categoriaClave', form.categoriaClave);
         else if (form.categoriaLibre.trim()) fd.set('categoriaLibre', form.categoriaLibre.trim());
-        fd.set('descripcion', form.descripcion.trim());
-        fd.set('monto', form.monto);
+        fd.set('descripcion', descripcionFinal);
+        fd.set('monto', String(montoTotal));
         fd.set('moneda', form.moneda);
         if (form.fechaGasto) fd.set('fechaGasto', form.fechaGasto);
         if (ocElegida) fd.set('ocObumaFolio', ocElegida);
@@ -71,7 +76,7 @@ export function GastosCard({ negocioId, puedeOperar }: { negocioId: number; pued
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             categoriaClave: form.categoriaClave || null, categoriaLibre: form.categoriaClave ? null : (form.categoriaLibre.trim() || null),
-            descripcion: form.descripcion.trim(), monto: Number(form.monto), moneda: form.moneda, fechaGasto: form.fechaGasto || null,
+            descripcion: descripcionFinal, monto: montoTotal, moneda: form.moneda, fechaGasto: form.fechaGasto || null,
             ocObumaFolio: ocElegida,
           }),
         });
@@ -79,7 +84,7 @@ export function GastosCard({ negocioId, puedeOperar }: { negocioId: number; pued
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo registrar');
       toast.success('Gasto registrado');
-      setForm({ categoriaClave: '', categoriaLibre: '', descripcion: '', monto: '', moneda: 'CLP', fechaGasto: '' });
+      setForm({ categoriaClave: '', categoriaLibre: '', descripcion: '', monto: '', cantidad: '', moneda: 'CLP', fechaGasto: '' });
       setArchivo(null);
       setOcElegida(null);
       setFormAbierto(false);
@@ -181,12 +186,17 @@ export function GastosCard({ negocioId, puedeOperar }: { negocioId: number; pued
           <div>
             <p className="text-[12.5px] font-semibold text-zinc-800 mb-1">3. ¿Cuánto fue? <span className="font-normal text-zinc-500">neto, sin IVA (con factura, el IVA no es costo)</span></p>
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-[13px] text-zinc-400">$</span>
+              <input inputMode="decimal" value={form.cantidad} onChange={e => setForm(f => ({ ...f, cantidad: e.target.value.replace(/[^0-9.,]/g, '') }))} data-testid="gasto-cantidad"
+                placeholder="Cantidad (opcional)" className="w-36 text-[13px] border border-zinc-300 rounded-lg px-2.5 py-1.5 outline-none focus:ring-1 focus:ring-teal-500" />
+              <span className="text-[13px] text-zinc-400">× $</span>
               <input inputMode="numeric" value={form.monto} onChange={e => setForm(f => ({ ...f, monto: e.target.value }))}
-                placeholder="Monto neto, solo números" className="w-44 text-[13px] border border-zinc-300 rounded-lg px-2.5 py-1.5 outline-none focus:ring-1 focus:ring-teal-500" />
+                placeholder={Number(form.cantidad.replace(',', '.')) > 1 ? 'Precio neto por unidad' : 'Monto neto, solo números'} className="w-44 text-[13px] border border-zinc-300 rounded-lg px-2.5 py-1.5 outline-none focus:ring-1 focus:ring-teal-500" />
               <Select value={form.moneda} onChange={v => setForm(f => ({ ...f, moneda: v }))} minWidth={90}
                 options={[{ value: 'CLP', label: 'Pesos (CLP)' }, { value: 'USD', label: 'Dólares (USD)' }]} />
             </div>
+            {Number(form.cantidad.replace(',', '.')) > 1 && Number(form.monto) > 0 && (
+              <p className="mt-1 text-[12px] text-zinc-600" data-testid="gasto-total-calculado">Total del gasto: <b>{(Math.round(Number(form.monto) * Number(form.cantidad.replace(',', '.')) * 100) / 100).toLocaleString('es-CL')}</b> {form.moneda} ({Number(form.cantidad.replace(',', '.')).toLocaleString('es-CL')} × {Number(form.monto).toLocaleString('es-CL')})</p>
+            )}
             {form.moneda !== 'CLP' && <p className="mt-1 text-[11.5px] text-amber-700">Se guarda en pesos con el tipo de cambio del día (el monto original queda en las notas) y suma al total.</p>}
           </div>
           <div>
