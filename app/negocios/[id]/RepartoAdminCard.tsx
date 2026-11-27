@@ -40,7 +40,7 @@ interface ProveedorOC {
   proveedorGiro: string | null; proveedorContacto: string | null;
   items: ItemOC[]; subtotal: number; fleteSugerido?: number | null;
   monedaCotizacion?: string | null; tipoCambioCotizacion?: number | null;
-  yaCreada: { obumaCompraOcId: string; folio: string | null; total: number; fechaOc: string; estado?: string | null } | null;
+  yaCreada: { obumaCompraOcId: string; folio: string | null; total: number; fechaOc: string; estado?: string | null; creadoPor?: string | null } | null;
   posibleDuplicadoObuma: { folio: string | null; referencia: string; fecha: string; total: number } | null;
   ocRealObuma?: { folios: string[]; totalNeto: number; estados: string[]; fecha: string | null } | null;
 }
@@ -499,7 +499,7 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo', ocult
   // Las OC de un proveedor (la hecha en Obuma y/o la emitida desde Licitank), para mostrarlas rotuladas.
   const ocsDe = (p: ProveedorOC) => [
     ...(p.ocRealObuma ? [{ folio: p.ocRealObuma.folios.join(', '), origen: 'Hecha en Obuma', estado: p.ocRealObuma.estados.join(' / '), monto: p.ocRealObuma.totalNeto, montoNota: 'neto' }] : []),
-    ...(p.yaCreada ? [{ folio: p.yaCreada.folio ?? p.yaCreada.obumaCompraOcId, origen: p.ocRealObuma ? 'Emitida desde Licitank (adicional)' : 'Emitida desde Licitank', estado: p.yaCreada.estado || 'Emitida', monto: p.yaCreada.total, montoNota: 'con IVA' }] : []),
+    ...(p.yaCreada ? [{ folio: p.yaCreada.folio ?? p.yaCreada.obumaCompraOcId, origen: p.ocRealObuma ? 'Emitida desde Licitank (adicional)' : 'Emitida desde Licitank', estado: p.yaCreada.estado || 'Emitida', monto: p.yaCreada.total, montoNota: 'con IVA', creadoPor: p.yaCreada.creadoPor ?? null }] : []),
   ];
   const foliosDe = (p: ProveedorOC) => [...(p.ocRealObuma?.folios ?? []), ...(p.yaCreada ? [p.yaCreada.folio ?? p.yaCreada.obumaCompraOcId] : [])];
   const estadoTexto = (s: string) => s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
@@ -570,7 +570,7 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo', ocult
                         </div>
                         <div>
                           <dt className="text-[11px] text-slate-500">Origen</dt>
-                          <dd className="mt-0.5">{ocs.map(o => <div key={o.folio} className="text-xs text-slate-700">{o.origen}</div>)}</dd>
+                          <dd className="mt-0.5">{ocs.map(o => <div key={o.folio} className="text-xs text-slate-700">{o.origen}{(o as any).creadoPor && <span className="block text-[11px] text-slate-500">Creada por <b className="font-semibold text-slate-800">{(o as any).creadoPor}</b></span>}</div>)}</dd>
                         </div>
                       </>)}
                       <div>
@@ -721,7 +721,7 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo', ocult
                               <div>
                                 <dt className="text-[11px] text-slate-500">Orden</dt>
                                 <dd className="mt-0.5 text-xs font-semibold tabular-nums text-slate-900">OC {folio}</dd>
-                                <dd className="text-[11px] text-slate-500">{p.yaCreada && folio === (p.yaCreada.folio ?? p.yaCreada.obumaCompraOcId) ? 'Emitida desde Licitank' : 'Hecha en Obuma'}</dd>
+                                <dd className="text-[11px] text-slate-500">{p.yaCreada && folio === (p.yaCreada.folio ?? p.yaCreada.obumaCompraOcId) ? 'Emitida desde Licitank' : 'Hecha en Obuma'}{p.yaCreada?.creadoPor && folio === (p.yaCreada.folio ?? p.yaCreada.obumaCompraOcId) ? <> por <b className="font-semibold text-slate-700">{p.yaCreada.creadoPor}</b></> : null}</dd>
                                 {oc && <dd><button type="button" onClick={() => setOcDocAbierta(folio)} data-testid={`oc-ver-${folio}`} className="text-[11.5px] font-medium text-teal-700 hover:text-teal-900">Ver OC</button></dd>}
                               </div>
                               <div>

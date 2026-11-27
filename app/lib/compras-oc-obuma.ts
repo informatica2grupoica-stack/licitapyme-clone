@@ -56,7 +56,7 @@ export interface ProveedorOrdenCompra {
   fleteSugerido?: number | null;
   /** Moneda y tipo de cambio de la cotización de este proveedor cuando NO es en pesos: precargan la OC como internacional. */
   monedaCotizacion?: string | null; tipoCambioCotizacion?: number | null;
-  yaCreada: { obumaCompraOcId: string; folio: string | null; total: number; fechaOc: string; estado?: string | null } | null;
+  yaCreada: { obumaCompraOcId: string; folio: string | null; total: number; fechaOc: string; estado?: string | null; creadoPor?: string | null } | null;
   // Pedido explícito del usuario (14-sep-2026, caso real: el encargado de compras ya había creado
   // la OC directo en Obuma — "yaCreada" (arriba) no lo veía porque solo mira lo que creó Licitank).
   // Esto busca en las OC REALES de Obuma para este proveedor, no solo en nuestra tabla local.
@@ -157,7 +157,7 @@ export async function proveedoresParaOrdenCompra(negocioId: number, { buscarDupl
       [negocioId],
     ) as any,
     pool.query(
-      `SELECT proveedor_nombre, proveedor_rut, obuma_compra_oc_id, obuma_folio, total_neto, items_json, DATE_FORMAT(fecha_oc, '%Y-%m-%d') AS fecha_oc
+      `SELECT proveedor_nombre, proveedor_rut, obuma_compra_oc_id, obuma_folio, total_neto, items_json, creado_por_nombre, DATE_FORMAT(fecha_oc, '%Y-%m-%d') AS fecha_oc
          FROM compras_orden_compra_obuma WHERE negocio_id = ? ORDER BY created_at, id`,
       [negocioId],
     ) as any,
@@ -197,7 +197,7 @@ export async function proveedoresParaOrdenCompra(negocioId: number, { buscarDupl
 
   // Las OC que emitió Licitank, por proveedor y con los productos que de verdad llevan (items_json). Un proveedor puede tener más de una:
   // 1089 (17-nov-2026): la 4062 de SINERGIA solo llevaba el Set Instrumental y la Mesa auxiliar quedó marcada «4062» sin poder emitirse.
-  type OcLicitank = { obumaCompraOcId: string; folio: string | null; total: number; fechaOc: string; productos: Set<number> | null };
+  type OcLicitank = { obumaCompraOcId: string; folio: string | null; total: number; fechaOc: string; productos: Set<number> | null; creadoPor?: string | null };
   // Se indexan por RUT (no cambia) y, si no hay, por el nombre sin espacios/tildes: el texto crudo fallaba cuando Obuma o la cotización
   // escribían el nombre distinto (4061 de 4152-22-LE26: «TRANSPORTES Y» vs «TRANSPORTES  Y»).
   const ocsLicitankPorProveedor = new Map<string, OcLicitank[]>();
@@ -211,8 +211,18 @@ export async function proveedoresParaOrdenCompra(negocioId: number, { buscarDupl
   };
   for (const r of ocRows as any[]) {
     let productos: Set<number> | null = null;
-    try { productos = new Set((JSON.parse(r.items_json || '[]') as any[]).map(i => Number(i.productoId)).filter(n => Number.isFinite(n))); } catch { /* items_json corrupto: se asume que cubre todo */ }
-    const oc: OcLicitank = { obumaCompraOcId: r.obuma_compra_oc_id, folio: r.obuma_folio, total: Number(r.total_neto), fechaOc: r.fecha_oc, productos: productos?.size ? productos : null };
+    // Una línea sin productoId (OC cuyas líneas se reescribieron desde Obuma, p. ej. 4102 de 1202333-67-LE26) se reconoce por su SKU: si no, la OC
+    // «cubre todo» al proveedor y se traga lo que se compra después, sin dejar emitir otra orden.
+    const productoDelSku = (cod: string | null | undefined, idObuma: string | null | undefined): number | null => {
+      const m = [...skuPorProducto.entries()].filter(([, s]) => (cod && s.obumaCodigoComercial === cod) || (idObuma && idObuma !== '0' && s.obumaProductoId === idObuma));
+      return m.length === 1 ? m[0][0] : null;
+    };
+    try {
+      productos = new Set((JSON.parse(r.items_json || '[]') as any[])
+        .map(i => i.productoId != null ? Number(i.productoId) : (productoDelSku(i.obumaCodigoComercial, i.obumaProductoId) ?? NaN))
+        .filter(n => Number.isFinite(n)));
+    } catch { /* items_json corrupto: se asume que cubre todo */ }
+    const oc: OcLicitank = { obumaCompraOcId: r.obuma_compra_oc_id, folio: r.obuma_folio, total: Number(r.total_neto), fechaOc: r.fecha_oc, productos: productos?.size ? productos : null, creadoPor: r.creado_por_nombre ?? null };
     for (const k of clavesProveedor(r.proveedor_rut, r.proveedor_nombre)) ocsLicitankPorProveedor.set(k, [...(ocsLicitankPorProveedor.get(k) ?? []), oc]);
   }
   const idsOcLicitank = new Set((ocRows as any[]).map(r => String(r.obuma_compra_oc_id)));
@@ -282,13 +292,17 @@ export async function proveedoresParaOrdenCompra(negocioId: number, { buscarDupl
       // Estado real en Obuma de la OC nuestra (SOLICITADA, FACTURADA…), para no mostrarla siempre como "emitida".
       const estado = todasObuma.find(c => c.compraOcId === oc.obumaCompraOcId)?.estado ?? null;
       return { ...g, items, subtotal: items.reduce((s, it) => s + it.subtotal, 0),
-        yaCreada: { obumaCompraOcId: oc.obumaCompraOcId, folio: oc.folio, total: oc.total, fechaOc: oc.fechaOc, estado } };
+        yaCreada: { obumaCompraOcId: oc.obumaCompraOcId, folio: oc.folio, total: oc.total, fechaOc: oc.fechaOc, estado, creadoPor: oc.creadoPor ?? null } };
     });
     const faltan = g.items.filter(it => !asignados.has(it.productoId));
     // Lo que falta solo abre otra orden si queda algo por comprar. Un producto rechazado, o ya comprado por otra vía (fletes agregados
     // después como producto sin SKU, p. ej. «Transporte Punta Ranco (OC 3998)» de 1191), se queda mostrado en la última OC, como antes.
     const subestado = new Map(productosCompra.map((x: any) => [Number(x.id), String(x.subestado ?? '')]));
-    const porComprar = (it: ItemOrdenCompra) => it.estadoLinea !== 'RECHAZADA' && ['', 'PENDIENTE', 'COTIZANDO'].includes(subestado.get(it.productoId) ?? '');
+    // Una compra rápida APROBADA que no se hizo en tienda (el gasto con SKU y OC: grúa, flete, adicional) queda «Comprado» al aprobarse, pero su
+    // OC todavía no existe: sigue por comprar y abre otra orden al mismo proveedor (1202333-67-LE26: más piolas a QUALITY RUBBER, OC 4102 ya emitida).
+    const sinOcRapida = new Set(rapidas.filter(r => r.estado === 'APROBADA' && !r.yaComprada).map(r => r.productoId));
+    const porComprar = (it: ItemOrdenCompra) => it.estadoLinea !== 'RECHAZADA'
+      && (['', 'PENDIENTE', 'COTIZANDO'].includes(subestado.get(it.productoId) ?? '') || sinOcRapida.has(it.productoId));
     if (faltan.some(porComprar)) {
       lista.push(...tarjetas, { ...g, items: faltan, subtotal: faltan.reduce((s, it) => s + it.subtotal, 0), yaCreada: null });
     } else {

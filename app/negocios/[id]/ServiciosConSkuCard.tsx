@@ -14,7 +14,7 @@ import { TIPOS_COMBUSTIBLE, calcularCarga, cuadraConFactura, etiquetaCombustible
 
 type Tipo = 'FLETE' | 'ADICIONAL' | 'COMBUSTIBLE';
 interface Servicio { id: number; descripcion: string; cantidad: number | null; esServicio: boolean; servicioTipo: Tipo | null; subestado: string }
-interface Rapida { productoId: number; estado: 'PENDIENTE' | 'APROBADA' | 'RECHAZADA'; proveedorNombre: string | null; proveedorRut: string | null; precioUnitario: number | null; comentario: string | null; resueltoPorNombre: string | null }
+interface Rapida { productoId: number; estado: 'PENDIENTE' | 'APROBADA' | 'RECHAZADA'; proveedorNombre: string | null; proveedorRut: string | null; precioUnitario: number | null; comentario: string | null; resueltoPorNombre: string | null; solicitadoPorNombre?: string | null }
 interface Cotizacion { id: number; archivoUrl: string | null; items: Array<{ productoId: number }> }
 type Form = { tipo: Tipo | null; nombre: string; proveedor: string; rut: string; precio: string; cantidad: string; comb: string; litros: string; netoComb: string; impuesto: string; patente: string; totalFact: string };
 interface CargaVista extends CargaCombustible { productoId: number }
@@ -225,6 +225,7 @@ export function ServiciosConSkuCard({ negocioId, puedeOperar }: { negocioId: num
                   ); })()}
                   <p className="text-[12px] text-zinc-500">{r.proveedorNombre} · {r.proveedorRut || 'sin RUT'} · <b className="text-zinc-800 tabular-nums">{r.precioUnitario != null ? clp(r.precioUnitario * ((s.cantidad ?? 1) > 1 ? s.cantidad! : 1)) : 'sin precio'}</b> neto{(s.cantidad ?? 1) > 1 && r.precioUnitario != null && <span className="text-zinc-500 tabular-nums"> ({s.cantidad!.toLocaleString('es-CL')} × {clp(r.precioUnitario)})</span>}</p>
                   {r.estado === 'RECHAZADA' && <p className="text-[12px] text-rose-700">Rechazado{r.resueltoPorNombre ? ` por ${r.resueltoPorNombre}` : ''}: {r.comentario}</p>}
+                  <p className="text-[11.5px] text-zinc-500" data-testid={`servicio-quien-${s.id}`}>{r.solicitadoPorNombre ? <>Creado por <b className="font-semibold text-zinc-800">{r.solicitadoPorNombre}</b></> : 'Creado por: sin dato'}{r.estado !== 'PENDIENTE' && r.resueltoPorNombre ? <> · {r.estado === 'APROBADA' ? 'aprobado' : 'rechazado'} por <b className="font-semibold text-zinc-800">{r.resueltoPorNombre}</b></> : null}</p>
                   {r.estado === 'APROBADA' && <p className="text-[12px] text-zinc-500">Créale el SKU en «Aprobación y SKU» y emite la OC en «Órdenes y facturas».</p>}
                 </div>
                 <div className="flex items-center gap-2">
