@@ -51,7 +51,7 @@ function GuiasEmitidas({ url, recargar }: { url: string; recargar: number }) {
   const [error, setError] = useState(false);
   useEffect(() => {
     setGuias(null); setError(false);
-    fetch(`${url}?guias=1`).then(x => x.json()).then(d => { if (d?.success) setGuias(d.guias); else setError(true); }).catch(() => setError(true));
+    fetch(`${url}?guias=1${recargar ? '&actualizar=1' : ''}`).then(x => x.json()).then(d => { if (d?.success) setGuias(d.guias); else setError(true); }).catch(() => setError(true));
   }, [url, recargar]);
 
   if (error) return <p className="text-[12px] text-zinc-500">No se pudieron consultar las guías emitidas en Obuma.</p>;

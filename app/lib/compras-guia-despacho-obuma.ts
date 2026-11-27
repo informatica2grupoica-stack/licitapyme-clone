@@ -269,27 +269,70 @@ export async function guiasDelNegocio(negocioId: number): Promise<GuiaDelNegocio
   // 2 consultas por guía (cupo diario de 1.500 por endpoint): se limita a las 15 más recientes.
   return Promise.all(propias.map(async g => ({
     folio: g.folio, fecha: g.fecha, neto: g.neto, total: g.total, anulada: g.anulada, facturada: g.facturada,
-    centroNombre: g.centroNombre, delProyecto: g.delProyecto,
-    esVenta: g.neto > 0 && ['', '0', '1'].includes(g.tipoTraslado),
+    centroNombre: g.centroNombre, delProyecto: g.delProyecto, esVenta: g.esVenta,
     ...(await pdfYEstadoDte(52, g.folio).catch(() => ({ pdf: null, xml: null, pdfPideSesion: false, entregadoSii: false, aceptadoSii: false, enviadoReceptor: false, aceptadoReceptor: false }))),
   })));
 }
 
 /** PDF propio (copia de consulta) de una guía del negocio, desde su XML público. Solo guías que se reconocen como de este negocio. */
 export async function pdfGuiaDelNegocio(negocioId: number, folio: string): Promise<{ pdf: Uint8Array; folio: string }> {
-  const g = (await guiasPropiasDelNegocio(negocioId)).find(x => x.folio === String(folio).trim());
-  if (!g) throw new Error(`La guía ${folio} no aparece entre las guías de este negocio en Obuma.`);
-  const { xml } = await pdfYEstadoDte(52, g.folio);
-  const u = xml ? new URL(xml) : null;
-  // Solo el XML público del almacenamiento de Obuma (S3): nunca se sigue otro enlace.
-  if (!u || u.protocol !== 'https:' || !u.hostname.endsWith('.amazonaws.com')) throw new Error(`Obuma no entregó el XML de la guía ${g.folio}.`);
-  const r = await fetch(u, { signal: AbortSignal.timeout(15_000) });
-  if (!r.ok) throw new Error(`No se pudo descargar el XML de la guía ${g.folio}.`);
-  const texto = Buffer.from(await r.arrayBuffer()).toString('latin1');   // los DTE del SII vienen en ISO-8859-1
-  const datos = leerXmlGuia(texto);
-  if (datos.folio !== g.folio) throw new Error(`El XML descargado no corresponde a la guía ${g.folio}.`);
+  const n = String(folio).trim();
+  // Primero el XML guardado en LICITANK: abrir una guía ya traída no gasta consultas a Obuma.
+  await asegurarTablasGuias();
+  const [rows] = await pool.query('SELECT xml FROM compras_guia_obuma_xml WHERE negocio_id = ? AND folio = ? LIMIT 1', [negocioId, n]) as any;
+  let texto: string | null = (rows as any[])[0]?.xml ?? null;
+  if (!texto) {
+    const g = (await guiasPropiasDelNegocio(negocioId)).find(x => x.folio === n);
+    if (!g) throw new Error(`La guía ${folio} no aparece entre las guías de este negocio en Obuma.`);
+    texto = await guardarXmlGuia(negocioId, n, (await pdfYEstadoDte(52, n)).xml);
+  }
   // Logo: el mismo del PDF de OC de Obuma (Inversiones Claro es la única empresa con Obuma; ver negocioEsDeClaro).
-  return { pdf: await generarPdfGuia(datos, { logo: 'oc-obuma/logo.png' }), folio: g.folio };
+  return { pdf: await generarPdfGuia(leerXmlGuia(texto), { logo: 'oc-obuma/logo.png' }), folio: n };
+}
+
+// ── Guías guardadas (dueño, 27-nov-2026: lo ya traído no se vuelve a consultar a Obuma). SQL en docs/migration-212-guias-obuma-guardadas.sql.
+let tablasGuiasListas = false;
+async function asegurarTablasGuias() {
+  if (tablasGuiasListas) return;
+  await pool.query(`CREATE TABLE IF NOT EXISTS compras_guia_obuma_lista (
+    negocio_id INT NOT NULL PRIMARY KEY, datos_json LONGTEXT NOT NULL, consultado_at DATETIME NOT NULL) DEFAULT CHARSET=utf8mb4`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS compras_guia_obuma_xml (
+    negocio_id INT NOT NULL, folio VARCHAR(40) NOT NULL, xml MEDIUMTEXT NOT NULL, PRIMARY KEY (negocio_id, folio)) DEFAULT CHARSET=utf8mb4`);
+  tablasGuiasListas = true;
+}
+
+/** Baja el XML público de la guía, comprueba que sea de ese folio y lo guarda. */
+async function guardarXmlGuia(negocioId: number, folio: string, enlace: string | null): Promise<string> {
+  const u = enlace ? new URL(enlace) : null;
+  // Solo el XML público del almacenamiento de Obuma (S3): nunca se sigue otro enlace.
+  if (!u || u.protocol !== 'https:' || !u.hostname.endsWith('.amazonaws.com')) throw new Error(`Obuma no entregó el XML de la guía ${folio}.`);
+  const r = await fetch(u, { signal: AbortSignal.timeout(15_000) });
+  if (!r.ok) throw new Error(`No se pudo descargar el XML de la guía ${folio}.`);
+  const texto = Buffer.from(await r.arrayBuffer()).toString('latin1');   // los DTE del SII vienen en ISO-8859-1
+  if (leerXmlGuia(texto).folio !== folio) throw new Error(`El XML descargado no corresponde a la guía ${folio}.`);
+  await pool.query('REPLACE INTO compras_guia_obuma_xml (negocio_id, folio, xml) VALUES (?,?,?)', [negocioId, folio, texto]);
+  return texto;
+}
+
+export interface GuiasGuardadas { guias: GuiaDelNegocio[]; proyecto: { folio: string | null; centro: string | null }; consultadoAt: string }
+
+/** Las guías del negocio desde LICITANK. Solo consulta Obuma la primera vez o con `actualizar` (botón «Actualizar desde Obuma»). */
+export async function guiasGuardadasDelNegocio(negocioId: number, actualizar = false): Promise<GuiasGuardadas> {
+  await asegurarTablasGuias();
+  if (!actualizar) {
+    const [rows] = await pool.query(
+      `SELECT datos_json, DATE_FORMAT(consultado_at, '%Y-%m-%d %H:%i') AS consultado FROM compras_guia_obuma_lista WHERE negocio_id = ? LIMIT 1`, [negocioId]) as any;
+    const r = (rows as any[])[0];
+    if (r) return { ...JSON.parse(r.datos_json), consultadoAt: r.consultado };
+  }
+  // Si Obuma falla, esto lanza y NO se guarda nada: una lista incompleta quedaría pegada.
+  const guias = await guiasDelNegocio(negocioId);
+  const datos = { guias, proyecto: await proyectoDelNegocio(negocioId) };
+  await Promise.all(guias.filter(g => g.xml).map(g => guardarXmlGuia(negocioId, g.folio, g.xml)
+    .catch(e => console.warn('[guias-obuma] XML no guardado:', String(e).slice(0, 160)))));
+  const ahora = ahoraChileSQL();
+  await pool.query('REPLACE INTO compras_guia_obuma_lista (negocio_id, datos_json, consultado_at) VALUES (?,?,?)', [negocioId, JSON.stringify(datos), ahora]);
+  return { ...datos, consultadoAt: ahora.slice(0, 16) };
 }
 
 /** Guías 52 recientes que se reconocen como de este negocio (sin consultar PDF ni estado). */
@@ -298,11 +341,11 @@ async function guiasPropiasDelNegocio(negocioId: number) {
   if (!codigo) return [];
   const { ordenesDeLicitacion } = await import('@/app/lib/ordenes-compra');   // dinámico: evita ciclos de importación
   const [cc, centros, guias, refs, ocsMp, [ocRows]] = await Promise.all([
-    buscarCentroCostoPorLicitacion(codigo).catch(() => null),
-    centrosDeCostoCompleto().catch(() => []),
+    buscarCentroCostoPorLicitacion(codigo),
+    centrosDeCostoCompleto(),
     guiasRecientesObuma(),
-    referenciasGuiasObuma().catch(() => []),
-    clienteDeNegocio(negocioId).then(c => ordenesDeLicitacion(codigo, null, c)).catch(() => []),
+    referenciasGuiasObuma(),
+    clienteDeNegocio(negocioId).then(c => ordenesDeLicitacion(codigo, null, c)),
     pool.query(`SELECT obuma_folio FROM compras_orden_compra_obuma WHERE negocio_id = ? AND obuma_folio IS NOT NULL`, [negocioId]) as any,
   ]);
   const ccFull = cc ? centros.find(c => c.id === cc.id) : undefined;
@@ -322,8 +365,12 @@ async function guiasPropiasDelNegocio(negocioId: number) {
   return guias.filter(esDelNegocio).map(g => {
     const marca = g.centroCosto.trim();
     const c = marca && marca !== '0' ? centros.find(x => [x.id, x.codigo, x.nombre].includes(marca)) : undefined;
-    return { ...g, delProyecto: marcasCc.has(marca), centroNombre: c?.nombre || (marca && marca !== '0' ? marca : null) };
-  });
+    return {
+      ...g, delProyecto: marcasCc.has(marca), centroNombre: c?.nombre || (marca && marca !== '0' ? marca : null),
+      esVenta: g.neto > 0 && ['', '0', '1'].includes(g.tipoTraslado),
+    };
+  // Fuera del centro del proyecto y sin ser venta = no es de esta licitación aunque traiga su referencia (1918, de Mañihuales).
+  }).filter(g => g.delProyecto || g.esVenta);
 }
 
 // Obuma de Grupo ICA funciona solo con Inversiones Claro (dueño, 13-nov-2026): las guías se ofrecen únicamente en sus negocios.

@@ -3,14 +3,14 @@
 // «Entrega y acta»: las guías de despacho de Obuma del negocio en miniatura, debajo de las órdenes de compra (misma forma). Cada una dice si
 // está en el centro de costo del proyecto o en otro. «Enlazar» anota sus folios como N° de guía de la entrega; los PDF no se guardan.
 // Solo aparece donde la empresa usa Obuma (la ruta responde 403 en las demás).
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { IconLoader2 as Loader2 } from '@tabler/icons-react';
 import { MiniaturaDoc } from './MiniaturaDoc';
 
 interface Guia { folio: string; fecha: string; neto: number; anulada: boolean; xml: string | null; pdf: string | null; centroNombre: string | null; delProyecto: boolean; esVenta: boolean }
-interface Datos { guias: Guia[]; proyecto: { folio: string | null; centro: string | null } }
+interface Datos { guias: Guia[]; proyecto: { folio: string | null; centro: string | null }; consultadoAt: string }
 
-// Consultar Obuma tarda unos 20 s: al volver a la pestaña se muestra lo último mientras se actualiza.
+// Las guías quedan guardadas en LICITANK: solo la primera vez (o con «Actualizar desde Obuma») se consulta Obuma.
 const LISTAS = new Map<number, Datos>();
 const BLOBS = new Map<string, string>();
 
@@ -58,16 +58,22 @@ export function GuiasMiniaturas({ negocioId, actuales, puedeOperar, guardando, o
   const [error, setError] = useState(false);
   const [noAplica, setNoAplica] = useState(false);
 
-  useEffect(() => {
-    let vivo = true;
-    fetch(`${url}?guias=1`).then(async r => {
-      if (r.status === 403) { if (vivo) setNoAplica(true); return; }
+  const [actualizando, setActualizando] = useState(false);
+
+  const cargar = useCallback(async (actualizar: boolean) => {
+    setError(false); setActualizando(actualizar);
+    try {
+      const r = await fetch(`${url}?guias=1${actualizar ? '&actualizar=1' : ''}`);
+      if (r.status === 403) { setNoAplica(true); return; }
       const d = await r.json();
       if (!d?.success) throw new Error();
-      LISTAS.set(negocioId, d); if (vivo) setDatos(d);
-    }).catch(() => { if (vivo) setError(true); });
-    return () => { vivo = false; };
+      // Al actualizar, las miniaturas se vuelven a pedir.
+      if (actualizar) for (const k of BLOBS.keys()) if (k.startsWith(`${url}:`)) BLOBS.delete(k);
+      LISTAS.set(negocioId, d); setDatos(d);
+    } catch { setError(true); }
+    finally { setActualizando(false); }
   }, [url, negocioId]);
+  useEffect(() => { cargar(false); }, [cargar]);
 
   if (noAplica) return null;
   // Lo ya anotado (a mano o leído del escaneo) se conserva: solo se agregan los folios vigentes de Obuma que falten.
@@ -80,6 +86,15 @@ export function GuiasMiniaturas({ negocioId, actuales, puedeOperar, guardando, o
     <div className="bg-white border border-linea rounded-2xl shadow-tarjeta dark:bg-slate-900 dark:border-slate-800 p-5 mb-3" data-testid="guias-miniaturas">
       <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
         <p className="text-[12.5px] font-medium text-tinta-2 dark:text-slate-300">Guías de despacho en Obuma{proyecto && <span className="text-xs font-normal text-tinta-3 dark:text-slate-500"> · {proyecto}</span>}</p>
+        <div className="flex items-center gap-3 flex-wrap">
+        {datos && (
+          <span className="text-[11px] text-zinc-400">
+            Traídas de Obuma el {fechaCorta(datos.consultadoAt.slice(0, 10))} {datos.consultadoAt.slice(11, 16)} ·{' '}
+            <button onClick={() => cargar(true)} disabled={actualizando} className="font-semibold text-teal-700 hover:underline disabled:opacity-50">
+              {actualizando ? 'Actualizando…' : 'Actualizar desde Obuma'}
+            </button>
+          </span>
+        )}
         {puedeOperar && porEnlazar.length > 0 && (
           <button onClick={() => onEnlazar([...(actuales ? [actuales] : []), ...porEnlazar].join(', '))} disabled={guardando}
             className="inline-flex items-center gap-2 text-[12px] font-semibold px-3 py-1.5 rounded-lg bg-teal-600 text-white hover:bg-teal-700 disabled:opacity-50">
@@ -87,9 +102,10 @@ export function GuiasMiniaturas({ negocioId, actuales, puedeOperar, guardando, o
             {porEnlazar.length === 1 ? `Enlazar guía ${porEnlazar[0]} a la entrega` : `Enlazar ${porEnlazar.length} guías a la entrega`}
           </button>
         )}
+        </div>
       </div>
-      {!datos && !error && <p className="inline-flex items-center gap-2 text-[12px] text-zinc-500"><Loader2 size={13} className="animate-spin" /> Buscando guías en Obuma (puede tardar unos 20 segundos)…</p>}
-      {error && <p className="text-[12px] text-zinc-500">No se pudieron consultar las guías en Obuma. Recarga la página para reintentar.</p>}
+      {!datos && !error && <p className="inline-flex items-center gap-2 text-[12px] text-zinc-500"><Loader2 size={13} className="animate-spin" /> Cargando guías… (la primera vez se traen de Obuma y tarda unos 20 segundos)</p>}
+      {error && <p className="text-[12px] text-zinc-500">No se pudieron consultar las guías en Obuma. <button onClick={() => cargar(!!datos)} className="font-semibold text-teal-700 hover:underline">Reintentar</button></p>}
       {datos && guias.length === 0 && <p className="text-[12px] text-zinc-500">No hay guías de esta licitación en Obuma. Puedes subir la guía firmada más abajo.</p>}
       {guias.length > 0 && <div className="flex gap-3 overflow-x-auto pb-1">{guias.map(g => <MiniaturaGuia key={g.folio} url={url} guia={g} enEntrega={anotados.includes(g.folio)} />)}</div>}
     </div>

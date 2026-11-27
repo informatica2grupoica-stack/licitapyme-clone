@@ -3,7 +3,14 @@
 Pantalla principal: `/compras/[negocioId]` (`ComprasChrome.tsx`). Traspasado desde la memoria
 personal el 2026-10-27; las fechas son de cuando se decidió.
 
-## 2026-11-27 (5) — Guías de Obuma en «Entrega y cierre» (2736-44-LE26, negocio 1525; tsc OK, pantalla sin ver, sin desplegar, sin migración)
+## 2026-11-27 (6) — Las guías de Obuma se GUARDAN en LICITANK y la 1918 ya no sale (2736-44-LE26; tsc OK, pantalla sin ver, sin desplegar, migration-212)
+- Dueño: «si ya las cargamos, ya están en Licitank; por qué cargan siempre y gastan consultas». Reemplaza la regla anterior de verlas en vivo.
+- Lista y XML por negocio (`compras_guia_obuma_lista`, `compras_guia_obuma_xml`; la app crea las tablas sola). Obuma se consulta solo la primera vez o con «Actualizar desde Obuma» (también al crear una guía en «Gestionar documentos»). Una guía nueva o un cambio de estado NO aparece hasta actualizar. Si Obuma falla, no se guarda nada.
+- Una guía fuera del centro de costo del proyecto que no es venta ($0 u otro traslado) ya no se muestra (1918, de Mañihuales). Reemplaza «se muestra con aviso».
+- Prueba con tablas simuladas (sin escribir en la BD): primera carga 15 llamadas a Obuma; segunda 0; los 3 PDF 0.
+- Multiempresa: las tablas cuelgan de `negocio_id` (la baja de empresa las borra); la cuenta de Obuma sigue siendo la de `.env`, solo Inversiones Claro.
+
+## 2026-11-27 (5) — Guías de Obuma en «Entrega y cierre» (2736-44-LE26, negocio 1525; tsc OK, desplegado el 27-nov según el dueño, sin migración; pantalla no revisada por Claude)
 - Pedido del dueño: traer las guías desde Obuma a Entrega y cierre y mantener también la subida (las dos opciones).
 - Dónde: tira propia `GuiasMiniaturas.tsx` bajo «Órdenes de compra» (la dibuja `EntregaCard.tsx`), una miniatura por guía (PDF desde el XML), con Proyecto PR y centro de costo, y en cada una si está en el centro del proyecto o en otro. Solo Inversiones Claro. Botón «Enlazar N guías a la entrega»: anota los folios en `guia_despacho_numero` (acción `numeros`, máx. 80 caracteres), conserva lo ya escrito y no agrega las anuladas.
 - Regla aplicada: enlazar = N° registrado (cierra «Despacho de la mercadería» y, en entrega total, pasa a «Listo para entrega»). La entrega al cliente la sigue cerrando solo la guía FIRMADA que se sube. Es por botón, no automático.

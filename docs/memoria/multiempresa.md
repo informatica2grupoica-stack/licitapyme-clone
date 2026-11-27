@@ -151,6 +151,10 @@ Para cada módulo: tablas con dueño → todas sus rutas con chequeo de cliente 
 
 ## Bitácora
 
+## 2026-11-27 (22) — El dueño informa que está DESPLEGADO
+**Qué:** el dueño dijo «ya está desplegado»; vale para las notas «sin desplegar» anteriores de esta bitácora (incluidas (20) y (21)). Los cambios de (20) y (21) están en git (`master` igual a `origin/master`). **No lo verifiqué en el servidor:** el navegador integrado no pudo abrir `app.licitank.cl`.
+**Pendiente:** las pruebas reales en producción (alta completa, QR de WhatsApp, «Descargar mis datos», Radar y Negocios con Comercial MP y con ICA, correo de OC), lo legal y las decisiones del dueño.
+
 ## 2026-11-27 (21) — `/privacidad` nombra a los proveedores que el código usa (en código, SIN subir ni desplegar)
 **Qué:** la sección 4 nombra Z.AI, Moonshot, Google, DeepSeek, Serper, visor de Office de Microsoft, Upstash, Expo/Firebase, Obuma y WhatsApp (dice que la conexión es no oficial). Mismo listado en el Anexo B del contrato, en el registro de actividades (B9–B13) y en el LEEME del abogado.
 **Regla:** si se agrega un proveedor que reciba datos, actualizar esos cuatro textos. OCR.space no se listó: solo se llama dentro del respaldo Gemini apagado (`GEMINI_HABILITADO=1`); si se prende, hay que listarlo.
