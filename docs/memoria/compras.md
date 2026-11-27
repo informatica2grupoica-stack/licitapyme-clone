@@ -3,11 +3,17 @@
 Pantalla principal: `/compras/[negocioId]` (`ComprasChrome.tsx`). Traspasado desde la memoria
 personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-11-27 (11) — Fichas técnicas con varios modelos: basta con que UNO cumpla (pedido del dueño; sin commit ni desplegar)
+- Antes un solo modelo «No cumple» dejaba todo el producto en «No cumple». Ahora (`compras-fichas-estado.ts`): algún Cumple → Cumple (la fila dice cuál cumple si hay varios); si no, Falta dato; «No cumple» solo si no cumple ninguno; si queda uno sin comparar, «Sin comparar».
+- No cambia la tabla de aprobación (`compras-aprobacion-tabla.ts`), que juzga la ficha del proveedor que se compra.
+- Visto en Chrome en 759-30-LE26 (Dispensador de agua, 2 fichas: «cumple: LB205»). Riesgo: una opción sin proveedor, o a la que se le puso solo el único cotizado (p. ej. una ficha de la oferta traída con «Traer del proyecto»), también cuenta para el «Cumple»: revisar el modelo que dice la fila.
+
 ## 2026-11-27 (10) — Fichas técnicas: «Eliminar» y «Eliminar todas» en «Fichas subidas» (759-30-LE26; tsc y 3 pruebas OK; borrado NO probado con datos, sin commit ni desplegar)
 - El dueño no veía cómo borrar (solo había una ✕ chica dentro de cada producto): borrar un documento subido es básico y va a la vista, con confirmación.
 - `eliminarDocumentosDeFichas`: la ficha sale de todos los modelos `cmp:` y de pendientes / no-ficha / con error; el modelo sin fichas queda descartado. No borra archivo, cotización ni Auditor. No tiene «Deshacer»: se sube de nuevo.
 - Visto en Chrome (localhost) en 759-30-LE26: los botones se ven; no se borró nada porque Carolina Sepulveda estaba cargando fichas y el dueño dejó que siga.
-- Pendiente (dos «Por asignar»): en el JPG de Electron el Lector no recogió el título en blanco sobre azul («TERMO HERVIDOR 4,6 LTS · BA 6950 INX») y la dio por «dispensador de agua» sin marca ni modelo (va en Termo hervidor); en LB205 no hay sugerencia guardada y no se sabe por qué no se asignó (el `catch` de `procesarFicha` no guarda el motivo).
+- Actualización (27-nov 16:30): las 18 fichas de la carpeta quedaron cargadas, sin repetidas ni por asignar (Carolina cargó casi todas; RW7000 y WA700 se subieron por Chrome); no se borró ninguna. Sin comparar: Baño María, Rotizador de vienesas y Crepera. La opción de Termo hervidor quedó con modelo «dispensador de agua».
+- Pendiente (dos «Por asignar», ya asignadas; las fallas del Lector y del motivo siguen): en el JPG de Electron el Lector no recogió el título en blanco sobre azul («TERMO HERVIDOR 4,6 LTS · BA 6950 INX») y la dio por «dispensador de agua» sin marca ni modelo (va en Termo hervidor); en LB205 no hay sugerencia guardada y no se sabe por qué no se asignó (el `catch` de `procesarFicha` no guarda el motivo).
 
 ## 2026-11-27 (10) — ARREGLADOS en código los 2 errores del pareo global (dueño: «Sí, arréglalos»; tsc y 2096 pruebas OK; sin commit ni desplegar; NO se corrigió ningún dato)
 - Descuento doble: lo que escriben el pareo, la reparación de unidad y «Emparejar a mano» vuelve a precio de lista si `descuento_sobre_total = 1` (`precioBaseAGuardar`).

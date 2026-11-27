@@ -1,12 +1,13 @@
 'use client';
 
 // Solicitudes de alta que llegan del formulario público /registro. Solo el superusuario y los admin de Grupo ICA.
-// Aprobar crea la empresa y su administrador y muestra su clave temporal UNA vez; rechazar guarda el motivo.
+// Aprobar crea la empresa y su administrador y muestra UNA vez el enlace para que cree su clave; rechazar guarda el motivo.
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { AppLayout } from '@/app/components/AppLayout';
 import { useToast } from '@/app/components/ui/toast';
 import { Modal } from '@/app/components/ui/Modal';
+import { EnlaceBienvenida } from '@/app/components/EnlaceBienvenida';
 import { Boton } from '@/app/components/ui/kit/Boton';
 import { Encabezado, Esqueleto, Vacio } from '@/app/components/ui/kit/Estructura';
 import { NOMBRE_PLAN, PLANES, type Plan } from '@/app/lib/modulos';
@@ -31,7 +32,7 @@ export default function SolicitudesPage() {
   const [venceAt, setVenceAt] = useState('');
   const [motivo, setMotivo] = useState('');
   const [trabajando, setTrabajando] = useState(false);
-  const [entrega, setEntrega] = useState<{ email: string; clave: string; empresa: string } | null>(null);
+  const [entrega, setEntrega] = useState<{ email: string; clave: string; empresa: string; enlace: string | null } | null>(null);
 
   const cargar = useCallback(async () => {
     const d = await fetch('/api/admin/solicitudes').then(r => r.json()).catch(() => ({}));
@@ -57,7 +58,7 @@ export default function SolicitudesPage() {
     if (!aprobando) return;
     const { ok, d } = await post({ accion: 'aprobar', id: aprobando.id, plan, maxUsuarios: Number(maxUsuarios) || 1, venceAt: venceAt || null });
     if (!ok) { toast.error('No se pudo aprobar', d.error || 'Error'); return; }
-    setEntrega({ email: d.email, clave: d.clave, empresa: aprobando.razon_social });
+    setEntrega({ email: d.email, clave: d.clave, enlace: d.enlace ?? null, empresa: aprobando.razon_social });
     setAprobando(null); cargar();
   };
   const rechazar = async () => {
@@ -136,12 +137,21 @@ export default function SolicitudesPage() {
       </Modal>
 
       <Modal open={!!entrega} onClose={() => setEntrega(null)} size="md" title="Empresa creada" subtitle={entrega?.empresa}
-        footer={<Boton variante="primario" onClick={() => setEntrega(null)}>Listo, ya la copié</Boton>}>
-        <p className="text-sm text-slate-600">Entrégale estos datos de acceso. La clave <b>no se vuelve a mostrar</b> (solo queda cifrada); si se pierde, se genera otra desde la ficha de la empresa.</p>
-        <dl className="mt-3 space-y-2 rounded-lg bg-slate-50 p-3 text-sm dark:bg-slate-800">
-          <div><dt className="text-xs text-slate-500">Correo</dt><dd className="font-mono">{entrega?.email}</dd></div>
-          <div><dt className="text-xs text-slate-500">Clave temporal</dt><dd className="font-mono text-base">{entrega?.clave}</dd></div>
-        </dl>
+        footer={<Boton variante="primario" onClick={() => setEntrega(null)}>Listo, ya lo copié</Boton>}>
+        {entrega?.enlace ? (
+          <>
+            <p className="mb-3 text-sm text-slate-600">La empresa ya está creada. Envíale este enlace a su administrador: con él crea su propia clave e ingresa con su correo.</p>
+            <EnlaceBienvenida ruta={entrega.enlace} email={entrega.email} />
+          </>
+        ) : (
+          <>
+            <p className="text-sm text-slate-600">No se pudo crear el enlace. Entrégale estos datos de acceso. La clave <b>no se vuelve a mostrar</b>; si se pierde, genera un enlace desde la ficha de la empresa.</p>
+            <dl className="mt-3 space-y-2 rounded-lg bg-slate-50 p-3 text-sm dark:bg-slate-800">
+              <div><dt className="text-xs text-slate-500">Correo</dt><dd className="font-mono">{entrega?.email}</dd></div>
+              <div><dt className="text-xs text-slate-500">Clave temporal</dt><dd className="font-mono text-base">{entrega?.clave}</dd></div>
+            </dl>
+          </>
+        )}
       </Modal>
     </AppLayout>
   );

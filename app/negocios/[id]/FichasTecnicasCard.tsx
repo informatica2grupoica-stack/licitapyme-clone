@@ -18,6 +18,7 @@ import { Pestanas } from '@/app/components/ui/kit/Pestanas';
 import { Boton } from '@/app/components/ui/kit/Boton';
 import { Lista } from '@/app/components/ui/kit/Aparecer';
 import { urlDescarga } from '@/app/lib/descargas-cliente';
+import { estadoDeProductoConFichas } from '@/app/lib/compras-fichas-estado';
 import { useCompras } from '@/app/compras/[negocioId]/ComprasContext';
 import type { PanelFichasDTO, ProductoFichasDTO, OpcionFichaDTO, ResultadoRuteo, ProductoRuteado, FilaRequisito } from '@/app/lib/compras-fichas';
 
@@ -347,14 +348,7 @@ export function FichasTecnicasCard({ negocioId, puedeOperar, soloLectura = false
   if (panel.sinCosteo) return <p className="text-[13px] text-zinc-600 py-3">Este negocio no tiene un costeo con líneas, así que no hay requisitos ni productos contra los que comparar las fichas.</p>;
 
   const conFicha = panel.productos.filter(p => opcionesDeCompra(p).some(o => o.fichas.length > 0));
-  const estadoProducto = (p: ProductoFichasDTO) => {
-    const con = opcionesDeCompra(p).filter(o => o.fichas.length > 0);
-    if (!con.length) return null;
-    if (con.some(o => o.tecnico.estado === 'NO_CUMPLE')) return 'NO_CUMPLE';
-    if (con.every(o => o.tecnico.estado === 'CUMPLE')) return 'CUMPLE';
-    if (con.some(o => o.tecnico.estado === 'CON_PENDIENTES')) return 'CON_PENDIENTES';
-    return 'NO_CORRIDO';
-  };
+  const estadoProducto = (p: ProductoFichasDTO) => estadoDeProductoConFichas(opcionesDeCompra(p).filter(o => o.fichas.length > 0).map(o => o.tecnico.estado));
   // Todos los documentos subidos aquí (asignados o no), para verlos y bajarlos sin abrir producto por producto.
   const subidas = (() => {
     const m = new Map<string, FichaSubida>();
@@ -554,6 +548,7 @@ export function FichasTecnicasCard({ negocioId, puedeOperar, soloLectura = false
                       <span className="block text-[11.5px] text-zinc-500 truncate">
                         {p.cotizados.length ? `Cotizado por ${p.cotizados.map(c => c.proveedor).join(', ')}` : 'Sin cotización todavía'}
                         {conFichas.length ? ` · con ficha (${conFichas.reduce((n, o) => n + o.fichas.length, 0)})` : ' · sin ficha'}
+                        {conFichas.length > 1 && est === 'CUMPLE' ? ` · cumple: ${conFichas.filter(o => o.tecnico.estado === 'CUMPLE').map(o => `${nombreOpcion(o)}${o.proveedor ? ` (${o.proveedor})` : ''}`).join(', ')}` : ''}
                         {(() => { const ajenas = p.opciones.filter(o => !opcionesDeCompra(p).includes(o) && o.fichas.length > 0); return ajenas.length ? ` · ${ajenas.length} ficha(s) de un proveedor que no cotizó: revisa el proveedor` : ''; })()}
                       </span>
                     </span>

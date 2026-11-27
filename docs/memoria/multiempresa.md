@@ -151,6 +151,17 @@ Para cada módulo: tablas con dueño → todas sus rutas con chequeo de cliente 
 
 ## Bitácora
 
+## 2026-11-27 (34) — Enlace de bienvenida: cada persona crea su clave (en código, SIN subir ni desplegar)
+**Qué:** al aprobar una solicitud se entrega un enlace (la clave temporal solo aparece si el enlace falla); en la ficha → Usuarios hay «Enlace para crear clave» (solo personas activas de empresas-cliente; no cambia la clave hasta que se usa). Un solo uso, 72 h, en la base solo la huella, no queda en la bitácora; reutiliza `password_resets` y `/restablecer` (`enlace-clave.ts`), sin migración. **No envía correos** (requiere OK del dueño). `/restablecer` decía «ICA Licitaciones» a todas las empresas: ahora «LICITANK».
+**Regla:** pedir después «olvidé mi contraseña» anula el enlace de bienvenida (un enlace vivo por persona).
+**Verificado:** recorrido con base simulada y la ruta real; tsc limpio, 2.103 tests, aislamiento sin bloqueantes; en local, pantalla de enlace inválido. **No** probado con un enlace válido en pantalla ni en el servidor.
+**Falta:** el mismo enlace en «Mi equipo» y en el alta manual (hoy se genera desde la ficha); correo de bienvenida.
+
+## 2026-11-27 (33) — (30), (31) y (32) en git y desplegados
+**Estado:** `origin/master` (`87fcc48`) trae completo lo de (32); reemplaza el «a medias en git» y los «sin subir ni desplegar» de (30)–(32). Despliegue comprobado en `licitank.cl/registro` (muestra el texto nuevo). Producción al momento de mirar: ninguna empresa armada desde una descripción y sin solicitudes de alta, así que la versión intermedia (`aac9582`) no alcanzó a poner reglas restrictivas.
+**Sin ver en el servidor:** radar nuevo, recargo por empresa, Link 1, recuadro de descripción, Auditor con link.
+**Nota:** entró a git un temporal de otra sesión, `.tmp-espera.mjs` (sin claves escritas; se puede borrar).
+
 ## 2026-11-27 (32) — Empresas SIN ventas en Mercado Público: la plataforma se arma con lo que cuentan que venden
 **Qué:** en Mi empresa, sin historial, el admin describe lo que vende y se arma (o se sugiere, si ya tiene configuración propia) el radar y el perfil (`propuesta-descripcion.ts`, `POST /api/mi-empresa/configuracion/proponer`, máx. 5 al día; IA anotada a esa empresa con su tope). Si la evaluación por RUT termina sin ventas y la empresa escribió qué vende al pedir acceso (`cliente_solicitud.mensaje`), se usa eso sola.
 **Regla:** lo automático no restringe: tampoco las «reglas propias» que redacta la IA (probado: escribió «postular solo si el comprador es educacional»).

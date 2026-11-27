@@ -9,6 +9,7 @@ function RestablecerContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const token = searchParams.get('token') || '';
+  const bienvenida = searchParams.get('bienvenida') === '1'; // enlace de alta: cambia solo los textos
 
   const [estado, setEstado] = useState<'verificando' | 'valido' | 'invalido' | 'listo'>('verificando');
   const [form, setForm] = useState({ password: '', confirm: '' });
@@ -58,7 +59,7 @@ function RestablecerContent() {
           <div className="inline-flex items-center justify-center w-12 h-12 bg-teal-600 rounded-2xl shadow-lg mb-3">
             <Building2 size={22} className="text-white" />
           </div>
-          <h1 className="text-xl font-semibold text-slate-900">ICA Licitaciones</h1>
+          <h1 className="text-xl font-semibold text-slate-900">LICITANK</h1>
         </div>
 
         {estado === 'verificando' && (
@@ -75,7 +76,7 @@ function RestablecerContent() {
             </div>
             <h2 className="text-lg font-semibold text-slate-900 mb-2">Enlace no válido</h2>
             <p className="text-[13px] text-slate-500 leading-relaxed">
-              Este enlace venció o ya fue usado. Solicita uno nuevo desde la pantalla de recuperación.
+              {bienvenida ? 'Este enlace de bienvenida venció o ya fue usado. Si ya creaste tu clave, inicia sesión; si no, pide un enlace nuevo a quien te lo envió o usa la recuperación.' : 'Este enlace venció o ya fue usado. Solicita uno nuevo desde la pantalla de recuperación.'}
             </p>
             <Link href="/recuperar" className="inline-flex items-center gap-1.5 mt-6 text-[13px] text-teal-600 hover:text-teal-800 font-semibold">
               <KeyRound size={14} /> Pedir un enlace nuevo
@@ -88,16 +89,16 @@ function RestablecerContent() {
             <div className="inline-flex items-center justify-center w-12 h-12 bg-green-50 rounded-full mb-4">
               <CheckCircle size={24} className="text-green-600" />
             </div>
-            <h2 className="text-lg font-semibold text-slate-900 mb-2">Contraseña actualizada</h2>
-            <p className="text-[13px] text-slate-500 leading-relaxed">Ya puedes iniciar sesión con tu clave nueva. Te llevamos al inicio...</p>
+            <h2 className="text-lg font-semibold text-slate-900 mb-2">{bienvenida ? 'Tu clave quedó creada' : 'Contraseña actualizada'}</h2>
+            <p className="text-[13px] text-slate-500 leading-relaxed">{bienvenida ? 'Ingresa con tu correo y esa clave. Te llevamos al inicio de sesión...' : 'Ya puedes iniciar sesión con tu clave nueva. Te llevamos al inicio...'}</p>
           </div>
         )}
 
         {estado === 'valido' && (
           <>
             <div className="mb-6">
-              <h2 className="text-2xl font-semibold text-slate-900 mb-1">Crea tu contraseña</h2>
-              <p className="text-[13px] text-slate-500">Elige una clave nueva de al menos 8 caracteres.</p>
+              <h2 className="text-2xl font-semibold text-slate-900 mb-1">{bienvenida ? 'Te damos la bienvenida' : 'Crea tu contraseña'}</h2>
+              <p className="text-[13px] text-slate-500">{bienvenida ? 'Crea tu clave de al menos 8 caracteres. Después ingresas con tu correo.' : 'Elige una clave nueva de al menos 8 caracteres.'}</p>
             </div>
 
             {error && (

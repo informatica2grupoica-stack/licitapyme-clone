@@ -12,6 +12,7 @@ import { Encabezado, Esqueleto, Vacio } from '@/app/components/ui/kit/Estructura
 import { SelectorAprobaciones } from '@/app/components/AprobacionesAuditor';
 import type { OpcionesEmpresa } from '@/app/lib/opciones-empresa-core';
 import { CampoRecargo } from '@/app/components/RecargoCosteo';
+import { EnlaceBienvenida } from '@/app/components/EnlaceBienvenida';
 import { CriteriosViabilidadForm } from '@/app/components/CriteriosViabilidad';
 import type { ConfigViabilidadEmpresa } from '@/app/lib/cv/viabilidad-empresa-core';
 import { NOMBRE_MODULO, NOMBRE_PLAN, PLANES, type Modulo, type Plan } from '@/app/lib/modulos';
@@ -183,6 +184,13 @@ function Ficha({ c, tab, setTab, catalogo, activables, planes, puedeBorrar, bita
     if (!r.ok) { toast.error('No se pudo', d.error || `HTTP ${r.status}`); return false; }
     toast.success(ok); cargar(); leerEquipo(); return true;
   };
+  const [enlace, setEnlace] = useState<{ id: number; ruta: string } | null>(null);
+  const pedirEnlace = async (u: { id: number }) => {
+    const r = await fetch('/api/admin/clientes', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ accion: 'usuario_enlace', usuarioId: u.id }) });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || !d.enlace) { toast.error('No se pudo crear el enlace', d.error || `HTTP ${r.status}`); return; }
+    setClaveNueva(null); setEnlace({ id: u.id, ruta: d.enlace });
+  };
   const poner = async (u: { id: number; email?: string }) => {
     if (!window.confirm('Esto cambia la clave de ' + (u.email || 'este usuario') + ' ahora mismo. ¿Continuar?')) return;
     const abc = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789';
@@ -292,9 +300,11 @@ function Ficha({ c, tab, setTab, catalogo, activables, planes, puedeBorrar, bita
                     <div className="min-w-0"><p className="truncate text-[13px] font-medium text-tinta dark:text-slate-200">{u.nombre}</p><p className="truncate text-xs text-tinta-2 dark:text-slate-400">{u.email}</p></div>
                     <div className="flex shrink-0 items-center gap-2">
                       <span className="text-xs text-tinta-2 dark:text-slate-400">{u.rol === 'admin' ? 'Admin' : 'Usuario'}{u.activo ? '' : ' · inactivo'}</span>
+                      {!!u.activo && <Boton tamano="sm" onClick={() => pedirEnlace(u)}>Enlace para crear clave</Boton>}
                       <Boton tamano="sm" onClick={() => poner(u)}>Nueva clave</Boton>
                       <Boton tamano="sm" variante={u.activo ? 'secundario' : 'primario'} onClick={() => accionUsuario({ accion: 'usuario_estado', usuarioId: u.id, activo: !u.activo }, u.activo ? 'Usuario desactivado' : 'Usuario activado')}>{u.activo ? 'Desactivar' : 'Activar'}</Boton>
                     </div>
+                    {enlace?.id === u.id && <div className="basis-full rounded-lg border border-teal-200 bg-teal-50/60 p-2.5 dark:border-teal-900 dark:bg-teal-900/10"><EnlaceBienvenida ruta={enlace.ruta} email={u.email} /></div>}
                     {claveNueva?.id === u.id && (
                       <div className="basis-full rounded-lg border border-teal-200 bg-teal-50/60 p-2.5 text-xs text-slate-700 dark:border-teal-900 dark:bg-teal-900/10 dark:text-slate-300">
                         Clave temporal de {u.email}: <b className="select-all font-mono text-[13px]">{claveNueva.clave}</b>

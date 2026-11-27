@@ -8,6 +8,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
 import { cerrarSesionesDeUsuario } from '@/app/lib/sesiones-revocadas';
+import { crearEnlaceBienvenida } from '@/app/lib/enlace-clave';
 import pool from '@/app/lib/db';
 import { olvidarFichaCliente, CLIENTE_ICA } from '@/app/lib/tenant';
 import { encolarEvaluacion, leerEvaluacion, rutsDeCliente } from '@/app/lib/evaluar-empresa-rut';
@@ -119,7 +120,7 @@ export async function POST(req: NextRequest) {
   }
 
   // Activar/desactivar a una persona de una empresa-cliente, o ponerle una clave temporal nueva. Solo usuarios de empresas-cliente (nunca de ICA).
-  if (b.accion === 'usuario_estado' || b.accion === 'usuario_clave') {
+  if (b.accion === 'usuario_estado' || b.accion === 'usuario_clave' || b.accion === 'usuario_enlace') {
     const uid = Number(b.usuarioId);
     const [[uu]] = await pool.query('SELECT u.id, u.email, u.activo, u.cliente_id, c.max_usuarios FROM usuarios u JOIN clientes c ON c.id = u.cliente_id WHERE u.id = ? LIMIT 1', [uid]) as any;
     if (!uu || Number(uu.cliente_id) === CLIENTE_ICA) return NextResponse.json({ error: 'Usuario no válido' }, { status: 400 });
@@ -132,6 +133,13 @@ export async function POST(req: NextRequest) {
       await pool.query('UPDATE usuarios SET activo = ? WHERE id = ?', [activar ? 1 : 0, uid]);
       await bitacora(Number(uu.cliente_id), g.u!.id, activar ? 'usuario_activar' : 'usuario_desactivar', { email: uu.email });
       return NextResponse.json({ success: true });
+    }
+    // Enlace para que la persona cree su clave: no cambia la actual hasta que lo use.
+    if (b.accion === 'usuario_enlace') {
+      if (!uu.activo) return NextResponse.json({ error: 'Activa a la persona antes de crear su enlace.' }, { status: 409 });
+      const enlace = await crearEnlaceBienvenida(uid);
+      await bitacora(Number(uu.cliente_id), g.u!.id, 'usuario_enlace', { email: uu.email }); // el enlace nunca se guarda en la bitácora
+      return NextResponse.json({ success: true, enlace });
     }
     const cl = String(b.clave || '');
     if (cl.length < 8) return NextResponse.json({ error: 'La clave necesita al menos 8 caracteres' }, { status: 400 });
