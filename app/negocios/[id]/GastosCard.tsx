@@ -12,7 +12,7 @@ import { IconReceipt as Receipt, IconLoader2 as Loader2, IconPlus as Plus, IconX
 interface Gasto {
   id: number; categoriaClave: string | null; categoriaEtiqueta: string | null;
   descripcion: string; monto: number; moneda: string; fechaGasto: string | null;
-  comprobanteUrl: string | null; ocObumaFolio: string | null; registradoPorNombre: string | null; createdAt: string;
+  comprobanteUrl: string | null; ocObumaFolio: string | null; cantidad?: number | null; precioUnitario?: number | null; registradoPorNombre: string | null; createdAt: string;
 }
 interface Categoria { clave: string; etiqueta: string }
 /** Línea de gasto de una OC que ya existe en Obuma y todavía no está anotada. */
@@ -52,11 +52,11 @@ export function GastosCard({ negocioId, puedeOperar }: { negocioId: number; pued
 
   const crear = async () => {
     if (!form.descripcion.trim() || !form.monto) return;
-    // Con cantidad (más de 1), «monto» es el precio por unidad: se guarda el total y la cuenta queda en la descripción.
+    // Con cantidad (más de 1), «monto» es el precio por unidad: se manda el total y la cantidad (el unitario lo deriva el servidor).
     const cant = Number(form.cantidad.replace(',', '.')) || 1;
     const unitario = Number(form.monto);
     const montoTotal = cant > 1 ? Math.round(unitario * cant * 100) / 100 : unitario;
-    const descripcionFinal = cant > 1 ? `${form.descripcion.trim()} (${cant.toLocaleString('es-CL')} × ${unitario.toLocaleString('es-CL')})` : form.descripcion.trim();
+    const descripcionFinal = form.descripcion.trim();
     setGuardando(true);
     try {
       let res: Response;
@@ -67,6 +67,7 @@ export function GastosCard({ negocioId, puedeOperar }: { negocioId: number; pued
         else if (form.categoriaLibre.trim()) fd.set('categoriaLibre', form.categoriaLibre.trim());
         fd.set('descripcion', descripcionFinal);
         fd.set('monto', String(montoTotal));
+        if (cant > 1) fd.set('cantidad', String(cant));
         fd.set('moneda', form.moneda);
         if (form.fechaGasto) fd.set('fechaGasto', form.fechaGasto);
         if (ocElegida) fd.set('ocObumaFolio', ocElegida);
@@ -76,7 +77,7 @@ export function GastosCard({ negocioId, puedeOperar }: { negocioId: number; pued
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             categoriaClave: form.categoriaClave || null, categoriaLibre: form.categoriaClave ? null : (form.categoriaLibre.trim() || null),
-            descripcion: descripcionFinal, monto: montoTotal, moneda: form.moneda, fechaGasto: form.fechaGasto || null,
+            descripcion: descripcionFinal, monto: montoTotal, cantidad: cant > 1 ? cant : null, moneda: form.moneda, fechaGasto: form.fechaGasto || null,
             ocObumaFolio: ocElegida,
           }),
         });
@@ -238,6 +239,7 @@ export function GastosCard({ negocioId, puedeOperar }: { negocioId: number; pued
                 <p className="text-[12px] text-zinc-800">
                   {g.categoriaEtiqueta && <span className="text-[9.5px] font-semibold text-zinc-500 bg-zinc-100 border border-zinc-200 px-1.5 py-0.5 rounded-full mr-1.5">{g.categoriaEtiqueta}</span>}
                   {g.descripcion}
+                  {g.cantidad != null && g.cantidad > 1 && g.precioUnitario != null && <span className="text-[11px] text-zinc-500 ml-1.5 tabular-nums" data-testid="gasto-cantidad-detalle">({g.cantidad.toLocaleString('es-CL')} × {fmtCLP(g.precioUnitario)})</span>}
                   {g.ocObumaFolio && <span className="text-[9.5px] font-medium text-teal-700 ml-1.5">OC Obuma {g.ocObumaFolio}</span>}
                 </p>
                 <p className="text-[10.5px] text-zinc-400">

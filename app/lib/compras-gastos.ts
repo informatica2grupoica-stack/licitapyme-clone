@@ -43,6 +43,8 @@ export interface DatosGasto {
   fechaGasto?: string | null; comprobanteUrl?: string | null; notas?: string | null;
   /** Folio de la OC de Obuma que ya respalda este gasto (se enlaza, no se crea otra). */
   ocObumaFolio?: string | null;
+  /** Cantidad y precio neto por unidad (migration-211). `monto` es siempre el total. Solo cuando la cantidad es mayor que 1. */
+  cantidad?: number | null; precioUnitario?: number | null;
 }
 
 /** Las líneas de gasto (transporte, flete, armado…) de las OC vigentes de Obuma que aún no tienen gasto anotado. */
@@ -91,13 +93,16 @@ export async function registrarGasto(
   datos = { ...datos, monto: validarMontoCLP(datos.monto, 'El monto en pesos') };   // ya convertido a pesos: nada que la base recorte en silencio
   const ahora = ahoraChileSQL();
   // La columna del enlace solo entra al INSERT cuando hay OC: sin migration-176 los gastos normales se siguen guardando.
+  // Cantidad y unitario (migration-211) también entran solo cuando hay cantidad > 1. En USD el unitario se pasa a pesos con el mismo tipo de cambio.
+  const cant = datos.cantidad != null && Number.isFinite(datos.cantidad) && datos.cantidad > 1 ? Math.round(datos.cantidad * 100) / 100 : null;
+  const unitarioCLP = cant ? Math.round((datos.monto / cant) * 100) / 100 : null;
   const [r] = await pool.query(
     `INSERT INTO compras_gasto
-       (negocio_id, categoria_clave, descripcion, monto, moneda, fecha_gasto, comprobante_url, ${ocFolio ? 'oc_obuma_folio, ' : ''}notas,
+       (negocio_id, categoria_clave, descripcion, monto, ${cant ? 'cantidad, precio_unitario, ' : ''}moneda, fecha_gasto, comprobante_url, ${ocFolio ? 'oc_obuma_folio, ' : ''}notas,
         registrado_por, registrado_por_nombre, created_at)
-     VALUES (?,?,?,?,?,?,?,${ocFolio ? '?,' : ''}?,?,?,?)`,
+     VALUES (?,?,?,?,${cant ? '?,?,' : ''}?,?,?,${ocFolio ? '?,' : ''}?,?,?,?)`,
     [
-      negocioId, datos.categoriaClave || null, datos.descripcion.slice(0, 500), datos.monto,
+      negocioId, datos.categoriaClave || null, datos.descripcion.slice(0, 500), datos.monto, ...(cant ? [cant, unitarioCLP] : []),
       datos.moneda || 'CLP', datos.fechaGasto || null, datos.comprobanteUrl || null, ...(ocFolio ? [ocFolio] : []), datos.notas || null,
       actorId, actorNombre, ahora,
     ],
@@ -130,12 +135,13 @@ export interface GastoFila {
   id: number; categoriaClave: string | null; categoriaEtiqueta: string | null;
   descripcion: string; monto: number; moneda: string; fechaGasto: string | null;
   comprobanteUrl: string | null; notas: string | null; ocObumaFolio: string | null;
+  cantidad: number | null; precioUnitario: number | null;
   registradoPorNombre: string | null; createdAt: string;
 }
 
 export async function listarGastos(negocioId: number): Promise<GastoFila[]> {
-  const consulta = (colOc: string) => pool.query(
-    `SELECT g.id, g.categoria_clave, c.etiqueta AS categoria_etiqueta, g.descripcion, g.monto, g.moneda,
+  const consulta = (colOc: string, colCant = 'NULL AS cantidad, NULL AS precio_unitario') => pool.query(
+    `SELECT g.id, g.categoria_clave, c.etiqueta AS categoria_etiqueta, g.descripcion, g.monto, g.moneda, ${colCant},
             DATE_FORMAT(g.fecha_gasto, '%Y-%m-%d') AS fecha_gasto, g.comprobante_url, ${colOc} AS oc_obuma_folio, g.notas,
             g.registrado_por_nombre, DATE_FORMAT(g.created_at, '%Y-%m-%d %H:%i:%s') AS created_at
        FROM compras_gasto g LEFT JOIN compras_gasto_categoria c ON c.clave = g.categoria_clave
@@ -143,11 +149,17 @@ export async function listarGastos(negocioId: number): Promise<GastoFila[]> {
     [negocioId],
   ) as Promise<any>;
   // migration-176 pendiente en un entorno viejo: la lista carga igual, sin el enlace a la OC.
-  const [rows] = await consulta('g.oc_obuma_folio').catch(() => consulta('NULL'));
+  // Igual con migration-211 (cantidad/precio_unitario): se prueba con todo y se va cayendo a lo que la base tenga.
+  const COL_CANT = 'g.cantidad, g.precio_unitario';
+  const [rows] = await consulta('g.oc_obuma_folio', COL_CANT)
+    .catch(() => consulta('g.oc_obuma_folio'))
+    .catch(() => consulta('NULL', COL_CANT))
+    .catch(() => consulta('NULL'));
   return (rows as any[]).map(r => ({
     id: r.id, categoriaClave: r.categoria_clave, categoriaEtiqueta: r.categoria_etiqueta,
     descripcion: r.descripcion, monto: Number(r.monto), moneda: r.moneda, fechaGasto: r.fecha_gasto,
     comprobanteUrl: r.comprobante_url, notas: r.notas, ocObumaFolio: r.oc_obuma_folio ?? null,
+    cantidad: r.cantidad != null ? Number(r.cantidad) : null, precioUnitario: r.precio_unitario != null ? Number(r.precio_unitario) : null,
     registradoPorNombre: r.registrado_por_nombre, createdAt: r.created_at,
   }));
 }

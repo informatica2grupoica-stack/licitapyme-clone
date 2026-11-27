@@ -16,9 +16,9 @@ type Tipo = 'FLETE' | 'ADICIONAL' | 'COMBUSTIBLE';
 interface Servicio { id: number; descripcion: string; cantidad: number | null; esServicio: boolean; servicioTipo: Tipo | null; subestado: string }
 interface Rapida { productoId: number; estado: 'PENDIENTE' | 'APROBADA' | 'RECHAZADA'; proveedorNombre: string | null; proveedorRut: string | null; precioUnitario: number | null; comentario: string | null; resueltoPorNombre: string | null }
 interface Cotizacion { id: number; archivoUrl: string | null; items: Array<{ productoId: number }> }
-type Form = { tipo: Tipo | null; nombre: string; proveedor: string; rut: string; precio: string; comb: string; litros: string; netoComb: string; impuesto: string; patente: string; totalFact: string };
+type Form = { tipo: Tipo | null; nombre: string; proveedor: string; rut: string; precio: string; cantidad: string; comb: string; litros: string; netoComb: string; impuesto: string; patente: string; totalFact: string };
 interface CargaVista extends CargaCombustible { productoId: number }
-const FORM_VACIO: Form = { tipo: null, nombre: '', proveedor: '', rut: '', precio: '', comb: 'DIESEL', litros: '', netoComb: '', impuesto: '', patente: '', totalFact: '' };
+const FORM_VACIO: Form = { tipo: null, nombre: '', proveedor: '', rut: '', precio: '', cantidad: '', comb: 'DIESEL', litros: '', netoComb: '', impuesto: '', patente: '', totalFact: '' };
 
 const clp = (n: number) => `$${Math.round(n).toLocaleString('es-CL')}`;
 const monto = (t: string): number | null => { const n = Number(String(t).replace(/[^\d,.-]/g, '').replace(/\./g, '').replace(',', '.')); return Number.isFinite(n) && n > 0 ? n : null; };
@@ -126,12 +126,14 @@ export function ServiciosConSkuCard({ negocioId, puedeOperar }: { negocioId: num
     if (!proveedor) return toast.error('Falta el proveedor', 'Es obligatorio para crear el SKU y emitir la OC.');
     if (!rutValido(rut)) return toast.error('El RUT del proveedor no es válido', 'Escríbelo con dígito verificador, por ejemplo 76.123.456-7.');
     if (precio == null) return toast.error('Falta el precio', 'Pon el precio neto (sin IVA).');
+    // Cantidad (flete/adicional): el precio que se escribe es POR UNIDAD y el ítem se compra por esa cantidad (sin cantidad = 1).
+    const cantidad = esComb ? 1 : (monto(form.cantidad) ?? 1);
     setGuardando(true);
     try {
       // 1 · El ítem (servicio: no va al costeo).
       const r = await fetch(`/api/compras/${negocioId}/productos`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ accion: 'agregar_servicio', tipo: form.tipo, descripcion: nombre, cantidad: 1, unidad: null, ...(carga ? { combustible: { ...carga, totalFactura } } : {}) }),
+        body: JSON.stringify({ accion: 'agregar_servicio', tipo: form.tipo, descripcion: nombre, cantidad, unidad: null, ...(carga ? { combustible: { ...carga, totalFactura } } : {}) }),
       });
       const d = await r.json();
       if (!r.ok || !d.success || !d.productoId) throw new Error(d.error || 'No se pudo crear el ítem');
@@ -221,7 +223,7 @@ export function ServiciosConSkuCard({ negocioId, puedeOperar }: { negocioId: num
                       {c.litros.toLocaleString('es-CL')} L · neto {clp(c.netoAfecto)} + impuesto específico {clp(c.impuestoEspecifico)} (exento) = <b className="text-zinc-700">{clp(k.costo)}</b> de costo · IVA {clp(k.iva)} (crédito) · total factura {clp(k.totalFactura)}{c.patente ? ` · ${c.patente}` : ''}
                     </p>
                   ); })()}
-                  <p className="text-[12px] text-zinc-500">{r.proveedorNombre} · {r.proveedorRut || 'sin RUT'} · <b className="text-zinc-800 tabular-nums">{r.precioUnitario != null ? clp(r.precioUnitario) : 'sin precio'}</b> neto</p>
+                  <p className="text-[12px] text-zinc-500">{r.proveedorNombre} · {r.proveedorRut || 'sin RUT'} · <b className="text-zinc-800 tabular-nums">{r.precioUnitario != null ? clp(r.precioUnitario * ((s.cantidad ?? 1) > 1 ? s.cantidad! : 1)) : 'sin precio'}</b> neto{(s.cantidad ?? 1) > 1 && r.precioUnitario != null && <span className="text-zinc-500 tabular-nums"> ({s.cantidad!.toLocaleString('es-CL')} × {clp(r.precioUnitario)})</span>}</p>
                   {r.estado === 'RECHAZADA' && <p className="text-[12px] text-rose-700">Rechazado{r.resueltoPorNombre ? ` por ${r.resueltoPorNombre}` : ''}: {r.comentario}</p>}
                   {r.estado === 'APROBADA' && <p className="text-[12px] text-zinc-500">Créale el SKU en «Aprobación y SKU» y emite la OC en «Órdenes y facturas».</p>}
                 </div>
@@ -289,7 +291,11 @@ export function ServiciosConSkuCard({ negocioId, puedeOperar }: { negocioId: num
               <div className="flex items-center gap-2 flex-wrap">
                 <input value={form.proveedor} onChange={e => set({ proveedor: e.target.value })} placeholder="Proveedor (nombre)" aria-label="Proveedor" className={`${campo} w-64`} />
                 <input value={form.rut} onChange={e => cambiarRut(e.target.value)} placeholder="RUT del proveedor" aria-label="RUT del proveedor" className={`${campo} w-40`} />
-                {form.tipo !== 'COMBUSTIBLE' && <input value={form.precio} onChange={e => set({ precio: e.target.value })} inputMode="numeric" placeholder="Precio neto (sin IVA)" aria-label="Precio neto" className={`${campo} w-44`} />}
+                {form.tipo !== 'COMBUSTIBLE' && <input value={form.cantidad} onChange={e => set({ cantidad: e.target.value })} inputMode="decimal" placeholder="Cantidad (opcional)" aria-label="Cantidad" data-testid="con-sku-cantidad" className={`${campo} w-36`} />}
+                {form.tipo !== 'COMBUSTIBLE' && <input value={form.precio} onChange={e => set({ precio: e.target.value })} inputMode="numeric" placeholder={(monto(form.cantidad) ?? 1) > 1 ? 'Precio neto por unidad' : 'Precio neto (sin IVA)'} aria-label="Precio neto" className={`${campo} w-44`} />}
+                {form.tipo !== 'COMBUSTIBLE' && (monto(form.cantidad) ?? 1) > 1 && monto(form.precio) != null && (
+                  <span className="basis-full text-[11.5px] text-zinc-600 tabular-nums" data-testid="con-sku-total">Total neto: <b>{clp(monto(form.precio)! * monto(form.cantidad)!)}</b> ({monto(form.cantidad)!.toLocaleString('es-CL')} × {clp(monto(form.precio)!)})</span>
+                )}
                 {provInfo && (
                   <span className={`basis-full text-[11.5px] ${provInfo.estado === 'no_existe' ? 'text-amber-700' : provInfo.estado === 'error' ? 'text-zinc-500' : 'text-emerald-700'}`}>
                     {provInfo.estado === 'cargando' && 'Buscando proveedor…'}

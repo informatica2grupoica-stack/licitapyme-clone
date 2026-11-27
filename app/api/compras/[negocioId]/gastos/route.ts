@@ -85,6 +85,7 @@ async function __POST(request: NextRequest, { params }: Params) {
         comprobanteUrl,
         notas: (form.get('notas') as string) || null,
         ocObumaFolio: (form.get('ocObumaFolio') as string) || null,
+        cantidad: form.get('cantidad') ? Number(form.get('cantidad')) : null,
       };
     } else {
       const body = await request.json();
@@ -93,6 +94,7 @@ async function __POST(request: NextRequest, { params }: Params) {
         categoriaClave: body.categoriaClave || null, descripcion: String(body.descripcion || '').trim(),
         monto: Number(body.monto || 0), moneda: body.moneda || 'CLP', fechaGasto: body.fechaGasto || null,
         comprobanteUrl: null, notas: body.notas || null, ocObumaFolio: body.ocObumaFolio || null,
+        cantidad: body.cantidad != null ? Number(body.cantidad) : null,
       };
     }
 
