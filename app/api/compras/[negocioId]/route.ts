@@ -6,7 +6,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { clienteDeNegocio } from '@/app/lib/tenant';
 import pool from '@/app/lib/db';
 import { permisosCrudosDeUsuario } from '@/app/lib/api-auth';
-import { armarRelojAutomatico, obtenerAsignacion, listarTareas, candidatosEncargado, crearTareasCatalogoSiCorresponde, obtenerResumenFases, obtenerHitosGantt, negociosConCompraAprobada, esAuditorAcotado, sincronizarTareaOcProveedores } from '@/app/lib/compras';
+import { obtenerAsignacion, listarTareas, candidatosEncargado, crearTareasCatalogoSiCorresponde, obtenerResumenFases, obtenerHitosGantt, negociosConCompraAprobada, esAuditorAcotado, sincronizarTareaOcProveedores } from '@/app/lib/compras';
 import { ordenesDeLicitacion } from '@/app/lib/ordenes-compra';
 import { facturacionActaGuardada } from '@/app/lib/acta-adjudicacion';
 
@@ -89,11 +89,9 @@ export async function GET(request: NextRequest, { params }: Params) {
 
     // Backfill perezoso: negocios asignados antes de que existiera una tarea nueva en el catálogo
     // (ej. "contacto_pagos", §17.3) nunca la sembraron. Idempotente.
-    // El reloj de entrega se arma solo cuando ya hay inicio real del plazo (no pisa uno ya fijado).
-    // Tareas y reloj no dependen entre sí: van a la vez.
+    // Las dos no dependen entre sí: van a la vez.
     await Promise.all([
       asignacion.asignadoA != null ? crearTareasCatalogoSiCorresponde(id, asignacion.asignadoA, asignacion.asignadoNombre).catch(() => {}) : null,
-      armarRelojAutomatico(id),
       sincronizarTareaOcProveedores(id),
     ]);
 

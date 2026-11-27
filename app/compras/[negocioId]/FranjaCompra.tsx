@@ -1,63 +1,20 @@
 'use client';
 
-// FRANJA FIJA del módulo de Compras: lo que el encargado necesita ver en TODOS los pasos sin
-// buscarlo — el reloj de entrega (cuándo vence, cuántos días quedan o si falta confirmarlo) y las
-// incidencias abiertas. Antes el reloj vivía enterrado en el paso "Tareas" y no era una tarea.
-import { RELOJ_ENTREGA_ACTIVO } from '@/app/lib/compras-reloj-activo';
-import { useEffect, useState } from 'react';
-import { IconClock as Clock, IconAlertTriangle as AlertTriangle, IconWand as Sparkles, IconChevronRight as Chevron } from '@tabler/icons-react';
+// FRANJA de Compras: aviso de incidencias abiertas, a la vista en todos los pasos.
+import { IconAlertTriangle as AlertTriangle } from '@tabler/icons-react';
 
-interface RelojMin { fijadoAt: string | null; fechaLimiteVigente: string | null; diasRestantes: number | null; color: 'VERDE' | 'AMARILLO' | 'ROJO' | 'VENCIDO' | 'ENTREGADO' | null; entregado: { aTiempo: boolean } | null }
-
-const ESTILO: Record<string, string> = {
-  VERDE: 'border-emerald-200 bg-emerald-50/60 text-emerald-800', AMARILLO: 'border-amber-300 bg-amber-50 text-amber-800',
-  ROJO: 'border-rose-300 bg-rose-50 text-rose-800', VENCIDO: 'border-rose-400 bg-rose-100 text-rose-900', ENTREGADO: 'border-emerald-300 bg-emerald-50 text-emerald-800',
-};
-const dmy = (s: string) => s.split('-').reverse().join('-');
-const dm = (s: string) => s.split('-').reverse().slice(0, 2).join('-');
-
-export function FranjaCompra({ negocioId, incidenciasAbiertas, onIrEntrega, onIrIncidencias, version, compacto = false, ocultarIncidencias = false }: {
-  negocioId: number; incidenciasAbiertas: number; onIrEntrega: () => void; onIrIncidencias: () => void; version: number;
-  // compacto: chips chicos para ir dentro de otra franja; ocultarIncidencias: esa franja ya habla de las incidencias.
-  compacto?: boolean; ocultarIncidencias?: boolean;
+export function FranjaCompra({ incidenciasAbiertas, onIrIncidencias, ocultar = false }: {
+  incidenciasAbiertas: number; onIrIncidencias: () => void;
+  // ocultar: la franja que la contiene ya habla de las incidencias.
+  ocultar?: boolean;
 }) {
-  const [reloj, setReloj] = useState<RelojMin | null>(null);
-  const [haySugerido, setHaySugerido] = useState(false);
-
-  useEffect(() => {
-    let vivo = true;
-    fetch(`/api/compras/${negocioId}/reloj`).then(r => r.json()).then(d => {
-      if (!vivo || !d?.success) return;
-      setReloj(d.reloj); setHaySugerido(!!d.sugerido);
-    }).catch(() => {});
-    return () => { vivo = false; };
-  }, [negocioId, version]);
-
-  if (!reloj) return null;
-  const fijado = !!reloj.fijadoAt && reloj.color;
+  if (incidenciasAbiertas <= 0 || ocultar) return null;
   return (
     <div className="flex flex-wrap items-center gap-2" data-testid="franja-compra">
-      {RELOJ_ENTREGA_ACTIVO && (
-      <button type="button" onClick={onIrEntrega}
-        className={`inline-flex items-center gap-2 ${compacto ? 'text-[12px] px-2.5 py-1.5' : 'text-[13px] px-3 py-2'} font-semibold rounded-lg border transition-colors hover:shadow-sm ${fijado ? ESTILO[reloj.color!] : haySugerido ? 'border-teal-300 bg-teal-50 text-teal-800' : 'border-linea dark:border-slate-800 bg-white dark:bg-slate-900 text-tinta-2 dark:text-slate-400'}`}>
-        {fijado ? <Clock size={15} /> : haySugerido ? <Sparkles size={15} /> : <Clock size={15} />}
-        {fijado
-          ? (reloj.color === 'ENTREGADO'
-              ? (reloj.entregado?.aTiempo ? 'Entregado a tiempo' : 'Entregado con atraso')
-              : reloj.color === 'VENCIDO'
-                ? `Plazo de entrega vencido (${reloj.fechaLimiteVigente ? dmy(reloj.fechaLimiteVigente) : ''})`
-                : compacto ? `Entrega ${dm(reloj.fechaLimiteVigente!)} · ${reloj.diasRestantes} día${reloj.diasRestantes === 1 ? '' : 's'}`
-                : `Entrega vence el ${dmy(reloj.fechaLimiteVigente!)} · quedan ${reloj.diasRestantes} día${reloj.diasRestantes === 1 ? '' : 's'}`)
-          : haySugerido ? 'Plazo de entrega calculado: confírmalo' : 'Plazo de entrega: falta la OC aceptada'}
-        <Chevron size={14} className="opacity-60" />
+      <button type="button" onClick={onIrIncidencias}
+        className="inline-flex items-center gap-1.5 text-[12px] px-2.5 py-1.5 font-semibold rounded-lg border border-rose-300 bg-rose-50 text-rose-800 hover:shadow-sm transition-colors">
+        <AlertTriangle size={14} /> {incidenciasAbiertas} incidencia{incidenciasAbiertas === 1 ? '' : 's'}
       </button>
-      )}
-      {incidenciasAbiertas > 0 && !ocultarIncidencias && (
-        <button type="button" onClick={onIrIncidencias}
-          className={`inline-flex items-center gap-1.5 ${compacto ? 'text-[12px] px-2.5 py-1.5' : 'text-[13px] px-3 py-2'} font-semibold rounded-lg border border-rose-300 bg-rose-50 text-rose-800 hover:shadow-sm transition-colors`}>
-          <AlertTriangle size={14} /> {incidenciasAbiertas} incidencia{incidenciasAbiertas === 1 ? '' : 's'}{compacto ? '' : ` abierta${incidenciasAbiertas === 1 ? '' : 's'}`}
-        </button>
-      )}
     </div>
   );
 }

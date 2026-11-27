@@ -17,6 +17,7 @@
 // Respaldo automático (cfgTextoRespaldos en gemini.ts): otro modelo GLM más liviano, luego
 // DeepSeek. Gemini fuera de la plataforma (25-nov-2026).
 
+import { sinTareasRetiradas } from '@/app/lib/compras-tareas-retiradas';
 import pool from './db';
 import { crearChatIAChatbot, MOTOR_CHAT } from './chat-ia';
 import { ocrTieneHuecos } from './zai-ocr';
@@ -324,7 +325,7 @@ export async function construirContextoProyecto(codigo: string, clienteId: numbe
 
   await filas('COMPRAS: TAREAS (estado, responsable, plazo)',
     `SELECT categoria, titulo, estado, responsable_nombre, plazo_at, cerrado_at, nota_cierre, hallazgo
-       FROM compras_tarea WHERE negocio_id = ${NEG} ORDER BY orden`, [codigo]);
+       FROM compras_tarea WHERE negocio_id = ${NEG} AND ${sinTareasRetiradas('catalogo_clave')} ORDER BY orden`, [codigo]);
 
   await filas('COMPRAS: AUDITORÍA DEL NEGOCIO',
     `SELECT resumen, alertas_json, plazo_entrega_json FROM compras_agente_auditoria_negocio WHERE negocio_id = ${NEG} LIMIT 1`, [codigo]);

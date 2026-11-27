@@ -30,8 +30,7 @@ import { ahoraChileSQL } from '@/app/lib/tz';
 // Auditoría de negocio COMPLETO (pedido explícito, 15-sep-2026: "tiene que leer todos estos
 // documentos la IA para poder ver todo el área de compras desde tareas a entrega y cierre") — se
 // reutilizan las funciones que YA arman cada pestaña, no se duplica ninguna consulta SQL.
-import { listarTareas, obtenerResumenFases } from '@/app/lib/compras';
-import { obtenerEstadoReloj } from '@/app/lib/compras-reloj';
+import { listarTareas, obtenerResumenFases, obtenerAsignacion } from '@/app/lib/compras';
 import { listarCotizaciones, calcularEscenarios } from '@/app/lib/compras-auditor';
 import { obtenerAprobaciones, calcularPresupuestoCompra, calcularMargenPrevisto, listarSkus, obtenerEscenarioElegido } from '@/app/lib/compras-aprobaciones';
 import { proveedoresParaOrdenCompra, ordenesCompraParaVista } from '@/app/lib/compras-oc-obuma';
@@ -339,13 +338,13 @@ Tu auditoría tiene que ser COMPLETA, de principio a fin — no te detengas en e
 1. PRODUCTO/ESPECIFICACIONES TÉCNICAS: lee "descripcionLibre" (lo que el proveedor efectivamente ofreció, texto libre) y compáralo punto por punto contra las Bases Técnicas / Anexo Técnico — marca, modelo, capacidad/potencia, dimensiones, certificaciones, cualquier requisito mínimo exigido. Si "descripcionLibre" viene vacío, esa ES una alerta real (no se puede verificar cumplimiento técnico sin saber qué se cotizó) — pero si SÍ viene, úsalo, no digas que "no está especificado".
 2. CANTIDAD: si viene informada, que alcance para cubrir lo que hay que entregarle al cliente según las bases/anexo económico. Si viene vacía, NO la sugieras como campo a llenar acá (la cantidad NO es un campo de esta cotización — se asigna aparte, por producto, en "Asignar productos") — como mucho, menciónalo como algo a revisar en esa pantalla, no como un dato que falte en este formulario.
 3. GARANTÍA: si las bases exigen una garantía mínima del producto (plazo, cobertura) y el texto libre de la cotización la menciona, compara que cumpla — si no la menciona, dilo como algo a confirmar con el proveedor, no lo des por hecho.
-4. PLAZO DE ENTREGA DEL PROVEEDOR (plazoEntregaTexto) contra el plazo que NOSOTROS le prometimos AL CLIENTE — que deje margen real, no solo que "exista". El plazo comprometido con el cliente normalmente YA está fijado en el "ESTADO ACTUAL DEL RESTO DEL NEGOCIO" (sección Tareas → reloj de entrega) — úsalo de ahí como fuente principal, no lo re-adivines de un documento si ya está ahí.
+4. PLAZO DE ENTREGA DEL PROVEEDOR (plazoEntregaTexto) contra el plazo que NOSOTROS le prometimos AL CLIENTE — que deje margen real, no solo que "exista". El plazo comprometido con el cliente normalmente YA está fijado en el "ESTADO ACTUAL DEL RESTO DEL NEGOCIO" (línea «Plazo de entrega ofertado») — úsalo de ahí como fuente principal, no lo re-adivines de un documento si ya está ahí.
 5. FLETE/DESPACHO: coherencia interna entre "incluyeFlete" y lo que describe el texto libre de la cotización (ej. si el texto dice que retiramos nosotros pero el campo dice "incluye flete", es una contradicción real). OJO: "incluyeFlete=no" junto con "fleteMonto=0" NO es una inconsistencia — es exactamente cómo se registra "lo retiramos nosotros y no tiene costo", una opción válida y deliberada del formulario. Nunca sugieras que "debería haber un costo asociado" en ese caso.
 6. PRECIO Y DESCUENTO: NUNCA los compares contra el precio de venta al cliente (ver regla de abajo) — pero SÍ revisa que el cálculo bruto→descuento→neto sea consistente si el texto libre menciona ambos números.
 
 DOS FUENTES DISTINTAS — no las mezcles al citar:
 - "DOCUMENTOS DEL PROYECTO" (bases, anexos, acta) → usa "documento"/"citaTextual" (ver reglas de CITAS abajo), y esa cita se verifica por código.
-- "ESTADO ACTUAL DEL RESTO DEL NEGOCIO" (Tareas, Costeo, Aprobación/SKU, Compra/Logística, Entrega) → es dato YA CARGADO en el sistema, no un documento — cuando lo uses, dilo en el propio "mensaje" (ej. "según el reloj de entrega ya fijado en Tareas, el plazo comprometido es de 5 días corridos") y deja "documento"/"citaTextual" vacíos — no inventes un nombre de archivo para un dato que no viene de un PDF.
+- "ESTADO ACTUAL DEL RESTO DEL NEGOCIO" (Tareas, Costeo, Aprobación/SKU, Compra/Logística, Entrega) → es dato YA CARGADO en el sistema, no un documento — cuando lo uses, dilo en el propio "mensaje" (ej. "según el plazo de entrega ofertado cargado en el negocio, el plazo comprometido es de 5 días corridos") y deja "documento"/"citaTextual" vacíos — no inventes un nombre de archivo para un dato que no viene de un PDF.
 
 CITAS (pedido explícito, 15-sep-2026 — "para ver de dónde sacó esa información... que no falle y sea exacto"): cuando la alerta/sugerencia SÍ se basa en un documento, trae "documento" y "citaTextual". Esa cita se va a verificar por CÓDIGO (no por otra IA) haciendo una búsqueda de texto literal contra el documento real — si no calza exacto, se marca "sin verificar" en pantalla. Por eso:
 - "documento" debe ser EXACTAMENTE uno de los nombres de archivo que aparecen en los marcadores [[DOCUMENTO: nombre — categoría]] del contexto — nunca el nombre de un anexo, artículo o sección DENTRO de un documento (ej. "Anexo N°4" casi siempre es una SECCIÓN dentro de "Bases_Administrativas....pdf" o de un PDF de anexos, no un archivo propio — si no estás seguro de en qué archivo está, usa el nombre del archivo completo donde de verdad aparece el texto).
@@ -383,7 +382,7 @@ export async function auditarBorradorConAgente(
     // poder tomarlo de ahí... todo el campo de información que está en el módulo de compra se
     // debería poder leer entre ellas") — antes esta auditoría SOLO veía los documentos (PDF/anexos),
     // nunca los datos que YA están cargados en el resto de Compras (ej. el plazo comprometido con
-    // el cliente vive en el reloj de entrega de Tareas, no hay que re-adivinarlo de un PDF cada
+    // el cliente ya está en el resumen del negocio, no hay que re-adivinarlo de un PDF cada
     // vez). Se reusa el mismo resumen de las 5 pestañas que arma auditarNegocioCompleto — visto
     // como dato del SISTEMA (no como cita de documento: no necesita citaTextual/verificación).
     resumenNegocioParaAuditoria(negocioId).catch(() => '(no se pudo leer el resto del negocio)'),
@@ -493,10 +492,10 @@ const fmtM = (n: number | null | undefined) => n == null ? '(sin dato)' : new In
  *  para auditar (estados, montos, fechas, quién hizo qué), no cada columna de cada fila. */
 async function resumenNegocioParaAuditoria(negocioId: number): Promise<string> {
   const [
-    tareas, reloj, cotizaciones, escenarios, escenarioElegido, aprobaciones, presupuesto, margen, skus,
+    tareas, asignacion, cotizaciones, escenarios, escenarioElegido, aprobaciones, presupuesto, margen, skus,
     proveedoresOC, ordenesOC, reparto, respaldosHito, modalidadRetiro, gastos, resumenGto, entrega, postventa, incidencias, fracaso, pagosOc,
   ] = await Promise.all([
-    listarTareas(negocioId), obtenerEstadoReloj(negocioId).catch(() => null),
+    listarTareas(negocioId), obtenerAsignacion(negocioId).catch(() => null),
     listarCotizaciones(negocioId), calcularEscenarios(negocioId), obtenerEscenarioElegido(negocioId),
     obtenerAprobaciones(negocioId), calcularPresupuestoCompra(negocioId).catch(() => null), calcularMargenPrevisto(negocioId).catch(() => null),
     listarSkus(negocioId),
@@ -516,7 +515,7 @@ async function resumenNegocioParaAuditoria(negocioId: number): Promise<string> {
       (t.registro ? ` — respuestas: ${Object.entries(t.registro).map(([k, v]) => `${k}=${v}`).join(', ')}` : '') +
       (t.hallazgo ? ' — ⚠ marcado con HALLAZGO (algo no salió como se esperaba)' : '')
     ).join('\n')));
-  if (reloj) partes.push(`\nReloj de entrega: plazo hasta ${reloj.fechaLimiteVigente ?? reloj.fechaLimite ?? '(sin fijar)'}, ${reloj.diasRestantes ?? '?'} días restantes${reloj.prorroga ? ' (con prórroga)' : ''}.`);
+  if (asignacion?.resumen?.plazoEntregaOfertado) partes.push(`\nPlazo de entrega ofertado al cliente: ${asignacion.resumen.plazoEntregaOfertado}${asignacion.resumen.hitoInicioPlazo ? ` (corre desde: ${asignacion.resumen.hitoInicioPlazo})` : ''}.`);
 
   partes.push(`\n## COSTEO Y AUDITORÍA (§8 — cotizaciones y escenarios)\n` +
     `Cotizaciones registradas: ${cotizaciones.length === 0 ? '(ninguna)' : cotizaciones.map(c =>
@@ -578,7 +577,7 @@ Busca specíficamente estos tipos de problema, de punta a punta:
 DOS MATICES CONFIRMADOS POR EL USUARIO (15-sep-2026, no los repitas como error):
 - Un gasto real (ej. flete/transporte) que aparece por fuera del escenario ($0 o sin confirmar) NO es una contradicción a "aclarar con urgencia" — es exactamente el costo interno real de un retiro propio (bencina, peaje, etc.), un gasto adicional normal de la licitación. Menciónalo como informativo/reconciliación si aporta, nunca como "inconsistencia grave" ni pidas "corrección inmediata".
 - El monto de una OC registrada a mano puede venir vacío/$0 legítimamente — es un campo OPCIONAL del checklist, no todos lo cargan. Solo márcalo como problema si hay evidencia de que el monto real es OTRO (ej. no calza con lo que sí se sabe del escenario) — la sola ausencia del dato no es un error por sí misma.
-3. HITOS o PLAZOS vencidos o en riesgo — reloj de entrega, plazos administrativos, incidencias abiertas hace tiempo. OJO con la DIRECCIÓN del desfase cuando compares una fecha calculada (inicio + plazo) contra la fecha que el sistema tiene fijada: si la fecha fijada es MÁS TEMPRANA que la calculada (entregar antes de lo que exige el plazo), eso NO es un riesgo — es margen a favor, y como mucho merece "info", nunca "aviso"/"critico". Solo es un riesgo real si la fecha fijada es MÁS TARDÍA que la calculada (entregaríamos después de lo comprometido).
+3. HITOS o PLAZOS vencidos o en riesgo — plazo de entrega, plazos administrativos, incidencias abiertas hace tiempo. OJO con la DIRECCIÓN del desfase cuando compares una fecha calculada (inicio + plazo) contra la fecha que el sistema tiene fijada: si la fecha fijada es MÁS TEMPRANA que la calculada (entregar antes de lo que exige el plazo), eso NO es un riesgo — es margen a favor, y como mucho merece "info", nunca "aviso"/"critico". Solo es un riesgo real si la fecha fijada es MÁS TARDÍA que la calculada (entregaríamos después de lo comprometido).
 4. Cosas que YA se revisaron bien y no necesitan alerta — no generes ruido confirmando lo que está correcto, salvo que sea relevante para el resumen general.
 
 PLAZO DE ENTREGA OFERTADO AL CLIENTE (pedido explícito del usuario, 15-sep-2026) — CAMPO OBLIGATORIO, siempre inténtalo, nunca lo omitas de la respuesta: además de las alertas, completa "plazoEntregaDetectado" — el plazo de entrega que NUESTRA empresa comprometió con el cliente, buscando en ESTE ORDEN de preferencia:

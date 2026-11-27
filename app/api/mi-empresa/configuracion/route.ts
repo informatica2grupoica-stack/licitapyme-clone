@@ -8,6 +8,7 @@ import { getAuthedUser } from '@/app/lib/api-auth';
 import { CLIENTE_ICA } from '@/app/lib/tenant';
 import { leerPerfil, guardarPerfil } from '@/app/lib/cliente-viabilidad';
 import { encolarEvaluacion, leerEvaluacion } from '@/app/lib/evaluar-empresa-rut';
+import { palabrasASacar } from '@/app/lib/armar-plataforma-core';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -32,6 +33,11 @@ export async function POST(req: NextRequest) {
   const b = await req.json().catch(() => ({}));
   const lista = (v: unknown) => [...new Set((Array.isArray(v) ? v : []).map(x => String(x).toLowerCase().trim()).filter(x => x.length >= 2 && x.length <= 60))].slice(0, 150);
   if (b.perfil) await guardarPerfil(u.clienteId, b.perfil);
+  // Primera confirmación de una plataforma armada sola: lo que el sistema puso y la persona desmarcó, se quita.
+  const previa = await leerEvaluacion(u.clienteId);
+  if (!previa?.aplicado_at && previa?.resultado?.armado && Array.isArray(b.palabras) && Array.isArray(b.negativas))
+    for (const s of palabrasASacar(previa.resultado.armado, lista(b.palabras), lista(b.negativas)))
+      await pool.query('DELETE FROM palabras_clave WHERE keyword = ? AND es_negativa = ? AND cliente_id = ?', [s.keyword, s.negativa, u.clienteId]);
   let agregadas = 0;
   for (const [kw, neg] of [...lista(b.palabras).map(k => [k, 0] as const), ...lista(b.negativas).map(k => [k, 1] as const)]) {
     const [dup] = await pool.query('SELECT 1 FROM palabras_clave WHERE keyword = ? AND cliente_id = ? LIMIT 1', [kw, u.clienteId]);

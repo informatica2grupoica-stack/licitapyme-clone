@@ -4,7 +4,7 @@
 import bcrypt from 'bcryptjs';
 import pool from '@/app/lib/db';
 import { encolarEvaluacion, rutValido, formatearRut } from '@/app/lib/evaluar-empresa-rut';
-import { MODULOS_ACTIVABLES, MODULOS_DEL_PLAN, PLANES, type Plan } from '@/app/lib/modulos';
+import { MODULOS_ACTIVABLES, MODULOS_DEL_PLAN, PLANES, modulosDeCliente, type Plan } from '@/app/lib/modulos';
 
 /** Error con código HTTP y mensaje seguro para mostrar. */
 export class ErrorAlta extends Error {
@@ -23,6 +23,12 @@ export interface DatosAltaEmpresa {
   venceAt?: string | null;
 }
 
+/** Análisis de viabilidad por mes con que parte una empresa que la tiene contratada (se cambia en /admin/clientes). */
+export const CUPO_VIABILIDAD_INICIAL = 10;
+/** Sin esto la columna quedaba en 0 y una empresa Pro recibía «Tu plan no incluye análisis de viabilidad» (2026-11-27). */
+export const cupoViabilidadInicial = (plan: unknown, adicionales: unknown): number =>
+  modulosDeCliente(String(plan), adicionales).includes('viabilidad') ? CUPO_VIABILIDAD_INICIAL : 0;
+
 export const planValido = (v: unknown): v is Plan => (PLANES as string[]).includes(String(v));
 
 /** Crea la empresa y su admin. `porUsuarioId` = quien la da de alta (queda en la bitácora). Devuelve el id de la empresa. */
@@ -40,9 +46,9 @@ export async function crearEmpresaCliente(d: DatosAltaEmpresa, porUsuarioId: num
   if ((dup as unknown[]).length) throw new ErrorAlta('Ese correo ya existe', 409);
 
   const [r] = await pool.query(
-    `INSERT INTO clientes (nombre, rut, plan, max_usuarios, estado, modulos, vence_at, contacto_nombre, contacto_email, activo)
-     VALUES (?, ?, ?, ?, 'ACTIVO', ?, ?, ?, ?, 1)`,
-    [nombre, rut || null, plan, Number(d.maxUsuarios) || 1, JSON.stringify(modulos), d.venceAt || null, adminNombre || null, email]);
+    `INSERT INTO clientes (nombre, rut, plan, max_usuarios, estado, modulos, vence_at, contacto_nombre, contacto_email, activo, cupo_ia_mensual)
+     VALUES (?, ?, ?, ?, 'ACTIVO', ?, ?, ?, ?, 1, ?)`,
+    [nombre, rut || null, plan, Number(d.maxUsuarios) || 1, JSON.stringify(modulos), d.venceAt || null, adminNombre || null, email, cupoViabilidadInicial(plan, modulos)]);
   const clienteId = (r as { insertId: number }).insertId;
   // Perfil admin de la empresa: admin DENTRO de su empresa (proxy.ts le impide salir de ella). Permisos solo de los módulos contratados.
   const permisos = { acceso_radar: true, ver_otros_negocios: true, exportar: true, repartir_puente: true };

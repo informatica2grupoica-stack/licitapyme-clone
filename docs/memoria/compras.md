@@ -3,6 +3,26 @@
 Pantalla principal: `/compras/[negocioId]` (`ComprasChrome.tsx`). Traspasado desde la memoria
 personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-11-27 (8) — SE SACÓ el reloj de entrega (dueño: «Sí, sácalo»; tsc y 2079 pruebas OK; consultas probadas solo leyendo contra la BD del VPS; pantalla sin ver, sin commit ni desplegar, sin migración)
+- Reemplaza lo de «apagado» del 06-11. Borrados: pantalla, 4 rutas `/reloj`, `compras-reloj.ts`, el interruptor, la alerta de plazo vencido, y en el panel «Relojes vencidos».
+- La tarea `reloj_entrega` queda oculta por código (`compras-tareas-retiradas.ts`): no se crea, no se lista ni cuenta. Sus filas y la tabla `compras_reloj` siguen en la BD (había 0 prórrogas, 0 multas, 3 entregas anotadas).
+- Las fechas de entrega del Gantt y la lista salen solo de las bases y la OC, siempre «estimadas». Los 20 relojes guardados ya no se leen; algunas fechas pueden cambiar.
+- Auditor: ya no recibe «días que quedan»; se quitaron las alertas V8_RELOJ_VENCIDO y V8_PLAZO. La revisión de cotizaciones compara contra el plazo ofertado; la de documentos recibe ese plazo.
+- Se conserva `interpretarPlazoOfertado` (`compras-reloj-sugerido.ts`). Siguen sin arreglar los cálculos del Gantt vistos hoy («día tercero» sin «hábil»; vencimiento antes de aceptar la OC).
+- Visto al probar (no es de este cambio): `obtenerAnaliticaCompras` registra «Illegal mix of collations for operation UNION».
+- Multiempresa: sirve igual para cualquier cliente (filtro en código, sin datos de empresa).
+
+## 2026-11-27 (7) — Revisión del cierre de 2736-44-LE26 (1525) en el Chrome del dueño (solo lectura, producción)
+- 27-11 14:56, con OK del dueño: «Validación del costeo como presupuesto» de 1525 guardada y HECHA en producción (No es correcto, con hallazgo; «espacio para mejorar» quedó vacío). Quedan: validación técnica, cotización preexistente y contacto de pagos (la del reloj desaparece al desplegar).
+- Forma de trabajo (dueño): revisar el cierre de varias licitaciones desde las tareas, todo el ciclo de Compras, con Claude in Chrome y en vivo.
+- Cuadra: venta $27.641.669 = guías 1913 + 1915 + 1919 = factura 1839; costo real $20.743.210 (25,0 %) = OC + 5 gastos de combustible; 6/6 OC pagadas y facturadas ($24.413.330); entrega cerrada el 27-11 con actas y guías cargadas.
+- Pendiente: 5 tareas (3 de validación, reloj de entrega, contacto de pagos); «Cerrar resultado» (avisa costo 13,3 % sobre lo cotizado); pago del cliente (factura por cobrar); enlazar 2 guías; guía 1913 en centro TECNOMAQ; proyecto Obuma 208 «En proceso»; nombres de archivo repetidos en acta y guía firmada (sin abrir). Sin revisar: «Gestionar documentos» y «Garantías y postventa».
+- Tareas (27-11, nada guardado en LICITANK): el Auditor no tiene características evaluadas (no pre-rellena «Validación técnica real»). «Contacto inicial» anota que el papel fieltro de 16 se entregó de 10 sumando 2 unidades: aclarar al validar. Reloj: con 1 día hábil desde el 28-10 vencía el 29-10; guías 13 al 19-11 (falta confirmar bases o prórroga).
+- Fieltro (dueño, 27-11): lo agregado fue porque lo aplicó el cliente. Producto 491: 30 → 32, motivo de Carolina el 20-11 «Cliente, por entregar una medida más pequeña, solicita entregar 2 und más». La guía 1913 dice 30 de «15/16»; las 2 extra y la medida 10 no aparecen en las guías guardadas.
+- Reloj de entrega (dueño, 27-11): «lo vamos a sacar, a no ser que lo mejoremos y funcione perfecto». Falta decidir; sin cambios de código. Medido en 83 negocios (solo lectura): 21 calculables solos, 62 necesitan una persona (49 plazo vacío o ilegible, 40 sin «desde cuándo corre»; se cruzan). Con el reloj apagado, la tarea `reloj_entrega` sigue creándose (64 pendientes, 19 hechas). Sigue el error de «día tercero» sin «hábil» (2446-240); en 2448-79 y 2736-44 el vencimiento cae antes de aceptar la OC.
+- Error visto, sin arreglar: «Costo real del negocio» (`CostoRealCard.tsx`, datos de `resumen-comparativo`) no suma: $19.684.236 + $825.345 ≠ $20.743.210 (faltan $233.629). La compra rápida de combustible (Loncomilla, $51.456) sale emparejada con la OC 4090 por $42.897 y el resto del combustible ($276.526 en total) no aparece; el total sí está bien.
+- Visto: «Gastos con SKU y OC» sigue diciendo «créale el SKU y emite la OC» con las OC 4105 y 4093 ya emitidas (sin arreglar).
+
 ## 2026-11-27 (6) — Las guías de Obuma se GUARDAN en LICITANK y la 1918 ya no sale (2736-44-LE26; tsc OK, pantalla sin ver, sin desplegar, migration-212)
 - Dueño: «si ya las cargamos, ya están en Licitank; por qué cargan siempre y gastan consultas». Reemplaza la regla anterior de verlas en vivo.
 - Lista y XML por negocio (`compras_guia_obuma_lista`, `compras_guia_obuma_xml`; la app crea las tablas sola). Obuma se consulta solo la primera vez o con «Actualizar desde Obuma» (también al crear una guía en «Gestionar documentos»). Una guía nueva o un cambio de estado NO aparece hasta actualizar. Si Obuma falla, no se guarda nada.

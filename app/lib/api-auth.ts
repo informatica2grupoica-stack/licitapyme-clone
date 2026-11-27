@@ -18,7 +18,7 @@ import { permisosPermitidos } from '@/app/lib/modulos';
 export async function getAuthedUser(req: NextRequest): Promise<UsuarioSession | null> {
   const u = await getSessionFromRequest(req);
   if (!u) return null;
-  if (await sesionRevocada(u.jti)) return null; // sesión cerrada con «Salir»
+  if (await sesionRevocada(u.jti, u.id, u.iat)) return null; // sesión cerrada con «Salir» o anterior a un cambio de clave
   const v = await estadoVigente(u.id, u.rol, u.clienteId);
   if (!v.activo) return null; // cuenta desactivada: el JWT viejo ya no vale
   return { ...u, rol: v.rol, clienteId: v.clienteId };

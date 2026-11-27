@@ -7,11 +7,12 @@
 // superusuario (no se puede deshacer). Un admin de una empresa-cliente jamás llega aquí (proxy.ts bloquea /api/admin a los clientes).
 import { NextRequest, NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
+import { cerrarSesionesDeUsuario } from '@/app/lib/sesiones-revocadas';
 import pool from '@/app/lib/db';
 import { olvidarFichaCliente, CLIENTE_ICA } from '@/app/lib/tenant';
 import { encolarEvaluacion, leerEvaluacion, rutsDeCliente } from '@/app/lib/evaluar-empresa-rut';
 import { exigirAdminLicitank } from '@/app/lib/admin-licitank';
-import { crearEmpresaCliente, ErrorAlta } from '@/app/lib/crear-empresa-cliente';
+import { crearEmpresaCliente, ErrorAlta, cupoViabilidadInicial } from '@/app/lib/crear-empresa-cliente';
 import { guardarOpciones } from '@/app/lib/opciones-empresa';
 import { guardarConfigEmpresa } from '@/app/lib/cv/viabilidad-empresa';
 import { normalizarConfigEmpresa } from '@/app/lib/cv/viabilidad-empresa-core';
@@ -135,6 +136,7 @@ export async function POST(req: NextRequest) {
     const cl = String(b.clave || '');
     if (cl.length < 8) return NextResponse.json({ error: 'La clave necesita al menos 8 caracteres' }, { status: 400 });
     await pool.query('UPDATE usuarios SET password_hash = ? WHERE id = ?', [await bcrypt.hash(cl, 10), uid]);
+    await cerrarSesionesDeUsuario(uid);
     await bitacora(Number(uu.cliente_id), g.u!.id, 'usuario_clave', { email: uu.email }); // la clave nunca se guarda en la bitácora
     return NextResponse.json({ success: true });
   }
@@ -209,6 +211,12 @@ export async function PATCH(req: NextRequest) {
   if (!sets.length) return NextResponse.json({ error: 'Nada que cambiar' }, { status: 400 });
   vals.push(id);
   await pool.query(`UPDATE clientes SET ${sets.join(', ')} WHERE id = ?`, vals);
+  // Cambió lo contratado: si ahora tiene viabilidad y su cupo estaba en 0, parte con el inicial (salvo que en este mismo cambio se fije el cupo).
+  if (('plan' in b || Array.isArray(b.modulos)) && b.cupoIa == null) {
+    const [[c]] = await pool.query('SELECT plan, modulos FROM clientes WHERE id = ?', [id]) as any;
+    const cupo = cupoViabilidadInicial(c?.plan, c?.modulos);
+    if (cupo > 0) await pool.query('UPDATE clientes SET cupo_ia_mensual = ? WHERE id = ? AND cupo_ia_mensual = 0', [cupo, id]);
+  }
   olvidarFichaCliente(id); // rige al instante
   await bitacora(id, g.u!.id, 'cambio', det);
   return NextResponse.json({ success: true });

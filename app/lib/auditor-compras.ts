@@ -15,7 +15,6 @@ import { conModuloIA } from '@/app/lib/ia-uso';
 const crearChatIA = conModuloIA('auditor', crearChatIABase, 'compras');
 import { parseJsonIA } from '@/app/lib/json-ia';
 import { MARGEN_VENTA_DEFECTO, type EstadoCosteoEditor } from '@/app/lib/costeo-editor';
-import { obtenerEstadoReloj } from '@/app/lib/compras-reloj';
 import { construirResumenEjecutivoCompras } from '@/app/lib/compras';
 import { capturarLinks, type CapturaGuardada } from '@/app/lib/auditor-compras-captura';
 import { createHash } from 'node:crypto';
@@ -235,7 +234,7 @@ interface EntradaLinea {
   linea: LineaCosteo; licitacion: Awaited<ReturnType<typeof lineaDeLaLicitacion>>; tecnico: ProductoTecnico;
   capturas: CapturaGuardada[]; cotizaciones: CotizacionRespaldo[]; historico: Awaited<ReturnType<typeof historicoInterno>>;
   dolar: Awaited<ReturnType<typeof dolarDelDia>>; historiales: Record<string, HistorialProveedorMP | null>;
-  candidatas: CandidataBusqueda[]; consulta: string; errorBusqueda?: string; reloj: { diasRestantes: number | null; fechaLimite: string | null };
+  candidatas: CandidataBusqueda[]; consulta: string; errorBusqueda?: string;
   hoyISO: string;
 }
 
@@ -255,7 +254,7 @@ function construirUsuarioL1(e: EntradaLinea): string {
   }
   for (const h of e.historico) rs.push(`--- RESPALDO HIS${h.id} · tipo HISTORICO_INTERNO · compra nuestra (Obuma) folio ${h.folio || 'n/d'} · fecha ${h.fecha || 'n/d'} · producto "${h.nombre}" · precio unitario ${fmt(h.precio)} (según la OC de compra; IVA no declarado en el dato)`);
   partes.push(`D/E) RESPALDOS CARGADOS Y CAPTURAS DEL SISTEMA (${e.capturas.length} link(s), ${e.cotizaciones.length} cotización(es), ${e.historico.length} histórico(s)):\n${rs.join('\n\n') || '(no hay ningún respaldo cargado: SIN_RESPALDO)'}`);
-  partes.push(`F) DATOS DE CONTEXTO:\n- dólar observado BCCh del día: ${e.dolar.observado ?? 'no disponible'} · usado (+$10): ${e.dolar.usado ?? 'no disponible'} (${e.dolar.fecha ?? 'sin fecha'})\n- días que quedan para entregar al cliente: ${e.reloj.diasRestantes ?? 'no definido'}${e.reloj.fechaLimite ? ` (límite ${e.reloj.fechaLimite})` : ''} · logística interna estimada desde Talagante: ${PARAMS.logisticaInternaDias} días`);
+  partes.push(`F) DATOS DE CONTEXTO:\n- dólar observado BCCh del día: ${e.dolar.observado ?? 'no disponible'} · usado (+$10): ${e.dolar.usado ?? 'no disponible'} (${e.dolar.fecha ?? 'sin fecha'})\n- logística interna estimada desde Talagante: ${PARAMS.logisticaInternaDias} días`);
   const g = Object.entries(e.historiales).filter(([, v]) => v);
   partes.push(`G) HISTORIAL EN MERCADOPÚBLICO del proveedor (calculado por el sistema; V9 lo completa el sistema):\n${g.length ? g.map(([rut, v]) => `- RUT ${rut}: ${v!.venteAlEstado ? `VENDE AL ESTADO (${v!.nLicitaciones} adjudicaciones y ${v!.nOrdenesCompra} OC en la base; rubros: ${v!.rubros.join(', ') || 'n/d'})` : 'sin registros en la base'}. ${v!.limitacion}`).join('\n') : '(sin RUT de proveedor identificable en las cotizaciones)'}`);
   partes.push(`H) REFERENCIAS DE MERCADO — consulta ejecutada: "${e.consulta}"\n${e.candidatas.length ? e.candidatas.map((c, i) => `${i + 1}. tienda ${c.tienda} · título "${c.nombre}" · precio ${fmt(c.precio)} (con IVA) · url ${c.url}`).join('\n') : `(la búsqueda no devolvió páginas${e.errorBusqueda ? `: ${e.errorBusqueda}` : ''})`}`);
@@ -289,15 +288,14 @@ export async function auditarLinea(negocioId: number, filaId: string, opts: Opci
   const [previoRows] = await pool.query(`SELECT resultado_json FROM compras_auditor_costeo_linea WHERE negocio_id = ? AND fila_id = ? LIMIT 1`, [negocioId, filaId]) as any;
   let previo: LineaGuardada | null = null; try { previo = (previoRows as any[])[0]?.resultado_json ? JSON.parse((previoRows as any[])[0].resultado_json) : null; } catch { /* auditoría anterior ilegible: se ignora */ }
 
-  // Pasos del SISTEMA en paralelo: links (S1), dólar (S2), cotizaciones/histórico/técnico/licitación/reloj.
-  const [capturas, dolar, cotizaciones, historico, tecnico, licitacion, reloj] = await Promise.all([
+  // Pasos del SISTEMA en paralelo: links (S1), dólar (S2), cotizaciones/histórico/técnico/licitación.
+  const [capturas, dolar, cotizaciones, historico, tecnico, licitacion] = await Promise.all([
     capturarLinks(negocioId, filaId, linea.links),
     dolarDelDia(),
     cotizacionesDeLaLinea(negocioId, linea),
     historicoInterno(linea, negocioId),
     productoTecnico(negocioId, linea),
     lineaDeLaLicitacion(licitacionCodigo, linea.lineaReal),
-    obtenerEstadoReloj(negocioId).catch(() => null),
   ]);
 
   const sinNada = capturas.length === 0 && cotizaciones.length === 0 && historico.length === 0;
@@ -333,7 +331,7 @@ export async function auditarLinea(negocioId: number, filaId: string, opts: Opci
       preciosMercadoPublico(tokens).catch(() => null),
     ]);
     historiales = Object.fromEntries(hist); candidatas = busq.candidatas; mp = mpDatos;
-    const entrada: EntradaLinea = { linea, licitacion, tecnico, capturas, cotizaciones, historico, dolar, historiales, candidatas, consulta: busq.consulta, errorBusqueda: busq.error, reloj: { diasRestantes: reloj?.diasRestantes ?? null, fechaLimite: reloj?.fechaLimiteVigente ?? null }, hoyISO };
+    const entrada: EntradaLinea = { linea, licitacion, tecnico, capturas, cotizaciones, historico, dolar, historiales, candidatas, consulta: busq.consulta, errorBusqueda: busq.error, hoyISO };
     salida = (await llamarModelo(sistemaL1(), construirUsuarioL1(entrada), 12_000)) as SalidaModelo;
 
     const corpus = { porRespaldo: {} as Record<string, string>, texto: [...capturas.map(c => c.texto), ...cotizaciones.map(c => c.texto), ...historico.map(h => `${h.nombre} ${h.precio}`)].join('\n\n') };
@@ -359,7 +357,7 @@ export async function auditarLinea(negocioId: number, filaId: string, opts: Opci
   }
 
   let sistema = calcularSistemaLinea(linea, salida, {
-    dolar, guardarrailes: avisos, precioNoVerificado, diasDisponibles: reloj?.diasRestantes ?? null, precioMercadoPublico: mp, hoyISO,
+    dolar, guardarrailes: avisos, precioNoVerificado, precioMercadoPublico: mp, hoyISO,
     fechaHistorico: historico[0]?.fecha ?? null,
   });
 
@@ -381,7 +379,7 @@ export async function auditarLinea(negocioId: number, filaId: string, opts: Opci
         v.V10_referencias.referencias = v.V10_referencias.referencias.filter(r => !(r.url && String(l2.fuente_discordante).includes(r.url)) && !(r.proveedor && String(l2.fuente_discordante).toLowerCase().includes(String(r.proveedor).toLowerCase())));
         if (v.V10_referencias.referencias.length < antes) (v.V10_referencias.descartadas_no_mismo_producto ||= []).push({ url: String(l2.fuente_discordante), motivo: `Precio discordante descartado tras triangular: ${l2.causa_probable}` });
       }
-      sistema = calcularSistemaLinea(linea, salida, { dolar, guardarrailes: avisos, precioNoVerificado, diasDisponibles: reloj?.diasRestantes ?? null, precioMercadoPublico: mp, hoyISO, fechaHistorico: historico[0]?.fecha ?? null });
+      sistema = calcularSistemaLinea(linea, salida, { dolar, guardarrailes: avisos, precioNoVerificado, precioMercadoPublico: mp, hoyISO, fechaHistorico: historico[0]?.fecha ?? null });
       if (!sistema.dispersion?.activa) { /* al sacar el discordante deja de haber dispersión */ }
       (v.V10b_discordancia as any).activa = true;
     } catch (e) { console.warn('[auditor-compras] L2 falló:', String(e).slice(0, 160)); avisos.push('La triangulación de precios discordantes (V10-b) no se pudo completar: revisa a mano las fuentes que se separan de la mediana.'); }
@@ -662,9 +660,9 @@ async function armarPreparacion(negocioId: number, lineas: LineaCosteo[], presup
     }
   }));
   const [sinProd] = await pool.query(`SELECT c.id, c.proveedor_nombre FROM compras_cotizacion c LEFT JOIN compras_cotizacion_item i ON i.cotizacion_id = c.id WHERE c.negocio_id = ? AND i.id IS NULL`, [negocioId]) as any;
-  const [reloj, dolar] = await Promise.all([obtenerEstadoReloj(negocioId).catch(() => null), dolarDelDia().catch(() => null)]);
+  const dolar = await dolarDelDia().catch(() => null);
   return diagnosticarPreparacion(prep, (sinProd as any[]).map(x => ({ id: x.id, proveedor: x.proveedor_nombre })),
-    { presupuestoNeto: presupuesto, relojDefinido: !!reloj?.fechaLimiteVigente, dolarDisponible: !!dolar?.usado });
+    { presupuestoNeto: presupuesto, dolarDisponible: !!dolar?.usado });
 }
 
 // ── Evidencia: de dónde salió una conclusión ("el ojo") ───────────────────────────────────────────

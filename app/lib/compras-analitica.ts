@@ -7,6 +7,7 @@
 // del Gantt), así que los números coinciden con lo que se ve ahí. Lo demás son consultas directas.
 // Cada consulta suelta se aísla con .catch: si una tabla falla, esa tarjeta sale vacía y el resto sigue.
 import pool from '@/app/lib/db';
+import { sinTareasRetiradas } from '@/app/lib/compras-tareas-retiradas';
 import { ahoraChileSQL } from '@/app/lib/tz';
 import { listarAsignacionesCompras, type ComprasFila } from '@/app/lib/compras';
 import { resultadosParaDashboard } from '@/app/lib/compras-costo-real';
@@ -64,7 +65,7 @@ export async function obtenerAnaliticaCompras(): Promise<AnaliticaCompras> {
 
   const [filas, tareas, gastos, proveedores, incidencias, resultados] = await Promise.all([
     listarAsignacionesCompras().catch(() => [] as ComprasFila[]),
-    q(`SELECT t.categoria, t.estado, t.plazo_at FROM compras_tarea t JOIN compras_asignacion ca ON ca.negocio_id = t.negocio_id`),
+    q(`SELECT t.categoria, t.estado, t.plazo_at FROM compras_tarea t JOIN compras_asignacion ca ON ca.negocio_id = t.negocio_id WHERE ${sinTareasRetiradas('t.catalogo_clave')}`),
     q(`SELECT COALESCE(c.etiqueta, g.categoria_clave) AS categoria, SUM(g.monto) AS monto FROM compras_gasto g
          LEFT JOIN compras_gasto_categoria c ON c.clave COLLATE utf8mb4_general_ci = g.categoria_clave COLLATE utf8mb4_general_ci
         GROUP BY COALESCE(c.etiqueta, g.categoria_clave) ORDER BY monto DESC LIMIT 8`),

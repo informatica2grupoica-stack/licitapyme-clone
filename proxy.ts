@@ -108,7 +108,7 @@ export async function proxy(request: NextRequest) {
   }
 
   // Sesión cerrada (logout): el token todavía no vence, pero ya no vale.
-  if (await sesionRevocada(usuario.jti)) {
+  if (await sesionRevocada(usuario.jti, usuario.id, usuario.iat)) {
     if (pathname.startsWith('/api/')) {
       return NextResponse.json({ error: 'Sesión cerrada. Inicia sesión para continuar.', code: 'UNAUTHENTICATED' }, { status: 401 });
     }

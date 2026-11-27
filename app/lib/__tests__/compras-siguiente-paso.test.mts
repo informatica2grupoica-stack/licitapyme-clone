@@ -6,7 +6,7 @@ import { siguientePaso, type EntradaSiguientePaso } from '../compras-siguiente-p
 
 const base = (o: Partial<EntradaSiguientePaso> = {}): EntradaSiguientePaso => ({
   asignado: true, plazoAsignacionVencido: false, esJefeDeVentas: false, ocAceptada: true, tareas: [],
-  fases: { tareasVencidas: 0, productosSinCotizacion: 0, compuertasPendientes: 0, hitosAdminPendientes: 0, incidenciasAbiertas: 0, relojVencido: false }, ...o,
+  fases: { tareasVencidas: 0, productosSinCotizacion: 0, compuertasPendientes: 0, hitosAdminPendientes: 0, incidenciasAbiertas: 0 }, ...o,
 });
 const t = (clave: string | null, titulo: string, estado: 'PENDIENTE' | 'HECHA' = 'PENDIENTE', vencida = false) => ({ catalogoClave: clave, titulo, estado, vencida });
 
@@ -16,10 +16,6 @@ test('sin encargado: jefe de ventas debe asignar, y es alerta si el plazo venci�
 });
 test('sin encargado y sin ser jefe: solo espera', () => {
   assert.match(siguientePaso(base({ asignado: false })).titulo, /Esperando/);
-});
-test('reloj vencido manda sobre todo lo demás', () => {
-  const p = siguientePaso(base({ fases: { ...base().fases!, relojVencido: true, incidenciasAbiertas: 2 }, tareas: [t('aceptar_oc', 'OC', 'PENDIENTE', true)] }));
-  assert.equal(p.fase, 'entrega'); assert.equal(p.tono, 'alerta');
 });
 test('incidencias antes que tareas vencidas', () => {
   const p = siguientePaso(base({ fases: { ...base().fases!, incidenciasAbiertas: 1 }, tareas: [t('x', 'Algo', 'PENDIENTE', true)] }));
@@ -34,11 +30,6 @@ test('una tarea HECHA vencida no cuenta', () => {
 });
 test('OC sin aceptar lleva al bloque de la OC', () => {
   assert.equal(siguientePaso(base({ ocAceptada: false })).ancla, 'oc');
-});
-test('reloj pendiente antes que validaciones y cotizaciones', () => {
-  const p = siguientePaso(base({ tareas: [t('contacto_inicial', 'Contacto'), t('reloj_entrega', 'Reloj')], fases: { ...base().fases!, productosSinCotizacion: 3 } }));
-  assert.equal(p.titulo, 'Fija el plazo de entrega');
-  assert.equal(p.fase, 'entrega');   // el reloj ya no es una tarea: vive en Entrega y en la franja fija
 });
 test('validación de inicio antes que cotizar', () => {
   const p = siguientePaso(base({ tareas: [t('validacion_tecnica_real', 'Validación técnica real')], fases: { ...base().fases!, productosSinCotizacion: 3 } }));
@@ -64,11 +55,11 @@ test('todo al día: lleva a entrega', () => {
 
 test('sin forma de comprar elegida no se dice "todo al día" (auditoría 07-oct-2026)', () => {
   const p = siguientePaso({ asignado: true, plazoAsignacionVencido: false, esJefeDeVentas: false, ocAceptada: true, tareas: [],
-    fases: { tareasVencidas: 0, productosSinCotizacion: 0, escenarioElegido: false, compraAprobada: false, margenAprobado: false, compuertasPendientes: 0, hitosAdminPendientes: null, incidenciasAbiertas: 0, relojVencido: false } });
+    fases: { tareasVencidas: 0, productosSinCotizacion: 0, escenarioElegido: false, compraAprobada: false, margenAprobado: false, compuertasPendientes: 0, hitosAdminPendientes: null, incidenciasAbiertas: 0 } });
   assert.equal(p.titulo, 'Elige cómo comprar');
 });
 test('elegida la compra pero sin proponerla: pide proponer la aprobación', () => {
   const p = siguientePaso({ asignado: true, plazoAsignacionVencido: false, esJefeDeVentas: false, ocAceptada: true, tareas: [],
-    fases: { tareasVencidas: 0, productosSinCotizacion: 0, escenarioElegido: true, compraAprobada: false, margenAprobado: false, compuertasPendientes: 0, hitosAdminPendientes: null, incidenciasAbiertas: 0, relojVencido: false } });
+    fases: { tareasVencidas: 0, productosSinCotizacion: 0, escenarioElegido: true, compraAprobada: false, margenAprobado: false, compuertasPendientes: 0, hitosAdminPendientes: null, incidenciasAbiertas: 0 } });
   assert.equal(p.fase, 'aprobacion');
 });

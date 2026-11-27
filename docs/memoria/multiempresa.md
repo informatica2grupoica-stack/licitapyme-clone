@@ -151,6 +151,29 @@ Para cada módulo: tablas con dueño → todas sus rutas con chequeo de cliente 
 
 ## Bitácora
 
+## 2026-11-27 (28) — Alta por RUT probada con 3 empresas reales: la plataforma queda ARMADA SOLA (en código, SIN subir ni desplegar)
+**Pedido del dueño:** dejar la multiempresa lista para recibir clientes y armar toda su plataforma desde el RUT.
+**Arreglado:** (1) toda empresa nueva quedaba con `cupo_ia_mensual = 0` («Tu plan no incluye análisis de viabilidad»): ahora nace con 10 si tiene viabilidad, también al cambiar de plan; (2) el radar generaba alertas y correo para empresas suspendidas o vencidas: `SQL_EMPRESA_DE_LA_PALABRA_VIGENTE` (hoy no saca ninguna palabra de ICA ni del cliente 4); (3) al quedar LISTA la evaluación, una empresa virgen se arma sola (`armar-plataforma.ts`: perfil, palabras y descartes, primeras alertas, giro/dirección/región de MP en la razón social); no marca confirmado, y al confirmar en Mi empresa se quita lo desmarcado; (4) doble evaluación: la espera de la IA (>3 min) no daba señal, otro proceso la retomaba y su fallo dejaba ERROR sobre una LISTA.
+**Regla:** lo que se configura solo nunca RESTRINGE: regiones y montos del perfil quedan vacíos (4 de 7 alertas superaban el «monto máximo» sacado de las OC).
+**Prueba real en PRODUCCIÓN (código local):** empresas 5 (ferretería), 6 (mobiliario urbano) y 7 (instrumentos), nombre «[PRUEBA] …», correo `.invalid`, quedaron SUSPENDIDAS y con el usuario desactivado; vencen el 2026-12-11. 7–13 min, 81–339 consultas a MP, US$0,01–0,03 de IA cada una; 25/20/15 palabras y 15/11/1 alertas; login local y 21 pantallas 200 salvo WhatsApp (503 desde el PC), 18 intentos a datos de ICA/módulos no contratados sin acceso. Se repararon sus datos (montos de la 5, estado de la 6). Script: `scripts/scratch/_mc_alta_prueba.mts` (sin `--crear` solo consulta).
+**Verificado:** tsc limpio, 2.081 tests, aislamiento contra producción sin bloqueantes. **No** probado: correr viabilidad, Costeo o Auditor con ellas, ver sus pantallas en el navegador, el servidor.
+**Pendiente:** commit SOLO de estos archivos (en el mismo árbol hay cambios de Compras de otra sesión) + deploy: hasta entonces el servidor crea clientes con cupo 0 y sin armar. Calidad del radar: palabras ambiguas traen insumos médicos (ferretería y mobiliario). DeepSeek y Gemini respondieron 402 sin saldo (llaves del PC; revisar el VPS). Cliente 2 sin usuarios activos y evaluación en ERROR (sin OC en 300 días). Sin ventas en MP no hay armado automático. 429 de MP frecuentes (todos pasaron al reintento).
+**Multiempresa:** una empresa que vende en MP queda utilizable solo con su RUT, una vez desplegado.
+
+## 2026-11-27 (27) — Usuario 8: clave sin hash reemplazada en PRODUCCIÓN (con OK del dueño)
+**Qué:** `scripts/scratch/arreglar-clave-usuario-8.mjs --aplicar` cambió 1 fila: hash bcrypt de una clave al azar que no se guardó. Sigue inactivo; verificado: 0 usuarios sin bcrypt. Si se reactiva, hay que ponerle clave nueva. Reemplaza el «espera el OK» de (26).
+
+## 2026-11-27 (26) — Cambiar la clave cierra las sesiones; contraste legal (en código, SIN subir ni desplegar)
+**Qué:** al cambiar una clave (Mi perfil, recuperación, Mi equipo, /admin/usuarios, /admin/clientes) dejan de valer las sesiones anteriores; si es la propia, se entrega una nueva y se sigue dentro (recuperación no entrega ninguna). Usa la tabla `sesiones_revocadas` (fila `todas:<usuario>`), **sin migración**. De paso: «Mi perfil» armaba un token sin identificador ni empresa (no se podía anular con «Salir»); ahora usa `crearToken`. Contraste de la fecha y el pie en /privacidad y /terminos: 2,56 → 4,76.
+**Regla:** toda ruta nueva que cambie una clave llama a `cerrarSesionesDeUsuario`; los tokens se crean solo en `auth.ts`.
+**Límites:** la app móvil que cambie su propia clave desde el perfil tiene que volver a entrar; una sesión emitida en el mismo segundo del cambio sobrevive; si la escritura falla, queda solo en el log y rige en ese proceso.
+**Verificado:** tsc limpio; 2.080 tests (base simulada para sesiones); SELECT contra producción y EXPLAIN del INSERT; barrido sin sesión igual que antes; contraste visto en local. **No** probado con una sesión real iniciada.
+**Pendiente:** commit + deploy; probar en producción cambiando la clave con dos navegadores. Usuario 8 (inactivo, clave sin hash): script `scripts/scratch/arreglar-clave-usuario-8.mjs` solo simulado, espera el OK del dueño.
+
+## 2026-11-27 (25) — Arreglo de seguridad (24) subido; el dueño informa que está DESPLEGADO
+**Qué:** `c748d52` está en `master` y `origin/master` (comprobado en git). El despliegue lo informa el dueño («está todo desplegado»); **no se verificó en el servidor**. Reemplaza el «SIN subir ni desplegar» de (24).
+**Pendiente:** en el VPS, probar «agregar link» en el Auditor (que lea precio y guarde foto) y revisar el puerto de los correos propios ya configurados; clave de WhatsApp, `PURGA_ACTIVA=1`, lo legal y el resto de hallazgos del informe.
+
 ## 2026-11-27 (24) — Corregidos S-1 y S-2 del QA: direcciones que escribe una persona (en código, SIN subir ni desplegar)
 **Qué:** el navegador del Auditor sale solo por un filtro local (`app/lib/salida-segura.ts`) que rechaza máquinas internas en cada conexión; la lectura de documentos, la ficha propia y la ficha traída de un link usan `fetchSeguro`. El correo propio de una empresa solo admite puertos 25, 465, 587 y 2525 y servidores públicos, y se conecta a la IP revisada (el certificado se valida contra el nombre).
 **Regla:** todo lo que el servidor abra porque lo escribió una persona usa `fetchSeguro`, el proxy o `destinoSmtpPermitido`. `salida-segura.test.mts` vigila los archivos del Auditor.

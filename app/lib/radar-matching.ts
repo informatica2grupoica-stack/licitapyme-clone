@@ -23,6 +23,12 @@ export interface KeywordsRadar { positivas: KwRow[]; negativas: KwRow[] }
 
 const INSERT_BATCH = 200;
 
+// Una empresa-cliente suspendida, de baja o vencida no genera alertas (ni, por lo tanto, el correo del radar). Antes bastaba con que
+// su usuario siguiera activo (2026-11-27). Grupo ICA (1) siempre. La regla de «vencida» es la de fichaCliente (tenant.ts).
+export const SQL_EMPRESA_DE_LA_PALABRA_VIGENTE =
+  `(pk.cliente_id = 1 OR EXISTS (SELECT 1 FROM clientes cl WHERE cl.id = pk.cliente_id AND cl.activo = 1 AND cl.estado = 'ACTIVO'
+     AND (cl.vence_at IS NULL OR DATE(cl.vence_at) >= UTC_DATE())))`;
+
 // ── Cargar keywords activas, separadas en positivas y negativas ───────────────
 // Degrada con gracia si la columna es_negativa no existe (migración 30 pendiente):
 // en ese caso todas se tratan como positivas.
@@ -35,7 +41,7 @@ export async function cargarKeywordsRadar(clienteId?: number): Promise<KeywordsR
       `SELECT pk.id, pk.usuario_id, pk.cliente_id, pk.keyword, pk.es_negativa
        FROM palabras_clave pk
        JOIN usuarios u ON u.id = pk.usuario_id AND u.activo = TRUE
-       WHERE pk.activo = TRUE ${filtroCliente}
+       WHERE pk.activo = TRUE AND ${SQL_EMPRESA_DE_LA_PALABRA_VIGENTE} ${filtroCliente}
        ORDER BY ISNULL(pk.ultima_busqueda) DESC, pk.ultima_busqueda ASC, pk.id ASC`,
       paramsCliente,
     );
@@ -53,7 +59,7 @@ export async function cargarKeywordsRadar(clienteId?: number): Promise<KeywordsR
       `SELECT pk.id, pk.usuario_id, pk.cliente_id, pk.keyword
        FROM palabras_clave pk
        JOIN usuarios u ON u.id = pk.usuario_id AND u.activo = TRUE
-       WHERE pk.activo = TRUE ${filtroCliente}
+       WHERE pk.activo = TRUE AND ${SQL_EMPRESA_DE_LA_PALABRA_VIGENTE} ${filtroCliente}
        ORDER BY ISNULL(pk.ultima_busqueda) DESC, pk.ultima_busqueda ASC, pk.id ASC`,
       paramsCliente,
     );

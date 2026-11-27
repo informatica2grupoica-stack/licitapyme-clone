@@ -16,6 +16,8 @@ export interface UsuarioSession {
   clienteId?: number;
   /** Identificador de ESTA sesión (para poder cerrarla de verdad). Tokens viejos no lo traen. */
   jti?: string;
+  /** Cuándo se emitió el token (segundos): al cambiar la clave dejan de valer los anteriores. */
+  iat?: number;
 }
 
 export interface TokenPayload extends JWTPayload {
@@ -64,5 +66,6 @@ export async function getSessionFromRequest(req: NextRequest): Promise<UsuarioSe
     rol:     payload.rol,
     clienteId: payload.clienteId,
     jti: payload.jti,
+    iat: payload.iat,
   };
 }

@@ -6,7 +6,7 @@
 // la cotización contra lo que el producto DEBE cumplir, y ningún "pasa" traía su motivo.
 //
 // CÓMO DECIDE (dos capas, por diseño):
-//   1. Reglas por CÓDIGO, sin IA: plazo del proveedor vs. reloj de entrega, compra a pérdida,
+//   1. Reglas por CÓDIGO, sin IA: plazo del proveedor vs. plazo ofertado, compra a pérdida,
 //      cotización vencida, RUT inválido, precio sin cargar. Son hechos, no opiniones.
 //   2. Revisión por IA contra lo exigido (Auditor Técnico + línea de la licitación + Bases Técnicas):
 //      ¿es el producto?, ¿cumple cada especificación?, garantía, cantidad, condiciones.
@@ -30,7 +30,6 @@ import { listarProductosCompra, invalidarAprobacionesCompras, obtenerAsignacion,
 import { plazoOfertado, plazoCabe, esPlazoHabil, type PlazoDias } from '@/app/lib/compras-plazo-proveedor';
 import { minimoDeVentaDelTexto, precioONull } from '@/app/lib/compras-cotizacion-lectura';
 import { CRITERIO_FALTANTE } from '@/app/lib/compras-adicionales-ia';
-import { obtenerEstadoReloj } from '@/app/lib/compras-reloj';
 import { filasDeCotizacion, programarAuditoria, cargarEstadoCosteo } from '@/app/lib/auditor-compras';
 import { lineasDelCosteo } from '@/app/lib/auditor-compras-core';
 import { compararPrecioConCosteo, textoComparacionPrecio } from '@/app/lib/compras-precio-vs-costeo';
@@ -100,7 +99,6 @@ async function licitacionDeNegocio(negocioId: number): Promise<string | null> {
 // ── Reglas por código ──────────────────────────────────────────────────────────────────────────
 export function revisionesPorCodigo(
   cot: any, producto: ProductoCompra, precioCosto: number | null,
-  reloj: { fechaLimiteVigente: string | null; diasRestantes: number | null } | null,
   limiteOfertado: PlazoDias | null = null,
 ): Revision[] {
   const out: Revision[] = [];
@@ -140,43 +138,31 @@ export function revisionesPorCodigo(
     }
   }
 
-  // Plazo del proveedor vs. lo que queda para entregarle al cliente.
+  // Plazo del proveedor vs. el plazo que se le ofertó al cliente.
   const texto = String(cot.plazo_entrega_texto || '');
   const dias = cot.plazo_entrega_dias != null ? Number(cot.plazo_entrega_dias) : null;
-  if (dias != null && reloj?.diasRestantes != null) {
-    // Si el proveedor habla de días hábiles, en corridos son ~1,4 veces más.
-    const diasCorridos = /h[aá]bil/i.test(texto) ? Math.ceil(dias * 1.4) : dias;
-    if (diasCorridos > reloj.diasRestantes) {
-      out.push({ ...base, area: 'plazo', criterio: 'Plazo del proveedor vs. reloj de entrega', requerido: `Menos de ${reloj.diasRestantes} día(s) (hasta el ${reloj.fechaLimiteVigente})`, cotizado: texto || `${dias} días`,
-        resultado: 'NO_CUMPLE', gravedad: 'critico',
-        explicacion: `El proveedor tarda ~${diasCorridos} día(s) corridos y al cliente hay que entregarle en ${reloj.diasRestantes}: no alcanza.`, citaCotizacion: texto || null, citaCotizacionVerificada: true });
-    } else {
-      out.push({ ...base, area: 'plazo', criterio: 'Plazo del proveedor vs. reloj de entrega', requerido: `Menos de ${reloj.diasRestantes} día(s)`, cotizado: texto || `${dias} días`,
-        resultado: 'CUMPLE', gravedad: 'info', explicacion: `~${diasCorridos} día(s) del proveedor caben en los ${reloj.diasRestantes} que quedan.`, citaCotizacion: texto || null, citaCotizacionVerificada: true });
-    }
-  } else if (dias != null && limiteOfertado) {
-    // Sin reloj fijado (lo normal hasta que llega la OC): se mide contra el plazo OFERTADO al cliente. Antes esta
-    // revisión se saltaba en silencio y una cotización de 45 días hábiles para una entrega de 15 pasaba sin aviso.
+  if (dias != null && limiteOfertado) {
+    // Antes esta revisión se saltaba en silencio y una cotización de 45 días hábiles para una entrega de 15 pasaba sin aviso.
     const c = plazoCabe({ dias, habiles: esPlazoHabil(texto) }, limiteOfertado);
     const lim = `${limiteOfertado.dias} día(s) ${limiteOfertado.habiles ? 'hábiles' : 'corridos'}`;
-    out.push({ ...base, area: 'plazo', criterio: 'Plazo del proveedor vs. plazo ofertado al cliente', requerido: `Dentro de ${lim} (plazo ofertado; el reloj aún no está fijado)`, cotizado: texto || `${dias} días`,
+    out.push({ ...base, area: 'plazo', criterio: 'Plazo del proveedor vs. plazo ofertado al cliente', requerido: `Dentro de ${lim} (plazo ofertado)`, cotizado: texto || `${dias} días`,
       resultado: c.cabe ? 'CUMPLE' : 'NO_CUMPLE', gravedad: c.cabe ? 'info' : 'critico',
       explicacion: c.cabe
         ? `~${c.proveedorCorridos} día(s) corridos del proveedor caben en los ~${c.limiteCorridos} del plazo ofertado (${lim}).`
-        : `El proveedor tarda ~${c.proveedorCorridos} día(s) corridos y al cliente se le ofertó ${lim} (~${c.limiteCorridos} corridos): no alcanza, ni contando que el reloj aún no corre.`,
+        : `El proveedor tarda ~${c.proveedorCorridos} día(s) corridos y al cliente se le ofertó ${lim} (~${c.limiteCorridos} corridos): no alcanza.`,
       citaCotizacion: texto || null, citaCotizacionVerificada: !!texto });
   } else if (dias != null) {
-    out.push({ ...base, area: 'plazo', criterio: 'Plazo del proveedor', requerido: 'Un plazo ofertado o un reloj de entrega con qué comparar', cotizado: texto || `${dias} días`,
+    out.push({ ...base, area: 'plazo', criterio: 'Plazo del proveedor', requerido: 'Un plazo ofertado con qué comparar', cotizado: texto || `${dias} días`,
       resultado: 'NO_VERIFICABLE', gravedad: 'aviso',
-      explicacion: 'No hay reloj de entrega fijado ni plazo ofertado cargado en el resumen, así que no se puede saber si este plazo alcanza.',
+      explicacion: 'No hay plazo ofertado cargado en el resumen, así que no se puede saber si este plazo alcanza.',
       citaCotizacion: texto || null, citaCotizacionVerificada: !!texto });
   } else if (dias == null && texto) {
     const inmediata = /inmediat|en stock|stock/i.test(texto);
-    out.push({ ...base, area: 'plazo', criterio: 'Plazo del proveedor', requerido: reloj?.fechaLimiteVigente ? `Antes del ${reloj.fechaLimiteVigente}` : 'Un plazo verificable', cotizado: texto,
+    out.push({ ...base, area: 'plazo', criterio: 'Plazo del proveedor', requerido: 'Un plazo verificable', cotizado: texto,
       resultado: inmediata ? 'CUMPLE' : 'NO_VERIFICABLE', gravedad: inmediata ? 'info' : 'aviso',
       explicacion: inmediata
         ? 'El proveedor declara entrega inmediata / en stock (ojo: suele venir "salvo venta previa"; confírmalo antes de comprar).'
-        : 'El plazo está escrito sin un número de días, no se puede comparar con el reloj de entrega.',
+        : 'El plazo está escrito sin un número de días, no se puede comparar con el plazo ofertado.',
       citaCotizacion: texto, citaCotizacionVerificada: true });
   }
 
@@ -307,7 +293,7 @@ export async function auditarCotizacion(
 
   const productos = await listarProductosCompra(negocioId);
   const licitacionCodigo = await licitacionDeNegocio(negocioId);
-  const [reloj, estadoCosteo] = await Promise.all([obtenerEstadoReloj(negocioId).catch(() => null), cargarEstadoCosteo(negocioId).catch(() => null)]);
+  const estadoCosteo = await cargarEstadoCosteo(negocioId).catch(() => null);
   const lineasCosteo = estadoCosteo ? lineasDelCosteo(estadoCosteo).filter(l => !l.esGastoExtra) : [];
   const asignacion = await obtenerAsignacion(negocioId).catch(() => null);
   const limiteOfertado = plazoOfertado(asignacion?.resumen?.plazoEntregaOfertado, asignacion?.resumen?.plazoEntregaDias);
@@ -318,7 +304,7 @@ export async function auditarCotizacion(
     const producto = productos.find(p => p.id === it.producto_id);
     if (!producto) continue;
     const precioCosto = precioONull(it.precio_unitario != null ? Number(it.precio_unitario) : null);
-    const porCodigo = revisionesPorCodigo(cot, producto, precioCosto, reloj, limiteOfertado);
+    const porCodigo = revisionesPorCodigo(cot, producto, precioCosto, limiteOfertado);
 
     const costeado = costeadoDeProducto(lineasCosteo, producto);
     const cmp = compararPrecioConCosteo(precioCosto, costeado);

@@ -3,10 +3,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
 import pool from '@/app/lib/db';
-import { SignJWT } from 'jose';
+import { renovarSesion } from '@/app/lib/auth';
+import { cerrarSesionesDeUsuario } from '@/app/lib/sesiones-revocadas';
 import { validarContacto } from '@/app/lib/perfil-datos';
-
-const EXPIRY_SECONDS = 60 * 60 * 24 * 7;
 
 const MIGRACION_FALTA = { error: 'Falta la migración 125: ejecuta  node scripts/aplicar-migration-125.mjs', migration_needed: true };
 
@@ -72,22 +71,16 @@ export async function PATCH(request: NextRequest) {
       throw e;
     }
 
+    // Clave nueva: las sesiones abiertas (otros equipos, teléfono, un token robado) dejan de valer; esta recibe una nueva más abajo.
+    if (passwordNuevo) await cerrarSesionesDeUsuario(id);
+
     // Obtener usuario actualizado para renovar el token
     const [rows] = await pool.query('SELECT id, email, nombre, empresa, rol FROM usuarios WHERE id = ? LIMIT 1', [id]);
     const u = (rows as any[])[0];
     if (!u) return NextResponse.json({ error: 'Usuario no encontrado' }, { status: 404 });
 
-    const secret = new TextEncoder().encode(process.env.JWT_SECRET!);
-    const token = await new SignJWT({ userId: u.id, email: u.email, nombre: u.nombre, empresa: u.empresa, rol: u.rol })
-      .setProtectedHeader({ alg: 'HS256' }).setIssuedAt().setExpirationTime(`${EXPIRY_SECONDS}s`).sign(secret);
     const response = NextResponse.json({ success: true, usuario: { id: u.id, email: u.email, nombre: u.nombre, empresa: u.empresa, rol: u.rol }, mensaje: 'Perfil actualizado' });
-    response.cookies.set('licitapyme_session', token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: EXPIRY_SECONDS,
-      path: '/',
-    });
+    await renovarSesion(response, id);
     return response;
   } catch (error) {
     console.error('Error actualizando perfil:', error);

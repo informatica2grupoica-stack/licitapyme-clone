@@ -30,6 +30,7 @@ import { normalizarEstado, getEstadoPipeline } from '@/app/lib/pipeline';
 import { plazoEntregaDetectadoNegocio } from '@/app/lib/compras-agente-documentos';
 import { parsearDiasDeTexto } from '@/app/lib/numeros';
 import { interpretarPlazoOfertado } from '@/app/lib/compras-reloj-sugerido';
+import { sinTareasRetiradas } from '@/app/lib/compras-tareas-retiradas';
 import { calcularHitosGantt, planificarTarea, type AnclaTarea, type EntradaAnclas, type FaseTarea, type HitosGantt } from '@/app/lib/compras-plan';
 import { emparejarProductos, type ProductoExistente } from '@/app/lib/compras-producto-sync';
 import { costeoGanadoDelNegocio } from '@/app/lib/compras-costeo-ganadas';
@@ -448,7 +449,7 @@ export async function construirResumenEjecutivoCompras(
   const faltantesFinales = faltantes.filter(f =>
     !(contactosCliente && /contactos del cliente/i.test(f)) &&
     !(existeCosteo && /costeo/i.test(f)));
-  if (!plazoEntregaOfertado) faltantesFinales.push('No se pudo determinar el plazo de entrega: fíjalo a mano en la tarea del reloj de entrega.');
+  if (!plazoEntregaOfertado) faltantesFinales.push('No se pudo determinar el plazo de entrega: revísalo en las bases.');
 
   return {
     ...base, faltantes: faltantesFinales, costeo, contactosCliente,
@@ -757,7 +758,7 @@ export async function candidatosEncargado(): Promise<CandidatoEncargado[]> {
   const ids = candidatos.map(c => c.id);
   const ph = ids.map(() => '?').join(',');
   const [cargaRows] = await pool.query(
-    `SELECT responsable_id, COUNT(*) AS n FROM compras_tarea WHERE responsable_id IN (${ph}) AND estado <> 'HECHA' GROUP BY responsable_id`,
+    `SELECT responsable_id, COUNT(*) AS n FROM compras_tarea WHERE responsable_id IN (${ph}) AND estado <> 'HECHA' AND ${sinTareasRetiradas('catalogo_clave')} GROUP BY responsable_id`,
     ids,
   ) as any;
   const cargaPorId = new Map<number, number>((cargaRows as any[]).map(r => [Number(r.responsable_id), Number(r.n)]));
@@ -879,7 +880,7 @@ export async function crearTareasCatalogoSiCorresponde(
 
   const [catalogo] = await pool.query(
     `SELECT clave, categoria, titulo, descripcion, plazo_dias, plazo_tipo, orden
-       FROM compras_tarea_catalogo WHERE activo = TRUE ORDER BY orden`,
+       FROM compras_tarea_catalogo WHERE activo = TRUE AND ${sinTareasRetiradas('clave')} ORDER BY orden`,
   ) as any;
 
   const ganadoAt = parsearFechaPared(asig.ganado_at);
@@ -914,7 +915,7 @@ async function sembrarTareasFaltantes(
   negocioId: number, responsableId: number, responsableNombre: string | null, yaExistentes: Set<string>,
 ): Promise<void> {
   const [catalogo] = await pool.query(
-    `SELECT clave, categoria, titulo, descripcion, plazo_dias, plazo_tipo, orden FROM compras_tarea_catalogo WHERE activo = TRUE ORDER BY orden`,
+    `SELECT clave, categoria, titulo, descripcion, plazo_dias, plazo_tipo, orden FROM compras_tarea_catalogo WHERE activo = TRUE AND ${sinTareasRetiradas('clave')} ORDER BY orden`,
   ) as any;
   const faltantes = (catalogo as any[]).filter(c => !yaExistentes.has(c.clave));
   if (faltantes.length === 0) return;
@@ -1226,12 +1227,6 @@ export interface ComprasFila {
     plazoAt: string | null; creadoAt: string; cerradoAt: string | null; vencida: boolean;
     fase: FaseTarea | null; planInicioAt: string | null; planFinAt: string | null;
   }>;
-  // Reloj de Entrega (compras_reloj, migration-95, spec §15) — la fuente OFICIAL de la fecha de
-  // entrega y de su prórroga (si el organismo amplía el plazo, se registra ahí con motivo y
-  // autorización de jefe de ventas: app/lib/compras-reloj.ts, registrarProrroga). Si el reloj
-  // todavía no se fijó (§15.1: requiere validación manual), queda null y la carta Gantt sigue
-  // usando el estimado automático de `plazoEntregaDias` — nunca se inventa una fecha.
-  reloj: { fechaLimiteVigente: string | null; prorrogado: boolean; prorrogaMotivo: string | null; prorrogaAutorizadoPorNombre: string | null } | null;
   // Hitos del Gantt calculados en el servidor (compras-plan.ts): adjudicación, OC, inicio del plazo
   // según las bases y entrega.
   hitosGantt: HitosGantt | null;
@@ -1240,7 +1235,7 @@ export interface ComprasFila {
 /** Listado transversal (pantalla /compras): una fila por negocio con asignación y avance de tareas. */
 export async function listarAsignacionesCompras(): Promise<ComprasFila[]> {
   const ahora = ahoraChileSQL();
-  // Lo que no depende de la consulta principal sale a la par; reloj y tareas, apenas se tienen los ids (antes 5 viajes en serie, 22-oct-2026).
+  // Lo que no depende de la consulta principal sale a la par; las tareas, apenas se tienen los ids (antes 5 viajes en serie, 22-oct-2026).
   const precompraP = pool.query(`SELECT negocio_id FROM compras_asignacion WHERE precompra = 1`).then(([r]) => r as any[]);
   precompraP.catch(() => {});   // se relanza en su await; esto solo evita que quede suelto si la principal falla antes
   const [rows] = await pool.query(
@@ -1255,10 +1250,10 @@ export async function listarAsignacionesCompras(): Promise<ComprasFila[]> {
               (SELECT o.comprador_organismo FROM ordenes_compra o WHERE o.licitacion_codigo = n.licitacion_codigo AND o.comprador_organismo <> '' LIMIT 1)) AS licitacion_organismo,
             COALESCE(NULLIF(n.licitacion_region, ''), lc.region) AS licitacion_region, u.nombre AS asignado_nombre,
             up.nombre AS postulado_por_nombre, n.empresa_id AS empresa_id, em.razon_social AS empresa_nombre,
-            (SELECT COUNT(*) FROM compras_tarea t WHERE t.negocio_id = ca.negocio_id) AS tareas_total,
+            (SELECT COUNT(*) FROM compras_tarea t WHERE t.negocio_id = ca.negocio_id AND ${sinTareasRetiradas('t.catalogo_clave')}) AS tareas_total,
             (SELECT COUNT(*) FROM compras_factura_venta fv WHERE fv.negocio_id = ca.negocio_id) AS facturas_venta,
-            (SELECT COUNT(*) FROM compras_tarea t WHERE t.negocio_id = ca.negocio_id AND t.estado = 'HECHA') AS tareas_hechas,
-            (SELECT COUNT(*) FROM compras_tarea t WHERE t.negocio_id = ca.negocio_id AND t.estado <> 'HECHA' AND t.plazo_at IS NOT NULL AND t.plazo_at < ?) AS tareas_vencidas
+            (SELECT COUNT(*) FROM compras_tarea t WHERE t.negocio_id = ca.negocio_id AND t.estado = 'HECHA' AND ${sinTareasRetiradas('t.catalogo_clave')}) AS tareas_hechas,
+            (SELECT COUNT(*) FROM compras_tarea t WHERE t.negocio_id = ca.negocio_id AND t.estado <> 'HECHA' AND t.plazo_at IS NOT NULL AND t.plazo_at < ? AND ${sinTareasRetiradas('t.catalogo_clave')}) AS tareas_vencidas
        FROM compras_asignacion ca
        JOIN negocios n ON n.id = ca.negocio_id
        LEFT JOIN licitaciones_cache lc ON lc.codigo = n.licitacion_codigo
@@ -1270,14 +1265,7 @@ export async function listarAsignacionesCompras(): Promise<ComprasFila[]> {
   ) as any;
   const negocioIds = (rows as any[]).map(r => r.negocio_id);
   const phIds = negocioIds.map(() => '?').join(',');
-  const relojYTareasP = negocioIds.length > 0 ? Promise.all([
-    pool.query(
-      `SELECT negocio_id, DATE_FORMAT(fecha_limite, '%Y-%m-%d') AS fecha_limite,
-              DATE_FORMAT(prorroga_fecha_limite, '%Y-%m-%d') AS prorroga_fecha_limite,
-              prorroga_motivo, prorroga_autorizado_por_nombre
-         FROM compras_reloj WHERE negocio_id IN (${phIds})`,
-      negocioIds,
-    ) as any,
+  const tareasP = negocioIds.length > 0 ? (
     pool.query(
       `SELECT t.id, t.negocio_id, t.categoria, t.titulo, t.estado, t.responsable_nombre,
               DATE_FORMAT(t.plazo_at, '%Y-%m-%d %H:%i:%s') AS plazo_at,
@@ -1286,11 +1274,11 @@ export async function listarAsignacionesCompras(): Promise<ComprasFila[]> {
               c.fase, c.ancla, c.desfase_horas, c.duracion_horas
          FROM compras_tarea t
          LEFT JOIN compras_tarea_catalogo c ON c.clave = t.catalogo_clave
-        WHERE t.negocio_id IN (${phIds}) ORDER BY t.orden, t.id`,
+        WHERE t.negocio_id IN (${phIds}) AND ${sinTareasRetiradas('t.catalogo_clave')} ORDER BY t.orden, t.id`,
       negocioIds,
-    ) as any,
-  ]) : null;
-  relojYTareasP?.catch(() => {});   // ídem: se relanza en su await
+    ) as any
+  ) : null;
+  tareasP?.catch(() => {});   // ídem: se relanza en su await
   // Aparte del SELECT principal para tolerar que la migration-145 aún no esté aplicada.
   const precompraPorNegocio = new Set<number>();
   const adjEstimadaPorCodigo = new Map<string, string>();
@@ -1309,21 +1297,11 @@ export async function listarAsignacionesCompras(): Promise<ComprasFila[]> {
   // Tareas de TODOS los negocios en una sola consulta (carta Gantt, §pantalla /compras) — evitar
   // el N+1 de pedirlas una por una como hace el detalle de cada negocio (listarTareas).
   const tareasPorNegocio = new Map<number, ComprasFila['tareasGantt']>();
-  // Reloj de entrega de todos los negocios, también en una sola consulta.
-  const relojPorNegocio = new Map<number, ComprasFila['reloj']>();
   const hitosPorNegocio = new Map<number, HitosGantt>();
-  if (relojYTareasP) {
-    const [[rRows], [tRows]] = await relojYTareasP;
-    for (const rl of rRows as any[]) {
-      relojPorNegocio.set(rl.negocio_id, {
-        fechaLimiteVigente: rl.prorroga_fecha_limite || rl.fecha_limite || null,
-        prorrogado: !!rl.prorroga_fecha_limite,
-        prorrogaMotivo: rl.prorroga_motivo ?? null,
-        prorrogaAutorizadoPorNombre: rl.prorroga_autorizado_por_nombre ?? null,
-      });
-    }
+  if (tareasP) {
+    const [tRows] = await tareasP;
     for (const r of rows as any[]) {
-      hitosPorNegocio.set(r.negocio_id, calcularHitosGantt(entradaAnclasDeFila({ ...r, entrega_oficial: relojPorNegocio.get(r.negocio_id)?.fechaLimiteVigente ?? null })));
+      hitosPorNegocio.set(r.negocio_id, calcularHitosGantt(entradaAnclasDeFila(r)));
     }
 
     for (const t of tRows as any[]) {
@@ -1376,7 +1354,6 @@ export async function listarAsignacionesCompras(): Promise<ComprasFila[]> {
       plazoAceptacionOCDias,
       hitoInicioPlazo,
       tareasGantt: tareasPorNegocio.get(r.negocio_id) || [],
-      reloj: relojPorNegocio.get(r.negocio_id) || null,
       hitosGantt: hitosPorNegocio.get(r.negocio_id) ?? null,
     };
   });
@@ -1431,15 +1408,13 @@ export function parsearCamposCatalogo(json: string | null): CampoRegistroTarea[]
   } catch { return []; }
 }
 
-/** Datos de la asignación que alimentan los hitos del Gantt (una fila de `compras_asignacion` + reloj). */
+/** Datos de la asignación que alimentan los hitos del Gantt (una fila de `compras_asignacion`). */
 const SQL_ANCLAS = `DATE_FORMAT(ca.ganado_at, '%Y-%m-%d %H:%i:%s') AS ganado_at, ca.resumen_json,
             DATE_FORMAT(ca.oc_emitida_at, '%Y-%m-%d') AS oc_emitida_at,
-            DATE_FORMAT(ca.oc_aceptada_at, '%Y-%m-%d') AS oc_aceptada_at,
-            DATE_FORMAT(COALESCE(rl.prorroga_fecha_limite, rl.fecha_limite), '%Y-%m-%d') AS entrega_oficial,
-            DATE_FORMAT(rl.fecha_inicio, '%Y-%m-%d') AS reloj_inicio`;
+            DATE_FORMAT(ca.oc_aceptada_at, '%Y-%m-%d') AS oc_aceptada_at`;
 
 export function construirEntradaAnclas(
-  d: { ganadoAt: string; ocEmitidaAt: string | null; ocAceptadaAt: string | null; entregaOficialAt: string | null; relojInicioAt?: string | null }, resumen: any,
+  d: { ganadoAt: string; ocEmitidaAt: string | null; ocAceptadaAt: string | null }, resumen: any,
 ): EntradaAnclas {
   // "1 día corrido", "2 días hábiles": las bases dicen si el plazo cuenta días hábiles o corridos.
   const entrega = interpretarPlazoOfertado(resumen?.plazoEntregaOfertado);
@@ -1451,22 +1426,20 @@ export function construirEntradaAnclas(
     plazoEntregaTipo: entrega?.tipo ?? 'CORRIDOS',
     plazoAceptacionOCDias: parsearDiasDeTexto(resumen?.plazoAceptacionOC ?? null),
     plazoAceptacionTipo: aceptacion?.tipo ?? 'CORRIDOS',
-    entregaOficialAt: d.entregaOficialAt ?? null,
-    relojInicioAt: d.relojInicioAt ?? null,
   };
 }
 
 function entradaAnclasDeFila(r: any): EntradaAnclas {
   let resumen: any = null;
   try { resumen = JSON.parse(r.resumen_json); } catch { /* sin resumen legible: los hitos quedan sin dato */ }
-  return construirEntradaAnclas({ ganadoAt: r.ganado_at, ocEmitidaAt: r.oc_emitida_at, ocAceptadaAt: r.oc_aceptada_at, entregaOficialAt: r.entrega_oficial, relojInicioAt: r.reloj_inicio ?? null }, resumen);
+  return construirEntradaAnclas({ ganadoAt: r.ganado_at, ocEmitidaAt: r.oc_emitida_at, ocAceptadaAt: r.oc_aceptada_at }, resumen);
 }
 
 /** Hitos del Gantt de un negocio (adjudicación, OC, inicio del plazo, entrega). null si no está asignado. */
 export async function obtenerHitosGantt(negocioId: number): Promise<HitosGantt | null> {
   const [rows] = await pool.query(
     `SELECT ${SQL_ANCLAS}
-       FROM compras_asignacion ca LEFT JOIN compras_reloj rl ON rl.negocio_id = ca.negocio_id
+       FROM compras_asignacion ca
       WHERE ca.negocio_id = ? LIMIT 1`,
     [negocioId],
   ) as any;
@@ -1500,7 +1473,7 @@ export async function listarTareas(negocioId: number): Promise<TareaCompras[]> {
             c.campos_json, c.fase, c.ancla, c.desfase_horas, c.duracion_horas
        FROM compras_tarea t
        LEFT JOIN compras_tarea_catalogo c ON c.clave = t.catalogo_clave
-      WHERE t.negocio_id = ? ORDER BY t.orden, t.id`,
+      WHERE t.negocio_id = ? AND ${sinTareasRetiradas('t.catalogo_clave')} ORDER BY t.orden, t.id`,
     [negocioId],
   ) as any;
   return (rows as any[]).map(r => {
@@ -1714,13 +1687,7 @@ export async function registrarOrdenCompraCliente(
     }
   }
 
-  void armarRelojAutomatico(negocioId);
   return { tareaAceptacionCerrada };
-}
-
-/** El Reloj de Entrega se fija solo apenas el inicio del plazo es real (no proyectado). Nunca bloquea ni lanza. */
-export function armarRelojAutomatico(negocioId: number): Promise<void> {
-  return import('@/app/lib/compras-reloj').then(m => m.autoFijarReloj(negocioId)).then(() => undefined).catch(() => undefined);
 }
 
 /**
@@ -1895,7 +1862,6 @@ export async function vincularOrdenCompraDeMP(
     // Tiempo real (pedido explícito, 11-sep-2026): quien tenga /compras o el dashboard abiertos
     // ahora mismo debe verlo sin refrescar a mano — mismo bus que usa el resto de los tableros
     // (app/lib/sse-bus.ts), no la campana personal de arriba, que es aparte.
-    await armarRelojAutomatico(Number(ficha.negocio_id));
     publicarCambio('compras');
     return { vinculada: true, difiere, negocioId: Number(ficha.negocio_id) };
   } catch (e) {
@@ -1958,7 +1924,7 @@ export async function avisarAceptacionOcPorVencer(): Promise<{ revisadas: number
   const turno = `${ahoraSQL.slice(0, 10)} ${hora === 9 ? 'am' : 'pm'}`;
   const [rows] = await pool.query(
     `SELECT ca.negocio_id, ca.licitacion_codigo, ca.asignado_a, ca.oc_codigo_mp, ca.oc_numero, ${SQL_ANCLAS}
-       FROM compras_asignacion ca LEFT JOIN compras_reloj rl ON rl.negocio_id = ca.negocio_id
+       FROM compras_asignacion ca
       WHERE ca.oc_emitida_at IS NOT NULL AND ca.oc_aceptada_at IS NULL
         AND ca.cierre_legado IS NULL AND COALESCE(ca.oc_estado_mp, '') NOT LIKE 'Cancel%'
         AND NOT EXISTS (SELECT 1 FROM compras_tarea t WHERE t.negocio_id = ca.negocio_id
@@ -2051,7 +2017,6 @@ export async function estadoAceptacionOcs(clienteId: number): Promise<{ porAcept
        LEFT JOIN compras_asignacion ca
               ON ca.oc_codigo_mp = oc.codigo
               OR (ca.oc_codigo_mp IS NULL AND ca.licitacion_codigo = oc.licitacion_codigo)
-       LEFT JOIN compras_reloj rl ON rl.negocio_id = ca.negocio_id
       WHERE oc.es_nuestra = 1 AND COALESCE(oc.cliente_id, 1) = ? AND (oc.codigo_estado IS NULL OR oc.codigo_estado <> 9)
         AND COALESCE(oc.fecha_envio, oc.fecha_creacion) >= DATE_SUB(NOW(), INTERVAL 120 DAY)`,
     [clienteId],
@@ -2734,7 +2699,7 @@ export async function invalidarAprobacionesCompras(negocioId: number, motivo: st
   ).catch(() => { /* migración 147 sin aplicar */ });
 }
 
-/** Cierra sola una tarea del catálogo cuando ocurre el hecho que ella pide (mismo criterio que `reloj_entrega` y `aprobar_compra`): anotar el
+/** Cierra sola una tarea del catálogo cuando ocurre el hecho que ella pide (mismo criterio que `aprobar_compra`): anotar el
  *  mismo hecho dos veces dejaba la tarea «vencida» aunque la entrega ya estuviera hecha. Solo cierra (nunca reabre) y nunca pisa una ya hecha.
  *  Nunca bloquea la acción principal. */
 export async function cerrarTareaDeCatalogo(negocioId: number, clave: string, actor: { id: number; nombre: string | null } | null, nota: string): Promise<void> {
@@ -2918,7 +2883,7 @@ export interface ResumenFasesCompras {
   costeo: { productosSinCotizacion: number; escenarioElegido: boolean };
   aprobacion: { compuertasPendientes: number; compraAprobada: boolean; margenAprobado: boolean; compraRechazada?: boolean; margenRechazado?: boolean };
   compra: { hitosAdminPendientes: number | null }; // null = Compuerta 1 no aprobada, no aplica todavía
-  entrega: { incidenciasAbiertas: number; relojVencido: boolean };
+  entrega: { incidenciasAbiertas: number };
 }
 
 async function contarProductosSinCotizacion(negocioId: number): Promise<number> {
@@ -3012,28 +2977,13 @@ async function contarIncidenciasAbiertas(negocioId: number): Promise<number> {
   } catch { return 0; }
 }
 
-async function relojEstaVencido(negocioId: number): Promise<boolean> {
-  try {
-    const [[r]]: any = await pool.query(
-      `SELECT fecha_limite, prorroga_fecha_limite, entrega_con_multa FROM compras_reloj WHERE negocio_id = ?`,
-      [negocioId],
-    );
-    if (!r || r.entrega_con_multa) return false; // sin reloj fijado, o ya autorizada la entrega con multa: no es "vencido silencioso"
-    const limite = r.prorroga_fecha_limite || r.fecha_limite;
-    if (!limite) return false;
-    const hoy = ahoraChileSQL().slice(0, 10);
-    return String(limite).slice(0, 10) < hoy;
-  } catch { return false; }
-}
-
 export async function obtenerResumenFases(negocioId: number, tareas: { vencida: boolean }[]): Promise<ResumenFasesCompras> {
-  const [productosSinCotizacion, compuertasPendientes, hitosAdminPendientes, incidenciasAbiertas, relojVencido, estadoFlujo] =
+  const [productosSinCotizacion, compuertasPendientes, hitosAdminPendientes, incidenciasAbiertas, estadoFlujo] =
     await Promise.all([
       contarProductosSinCotizacion(negocioId),
       contarCompuertasPendientes(negocioId),
       contarHitosAdminPendientes(negocioId),
       contarIncidenciasAbiertas(negocioId),
-      relojEstaVencido(negocioId),
       estadoDelFlujo(negocioId),
     ]);
   return {
@@ -3041,6 +2991,6 @@ export async function obtenerResumenFases(negocioId: number, tareas: { vencida: 
     costeo: { productosSinCotizacion, escenarioElegido: estadoFlujo.escenarioElegido },
     aprobacion: { compuertasPendientes, compraAprobada: estadoFlujo.compraAprobada, margenAprobado: estadoFlujo.margenAprobado, compraRechazada: estadoFlujo.compraRechazada, margenRechazado: estadoFlujo.margenRechazado },
     compra: { hitosAdminPendientes },
-    entrega: { incidenciasAbiertas, relojVencido },
+    entrega: { incidenciasAbiertas },
   };
 }

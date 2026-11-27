@@ -37,8 +37,6 @@ import { ImportacionCard } from '@/app/negocios/[id]/ImportacionCard';
 import { ModalidadRetiroCard } from '@/app/negocios/[id]/ModalidadRetiroCard';
 import { GastosCard } from '@/app/negocios/[id]/GastosCard';
 import { ServiciosConSkuCard } from '@/app/negocios/[id]/ServiciosConSkuCard';
-import { RelojEntregaCard } from '@/app/negocios/[id]/RelojEntregaCard';
-import { RELOJ_ENTREGA_ACTIVO } from '@/app/lib/compras-reloj-activo';
 import { IncidenciasCard } from '@/app/negocios/[id]/IncidenciasCard';
 import { EntregaCard } from '@/app/negocios/[id]/EntregaCard';
 import { ResumenCierreCard } from '@/app/negocios/[id]/ResumenCierreCard';
@@ -67,7 +65,7 @@ import { IconBolt as ObumaIcon, IconShoppingCart as ShoppingCart, IconLoader2 as
 // Documentos entró en su lugar como pestaña (antes era tarjeta fija, ocupaba mucho espacio arriba).
 type Fase = 'tareas' | 'costeo' | 'aprobacion' | 'compra' | 'entrega' | 'gestion' | 'obuma' | 'documentos' | 'actividad' | 'avance';
 const FASES: { key: Fase; label: string; icon: typeof ClipboardList; descripcion: string; secundaria?: boolean }[] = [
-  { key: 'tareas', label: 'Tareas', icon: ClipboardList, descripcion: 'Lo primero: las tareas del proyecto con su plazo. El plazo de entrega y las incidencias están siempre a la vista en la franja de arriba.' },
+  { key: 'tareas', label: 'Tareas', icon: ClipboardList, descripcion: 'Lo primero: las tareas del proyecto con su plazo. Las incidencias están siempre a la vista en la franja de arriba.' },
   { key: 'costeo', label: 'Costeo y auditoría', icon: Calculator, descripcion: 'Aquí se cotiza: verifica el costo de cada producto, carga las cotizaciones de los proveedores y compara para elegir la mejor compra.' },
   { key: 'aprobacion', label: 'Aprobación y SKU', icon: ClipboardCheck, descripcion: 'El jefe de ventas aprueba la compra y el margen (mínimo 20 %). Después se crea el código (SKU) de lo que se va a comprar.' },
   { key: 'compra', label: 'Compra y logística', icon: Package, descripcion: 'Lo que pasa después de aprobar: cómo se retira la mercadería, órdenes de compra a proveedores y facturas, importación si corresponde y los gastos del proyecto.' },
@@ -306,7 +304,7 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
       tareasVencidas: resumenFases.tareas.vencidas, productosSinCotizacion: resumenFases.costeo.productosSinCotizacion,
       escenarioElegido: resumenFases.costeo.escenarioElegido, compraAprobada: resumenFases.aprobacion.compraAprobada, margenAprobado: resumenFases.aprobacion.margenAprobado, compraRechazada: resumenFases.aprobacion.compraRechazada, margenRechazado: resumenFases.aprobacion.margenRechazado,
       compuertasPendientes: resumenFases.aprobacion.compuertasPendientes, hitosAdminPendientes: resumenFases.compra.hitosAdminPendientes,
-      incidenciasAbiertas: resumenFases.entrega.incidenciasAbiertas, relojVencido: resumenFases.entrega.relojVencido,
+      incidenciasAbiertas: resumenFases.entrega.incidenciasAbiertas,
     } : null,
   });
   const irAlPaso = () => {
@@ -332,7 +330,6 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
     if (key === 'costeo') { const c = resumenFases.costeo; return { badge: c.productosSinCotizacion || null, estado: c.productosSinCotizacion > 0 || !c.escenarioElegido ? 'pendiente' : 'ok' }; }
     if (key === 'aprobacion') { const a = resumenFases.aprobacion; return { badge: a.compuertasPendientes || null, estado: a.compuertasPendientes > 0 || !(a.compraAprobada && a.margenAprobado) ? 'pendiente' : 'ok' }; }
     if (key === 'compra') { const h = resumenFases.compra.hitosAdminPendientes; return { badge: h || null, estado: h == null ? 'neutral' : h > 0 ? 'pendiente' : 'ok' }; }
-    if (key === 'entrega') return { badge: resumenFases.entrega.relojVencido ? 0 : null, estado: resumenFases.entrega.relojVencido ? 'alerta' : 'neutral' };  // sin dato de "entregado": no se marca ✓ por no estar vencido
     return { badge: null, estado: 'neutral' };
   };
 
@@ -427,9 +424,8 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
       </div>
 
       {/* SIGUIENTE PASO: lo primero que se lee. Un solo pendiente, con un botón que lleva a donde se hace. */}
-      {/* Se unió con el reloj de entrega y las incidencias (antes: banner alto + chips aparte, con la
-          incidencia repetida dos veces). Superficie blanca; el color va solo en ícono, reloj y botón.
-          El detalle largo queda en el tooltip. */}
+      {/* Se unió con las incidencias (antes: banner alto + chips aparte, con la incidencia repetida dos
+          veces). Superficie blanca; el color va solo en ícono y botón. El detalle largo queda en el tooltip. */}
       <div className="bg-white dark:bg-slate-900 rounded-xl border border-linea dark:border-slate-800 shadow-tarjeta px-3.5 py-2.5 flex items-center gap-x-3 gap-y-2 flex-wrap">
         <span className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${
           paso.tono === 'alerta' ? 'bg-rose-50 text-rose-600' : paso.tono === 'ok' ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'}`}>
@@ -439,9 +435,7 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
           <p className="text-xs text-tinta-2 leading-none">{paso.tono === 'ok' ? 'Todo en orden' : 'Siguiente paso'}</p>
           <p className="text-[14px] font-semibold tracking-tight text-tinta dark:text-slate-100 leading-snug mt-1 truncate">{paso.titulo}</p>
         </div>
-        <FranjaCompra compacto ocultarIncidencias={/incidencia/i.test(paso.titulo)} negocioId={negocioId} incidenciasAbiertas={resumenFases?.entrega.incidenciasAbiertas ?? 0}
-          version={tareas.filter(t => t.estado === 'HECHA').length}
-          onIrEntrega={() => { setFaseActiva('entrega'); setTimeout(() => document.getElementById('compras-flujo')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50); }}
+        <FranjaCompra ocultar={/incidencia/i.test(paso.titulo)} incidenciasAbiertas={resumenFases?.entrega.incidenciasAbiertas ?? 0}
           onIrIncidencias={() => { setFaseActiva('entrega'); setTimeout(() => { irAPestana('incidencias'); document.getElementById('compras-incidencias')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 120); }} />
         <button type="button" onClick={irAlPaso}
           className={`inline-flex items-center gap-1.5 text-[13px] font-semibold text-white px-3.5 py-2 rounded-lg transition-colors ${
@@ -985,12 +979,7 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
               <div>
                 {/* Incidencias (§9): transversales (pueden aparecer en cualquier etapa); se llega desde la franja fija de arriba. */}
                 <div id="compras-incidencias" className="scroll-mt-4" />
-                <Pestanas id="entrega" inicial={(resumenFases?.entrega.incidenciasAbiertas ?? 0) > 0 ? 'incidencias' : (RELOJ_ENTREGA_ACTIVO ? 'plazo' : 'entrega')} pestanas={[
-                  ...(RELOJ_ENTREGA_ACTIVO ? [
-                  { clave: 'plazo', titulo: 'Plazo de entrega', ayuda: 'Cuánto queda para entregar y qué hacer si no se alcanza: pedir prórroga sin multa o, solo con autorización, entregar con multa.',
-                    badge: resumenFases?.entrega.relojVencido ? 'Vencido' : null, tono: 'alerta' as const,
-                    contenido: <RelojEntregaCard negocioId={negocioId} puedeOperar={puedeOperar} esJefeDeVentas={esJefeDeVentas} /> }
-                  ] : []),
+                <Pestanas id="entrega" inicial={(resumenFases?.entrega.incidenciasAbiertas ?? 0) > 0 ? 'incidencias' : 'entrega'} pestanas={[
                   { clave: 'entrega', titulo: 'Entrega y acta', ayuda: 'Preparación, despacho y el acta de entrega que firma el cliente. El acta cierra el proyecto.',
                     contenido: <><OcMiniaturas negocioId={negocioId} /><EntregaCard negocioId={negocioId} puedeOperar={puedeOperar} puedeVerificar={esBodega} /></> },
                   { clave: 'costoreal', titulo: 'Factura y cierre', ayuda: 'La factura de venta al cliente (al subirla se marca sola la tarea de cierre) y el resultado final: lo costeado contra lo realmente gastado.',

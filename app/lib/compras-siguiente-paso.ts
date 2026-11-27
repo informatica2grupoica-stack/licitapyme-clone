@@ -3,7 +3,7 @@
 // La pantalla tenía 7 pasos con 3-5 tarjetas cada uno y nada que dijera por dónde seguir. Esto mira
 // los datos que la pantalla ya tiene y devuelve UN solo pendiente, el más urgente.
 //
-// Orden = urgencia real: plazo vencido > incidencias > tareas vencidas > OC sin aceptar > reloj >
+// Orden = urgencia real: incidencias > tareas vencidas > OC sin aceptar >
 // validaciones de inicio > cotizaciones > aprobaciones > hitos administrativos > resto.
 
 export type FaseCompras = 'tareas' | 'costeo' | 'aprobacion' | 'compra' | 'entrega';
@@ -16,7 +16,7 @@ export interface EntradaSiguientePaso {
   esJefeDeVentas: boolean;
   ocAceptada: boolean;
   tareas: TareaMin[];
-  fases: { tareasVencidas: number; productosSinCotizacion: number; escenarioElegido?: boolean; compraAprobada?: boolean; margenAprobado?: boolean; compraRechazada?: boolean; margenRechazado?: boolean; compuertasPendientes: number; hitosAdminPendientes: number | null; incidenciasAbiertas: number; relojVencido: boolean } | null;
+  fases: { tareasVencidas: number; productosSinCotizacion: number; escenarioElegido?: boolean; compraAprobada?: boolean; margenAprobado?: boolean; compraRechazada?: boolean; margenRechazado?: boolean; compuertasPendientes: number; hitosAdminPendientes: number | null; incidenciasAbiertas: number } | null;
 }
 export interface SiguientePaso {
   tono: 'alerta' | 'pendiente' | 'ok';
@@ -41,15 +41,12 @@ export function siguientePaso(e: EntradaSiguientePaso): SiguientePaso {
   const pendientes = e.tareas.filter(t => t.estado !== 'HECHA');
   const pendiente = (clave: string) => pendientes.find(t => t.catalogoClave === clave);
 
-  if (f?.relojVencido) return { tono: 'alerta', titulo: 'El plazo de entrega venció', detalle: 'Gestiona con el cliente una prórroga sin multa; solo el jefe de ventas puede autorizar entregar con multa.', fase: 'entrega', boton: 'Ver reloj y prórroga' };
-  if (f && f.incidenciasAbiertas > 0) return { tono: 'alerta', titulo: `${f.incidenciasAbiertas === 1 ? 'Hay 1 incidencia abierta' : `Hay ${f.incidenciasAbiertas} incidencias abiertas`}`, detalle: 'Las incidencias no detienen el reloj: resuélvelas o gestiónalas en paralelo.', fase: 'tareas', boton: 'Ver incidencias' };
+  if (f && f.incidenciasAbiertas > 0) return { tono: 'alerta', titulo: `${f.incidenciasAbiertas === 1 ? 'Hay 1 incidencia abierta' : `Hay ${f.incidenciasAbiertas} incidencias abiertas`}`, detalle: 'Las incidencias no detienen el plazo de entrega: resuélvelas o gestiónalas en paralelo.', fase: 'tareas', boton: 'Ver incidencias' };
   if (f && (f.compraRechazada || f.margenRechazado)) return { tono: 'alerta', titulo: f.compraRechazada ? 'El jefe de ventas rechazó la compra' : 'El jefe de ventas rechazó el margen', detalle: 'Lee el motivo en «Aprobación y SKU», corrige lo que pidió y vuelve a enviarlo a aprobación.', fase: 'aprobacion', boton: 'Ver el motivo y corregir' };
   // Un rechazo del jefe de ventas bloquea todo lo administrativo: va antes que una tarea vencida cualquiera.
   const vencidas = pendientes.filter(t => t.vencida);
   if (vencidas.length > 0) return { tono: 'alerta', titulo: vencidas.length === 1 ? `Tarea vencida: ${vencidas[0].titulo}` : `${vencidas.length} tareas vencidas`, detalle: vencidas.length === 1 ? 'Pasó su plazo. Ciérrala o regístrala hoy.' : `La más urgente: ${vencidas[0].titulo}.`, fase: 'tareas', boton: 'Ir a las tareas' };
   if (!e.ocAceptada) return { tono: 'pendiente', titulo: 'Falta la orden de compra aceptada', detalle: 'Regístrala o búscala en Mercado Público: de ella depende el plazo de entrega.', ancla: 'oc', boton: 'Ver orden de compra' };
-  const reloj = pendiente('reloj_entrega');
-  if (reloj) return { tono: 'pendiente', titulo: 'Fija el plazo de entrega', detalle: 'El reloj corre siempre: el sistema ya lo calculó con la OC y el plazo ofertado; solo confírmalo.', fase: 'entrega', boton: 'Confirmar el reloj' };
   const validacion = pendientes.find(t => t.catalogoClave && VALIDACIONES_INICIO.includes(t.catalogoClave));
   if (validacion) return { tono: 'pendiente', titulo: validacion.titulo, detalle: 'Validación de inicio: se hace en paralelo y antes de comprar.', fase: 'tareas', boton: 'Hacerla ahora' };
   if (f && f.productosSinCotizacion > 0) return { tono: 'pendiente', titulo: `Cotiza ${f.productosSinCotizacion === 1 ? '1 producto' : `${f.productosSinCotizacion} productos`}`, detalle: 'Carga cotizaciones en cualquier formato (PDF, foto, WhatsApp, llamada). Lo ideal son tres por producto.', fase: 'costeo', boton: 'Cargar cotizaciones' };

@@ -62,8 +62,6 @@ export function describirAccionCompras(metodo: string, ruta: string, cuerpo: Cue
     case 'factura-venta': return m === 'DELETE' ? 'Quitó la factura de venta' : m === 'PATCH' ? 'Actualizó la factura de venta' : 'Subió la factura de venta al cliente';
     case 'entrega': return ENTREGA[c.accion] || `Actualizó la entrega${c.accion ? ` (${String(c.accion).replace(/_/g, ' ')})` : ''}`;
     case 'reparto': return 'Actualizó el reparto administrativo';
-    case 'reloj': return partes[1] === 'prorroga' ? (m === 'DELETE' ? 'Quitó una prórroga del plazo' : 'Registró una prórroga del plazo')
-      : partes[1] === 'entregado' ? 'Marcó el proyecto como entregado' : partes[1] === 'entrega-con-multa' ? 'Registró una entrega con multa' : 'Fijó el plazo de entrega';
     case 'tarea': return 'Creó una tarea';
     case 'incidencias': return m === 'PATCH' ? 'Actualizó una incidencia' : partes[1] === 'oportunidad-mejora' ? 'Registró una oportunidad de mejora' : 'Registró una incidencia';
     case 'fracaso': return m === 'PATCH' ? 'Dictaminó la causa de un fracaso de entrega' : 'Declaró que no se puede entregar';

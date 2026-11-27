@@ -189,7 +189,7 @@ export function GanttComprasCard({ tareas, hitos = null, plegable = true }: { ta
   if (ocAceptada != null && ocAceptada !== ocLlego) hitosLinea.push({ t: ocAceptada, etiqueta: 'OC aceptada', hecho: true });
   else if (ocAceptadaProy != null) hitosLinea.push({ t: ocAceptadaProy, etiqueta: 'Aceptar OC (límite)', hecho: false, alerta: ocAceptadaProy < hoy });
   if (iniPlazo != null && iniPlazo !== ocLlego && iniPlazo !== ocAceptada && iniPlazo !== adj) hitosLinea.push({ t: iniPlazo, etiqueta: 'Inicia el plazo', hecho: iniPlazo <= hoy && !hitos?.inicioProyectado });
-  if (entrega != null) hitosLinea.push({ t: entrega, etiqueta: hitos?.entregaOficial ? 'Entrega' : hitos?.inicioProyectado ? 'Entrega (proyectada)' : 'Entrega (estimada)', hecho: false, alerta: entrega < hoy });
+  if (entrega != null) hitosLinea.push({ t: entrega, etiqueta: hitos?.inicioProyectado ? 'Entrega (proyectada)' : 'Entrega (estimada)', hecho: false, alerta: entrega < hoy });
 
   // Etiquetas de hitos cercanos: se escalonan en hasta tres alturas para que no se pisen.
   const hitosOrdenados = [...hitosLinea].sort((a, b) => a.t - b.t).reduce<Array<typeof hitosLinea[number] & { nivel: number }>>((acc, h) => {
@@ -200,7 +200,7 @@ export function GanttComprasCard({ tareas, hitos = null, plegable = true }: { ta
   const maxNivel = Math.max(0, ...hitosOrdenados.map(h => h.nivel));
 
   const estadoPlazo = !hitos ? null
-    : hitos.entrega != null ? `Entrega ${fmtCorta(entrega!)}${hitos.entregaOficial ? '' : hitos.inicioProyectado ? ' (proyectada: si se acepta el último día)' : ' (estimada)'}${desdeBases ? ` · el plazo corre desde ${desdeBases} (bases)` : ''}`
+    : hitos.entrega != null ? `Entrega ${fmtCorta(entrega!)}${hitos.inicioProyectado ? ' (proyectada: si se acepta el último día)' : ' (estimada)'}${desdeBases ? ` · el plazo corre desde ${desdeBases} (bases)` : ''}`
     : hitos.inicioPlazoTipo == null ? 'Inicio del plazo por validar: las bases no dicen desde cuándo corre'
     : `Entrega: se calcula ${hitos.inicioPlazoTipo === 'OC_ACEPTADA' ? 'al aceptarse la OC' : 'al llegar la OC'} (el plazo corre desde ${desdeBases}, según las bases)`;
 

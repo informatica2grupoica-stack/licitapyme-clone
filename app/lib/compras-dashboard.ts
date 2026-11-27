@@ -12,6 +12,7 @@
 // (creado_at/cerrado_at vienen de ahoraChileSQL()) — nunca se compara contra NOW() de MySQL ni se
 // usa TIMESTAMPDIFF, mismo criterio que el resto del proyecto (ver app/lib/tz.ts).
 import pool from '@/app/lib/db';
+import { sinTareasRetiradas } from '@/app/lib/compras-tareas-retiradas';
 import { ahoraChileSQL } from '@/app/lib/tz';
 import { resultadosParaDashboard } from '@/app/lib/compras-costo-real';
 import { resumirResultados, type ResumenResultados } from '@/app/lib/costo-real-consolidado';
@@ -42,9 +43,6 @@ export interface GanadoPorMes { mes: string; n: number } // mes = 'YYYY-MM'
 export interface DashboardCompras {
   negociosActivos: number;
   negociosUrgentes: number;
-  relojesVencidos: number;
-  /** Negocios activos sin reloj de entrega fijado: para ellos "relojes vencidos" no puede decir nada (auditoría 07-oct-2026). */
-  relojesSinFijar: number;
   incidenciasAbiertas: number;
   sinAsignar: number;
   cierreLegado: { entregadas: number; noRealizadas: number };
@@ -69,20 +67,9 @@ export async function obtenerDashboardCompras(): Promise<DashboardCompras> {
   // tumba el resto del dashboard (un negocio con datos raros no debe esconder los cuellos de botella).
   const resultadosP = resultadosParaDashboard().then(resumirResultados)
     .catch(e => { console.error('[compras-dashboard] resultados:', String(e).slice(0, 200)); return null; });
-  const [[[negRow]], relojRes, sinFijarRes, incRes, [[sinAsigRow]], clRes, [[ocRow]], [gpmRows], [asigRows], [tareaRows]]: any = await Promise.all([
+  const [[[negRow]], incRes, [[sinAsigRow]], clRes, [[ocRow]], [gpmRows], [asigRows], [tareaRows]]: any = await Promise.all([
     // QA 24-nov: contaba también las Cerradas y Canceladas (83 en vez de 40; 5 de 15 urgentes ya estaban cerradas). Solo vivas: sin cierre ni cancelación.
     pool.query(`SELECT COUNT(*) total, SUM(urgente) urgentes FROM compras_asignacion WHERE cierre_legado IS NULL`),
-    // migration-95 pendiente en algún entorno viejo: no bloquea el resto del dashboard
-    pool.query(
-      `SELECT r.fecha_limite, r.prorroga_fecha_limite FROM compras_reloj r JOIN compras_asignacion ca ON ca.negocio_id = r.negocio_id
-        WHERE r.fijado_por IS NOT NULL AND r.entrega_con_multa = 0 AND ca.cierre_legado IS NULL`,
-    ),
-    // sin reloj de entrega en entornos viejos
-    pool.query(
-      `SELECT COUNT(*) n FROM compras_asignacion ca
-        WHERE ca.cierre_legado IS NULL
-          AND NOT EXISTS (SELECT 1 FROM compras_reloj r WHERE r.negocio_id = ca.negocio_id AND r.fijado_por IS NOT NULL)`,
-    ),
     // migration-94 pendiente: sigue en 0
     pool.query(`SELECT COUNT(*) n FROM compras_incidencia WHERE estado = 'ABIERTA'`),
     pool.query(`SELECT COUNT(*) n FROM compras_asignacion WHERE asignado_a IS NULL AND cierre_legado IS NULL`),
@@ -116,15 +103,10 @@ export async function obtenerDashboardCompras(): Promise<DashboardCompras> {
               t.responsable_id, t.responsable_nombre
          FROM compras_tarea t
          LEFT JOIN compras_tarea_catalogo c ON c.clave = t.catalogo_clave
-        WHERE t.catalogo_clave IS NOT NULL`,
+        WHERE t.catalogo_clave IS NOT NULL AND ${sinTareasRetiradas('t.catalogo_clave')}`,
     ),
   ]);
 
-  const relojesVencidos = (relojRes[0] as any[]).filter(r => {
-    const limite = r.prorroga_fecha_limite || r.fecha_limite;
-    return limite && String(limite).slice(0, 10) < hoy;
-  }).length;
-  const relojesSinFijar = Number(sinFijarRes[0][0]?.n || 0);
   const incidenciasAbiertas = Number(incRes[0][0]?.n || 0);
   const sinAsignar = Number(sinAsigRow?.n || 0);
   const clRow = clRes[0][0];
@@ -175,7 +157,7 @@ export async function obtenerDashboardCompras(): Promise<DashboardCompras> {
   return {
     negociosActivos: Number(negRow?.total || 0),
     negociosUrgentes: Number(negRow?.urgentes || 0),
-    relojesVencidos, relojesSinFijar,
+   
     incidenciasAbiertas,
     sinAsignar,
     cierreLegado,

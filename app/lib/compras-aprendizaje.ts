@@ -12,7 +12,7 @@
 // POR QUÉ ES BAJO DEMANDA Y NO AUTOMÁTICO EN CADA CARGA: la propia spec (§7.2) advierte que la API
 // de OBUMA tiene un límite de 1.000 consultas diarias POR ENDPOINT — disparar esta búsqueda sola en
 // cada vista de cada producto de cada negocio agotaría la cuota rápido. Se dispara con un botón, no
-// solo (mismo criterio que `calcularEscenariosMulta` en compras-reloj.ts).
+// solo.
 //
 // POR QUÉ REQUIERE SKU HOMOLOGADO: `comprasOc.listItems.json` se filtra por el ID de producto DE
 // OBUMA (parámetro real "producto" — verificado en vivo 10-sep-2026, "producto_id" NO filtra nada

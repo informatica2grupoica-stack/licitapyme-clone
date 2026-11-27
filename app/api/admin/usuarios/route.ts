@@ -6,6 +6,8 @@
 import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
+import { cerrarSesionesDeUsuario } from '@/app/lib/sesiones-revocadas';
+import { renovarSesion } from '@/app/lib/auth';
 import pool from '@/app/lib/db';
 import { tienePermiso, getAuthedUser } from '@/app/lib/api-auth';
 import { validarContacto } from '@/app/lib/perfil-datos';
@@ -123,6 +125,7 @@ export async function PATCH(request: NextRequest) {
     const { id, activo, rol, nombre, empresa, permisos, modoPrincipiante, email, password } = body;
 
     if (!id) return NextResponse.json({ error: 'ID requerido' }, { status: 400 });
+    const quienPide = await getAuthedUser(request); // se lee ANTES de cerrar sesiones
 
     // Perfil del super usuario: solo él mismo puede modificar sus datos de acceso/estado.
     if (await esSuperUsuarioId(id)) {
@@ -169,6 +172,7 @@ export async function PATCH(request: NextRequest) {
       const passwordHash = await bcrypt.hash(String(password), 12);
       updates.push('password_hash = ?'); values.push(passwordHash);
     }
+    const cambiaClave = updates.includes('password_hash = ?');
 
     if (updates.length === 0) {
       return NextResponse.json({ error: 'Sin campos para actualizar' }, { status: 400 });
@@ -201,7 +205,12 @@ export async function PATCH(request: NextRequest) {
       throw e;
     }
 
-    return NextResponse.json({ success: true });
+    const respuesta = NextResponse.json({ success: true });
+    if (cambiaClave) {
+      await cerrarSesionesDeUsuario(Number(id));
+      if (quienPide?.id === Number(id)) await renovarSesion(respuesta, Number(id)); // me la cambié yo: sigo dentro
+    }
+    return respuesta;
   } catch (error) {
     return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo completar la operación.') }, { status: 500 });
   }

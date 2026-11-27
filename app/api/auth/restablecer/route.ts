@@ -6,6 +6,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import pool from '@/app/lib/db';
+import { cerrarSesionesDeUsuario } from '@/app/lib/sesiones-revocadas';
 
 export const runtime = 'nodejs';
 
@@ -46,6 +47,7 @@ export async function POST(request: NextRequest) {
     // Actualizar la clave y marcar el token como usado (un solo uso).
     await pool.query('UPDATE usuarios SET password_hash = ? WHERE id = ?', [passwordHash, fila.usuario_id]);
     await pool.query('UPDATE password_resets SET usado_en = NOW() WHERE id = ?', [fila.id]);
+    await cerrarSesionesDeUsuario(fila.usuario_id);
     // Invalidar cualquier otro token pendiente del mismo usuario.
     await pool.query(
       'UPDATE password_resets SET usado_en = NOW() WHERE usuario_id = ? AND usado_en IS NULL',

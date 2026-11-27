@@ -7,7 +7,7 @@ import { calcularHitosGantt, planificarTarea, inicioPlazoDeBases, desfaseDeBases
 const base: EntradaAnclas = {
   ganadoAt: '2026-10-01 10:00:00', ocEmitidaAt: null, ocAceptadaAt: null,
   hitoInicioPlazo: 'Desde la aceptación de la orden de compra', plazoEntregaDias: 15,
-  plazoAceptacionOCDias: 2, entregaOficialAt: null,
+  plazoAceptacionOCDias: 2,
 };
 
 // Licitación 387-55-LE26 (negocio 1191): OC llegó el viernes 9-oct-2026; las bases dan 2 días hábiles
@@ -16,7 +16,7 @@ const base: EntradaAnclas = {
 const caso1191: EntradaAnclas = {
   ganadoAt: '2026-10-08 16:03:39', ocEmitidaAt: '2026-10-09', ocAceptadaAt: null,
   hitoInicioPlazo: 'aceptación de la orden de compra (+1 día hábil siguiente)', plazoEntregaDias: 1, plazoEntregaTipo: 'CORRIDOS',
-  plazoAceptacionOCDias: 2, plazoAceptacionTipo: 'HABILES', entregaOficialAt: null,
+  plazoAceptacionOCDias: 2, plazoAceptacionTipo: 'HABILES',
 };
 
 test('inicioPlazoDeBases / desfaseDeBases: leen de dónde corre el plazo', () => {
@@ -70,13 +70,10 @@ test('plazo desde la llegada de la OC usa la emisión, no la aceptación', () =>
   assert.equal(h.inicioProyectado, false);
 });
 
-test('bases que no aclaran el inicio: por validar, salvo Reloj de Entrega fijado', () => {
+test('bases que no aclaran el inicio: por validar, sin fecha de entrega', () => {
   const sinHito = calcularHitosGantt({ ...base, hitoInicioPlazo: null, ocEmitidaAt: '2026-10-02' });
   assert.equal(sinHito.inicioPlazoTipo, null);
   assert.equal(sinHito.entrega, null);
-  const conReloj = calcularHitosGantt({ ...base, hitoInicioPlazo: null, ocEmitidaAt: '2026-10-02', entregaOficialAt: '2026-10-30' });
-  assert.equal(conReloj.entrega, '2026-10-30 23:59:00');
-  assert.equal(conReloj.entregaOficial, true);
 });
 
 test('tarea anclada a la adjudicación usa su plazo guardado', () => {
@@ -114,11 +111,4 @@ test('tareas de entrega con plazo largo no parten antes de que corra el plazo', 
   const h = calcularHitosGantt({ ...base, ocEmitidaAt: '2026-10-02', ocAceptadaAt: '2026-10-05' });   // 05-oct → 20-oct (15 d)
   const p = planificarTarea({ ancla: 'FIN_PLAZO', desfaseHoras: -168, duracionHoras: 72, plazoAt: null }, h);
   assert.equal(p.inicio, '2026-10-13 23:59:00');
-});
-
-test('reloj fijado a mano: su inicio manda aunque las bases no digan desde cuándo corre', () => {
-  const h = calcularHitosGantt({ ...base, hitoInicioPlazo: null, ocEmitidaAt: '2026-10-02', entregaOficialAt: '2026-10-30', relojInicioAt: '2026-10-15' });
-  assert.equal(h.inicioPlazo?.slice(0, 10), '2026-10-15');
-  assert.equal(h.entrega?.slice(0, 10), '2026-10-30');
-  assert.equal(h.inicioProyectado, false);
 });

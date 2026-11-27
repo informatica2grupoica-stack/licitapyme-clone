@@ -9,7 +9,8 @@
 //   3. Detalle de cada OC: ítems con producto ONU, categoría y especificación del proveedor, montos, comprador.
 //   4. Acta de cada licitación de origen: las líneas adjudicadas a ALGUNO de sus RUT (lo que ganó compitiendo).
 //   5. IA (Kimi): sugiere palabras clave (las mejores + todas las posibles por rubro), negativas y el perfil.
-// Nada se aplica solo: el admin de la empresa lo elige al configurar su empresa la primera vez que entra (/mi-empresa).
+// Al terminar, una empresa NUEVA (sin nada propio) queda armada sola (armar-plataforma.ts); a una con configuración no se le toca nada.
+// En ambos casos su admin revisa y confirma en /mi-empresa.
 //
 // COLA (Fase 2 multiempresa, 2026-11-18, migration-197). Antes corría entera dentro del proceso de la app: un deploy la cortaba
 // a mitad y quedaba «EN_CURSO» para siempre. Ahora es una cola en `cliente_evaluacion`:
@@ -28,6 +29,7 @@ import { conCliente, TopeClienteError, verificarTopeMP } from '@/app/lib/medidor
 import { ticketMpPropio } from '@/app/lib/integraciones-cliente';
 import { leerCache, respuestaDesdeCache, consultarMP, guardarCache } from '@/app/lib/adjudicacion';
 import type { OrdenCompraAPI } from '@/app/types/mercado-publico.types';
+import { datosDeProveedor, type DatosProveedorMP } from '@/app/lib/armar-plataforma-core';
 
 const OBJETIVO_OC = 50;          // por RUT
 const MAX_DIAS = 300;
@@ -64,16 +66,18 @@ export interface CursorEval {
   oc: string[]; ocIdx: number;
   lineas: Linea[]; licitaciones: string[]; licIdx: number; actas: number;
   compradores: Record<string, number>; regiones: Record<string, number>; totales: number[];
+  proveedores?: DatosProveedorMP[]; // giro y dirección que MP publica de cada RUT propio
 }
 
-async function guardarEstado(clienteId: number, estado: string, progreso: string, extra: { resultado?: unknown; cursor?: CursorEval | null; reintentarAt?: string | null } = {}) {
+async function guardarEstado(clienteId: number, estado: string, progreso: string, extra: { resultado?: unknown; cursor?: CursorEval | null; reintentarAt?: string | null; salvoLista?: boolean } = {}) {
   const sets = ['estado = ?', 'progreso = ?', 'updated_at = NOW()'];
   const vals: unknown[] = [estado, progreso.slice(0, 500)];
   if (extra.resultado !== undefined) { sets.push('resultado = ?'); vals.push(JSON.stringify(extra.resultado)); }
   if (extra.cursor !== undefined) { sets.push('`cursor` = ?'); vals.push(extra.cursor == null ? null : JSON.stringify(extra.cursor)); }
   if (extra.reintentarAt !== undefined) { sets.push('reintentar_at = ?'); vals.push(extra.reintentarAt); }
   vals.push(clienteId);
-  await pool.query(`UPDATE cliente_evaluacion SET ${sets.join(', ')} WHERE cliente_id = ?`, vals);
+  // `salvoLista`: un intento atrasado (fallo o pausa) nunca pisa una evaluación que otro proceso ya dejó LISTA.
+  await pool.query(`UPDATE cliente_evaluacion SET ${sets.join(', ')} WHERE cliente_id = ?${extra.salvoLista ? " AND estado <> 'LISTO'" : ''}`, vals);
 }
 
 export async function leerEvaluacion(clienteId: number) {
@@ -159,17 +163,17 @@ export function procesarEvaluacion(clienteId: number, presupuestoMs = PRESUPUEST
         cur = { ruts: ruts.map(r => ({ ...r, dias: 0, encontradas: 0, listo: false })), oc: [], ocIdx: 0, lineas: [], licitaciones: [], licIdx: 0, actas: 0, compradores: {}, regiones: {}, totales: [] };
       }
       const terminado = await avanzar(clienteId, cur, hasta);
-      if (!terminado) await guardarEstado(clienteId, 'PENDIENTE', progresoDe(cur), { cursor: cur });
+      if (!terminado) await guardarEstado(clienteId, 'PENDIENTE', progresoDe(cur), { cursor: cur, salvoLista: true });
     } catch (e) {
       if (e instanceof TopeClienteError && /Mercado Público/i.test(e.message)) {
         // Sin cupo de MP hoy: no es un error, sigue mañana desde donde quedó.
         const manana = new Date(); manana.setDate(manana.getDate() + 1);
         await guardarEstado(clienteId, 'PENDIENTE', `Sin cupo de consultas a Mercado Público hoy; sigue mañana (${progresoDe(cur)})`,
-          { cursor: cur, reintentarAt: `${manana.toISOString().slice(0, 10)} 00:05:00` }).catch(() => {});
+          { cursor: cur, reintentarAt: `${manana.toISOString().slice(0, 10)} 00:05:00`, salvoLista: true }).catch(() => {});
         return;
       }
       console.error('[evaluar-empresa]', clienteId, String(e).slice(0, 300));
-      await guardarEstado(clienteId, 'ERROR', String((e as Error)?.message || e), { cursor: null }).catch(() => {});
+      await guardarEstado(clienteId, 'ERROR', String((e as Error)?.message || e), { cursor: null, salvoLista: true }).catch(() => {});
     }
   });
 }
@@ -279,6 +283,8 @@ async function avanzar(clienteId: number, c: CursorEval, hasta: number): Promise
     const oc: any = await detalleOC(c.oc[c.ocIdx]);
     await latido();
     if (!oc) continue;
+    const prov = datosDeProveedor(oc, new Set(c.ruts.map(r => rutPlano(r.rut))));
+    if (prov && !(c.proveedores ??= []).some(x => x.rut === prov.rut)) c.proveedores.push(prov);
     if (Number(oc.Total) > 0) c.totales.push(Number(oc.Total));
     if (oc.CodigoLicitacion && !c.licitaciones.includes(String(oc.CodigoLicitacion))) c.licitaciones.push(String(oc.CodigoLicitacion));
     const org = oc.Comprador?.NombreOrganismo; if (org) c.compradores[org] = (c.compradores[org] || 0) + 1;
@@ -304,7 +310,10 @@ async function avanzar(clienteId: number, c: CursorEval, hasta: number): Promise
   const totales = [...c.totales].sort((a, b) => a - b);
   const lista = c.lineas.slice(0, 400).map(l => `- [${l.origen}] ${l.producto} | ${l.categoria.split(' / ').slice(-1)[0]} | ${l.detalle}`).join('\n');
   const nombre = c.ruts.map(r => r.nombre).filter(Boolean).join(' / ') || c.ruts[0].rut;
-  const propuesta = await proponerConIA(nombre, lista, top(c.compradores, 10), top(c.regiones, 8));
+  // La IA (con sus respaldos) puede tardar más que TOMADA_VENCE_MIN: sin esta señal otro proceso la daba por caída y la corría de nuevo
+  // (prueba real 2026-11-27: la segunda corrida falló y dejó en ERROR una evaluación ya LISTA).
+  const senal = setInterval(() => { void pool.query("UPDATE cliente_evaluacion SET updated_at = NOW() WHERE cliente_id = ? AND estado = 'EN_CURSO'", [clienteId]).catch(() => {}); }, 30_000);
+  const propuesta = await proponerConIA(nombre, lista, top(c.compradores, 10), top(c.regiones, 8)).finally(() => clearInterval(senal));
   const p10 = totales[Math.floor(totales.length * 0.1)] ?? null, p90 = totales[Math.floor(totales.length * 0.9)] ?? null;
   const regionesTop = Object.entries(c.regiones).sort((a, b) => b[1] - a[1]).map(([k]) => k.trim());
   const dias = Math.max(...c.ruts.map(r => r.dias));
@@ -322,6 +331,12 @@ async function avanzar(clienteId: number, c: CursorEval, hasta: number): Promise
       regionesHistorial: regionesTop,
     },
   });
+  // Mejor esfuerzo: si algo falla aquí, la evaluación queda LISTA igual y el admin configura desde Mi empresa.
+  try {
+    const { armarPlataforma, completarRazonSocial } = await import('@/app/lib/armar-plataforma');
+    await completarRazonSocial(clienteId, c.proveedores ?? []);
+    await armarPlataforma(clienteId);
+  } catch (e) { console.error('[evaluar-empresa] armar plataforma', clienteId, String(e).slice(0, 300)); }
   return true;
 }
 

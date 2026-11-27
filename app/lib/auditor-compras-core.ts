@@ -266,7 +266,7 @@ export interface DatosSistemaLinea {
   dispersion: Dispersion | null;
   refMasBaratas: Array<{ opcion: string; neto: number; ahorroPct: number }>;
   rutaB: { fob: number; dolarUsado: number; costoNeto: number; costoConIva: number } | null;
-  plazo: { proveedorDias: number | null; logisticaDias: number; totalDias: number | null; diasDisponibles: number | null; holguraDias: number | null } | null;
+  plazo: { proveedorDias: number | null; logisticaDias: number; totalDias: number | null } | null;
   guardarrailes: string[];              // lo que el código corrigió o degradó del modelo
   precioMercadoPublico: PrecioMercadoPublico | null;
   antiguedadHistoricoMeses: number | null;
@@ -377,7 +377,7 @@ export function mesesEntre(desdeISO: string | null | undefined, hoyISO: string):
 export function calcularSistemaLinea(
   linea: LineaCosteo, salida: SalidaModelo,
   ext: {
-    dolar: DatosSistemaLinea['dolar']; guardarrailes: string[]; precioNoVerificado: boolean; diasDisponibles: number | null;
+    dolar: DatosSistemaLinea['dolar']; guardarrailes: string[]; precioNoVerificado: boolean;
     precioMercadoPublico: PrecioMercadoPublico | null; hoyISO: string; fechaHistorico?: string | null;
   },
 ): DatosSistemaLinea {
@@ -424,10 +424,10 @@ export function calcularSistemaLinea(
   // V8 plazo.
   let plazo: DatosSistemaLinea['plazo'] = null;
   const pd = v.V8_plazo?.plazo_proveedor_dias ?? null;
-  if (pd != null || ext.diasDisponibles != null) {
+  if (pd != null) {
     const corridos = pd == null ? null : v.V8_plazo?.tipo_dias === 'habiles' ? Math.ceil(pd * 1.4) : pd;
     const total = corridos == null ? null : corridos + PARAMS.logisticaInternaDias;
-    plazo = { proveedorDias: corridos, logisticaDias: PARAMS.logisticaInternaDias, totalDias: total, diasDisponibles: ext.diasDisponibles, holguraDias: total != null && ext.diasDisponibles != null ? ext.diasDisponibles - total : null };
+    plazo = { proveedorDias: corridos, logisticaDias: PARAMS.logisticaInternaDias, totalDias: total };
   }
 
   return {
@@ -534,11 +534,7 @@ export function derivarLinea(linea: LineaCosteo, g: LineaGuardada, ctx: Contexto
   // V7 vigencia (informa)
   if (v.V7_vigencia?.estado === 'REVALIDAR') alerta('V7_REVALIDAR', 'amarillo', 'REVALIDAR PRECIO: la cotización está vencida o es más antigua que 5 meses sin vigencia declarada.');
   // V8 plazo (alerta fuerte, no bloquea — el prompt deja la decisión abierta)
-  if (s.plazo?.diasDisponibles != null && s.plazo.diasDisponibles < 0)
-    alerta('V8_RELOJ_VENCIDO', 'rojo', `El plazo para entregarle al cliente ya venció (hace ${Math.abs(s.plazo.diasDisponibles)} día(s)); cualquier plazo del proveedor queda fuera. Derívalo a quien define el plazo de la oferta.`);
-  else if (s.plazo?.holguraDias != null && s.plazo.holguraDias < 0)
-    alerta('V8_PLAZO', 'rojo', `Plazo del proveedor + logística (~${s.plazo.totalDias} días corridos) no cabe en los ${s.plazo.diasDisponibles} que quedan para entregar. Derívalo a quien define el plazo de la oferta.`);
-  else if (v.V8_plazo && v.V8_plazo.tipo_dias === 'no_declarado' && v.V8_plazo.plazo_proveedor_dias == null) alerta('V8_NO_DECLARADO', 'amarillo', 'El proveedor no declara plazo de entrega: pregúntaselo.');
+  if (v.V8_plazo && v.V8_plazo.tipo_dias === 'no_declarado' && v.V8_plazo.plazo_proveedor_dias == null) alerta('V8_NO_DECLARADO', 'amarillo', 'El proveedor no declara plazo de entrega: pregúntaselo.');
   // V9 competidor
   if (v.V9_proveedor_mp?.alerta_competidor) alerta('V9_COMPETIDOR', 'amarillo', `El proveedor vende al Estado en el mismo rubro y podría estar ofertando en esta licitación. ${v.V9_proveedor_mp.evidencia || ''}`.trim());
   // V10
@@ -740,7 +736,7 @@ export interface Preparacion { lista: boolean; items: ItemPreparacion[]; resumen
 
 export function diagnosticarPreparacion(
   lineas: PrepLinea[], cotizacionesSinProducto: Array<{ id: number; proveedor: string }>,
-  global: { presupuestoNeto: number | null; relojDefinido: boolean; dolarDisponible: boolean },
+  global: { presupuestoNeto: number | null; dolarDisponible: boolean },
 ): Preparacion {
   const items: ItemPreparacion[] = [];
   // Sin repetidos: una cotización asignada a varias líneas repetía el mismo aviso una vez por línea (auditoría 07-oct-2026).
@@ -766,7 +762,6 @@ export function diagnosticarPreparacion(
   }
   for (const c of cotizacionesSinProducto) add('falta', `Cotización #${c.id} de ${c.proveedor}: no está asignada a ningún producto.`, 'Pulsa «Homologar con IA» o «Asignar productos» en esa cotización.', undefined, 'Cotizaciones');
   if (global.presupuestoNeto == null) add('aviso', 'No hay presupuesto del organismo informado.', 'La posición de precio funciona igual, pero sin el presupuesto no hay espacio de maniobra.', undefined, 'Resumen ejecutivo');
-  if (!global.relojDefinido) add('aviso', 'No está fijado el plazo de entrega al cliente (reloj).', 'Defínelo en la pestaña Tareas («Reloj de entrega») para poder medir el plazo de los proveedores.', undefined, 'Tareas');
   if (!global.dolarDisponible) add('aviso', 'No se pudo obtener el dólar del día.', 'Reintenta en unos minutos: sin dólar la Ruta B (importación) no se puede calcular.', undefined, 'Sistema');
   const faltas = items.filter(i => i.nivel === 'falta').length, avisos = items.filter(i => i.nivel === 'aviso').length;
   if (items.length === 0) add('ok', 'Todo lo necesario está cargado.', '');

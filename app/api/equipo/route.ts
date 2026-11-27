@@ -12,6 +12,8 @@ import pool from '@/app/lib/db';
 import { getAuthedUser } from '@/app/lib/api-auth';
 import { fichaCliente } from '@/app/lib/tenant';
 import { olvidarEstadoVigente } from '@/app/lib/rol-vigente';
+import { cerrarSesionesDeUsuario } from '@/app/lib/sesiones-revocadas';
+import { renovarSesion } from '@/app/lib/auth';
 import { registrarActividad } from '@/app/lib/actividad';
 import {
   PERFILES, ROLES_EMPRESA, catalogoParaModulos, claveTemporal, perfilPorId, permisosDePerfil, sanearPermisos, type RolEmpresa,
@@ -146,5 +148,10 @@ export async function PATCH(req: NextRequest) {
   olvidarEstadoVigente(id);   // el nuevo rol o el estado desactivado rigen de inmediato (la caché dura 30 s)
   registrarActividad({ usuarioId: u.id, accion: 'equipo_cambiar', entidadTipo: 'usuario', entidadId: String(id), descripcion: `Cambió a ${p.email}: ${cambios.join(', ')}`, metadata: { cambios } });
   // La clave temporal se entrega UNA sola vez en esta respuesta; no queda guardada en ningún lado.
-  return NextResponse.json({ success: true, ...(claveNueva ? { claveTemporal: claveNueva } : {}) });
+  const respuesta = NextResponse.json({ success: true, ...(claveNueva ? { claveTemporal: claveNueva } : {}) });
+  if (claveNueva) {
+    await cerrarSesionesDeUsuario(id);
+    if (soyYo) await renovarSesion(respuesta, id); // si me la cambié yo, sigo dentro (y veo la clave temporal)
+  }
+  return respuesta;
 }

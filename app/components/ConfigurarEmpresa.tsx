@@ -1,7 +1,7 @@
 'use client';
 
 // Configuración inicial de una empresa-cliente: lo que vendió en Mercado Público (OC + actas, leído por su RUT)
-// se le entrega como SUGERENCIA de perfil y palabras clave. Ella marca lo que quiere y guarda. Nada se aplica sin su clic.
+// una empresa nueva llega con perfil y palabras clave YA puestos (armar-plataforma.ts). Aquí revisa, desmarca lo que no quiera y confirma.
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSession } from '@/app/lib/session-context';
 import { PERFIL_VACIO, type Perfil } from '@/app/components/PerfilEmpresaForm';
@@ -10,6 +10,7 @@ interface Resultado {
   ordenes: number; licitaciones: number; actasConLineasGanadas: number; lineas: number; diasRevisados: number; resumen: string;
   compradores: string[]; regiones: string[]; montoTipico: { p10: number | null; p90: number | null };
   sugeridas: string[]; posibles: { rubro: string; palabras: string[] }[]; negativas: string[]; perfil: Partial<Perfil>;
+  armado?: { palabras: string[]; negativas: string[]; alertas: number };
 }
 interface Estado { pendiente: boolean; evaluacion: { estado: string; progreso: string; resultado: Resultado | null } | null; perfil: Perfil | null; palabras: { keyword: string; es_negativa: number }[] }
 
@@ -61,8 +62,10 @@ export function ConfigurarEmpresa({ alGuardar }: { alGuardar?: () => void }) {
     const tieneActual = !!(actual && (actual.descripcion.trim() || actual.productos_si.trim()));
     setP({ ...PERFIL_VACIO, ...(tieneActual ? actual : { ...actual, ...res?.perfil }) } as Perfil);
     const ya = new Set(d.palabras.map(k => k.keyword));
-    setPos(new Set([...(res?.sugeridas || []), ...d.palabras.filter(k => !k.es_negativa).map(k => k.keyword)]));
-    setNeg(new Set([...(res?.negativas || []).filter(k => !ya.has(k)), ...d.palabras.filter(k => k.es_negativa).map(k => k.keyword)]));
+    // Con configuración ya puesta (armada sola o confirmada) se marca lo que de verdad tiene; si no, lo sugerido.
+    const propias = d.palabras.length > 0;
+    setPos(new Set([...(propias ? [] : res?.sugeridas || []), ...d.palabras.filter(k => !k.es_negativa).map(k => k.keyword)]));
+    setNeg(new Set([...(propias ? [] : (res?.negativas || []).filter(k => !ya.has(k))), ...d.palabras.filter(k => k.es_negativa).map(k => k.keyword)]));
     setListo(true);
   }, [d, res, listo]);
 
@@ -91,6 +94,7 @@ export function ConfigurarEmpresa({ alGuardar }: { alGuardar?: () => void }) {
         {ev?.estado === 'ERROR' && <p className="mt-1 text-sm text-red-600">No pudimos leer tu historial: {ev.progreso}. Puedes completar el perfil a mano.</p>}
         {res && (
           <>
+            {d.pendiente && res.armado && <p className="mt-2 rounded-lg bg-teal-50 px-3 py-2 text-sm text-teal-900">Ya dejamos tu plataforma armada con esto: {res.armado.palabras.length} palabras clave, {res.armado.negativas.length} para descartar y tu perfil. Revisa, quita lo que no corresponda y guarda para confirmar.</p>}
             {res.resumen && <p className="mt-1 text-sm text-slate-700">{res.resumen}</p>}
             <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 border-t border-slate-100 pt-3 sm:grid-cols-4">
               <div><dt className="text-[11px] text-slate-500">Órdenes de compra</dt><dd className="text-sm font-semibold tabular-nums text-slate-800">{res.ordenes}</dd></div>

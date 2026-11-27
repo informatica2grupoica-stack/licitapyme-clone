@@ -41,7 +41,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ autenticado: false, usuario: null });
     }
     const payload = await verificarToken(token);
-    if (payload && (await sesionRevocada(payload.jti))) return NextResponse.json({ autenticado: false, usuario: null });
+    if (payload && (await sesionRevocada(payload.jti, payload.userId, payload.iat))) return NextResponse.json({ autenticado: false, usuario: null });
     if (!payload) {
       return NextResponse.json({ autenticado: false, usuario: null });
     }

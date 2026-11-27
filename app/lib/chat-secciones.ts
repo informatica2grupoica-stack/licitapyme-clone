@@ -101,7 +101,7 @@ export const SECCIONES: SeccionChat[] = [
   },
   {
     id: 'compras', nombre: 'Compras', ruta: /^\/compras(\/|$)/, rutaModulo: '/compras',
-    tablas: ['negocios', 'compras_producto', 'compras_cotizacion', 'compras_cotizacion_adicional', 'compras_escenario', 'compras_sku', 'compras_tarea', 'compras_reloj',
+    tablas: ['negocios', 'compras_producto', 'compras_cotizacion', 'compras_cotizacion_adicional', 'compras_escenario', 'compras_sku', 'compras_tarea',
       'compras_gasto', 'compras_gasto_categoria', 'compras_incidencia', 'compras_incidencia_tipo', 'compras_aprobacion_linea', 'compras_orden_compra_obuma', 'compras_oc_pago', 'compras_oc_cancelacion',
       'compras_proveedor', 'compras_entrega', 'compras_historial_oc', 'compras_historial_oc_item', 'compras_cotizacion_item', 'compras_auditoria_cotizacion', 'compras_asignacion', 'compras_coencargado',
       'compras_compra_rapida', 'compras_borrador_compra', 'compras_tipo_cambio', 'compras_producto_importacion', 'compras_importacion_embarque', 'compras_auditor_costeo_proyecto', 'compras_auditor_costeo_linea',

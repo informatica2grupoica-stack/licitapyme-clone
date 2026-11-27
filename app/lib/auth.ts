@@ -4,6 +4,7 @@
 import { SignJWT } from 'jose';
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
+import pool from '@/app/lib/db';
 
 // Re-exportar tipos comunes desde auth-edge (fuente única de verdad)
 export type { UsuarioSession, TokenPayload } from '@/app/lib/auth-edge';
@@ -41,6 +42,17 @@ export async function crearToken(usuario: UsuarioSession): Promise<string> {
     .setJti(crypto.randomUUID())
     .setExpirationTime(`${EXPIRY_SECONDS}s`)
     .sign(getSecret());
+}
+
+/** Entrega a quien cambió SU PROPIA clave una sesión nueva en esa respuesta (las anteriores se cierran). Con los datos de la BD. */
+export async function renovarSesion(response: NextResponse, usuarioId: number): Promise<void> {
+  const [rows] = await pool.query('SELECT id, email, nombre, empresa, rol, cliente_id FROM usuarios WHERE id = ? LIMIT 1', [usuarioId]);
+  const u = (rows as Array<{ id: number; email: string; nombre: string | null; empresa: string | null; rol: UsuarioSession['rol']; cliente_id: number | null }>)[0];
+  if (!u) return;
+  const token = await crearToken({ id: u.id, email: u.email, nombre: u.nombre, empresa: u.empresa, rol: u.rol, clienteId: u.cliente_id ?? undefined });
+  response.cookies.set('licitapyme_session', token, {
+    httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', maxAge: EXPIRY_SECONDS, path: '/',
+  });
 }
 
 // ============================================================

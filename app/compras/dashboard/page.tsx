@@ -26,7 +26,7 @@ interface CuelloBotella { clave: string; titulo: string; total: number; hechas: 
 interface RankingEncargado { id: number; nombre: string; tareasCerradas: number; tareasVencidasAbiertas: number; horasPromedioCierre: number | null }
 interface GanadoPorMes { mes: string; n: number }
 interface Dashboard {
-  negociosActivos: number; negociosUrgentes: number; relojesVencidos: number; relojesSinFijar: number; incidenciasAbiertas: number;
+  negociosActivos: number; negociosUrgentes: number; incidenciasAbiertas: number;
   sinAsignar: number; cierreLegado: { entregadas: number; noRealizadas: number };
   ordenesCompra: { conOc: number; sinOc: number }; ganadosPorMes: GanadoPorMes[];
   slaAsignacion: { promedioHoras: number | null; automaticas: number; manuales: number; total: number };
@@ -123,13 +123,11 @@ export default function CompraDashboardPage() {
 
         {dashboard && (
           <>
-            <div className="grid grid-cols-2 @xl:grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 @xl:grid-cols-3 gap-3">
               <StatCard icon={<ShoppingCart size={20} />} label="Negocios activos" value={dashboard.negociosActivos} color="teal"
                 spec={{ mide: 'Cuántos negocios ganados siguen vivos en Compras (sin cerrar ni cancelar).', calculo: 'Cuenta las filas de compras_asignacion sin cierre: las Cerradas, Pagadas y Canceladas no entran.', fuente: 'compras_asignacion (cierre_legado IS NULL)' }} />
               <StatCard icon={<Zap size={20} />} label="Urgentes" value={dashboard.negociosUrgentes} color="rose"
                 spec={{ mide: 'Negocios con la "Cadena de Urgencia" activa (§3.7/§15.2).', calculo: 'El plazo de entrega OFERTADO es menor a 3 días — se calcula una vez al abrir Compras y queda fijo, no es una cuenta regresiva desde hoy.', fuente: 'compras_asignacion.urgente' }} />
-              <StatCard icon={<Clock size={20} />} label="Relojes vencidos" value={dashboard.relojesVencidos} color="rose"
-                spec={{ mide: 'Negocios cuyo plazo de entrega comprometido ya pasó, sin marcar "entregado con multa".', calculo: 'fecha_limite (o prorroga_fecha_limite si la hay) es anterior a hoy, y entrega_con_multa = 0. Solo cuenta negocios con reloj fijado (hoy hay ' + dashboard.relojesSinFijar + ' sin fijar).', fuente: 'compras_reloj' }} />
               <StatCard icon={<AlertTriangle size={20} />} label="Incidencias abiertas" value={dashboard.incidenciasAbiertas} color="amber"
                 spec={{ mide: 'Incidencias del proyecto (§9) que todavía nadie cerró.', calculo: 'Cuenta filas con estado = ABIERTA.', fuente: 'compras_incidencia' }} />
             </div>
@@ -254,9 +252,9 @@ export default function CompraDashboardPage() {
               )}
             </ChartCard>
 
-            {dashboard.incidenciasAbiertas === 0 && dashboard.relojesVencidos === 0 && (
+            {dashboard.incidenciasAbiertas === 0 && (
               <div className="flex items-center gap-2 text-[12px] text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
-                <FileWarning size={14} /> Sin relojes vencidos ni incidencias abiertas ahora mismo{dashboard.relojesSinFijar > 0 ? ` — pero ${dashboard.relojesSinFijar} negocio(s) todavía no tienen reloj de entrega fijado, así que de ellos no se sabe si vencen.` : '.'}
+                <FileWarning size={14} /> Sin incidencias abiertas ahora mismo.
               </div>
             )}
           </>

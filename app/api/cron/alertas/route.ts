@@ -15,6 +15,7 @@
 
 import { mensajeSeguro } from '@/app/lib/errores-api';
 import { igualSecreto } from '@/app/lib/cron-secret';
+import { SQL_EMPRESA_DE_LA_PALABRA_VIGENTE } from '@/app/lib/radar-matching';
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { getMercadoPublicoClient } from '@/app/lib/mercado-publico';
@@ -355,7 +356,7 @@ export async function GET(request: NextRequest) {
         `SELECT pk.id, pk.usuario_id, pk.cliente_id, pk.keyword, pk.es_negativa
          FROM palabras_clave pk
          JOIN usuarios u ON u.id = pk.usuario_id AND u.activo = TRUE
-         WHERE pk.activo = TRUE
+         WHERE pk.activo = TRUE AND ${SQL_EMPRESA_DE_LA_PALABRA_VIGENTE}
          ORDER BY ISNULL(pk.ultima_busqueda) DESC, pk.ultima_busqueda ASC, pk.id ASC`,
       );
       for (const r of rows as any[]) {
@@ -367,7 +368,7 @@ export async function GET(request: NextRequest) {
         `SELECT pk.id, pk.usuario_id, pk.cliente_id, pk.keyword
          FROM palabras_clave pk
          JOIN usuarios u ON u.id = pk.usuario_id AND u.activo = TRUE
-         WHERE pk.activo = TRUE
+         WHERE pk.activo = TRUE AND ${SQL_EMPRESA_DE_LA_PALABRA_VIGENTE}
          ORDER BY ISNULL(pk.ultima_busqueda) DESC, pk.ultima_busqueda ASC, pk.id ASC`,
       );
       kws = rows as KwRow[];

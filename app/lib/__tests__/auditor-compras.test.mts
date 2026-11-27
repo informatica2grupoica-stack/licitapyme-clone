@@ -34,7 +34,7 @@ const DOLAR = { observado: 950, usado: 960, fecha: '2026-09-25', fuente: 'test' 
 const guardada = (l: LineaCosteo, s: SalidaModelo, ext: Partial<Parameters<typeof calcularSistemaLinea>[2]> = {}): LineaGuardada => ({
   fila: { id: l.id, item: l.item, lineaReal: l.lineaReal, detalle: l.detalle, unidad: l.unidad, sku: l.sku, cantidad: l.cantidad, grupo: l.grupo },
   auditadoAt: '2026-09-25 10:00:00', modeloIA: 'test', pasada: 'linea', modelo: s, capturas: [],
-  sistema: calcularSistemaLinea(l, s, { dolar: DOLAR, guardarrailes: [], precioNoVerificado: false, diasDisponibles: null, precioMercadoPublico: null, hoyISO: '2026-09-25', ...ext }),
+  sistema: calcularSistemaLinea(l, s, { dolar: DOLAR, guardarrailes: [], precioNoVerificado: false, precioMercadoPublico: null, hoyISO: '2026-09-25', ...ext }),
 });
 const ctx = (o: Partial<ContextoLinea> = {}): ContextoLinea => ({ margen: null, justificacionAhorro: null, habilitacion: null, hoyISO: '2026-09-25', esGastoExtra: false, ...o });
 
@@ -195,13 +195,6 @@ test('Ruta B: Incoterm distinto de FOB bloquea; FOB en USD se calcula con el dó
   const s2 = ok({ ruta: 'B', ruta_b: { precio_unitario: 1000, moneda: 'USD', incoterm: 'FOB' } });
   assert.equal(guardada(l, s2).sistema.rutaB!.costoNeto, costoRutaB(1000, 960).neto);
 });
-test('plazo que no cabe: alerta fuerte, no bloquea (nota V8)', () => {
-  const l = linea(); const s = ok(); s.verificaciones!.V8_plazo = { tipo_dias: 'habiles', plazo_proveedor_dias: 10 };
-  const g = guardada(l, s, { diasDisponibles: 8 });
-  const d = derivarLinea(l, g, ctx());
-  assert.equal(d.bloqueos.length, 0); assert.equal(d.alertas.find(a => a.codigo === 'V8_PLAZO')!.nivel, 'rojo');
-});
-
 // ── posición de precio ────────────────────────────────────────────────────────────────────────────
 test('posición de precio: orden sano y espacio de maniobra', () => {
   const l = linea({ cantidad: 10, costoRegistradoNeto: 960_400, costoEstimadoNeto: 960_400, precioVentaUnitario: 1_210_000 });
@@ -266,7 +259,7 @@ test('preparación: dice qué falta y cómo se arregla (moneda sin tipo de cambi
     [{ linea: l, tecnico: { estado: 'no_existe', marca: '', modelo: '' }, cotizaciones: [
       { id: 30, proveedor: 'PanTai', rut: null, rutEsPropio: true, moneda: 'USD', tipoCambio: null, plazoDias: null, fleteMonto: null, incluyeFlete: null, vigencia: null, tieneTexto: true, asignadaAProductos: 1 },
     ] }],
-    [{ id: 31, proveedor: 'Otro' }], { presupuestoNeto: null, relojDefinido: false, dolarDisponible: true });
+    [{ id: 31, proveedor: 'Otro' }], { presupuestoNeto: null, dolarDisponible: true });
   const textos = p.items.map(i => i.texto).join(' | ');
   assert.equal(p.lista, false);
   assert.ok(textos.includes('sin tipo de cambio') || textos.includes('no tiene tipo de cambio'));
@@ -278,7 +271,7 @@ test('preparación: una línea completa y una cotización buena = lista', () => 
   const p = diagnosticarPreparacion(
     [{ linea: linea(), tecnico: { estado: 'aprobado', marca: 'Karcher', modelo: 'HDS' }, cotizaciones: [
       { id: 1, proveedor: 'X', rut: '76.000.000-0', rutEsPropio: false, moneda: 'CLP', tipoCambio: null, plazoDias: 3, fleteMonto: 1000, incluyeFlete: false, vigencia: '2026-12-01', tieneTexto: true, asignadaAProductos: 1 },
-    ] }], [], { presupuestoNeto: 1_000_000, relojDefinido: true, dolarDisponible: true });
+    ] }], [], { presupuestoNeto: 1_000_000, dolarDisponible: true });
   assert.equal(p.lista, true); assert.equal(p.resumen.faltas, 0);
 });
 test('cada bloqueo trae quién debe actuar y la cita del documento', () => {

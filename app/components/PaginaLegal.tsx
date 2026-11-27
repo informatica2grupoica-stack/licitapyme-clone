@@ -16,11 +16,11 @@ export function PaginaLegal({ titulo, vigencia, children }: { titulo: string; vi
       </header>
       <main className="mx-auto max-w-3xl px-5 py-10">
         <h1 className="text-2xl font-semibold tracking-tight">{titulo}</h1>
-        <p className="mt-1 text-sm text-tinta-3">Vigente desde {vigencia}</p>
+        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Vigente desde {vigencia}</p>
         <div className="mt-8 space-y-8 text-[15px] leading-7 text-tinta-2 dark:text-slate-300">{children}</div>
       </main>
       <footer className="border-t border-linea dark:border-slate-800">
-        <div className="mx-auto flex max-w-3xl flex-wrap items-center gap-x-5 gap-y-2 px-5 py-5 text-[12.5px] text-tinta-3">
+        <div className="mx-auto flex max-w-3xl flex-wrap items-center gap-x-5 gap-y-2 px-5 py-5 text-[12.5px] text-slate-500 dark:text-slate-400">
           <Link href="/privacidad" className="hover:underline">Privacidad</Link>
           <Link href="/terminos" className="hover:underline">Términos</Link>
           <span>© {new Date().getFullYear()} LICITANK</span>
